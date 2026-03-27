@@ -22,7 +22,10 @@ def get_listening_ports() -> dict[int, str]:
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return result
 
-    for line in proc.stdout.splitlines()[1:]:  # skip header
+    lines = proc.stdout.splitlines()
+    for idx, line in enumerate(lines):
+        if idx == 0:
+            continue  # skip header
         # Parse port from local address column
         parts = line.split()
         if len(parts) < 5:
@@ -71,3 +74,42 @@ def format_ports_table(
         lines.append(f"{name:<10}  {info['port']:<6}  {icon} {label}")
 
     return "\n".join(lines)
+
+
+def manage_ports(
+    action: str,
+    game_port: int = 2001,
+    a2s_port: int = 17777,
+    rcon_port: int = 19999,
+) -> list[str]:
+    """Open or close ports using UFW."""
+    if action not in ("open", "close"):
+        raise ValueError(f"Invalid port action: {action}")
+        
+    msgs = []
+    ufw_action = ["allow"] if action == "open" else ["delete", "allow"]
+    
+    # Game and A2S are UDP, RCON is technically UDP (Battleye) but can be TCP depending on the implementation.
+    # We will just allow both UDP/TCP by omitting the protocol, or explicit udp. Let's omit protocol to be safe and cover both.
+    
+    for name, port in [("Game", game_port), ("A2S", a2s_port), ("RCON", rcon_port)]:
+        cmd = ["sudo", "ufw"] + ufw_action + [f"{port}/udp"]
+        # We also specifically open tcp for RCON just in case standard tools use it
+        cmds = [cmd]
+        if name == "RCON":
+            cmds.append(["sudo", "ufw"] + ufw_action + [f"{port}/tcp"])
+            
+        for c in cmds:
+            try:
+                res = subprocess.run(c, capture_output=True, text=True, check=True)
+                msg = res.stdout.strip()
+                if not msg:
+                    msg = "Done"
+                msgs.append(f"  {'✓' if action == 'open' else '✗'} {name} port {c[-1]}: {msg}")
+            except subprocess.CalledProcessError as e:
+                msgs.append(f"  ! Failed for {name} port {c[-1]}: {e.stderr.strip() or e.stdout.strip()}")
+            except FileNotFoundError:
+                msgs.append("  ! Failed: 'ufw' command not found. Are you on Ubuntu?")
+                return msgs # Error early
+                
+    return msgs

@@ -192,9 +192,18 @@ def logs(ctx: click.Context, lines: int, follow: bool) -> None:
     sys.exit(exit_code)
 
 
-@main.command()
+@main.group(invoke_without_command=True)
 @click.pass_context
 def ports(ctx: click.Context) -> None:
+    """Manage and show firewall ports."""
+    # If a subcommand was invoked (open, close), do not show status automatically
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(ports_show)
+
+
+@ports.command("show")
+@click.pass_context
+def ports_show(ctx: click.Context) -> None:
     """Show listening ports."""
     from armactl.discovery import discover
     from armactl.ports import format_ports_table
@@ -208,6 +217,44 @@ def ports(ctx: click.Context) -> None:
 
     click.echo(f"[{instance}] Port status:")
     click.echo(format_ports_table(game, a2s, rcon))
+
+
+@ports.command("open")
+@click.pass_context
+def ports_open(ctx: click.Context) -> None:
+    """Open server ports in UFW."""
+    from armactl.discovery import discover
+    from armactl.ports import manage_ports
+    
+    instance = ctx.obj["instance"]
+    state = discover(instance=instance, save=False)
+    
+    game = state.ports.game or 2001
+    a2s = state.ports.a2s or 17777
+    rcon = state.ports.rcon or 19999
+    
+    click.echo(f"[{instance}] Opening ports using UFW...")
+    for msg in manage_ports("open", game, a2s, rcon):
+        click.echo(msg)
+
+
+@ports.command("close")
+@click.pass_context
+def ports_close(ctx: click.Context) -> None:
+    """Close server ports in UFW."""
+    from armactl.discovery import discover
+    from armactl.ports import manage_ports
+    
+    instance = ctx.obj["instance"]
+    state = discover(instance=instance, save=False)
+    
+    game = state.ports.game or 2001
+    a2s = state.ports.a2s or 17777
+    rcon = state.ports.rcon or 19999
+    
+    click.echo(f"[{instance}] Closing ports using UFW...")
+    for msg in manage_ports("close", game, a2s, rcon):
+        click.echo(msg)
 
 
 # ---------------------------------------------------------------------------
