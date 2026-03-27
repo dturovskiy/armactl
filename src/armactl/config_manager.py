@@ -21,8 +21,9 @@ class ConfigError(Exception):
     pass
 
 
-def load_config(config_path: Path) -> dict[str, Any]:
+def load_config(config_path: Path | str) -> dict[str, Any]:
     """Load config.json from disk."""
+    config_path = Path(config_path)
     if not config_path.exists():
         raise ConfigError(f"Config file not found: {config_path}")
     
@@ -35,13 +36,14 @@ def load_config(config_path: Path) -> dict[str, Any]:
         raise ConfigError(f"Failed to read config file: {e}")
 
 
-def save_config(config_path: Path, data: dict[str, Any], backup: bool = True) -> None:
+def save_config(config_path: Path | str, data: dict[str, Any], backup: bool = True) -> None:
     """Save config.json to disk safely with optional backup.
     
     1. Creates a backup if requested.
     2. Writes to a .tmp file.
     3. Atomically renames .tmp to config.json.
     """
+    config_path = Path(config_path)
     if backup and config_path.exists():
         _create_backup(config_path)
 
@@ -101,14 +103,14 @@ def _rotate_backups(backups_dir: Path, max_backups: int = 10) -> None:
                 pass
 
 
-def validate_config(config_path: Path | None = None, data: dict[str, Any] | None = None) -> list[str]:
+def validate_config(config_path: Path | str | None = None, data: dict[str, Any] | None = None) -> list[str]:
     """Validate config content.
     
     Returns a list of error strings. Empty list means the config is valid.
     """
     if data is None and config_path:
         try:
-            data = load_config(config_path)
+            data = load_config(Path(config_path))
         except ConfigError as e:
             return [str(e)]
     
@@ -145,8 +147,9 @@ def validate_config(config_path: Path | None = None, data: dict[str, Any] | None
     return errors
 
 
-def set_value(config_path: Path, section: str, key: str, value: Any) -> None:
+def set_value(config_path: Path | str, section: str, key: str, value: Any) -> None:
     """Set a nested value in the config."""
+    config_path = Path(config_path)
     data = load_config(config_path)
     
     if section:
