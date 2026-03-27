@@ -35,14 +35,16 @@ class ServiceResult:
 
 def _run_systemctl(
     action: str,
-    service_name: str,
+    service_name: str | None = None,
     use_sudo: bool = True,
 ) -> ServiceResult:
     """Run a systemctl command and return the result."""
     cmd = []
     if use_sudo:
         cmd.append("sudo")
-    cmd.extend(["systemctl", action, service_name])
+    cmd.extend(["systemctl", action])
+    if service_name:
+        cmd.append(service_name)
 
     try:
         result = subprocess.run(
