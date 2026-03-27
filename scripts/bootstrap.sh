@@ -115,20 +115,30 @@ case ":$PATH:" in
     *":$BIN_DIR:"*) PATH_OK=1 ;;
 esac
 
+if [ "$PATH_OK" -eq 0 ]; then
+    BASHRC="$HOME/.bashrc"
+    PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
+
+    if [ -f "$BASHRC" ]; then
+        if ! grep -Fq '.local/bin' "$BASHRC"; then
+            log "==> Adding $BIN_DIR to PATH in $BASHRC"
+            printf '\n# Added by armactl bootstrap\n%s\n' "$PATH_LINE" >> "$BASHRC"
+        fi
+    else
+        log "==> Creating $BASHRC with PATH entry"
+        printf '# Added by armactl bootstrap\n%s\n' "$PATH_LINE" > "$BASHRC"
+    fi
+
+    export PATH="$BIN_DIR:$PATH"
+fi
+
 log ""
 log "Done."
 log "armactl installed into: $VENV_DIR"
+log ""
 
-if [ "$PATH_OK" -eq 1 ]; then
-    log "Run:"
-    log "  armactl --help"
-else
-    log "Run in this shell:"
-    log "  export PATH=\"$BIN_DIR:\$PATH\""
-    log "  armactl --help"
-    log ""
-    log "To make it permanent, add this line to ~/.profile or ~/.bashrc:"
-    log "  export PATH=\"$BIN_DIR:\$PATH\""
+if [ "$PATH_OK" -eq 0 ]; then
+    log "~/.local/bin has been added to PATH in ~/.bashrc (permanent)."
 fi
 
 log ""
@@ -136,3 +146,4 @@ log "Next steps:"
 log "  armactl --help"
 log "  armactl detect"
 log "  armactl install"
+
