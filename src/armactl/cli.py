@@ -617,8 +617,17 @@ def schedule_show(ctx: click.Context) -> None:
 @click.pass_context
 def schedule_set(ctx: click.Context, cron_expr: str) -> None:
     """Set restart schedule (OnCalendar expression)."""
+    import re
+
     from armactl.service_manager import generate_services
     instance = ctx.obj["instance"]
+
+    # If the user just provides '05:00' or '05:00:00', format to systemd OnCalendar '*-*-* HH:MM:SS'
+    if re.match(r"^\d{1,2}:\d{2}(:\d{2})?$", cron_expr):
+        if cron_expr.count(":") == 1:
+            cron_expr += ":00"
+        cron_expr = f"*-*-* {cron_expr}"
+
     click.echo(f"[{instance}] Updating schedule to '{cron_expr}'...")
     results = generate_services(instance=instance, on_calendar=cron_expr)
     for r in results:
