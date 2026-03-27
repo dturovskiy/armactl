@@ -247,8 +247,9 @@ def detect(ctx: click.Context, install_dir: Path | None, config_path: Path | Non
         state = discover(instance=instance)
 
     if state.server_installed:
+        binary_path = Path(state.install_dir) / "ArmaReforgerServer"
         click.echo(f"  ✓ Server found at: {state.install_dir}")
-        click.echo(f"  ✓ Binary:  {'found' if state.binary_exists else 'missing'}")
+        click.echo(f"  ✓ Binary:  {'found' if state.binary_exists else 'missing'} ({binary_path})")
         click.echo(f"  ✓ Config:  {'found' if state.config_exists else 'missing'} ({state.config_path})")
         click.echo(f"  ✓ Service: {'found' if state.service_exists else 'missing'}")
         click.echo(f"  ✓ Timer:   {'found' if state.timer_exists else 'missing'}")
