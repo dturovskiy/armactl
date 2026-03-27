@@ -6,6 +6,8 @@ delegates to the corresponding backend module — no business logic here.
 
 from __future__ import annotations
 
+import json
+import sys
 from pathlib import Path
 
 import click
@@ -22,11 +24,24 @@ from armactl import paths as P
     help="Instance name (default: 'default').",
     show_default=True,
 )
+@click.option(
+    "--json-output", "use_json",
+    is_flag=True,
+    default=False,
+    help="Output in JSON format (for TUI integration).",
+)
 @click.pass_context
-def main(ctx: click.Context, instance: str) -> None:
+def main(ctx: click.Context, instance: str, use_json: bool) -> None:
     """armactl — installer, manager and TUI for Arma Reforger Dedicated Server."""
     ctx.ensure_object(dict)
     ctx.obj["instance"] = instance
+    ctx.obj["json"] = use_json
+
+
+def _get_state(ctx: click.Context):
+    """Helper: run discovery and return state for current instance."""
+    from armactl.discovery import discover
+    return discover(instance=ctx.obj["instance"], save=False)
 
 
 # ---------------------------------------------------------------------------
@@ -38,13 +53,22 @@ def main(ctx: click.Context, instance: str) -> None:
 @click.pass_context
 def status(ctx: click.Context) -> None:
     """Show server status."""
-    from armactl.discovery import discover
+    from armactl.service_manager import get_service_status
 
     instance = ctx.obj["instance"]
-    state = discover(instance=instance, save=False)
+    state = _get_state(ctx)
 
     if not state.server_installed:
-        click.echo(f"[{instance}] No server found. Run 'armactl detect' or 'armactl install'.")
+        if ctx.obj["json"]:
+            click.echo(json.dumps({"error": "no_server_found"}))
+        else:
+            click.echo(f"[{instance}] No server found. Run './armactl detect' or './armactl install'.")
+        sys.exit(1)
+
+    svc = get_service_status(state.service_name)
+
+    if ctx.obj["json"]:
+        click.echo(json.dumps({**state.to_dict(), **svc}, indent=2))
         return
 
     icon = "🟢" if state.server_running else "🔴"
@@ -52,7 +76,11 @@ def status(ctx: click.Context) -> None:
     click.echo(f"  Install dir: {state.install_dir}")
     click.echo(f"  Config:      {state.config_path}")
     click.echo(f"  Service:     {'✓' if state.service_exists else '✗'} {state.service_name}")
+    if svc['enabled']:
+        click.echo(f"  Auto-start:  ✓ enabled")
     click.echo(f"  Timer:       {'✓' if state.timer_exists else '✗'} {state.timer_name}")
+    if svc['main_pid']:
+        click.echo(f"  PID:         {svc['main_pid']}")
     if state.ports.game:
         click.echo(f"  Ports:       game={state.ports.game} a2s={state.ports.a2s} rcon={state.ports.rcon}")
 
@@ -61,28 +89,107 @@ def status(ctx: click.Context) -> None:
 @click.pass_context
 def start(ctx: click.Context) -> None:
     """Start the server."""
-    click.echo(f"[{ctx.obj['instance']}] start — not implemented yet")
+    from armactl.service_manager import start_service
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+
+    if not state.server_installed:
+        click.echo(f"[{instance}] No server found.", err=True)
+        sys.exit(1)
+
+    if state.server_running:
+        if ctx.obj["json"]:
+            click.echo(json.dumps({"status": "already_running"}))
+        else:
+            click.echo(f"[{instance}] Server is already running.")
+        return
+
+    result = start_service(state.service_name)
+
+    if ctx.obj["json"]:
+        click.echo(json.dumps(result.to_dict()))
+    else:
+        click.echo(f"[{instance}] {result.message}")
+
+    sys.exit(0 if result.success else 1)
 
 
 @main.command()
 @click.pass_context
 def stop(ctx: click.Context) -> None:
     """Stop the server."""
-    click.echo(f"[{ctx.obj['instance']}] stop — not implemented yet")
+    from armactl.service_manager import stop_service
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+
+    if not state.server_installed:
+        click.echo(f"[{instance}] No server found.", err=True)
+        sys.exit(1)
+
+    if not state.server_running:
+        if ctx.obj["json"]:
+            click.echo(json.dumps({"status": "already_stopped"}))
+        else:
+            click.echo(f"[{instance}] Server is already stopped.")
+        return
+
+    result = stop_service(state.service_name)
+
+    if ctx.obj["json"]:
+        click.echo(json.dumps(result.to_dict()))
+    else:
+        click.echo(f"[{instance}] {result.message}")
+
+    sys.exit(0 if result.success else 1)
 
 
 @main.command()
 @click.pass_context
 def restart(ctx: click.Context) -> None:
     """Restart the server."""
-    click.echo(f"[{ctx.obj['instance']}] restart — not implemented yet")
+    from armactl.service_manager import restart_service
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+
+    if not state.server_installed:
+        click.echo(f"[{instance}] No server found.", err=True)
+        sys.exit(1)
+
+    result = restart_service(state.service_name)
+
+    if ctx.obj["json"]:
+        click.echo(json.dumps(result.to_dict()))
+    else:
+        click.echo(f"[{instance}] {result.message}")
+
+    sys.exit(0 if result.success else 1)
 
 
 @main.command()
+@click.option("-n", "--lines", default=50, help="Number of log lines to show.")
+@click.option("-f", "--follow", is_flag=True, default=False, help="Follow logs in real-time.")
 @click.pass_context
-def logs(ctx: click.Context) -> None:
+def logs(ctx: click.Context, lines: int, follow: bool) -> None:
     """Tail server logs."""
-    click.echo(f"[{ctx.obj['instance']}] logs — not implemented yet")
+    from armactl.logs import get_logs_text, show_logs
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+
+    if not state.service_exists:
+        click.echo(f"[{instance}] Service not found.", err=True)
+        sys.exit(1)
+
+    if ctx.obj["json"]:
+        text = get_logs_text(state.service_name, lines=lines)
+        click.echo(json.dumps({"service": state.service_name, "logs": text}))
+        return
+
+    exit_code = show_logs(state.service_name, lines=lines, follow=follow)
+    sys.exit(exit_code)
 
 
 @main.command()
