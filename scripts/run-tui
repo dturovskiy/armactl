@@ -1,17 +1,16 @@
 #!/bin/sh
-# Convenience launcher for the armactl TUI.
-# Usage: ./scripts/run-tui
-
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_ROOT=$(dirname -- "$SCRIPT_DIR")
-VENV_ARM="$PROJECT_ROOT/.venv/bin/armactl"
 
-if [ ! -x "$VENV_ARM" ]; then
-    printf 'armactl not installed. Run first:\n  ./scripts/bootstrap.sh\n' >&2
+cd "$PROJECT_ROOT"
+
+if [ ! -x "$PROJECT_ROOT/.venv/bin/python" ]; then
+    echo "armactl is not bootstrapped yet." >&2
+    echo "Run: ./scripts/bootstrap.sh" >&2
     exit 1
 fi
 
-# Placeholder — will launch TUI once implemented
-printf 'armactl TUI is not yet implemented.\nUse: armactl --help\n'
+echo "armactl TUI is not yet implemented."
+echo "Use './armactl --help' for available CLI commands."

@@ -4,8 +4,6 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_ROOT=$(dirname -- "$SCRIPT_DIR")
 VENV_DIR="$PROJECT_ROOT/.venv"
-BIN_DIR="$HOME/.local/bin"
-LAUNCHER="$BIN_DIR/armactl"
 MODE="${1:-}"
 
 log() {
@@ -36,7 +34,7 @@ PY
 }
 
 if [ ! -f "$PROJECT_ROOT/pyproject.toml" ]; then
-    fail "pyproject.toml not found. Put this script in scripts/bootstrap.sh inside the armactl repo."
+    fail "pyproject.toml not found; run this script from the armactl repo."
 fi
 
 if need_cmd sudo && [ "$(id -u)" -ne 0 ]; then
@@ -46,7 +44,7 @@ else
 fi
 
 if ! need_cmd apt-get; then
-    fail "This installer currently supports Ubuntu/Debian only (apt-get required)."
+    fail "This installer currently supports Ubuntu/Debian only."
 fi
 
 log "==> Installing system dependencies..."
@@ -57,7 +55,7 @@ $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3-pip
 
 if ! need_cmd python3; then
-    fail "python3 is still not available after apt install."
+    fail "python3 is not available after apt install."
 fi
 
 if ! python_version_ok; then
@@ -65,19 +63,14 @@ if ! python_version_ok; then
 fi
 
 if [ ! -d "$VENV_DIR" ]; then
-    log "==> Creating virtual environment: $VENV_DIR"
+    log "==> Creating virtual environment at $VENV_DIR"
     python3 -m venv "$VENV_DIR"
 else
-    log "==> Reusing existing virtual environment: $VENV_DIR"
+    log "==> Reusing existing virtual environment at $VENV_DIR"
 fi
 
 VENV_PY="$VENV_DIR/bin/python"
-VENV_PIP="$VENV_DIR/bin/pip"
 VENV_ARM="$VENV_DIR/bin/armactl"
-
-if [ ! -x "$VENV_PY" ]; then
-    fail "Virtualenv Python not found: $VENV_PY"
-fi
 
 log "==> Upgrading pip tooling inside virtualenv..."
 "$VENV_PY" -m pip install --upgrade pip setuptools wheel
@@ -86,11 +79,11 @@ cd "$PROJECT_ROOT"
 
 case "$MODE" in
     --dev)
-        log "==> Installing armactl in editable mode with dev dependencies..."
+        log "==> Installing armactl with dev dependencies..."
         "$VENV_PY" -m pip install -e ".[dev]"
         ;;
     ""|--prod)
-        log "==> Installing armactl in editable mode..."
+        log "==> Installing armactl..."
         "$VENV_PY" -m pip install -e .
         ;;
     *)
@@ -99,51 +92,19 @@ case "$MODE" in
 esac
 
 if [ ! -x "$VENV_ARM" ]; then
-    fail "armactl executable was not created: $VENV_ARM"
+    fail "armactl executable was not created in .venv"
 fi
 
-log "==> Creating launcher: $LAUNCHER"
-mkdir -p "$BIN_DIR"
-cat > "$LAUNCHER" <<EOF
-#!/bin/sh
-exec "$VENV_ARM" "\$@"
-EOF
-chmod +x "$LAUNCHER"
-
-PATH_OK=0
-case ":$PATH:" in
-    *":$BIN_DIR:"*) PATH_OK=1 ;;
-esac
-
-if [ "$PATH_OK" -eq 0 ]; then
-    BASHRC="$HOME/.bashrc"
-    PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
-
-    if [ -f "$BASHRC" ]; then
-        if ! grep -Fq '.local/bin' "$BASHRC"; then
-            log "==> Adding $BIN_DIR to PATH in $BASHRC"
-            printf '\n# Added by armactl bootstrap\n%s\n' "$PATH_LINE" >> "$BASHRC"
-        fi
-    else
-        log "==> Creating $BASHRC with PATH entry"
-        printf '# Added by armactl bootstrap\n%s\n' "$PATH_LINE" > "$BASHRC"
-    fi
-
-    export PATH="$BIN_DIR:$PATH"
-fi
+chmod +x "$PROJECT_ROOT/armactl" 2>/dev/null || true
+chmod +x "$PROJECT_ROOT/scripts/run-tui" 2>/dev/null || true
 
 log ""
 log "Done."
-log "armactl installed into: $VENV_DIR"
 log ""
-
-if [ "$PATH_OK" -eq 0 ]; then
-    log "~/.local/bin has been added to PATH in ~/.bashrc (permanent)."
-fi
-
+log "Use repo-local launcher:"
+log "  ./armactl --help"
+log "  ./armactl detect"
+log "  ./armactl install"
 log ""
-log "Next steps:"
-log "  armactl --help"
-log "  armactl detect"
-log "  armactl install"
-
+log "Or run TUI:"
+log "  ./scripts/run-tui"

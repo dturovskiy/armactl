@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+VENV_PY="$SCRIPT_DIR/.venv/bin/python"
+
+if [ ! -x "$VENV_PY" ]; then
+    echo "armactl is not bootstrapped yet." >&2
+    echo "Run: ./scripts/bootstrap.sh" >&2
+    exit 1
+fi
+
+exec "$VENV_PY" -m armactl "$@"
