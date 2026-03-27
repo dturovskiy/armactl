@@ -6,9 +6,12 @@ delegates to the corresponding backend module — no business logic here.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import click
 
 from armactl import __version__
+from armactl import paths as P
 
 
 @click.group()
@@ -35,7 +38,23 @@ def main(ctx: click.Context, instance: str) -> None:
 @click.pass_context
 def status(ctx: click.Context) -> None:
     """Show server status."""
-    click.echo(f"[{ctx.obj['instance']}] status — not implemented yet")
+    from armactl.discovery import discover
+
+    instance = ctx.obj["instance"]
+    state = discover(instance=instance, save=False)
+
+    if not state.server_installed:
+        click.echo(f"[{instance}] No server found. Run 'armactl detect' or 'armactl install'.")
+        return
+
+    icon = "🟢" if state.server_running else "🔴"
+    click.echo(f"[{instance}] Server: {icon} {'running' if state.server_running else 'stopped'}")
+    click.echo(f"  Install dir: {state.install_dir}")
+    click.echo(f"  Config:      {state.config_path}")
+    click.echo(f"  Service:     {'✓' if state.service_exists else '✗'} {state.service_name}")
+    click.echo(f"  Timer:       {'✓' if state.timer_exists else '✗'} {state.timer_name}")
+    if state.ports.game:
+        click.echo(f"  Ports:       game={state.ports.game} a2s={state.ports.a2s} rcon={state.ports.rcon}")
 
 
 @main.command()
@@ -70,7 +89,18 @@ def logs(ctx: click.Context) -> None:
 @click.pass_context
 def ports(ctx: click.Context) -> None:
     """Show listening ports."""
-    click.echo(f"[{ctx.obj['instance']}] ports — not implemented yet")
+    from armactl.discovery import discover
+    from armactl.ports import format_ports_table
+
+    instance = ctx.obj["instance"]
+    state = discover(instance=instance, save=False)
+
+    game = state.ports.game or 2001
+    a2s = state.ports.a2s or 17777
+    rcon = state.ports.rcon or 19999
+
+    click.echo(f"[{instance}] Port status:")
+    click.echo(format_ports_table(game, a2s, rcon))
 
 
 # ---------------------------------------------------------------------------
@@ -79,10 +109,53 @@ def ports(ctx: click.Context) -> None:
 
 
 @main.command()
+@click.option(
+    "--install-dir",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Manually specify server install directory.",
+)
+@click.option(
+    "--config-path",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Manually specify config.json path.",
+)
 @click.pass_context
-def detect(ctx: click.Context) -> None:
+def detect(ctx: click.Context, install_dir: Path | None, config_path: Path | None) -> None:
     """Detect existing server installation."""
-    click.echo(f"[{ctx.obj['instance']}] detect — not implemented yet")
+    from armactl.discovery import discover, discover_manual
+
+    instance = ctx.obj["instance"]
+
+    if install_dir and config_path:
+        click.echo(f"[{instance}] Manual detection...")
+        state = discover_manual(
+            install_dir=install_dir,
+            config_path=config_path,
+            instance=instance,
+        )
+    else:
+        click.echo(f"[{instance}] Running auto-detection...")
+        state = discover(instance=instance)
+
+    if state.server_installed:
+        click.echo(f"  ✓ Server found at: {state.install_dir}")
+        click.echo(f"  ✓ Binary:  {'found' if state.binary_exists else 'missing'}")
+        click.echo(f"  ✓ Config:  {'found' if state.config_exists else 'missing'} ({state.config_path})")
+        click.echo(f"  ✓ Service: {'found' if state.service_exists else 'missing'}")
+        click.echo(f"  ✓ Timer:   {'found' if state.timer_exists else 'missing'}")
+        icon = "🟢" if state.server_running else "🔴"
+        click.echo(f"  ✓ Status:  {icon} {'running' if state.server_running else 'stopped'}")
+        if state.ports.game:
+            click.echo(f"  ✓ Ports:   game={state.ports.game} a2s={state.ports.a2s} rcon={state.ports.rcon}")
+        if state.migrated_from:
+            click.echo(f"  ⚠ Detected from legacy paths (migrated_from={state.migrated_from})")
+        click.echo(f"  State saved to: {P.state_file(instance)}")
+    else:
+        click.echo("  ✗ No server found.")
+        click.echo("  Use 'armactl install' to install, or")
+        click.echo("  Use 'armactl detect --install-dir <path> --config-path <path>' for manual detection.")
 
 
 @main.command()
