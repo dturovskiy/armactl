@@ -137,8 +137,12 @@ def generate_default_config(instance: str) -> None:
 
     env = Environment(loader=FileSystemLoader(str(templates_dir)))
     try:
+        import secrets
         template = env.get_template("config.json.j2")
-        config_render = template.render()
+        config_render = template.render(
+            rcon_password=secrets.token_urlsafe(8),
+            password_admin=secrets.token_urlsafe(8),
+        )
         
         with open(config_path, "w", encoding="utf-8") as f:
             f.write(config_render)
