@@ -1,0 +1,16 @@
+# Auto detect text files and ensure LF line endings
+* text=auto eol=lf
+
+# Shell scripts — always LF, always executable
+*.sh text eol=lf
+armactl text eol=lf
+scripts/run-tui text eol=lf
+
+# Python — always LF
+*.py text eol=lf
+
+# Templates — always LF
+*.j2 text eol=lf
+
+# Windows-only files
+*.bat text eol=crlf
