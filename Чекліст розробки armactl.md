@@ -63,20 +63,20 @@
 
 ## Phase 4 — Service і timer manager
 
-- [ ] Реалізувати генерацію `start-armareforger.sh`
-- [ ] Реалізувати генерацію `armareforger.service`
-- [ ] Реалізувати генерацію `armareforger-restart.service`
-- [ ] Реалізувати генерацію `armareforger-restart.timer`
-- [ ] Додати `service install`
-- [ ] Додати `service enable`
-- [ ] Додати `service disable`
-- [ ] Додати `service status`
-- [ ] Додати `timer install`
-- [ ] Додати `timer enable`
-- [ ] Додати `timer disable`
-- [ ] Додати `schedule show`
-- [ ] Додати `schedule set`
-- [ ] Додати `schedule restart-now`
+- [x] Реалізувати генерацію `start-armareforger.sh`
+- [x] Реалізувати генерацію `armareforger.service`
+- [x] Реалізувати генерацію `armareforger-restart.service`
+- [x] Реалізувати генерацію `armareforger-restart.timer`
+- [x] Додати `service install`
+- [x] Додати `service enable`
+- [x] Додати `service disable`
+- [x] Додати `service status`
+- [x] Додати `timer install`
+- [x] Додати `timer enable`
+- [x] Додати `timer disable`
+- [x] Додати `schedule show`
+- [x] Додати `schedule set`
+- [x] Додати `schedule restart-now`
 - [ ] Перевірити автозапуск після ребуту
 - [ ] Перевірити плановий рестарт
 

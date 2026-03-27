@@ -451,6 +451,95 @@ def config_validate(ctx: click.Context) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Service commands
+# ---------------------------------------------------------------------------
+
+@main.group()
+def service() -> None:
+    """Manage systemd service."""
+
+@service.command("install")
+@click.pass_context
+def service_install(ctx: click.Context) -> None:
+    """Generate and install systemd service."""
+    from armactl.service_manager import generate_services
+    instance = ctx.obj["instance"]
+    click.echo(f"[{instance}] Installing services...")
+    results = generate_services(instance=instance)
+    for r in results:
+        click.echo(f"  {'✓' if r.success else '✗'} {r.message}")
+
+@service.command("enable")
+@click.pass_context
+def service_enable_cmd(ctx: click.Context) -> None:
+    """Enable systemd service."""
+    from armactl.service_manager import enable_service
+    from armactl import paths as P
+    instance = ctx.obj["instance"]
+    service_name = f"armareforger@{instance}.service" if instance != "default" else P.SERVICE_NAME
+    result = enable_service(service_name)
+    click.echo(f"[{instance}] {result.message}")
+
+@service.command("disable")
+@click.pass_context
+def service_disable_cmd(ctx: click.Context) -> None:
+    """Disable systemd service."""
+    from armactl.service_manager import disable_service
+    from armactl import paths as P
+    instance = ctx.obj["instance"]
+    service_name = f"armareforger@{instance}.service" if instance != "default" else P.SERVICE_NAME
+    result = disable_service(service_name)
+    click.echo(f"[{instance}] {result.message}")
+
+@service.command("status")
+@click.pass_context
+def service_status_cmd(ctx: click.Context) -> None:
+    """Show detailed service status."""
+    ctx.invoke(status)
+
+# ---------------------------------------------------------------------------
+# Timer commands
+# ---------------------------------------------------------------------------
+
+@main.group()
+def timer() -> None:
+    """Manage systemd timer."""
+
+@timer.command("install")
+@click.pass_context
+def timer_install(ctx: click.Context) -> None:
+    """Generate and install systemd timer."""
+    # Already done in generate_services, but we expose it or just invoke the same
+    from armactl.service_manager import generate_services
+    instance = ctx.obj["instance"]
+    click.echo(f"[{instance}] Installing timer (and service files)...")
+    results = generate_services(instance=instance)
+    for r in results:
+        click.echo(f"  {'✓' if r.success else '✗'} {r.message}")
+
+@timer.command("enable")
+@click.pass_context
+def timer_enable_cmd(ctx: click.Context) -> None:
+    """Enable systemd timer."""
+    from armactl.service_manager import enable_service
+    from armactl import paths as P
+    instance = ctx.obj["instance"]
+    timer_name = f"armareforger-restart@{instance}.timer" if instance != "default" else P.TIMER_NAME
+    result = enable_service(timer_name)
+    click.echo(f"[{instance}] {result.message}")
+
+@timer.command("disable")
+@click.pass_context
+def timer_disable_cmd(ctx: click.Context) -> None:
+    """Disable systemd timer."""
+    from armactl.service_manager import disable_service
+    from armactl import paths as P
+    instance = ctx.obj["instance"]
+    timer_name = f"armareforger-restart@{instance}.timer" if instance != "default" else P.TIMER_NAME
+    result = disable_service(timer_name)
+    click.echo(f"[{instance}] {result.message}")
+
+# ---------------------------------------------------------------------------
 # Mods commands
 # ---------------------------------------------------------------------------
 
@@ -512,33 +601,51 @@ def schedule() -> None:
 @click.pass_context
 def schedule_show(ctx: click.Context) -> None:
     """Show current restart schedule."""
-    click.echo(f"[{ctx.obj['instance']}] schedule show — not implemented yet")
-
+    import subprocess
+    from armactl import paths as P
+    instance = ctx.obj["instance"]
+    timer_name = f"armareforger-restart@{instance}.timer" if instance != "default" else P.TIMER_NAME
+    
+    try:
+        ans = subprocess.run(["systemctl", "show", timer_name, "--property=TimersCalendar"], capture_output=True, text=True)
+        click.echo(f"[{instance}] Schedule: {ans.stdout.strip()}")
+    except OSError:
+        click.echo(f"[{instance}] Failed to read timer status.")
 
 @schedule.command("set")
 @click.argument("cron_expr")
 @click.pass_context
 def schedule_set(ctx: click.Context, cron_expr: str) -> None:
     """Set restart schedule (OnCalendar expression)."""
-    click.echo(f"[{ctx.obj['instance']}] schedule set '{cron_expr}' — not implemented yet")
-
+    from armactl.service_manager import generate_services
+    instance = ctx.obj["instance"]
+    click.echo(f"[{instance}] Updating schedule to '{cron_expr}'...")
+    results = generate_services(instance=instance, on_calendar=cron_expr)
+    for r in results:
+        if "timer" in r.message:
+            click.echo(f"  {'✓' if r.success else '✗'} {r.message}")
 
 @schedule.command("enable")
 @click.pass_context
 def schedule_enable(ctx: click.Context) -> None:
     """Enable scheduled restarts."""
-    click.echo(f"[{ctx.obj['instance']}] schedule enable — not implemented yet")
-
+    ctx.invoke(timer_enable_cmd)
 
 @schedule.command("disable")
 @click.pass_context
 def schedule_disable(ctx: click.Context) -> None:
     """Disable scheduled restarts."""
-    click.echo(f"[{ctx.obj['instance']}] schedule disable — not implemented yet")
-
+    ctx.invoke(timer_disable_cmd)
 
 @schedule.command("restart-now")
 @click.pass_context
 def schedule_restart_now(ctx: click.Context) -> None:
-    """Trigger immediate restart."""
-    click.echo(f"[{ctx.obj['instance']}] schedule restart-now — not implemented yet")
+    """Trigger immediate restart via timer service."""
+    from armactl.service_manager import start_service
+    from armactl import paths as P
+    instance = ctx.obj["instance"]
+    restart_service_name = f"armareforger-restart@{instance}.service" if instance != "default" else P.RESTART_SERVICE_NAME
+    
+    click.echo(f"[{instance}] Triggering restart...")
+    res = start_service(restart_service_name)
+    click.echo(f"[{instance}] {res.message}")
