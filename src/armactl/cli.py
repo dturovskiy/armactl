@@ -270,7 +270,16 @@ def detect(ctx: click.Context, install_dir: Path | None, config_path: Path | Non
 @click.pass_context
 def install(ctx: click.Context) -> None:
     """Install server from scratch."""
-    click.echo(f"[{ctx.obj['instance']}] install — not implemented yet")
+    from armactl.installer import InstallError, run_install
+    instance = ctx.obj["instance"]
+    
+    click.echo(f"[{instance}] Starting installation...")
+    try:
+        for msg in run_install(instance=instance):
+            click.echo(f"[{instance}] {msg}")
+    except InstallError as e:
+        click.echo(f"\n[{instance}] Installation failed: {e}", err=True)
+        sys.exit(1)
 
 
 @main.command()
