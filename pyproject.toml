@@ -10,7 +10,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
-    { name = "defenders88" },
+    { name = "dturovskiy" },
 ]
 keywords = ["arma-reforger", "dedicated-server", "linux", "tui", "server-manager"]
 classifiers = [
@@ -44,9 +44,9 @@ dev = [
 armactl = "armactl.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/defenders88/armactl"
-Repository = "https://github.com/defenders88/armactl"
-Issues = "https://github.com/defenders88/armactl/issues"
+Homepage = "https://github.com/dturovskiy/armactl"
+Repository = "https://github.com/dturovskiy/armactl"
+Issues = "https://github.com/dturovskiy/armactl/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/armactl"]

@@ -22,7 +22,7 @@ Open-source installer, manager and TUI for **Arma Reforger Dedicated Server** on
 ## Quick start
 
 ```bash
-git clone https://github.com/defenders88/armactl.git
+git clone https://github.com/dturovskiy/armactl.git
 cd armactl
 pip install -e .
 armactl --help
