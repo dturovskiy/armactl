@@ -272,11 +272,16 @@ def generate_services(instance: str = P.DEFAULT_INSTANCE_NAME, on_calendar: str 
                 else:
                     results.append(ServiceResult(True, f"Installed {dest_file.name} to {dest_file.parent}"))
             
-            # Sudo chown
+        # Sudo chown
             subprocess.run(["sudo", "chown", "root:root", str(service_path), str(restart_service_path), str(timer_path)])
             
-        daemon_reload()
-        results.append(ServiceResult(True, "Systemd daemon reloaded"))
+        dr_res = daemon_reload()
+        results.append(ServiceResult(dr_res.success, "Systemd daemon reloaded" if dr_res.success else f"Daemon reload failed: {dr_res.message}"))
+        
+        # Restart the timer to apply new schedule immediately
+        tr_res = _run_systemctl("restart", timer_name)
+        if tr_res.success:
+            results.append(ServiceResult(True, f"Timer {timer_name} restarted to apply schedule"))
         
     except Exception as e:
         results.append(ServiceResult(False, f"Service generation failed: {e}", 1))

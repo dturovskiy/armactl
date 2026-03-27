@@ -631,7 +631,7 @@ def schedule_set(ctx: click.Context, cron_expr: str) -> None:
     click.echo(f"[{instance}] Updating schedule to '{cron_expr}'...")
     results = generate_services(instance=instance, on_calendar=cron_expr)
     for r in results:
-        if "timer" in r.message:
+        if "timer" in r.message.lower() or "daemon" in r.message.lower():
             click.echo(f"  {'✓' if r.success else '✗'} {r.message}")
 
 @schedule.command("enable")
