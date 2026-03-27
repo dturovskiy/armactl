@@ -24,15 +24,14 @@ Open-source installer, manager and TUI for **Arma Reforger Dedicated Server** on
 ```bash
 git clone https://github.com/dturovskiy/armactl.git
 cd armactl
-pip install -e .
+chmod +x scripts/bootstrap.sh
+./scripts/bootstrap.sh
 armactl --help
 ```
 
-Or run the TUI:
-
-```bash
-./scripts/run-tui
-```
+The bootstrap script installs system dependencies (Python 3.10+, venv, pip),
+creates a `.venv`, installs armactl in editable mode, and places a launcher
+in `~/.local/bin/armactl`.
 
 ## Architecture
 
@@ -90,7 +89,7 @@ armactl schedule disable    # Disable scheduled restarts
 ## Development
 
 ```bash
-pip install -e ".[dev]"
+./scripts/bootstrap.sh --dev
 pytest
 ruff check src/
 ```
