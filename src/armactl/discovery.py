@@ -269,11 +269,7 @@ def _discover_from_legacy_paths() -> ServerState | None:
                 break
 
         config = config_path is not None and _config_exists(config_path)
-        ports = (
-            _read_ports_from_config(config_path)
-            if config and config_path
-            else PortInfo()
-        )
+        ports = _read_ports_from_config(config_path) if config_path and config else PortInfo()
 
         log.info("Found legacy server at %s", legacy_dir)
 
@@ -345,9 +341,7 @@ def discover(
         port_list = [
             p for p in [state.ports.game, state.ports.a2s, state.ports.rcon] if p
         ]
-        listening = _check_listening_ports(port_list)
-        # We keep port numbers as-is; listening status is shown separately
-        state._listening = listening  # type: ignore[attr-defined]
+        state.listening = _check_listening_ports(port_list)
 
     if save and state.server_installed:
         sf = P.state_file(instance, data_root)

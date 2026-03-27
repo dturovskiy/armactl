@@ -62,6 +62,7 @@ def test_server_state_from_dict():
         "service_name": "armareforger.service",
         "timer_name": "armareforger-restart.timer",
         "ports": {"game": 2001, "a2s": 17777, "rcon": 19999},
+        "listening": {"2001": True, "17777": True, "19999": False},
         "discovered_at": "2025-01-01T00:00:00",
         "migrated_from": "",
     }
@@ -72,6 +73,7 @@ def test_server_state_from_dict():
     assert state.ports.game == 2001
     assert state.ports.rcon == 19999
     assert state.service_name == "armareforger.service"
+    assert state.listening == {2001: True, 17777: True, 19999: False}
 
 
 def test_save_and_load_state(tmp_path: Path):
@@ -84,6 +86,7 @@ def test_save_and_load_state(tmp_path: Path):
         install_dir=str(tmp_path / "server"),
         config_path=str(tmp_path / "config" / "config.json"),
         ports=PortInfo(game=2001, a2s=17777, rcon=19999),
+        listening={2001: True, 17777: True, 19999: False},
     )
 
     state_path = tmp_path / "state.json"
@@ -98,6 +101,7 @@ def test_save_and_load_state(tmp_path: Path):
     assert loaded.config_exists is True
     assert loaded.ports.game == 2001
     assert loaded.instance_root == str(tmp_path)
+    assert loaded.listening == {2001: True, 17777: True, 19999: False}
 
 
 def test_load_state_missing_file(tmp_path: Path):
@@ -124,3 +128,10 @@ def test_save_state_creates_parent_dirs(tmp_path: Path):
     loaded = load_state(deep_path)
     assert loaded is not None
     assert loaded.server_installed is True
+
+
+def test_server_state_defaults_listening():
+    """New ServerState should have empty listening dict."""
+    state = ServerState()
+    assert state.listening == {}
+

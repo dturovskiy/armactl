@@ -47,6 +47,7 @@ class ServerState:
 
     # --- ports ---
     ports: PortInfo = field(default_factory=PortInfo)
+    listening: dict[int, bool] = field(default_factory=dict)
 
     # --- metadata ---
     discovered_at: str = ""
@@ -69,7 +70,11 @@ class ServerState:
         else:
             ports = PortInfo()
 
-        return cls(ports=ports, **data)
+        # listening keys in JSON are strings; convert back to int
+        raw_listening = data.pop("listening", {})
+        listening = {int(k): v for k, v in raw_listening.items()} if raw_listening else {}
+
+        return cls(ports=ports, listening=listening, **data)
 
 
 def save_state(state: ServerState, path: Path) -> None:
