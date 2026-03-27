@@ -105,12 +105,19 @@ def start(ctx: click.Context) -> None:
             click.echo(f"[{instance}] Server is already running.")
         return
 
+    if not ctx.obj["json"]:
+        click.echo(f"[{instance}] Starting server...")
+
     result = start_service(state.service_name)
 
     if ctx.obj["json"]:
         click.echo(json.dumps(result.to_dict()))
     else:
-        click.echo(f"[{instance}] {result.message}")
+        if result.success:
+            click.echo(f"[{instance}] ✓ Server started successfully.\n")
+            ctx.invoke(status)
+        else:
+            click.echo(f"[{instance}] ✗ Failed to start server: {result.message}", err=True)
 
     sys.exit(0 if result.success else 1)
 
@@ -135,12 +142,18 @@ def stop(ctx: click.Context) -> None:
             click.echo(f"[{instance}] Server is already stopped.")
         return
 
+    if not ctx.obj["json"]:
+        click.echo(f"[{instance}] Stopping server...")
+
     result = stop_service(state.service_name)
 
     if ctx.obj["json"]:
         click.echo(json.dumps(result.to_dict()))
     else:
-        click.echo(f"[{instance}] {result.message}")
+        if result.success:
+            click.echo(f"[{instance}] ✓ Server stopped successfully.")
+        else:
+            click.echo(f"[{instance}] ✗ Failed to stop server: {result.message}", err=True)
 
     sys.exit(0 if result.success else 1)
 
@@ -158,12 +171,19 @@ def restart(ctx: click.Context) -> None:
         click.echo(f"[{instance}] No server found.", err=True)
         sys.exit(1)
 
+    if not ctx.obj["json"]:
+        click.echo(f"[{instance}] Restarting server...")
+
     result = restart_service(state.service_name)
 
     if ctx.obj["json"]:
         click.echo(json.dumps(result.to_dict()))
     else:
-        click.echo(f"[{instance}] {result.message}")
+        if result.success:
+            click.echo(f"[{instance}] ✓ Server restarted successfully.\n")
+            ctx.invoke(status)
+        else:
+            click.echo(f"[{instance}] ✗ Failed to restart server: {result.message}", err=True)
 
     sys.exit(0 if result.success else 1)
 
