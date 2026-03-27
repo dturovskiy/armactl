@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Convenience launcher for the armactl TUI.
+# Usage: ./scripts/run-tui
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Ensure we're running from the project root
+cd "$PROJECT_ROOT"
+
+# Check if the package is installed
+if ! python -c "import armactl" 2>/dev/null; then
+    echo "armactl is not installed. Installing in editable mode..."
+    pip install -e .
+fi
+
+# Launch TUI (placeholder — will be replaced once TUI is implemented)
+echo "armactl TUI is not yet implemented."
+echo "Use 'armactl --help' for available CLI commands."

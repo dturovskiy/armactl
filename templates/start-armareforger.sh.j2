@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTANCE_ROOT="{{ instance_root }}"
+
+cd "${INSTANCE_ROOT}/server"
+
+exec "${INSTANCE_ROOT}/server/ArmaReforgerServer" \
+  -config "${INSTANCE_ROOT}/config/config.json" \
+  -profile "${INSTANCE_ROOT}/config" \
+  -maxFPS {{ max_fps | default(60) }}

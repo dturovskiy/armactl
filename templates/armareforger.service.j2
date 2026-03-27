@@ -1,0 +1,17 @@
+[Unit]
+Description=Arma Reforger Dedicated Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ user }}
+WorkingDirectory={{ instance_root }}/server
+ExecStart={{ instance_root }}/start-armareforger.sh
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

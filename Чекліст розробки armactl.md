@@ -2,21 +2,21 @@
 
 ## Phase 0 — Підготовка репозиторію
 
-- [ ] Створити репозиторій `armactl`
-- [ ] Визначити базову структуру директорій
-- [ ] Додати `README.md`
-- [ ] Додати `.gitignore`
-- [ ] Вибрати стек: Python + Textual
-- [ ] Зафіксувати цільову платформу: Ubuntu 24.04, 1 сервер, 1 інстанс
-- [ ] Зафіксувати файлову модель (один root інстансу):
-  - [ ] `~/armactl-data/default/` — root інстансу
-  - [ ] `~/armactl-data/default/server/` — SteamCMD install dir
-  - [ ] `~/armactl-data/default/config/config.json` — конфіг сервера
-  - [ ] `~/armactl-data/default/backups/` — автоматичні backup-и
-  - [ ] `~/armactl-data/default/state.json` — стан інстансу
-  - [ ] `~/armactl-data/default/start-armareforger.sh` — launch script
-  - [ ] `/etc/systemd/system/armareforger.service` — systemd service
-  - [ ] `/etc/systemd/system/armareforger-restart.timer` — systemd timer
+- [x] Створити репозиторій `armactl`
+- [x] Визначити базову структуру директорій
+- [x] Додати `README.md`
+- [x] Додати `.gitignore`
+- [x] Вибрати стек: Python + Textual
+- [x] Зафіксувати цільову платформу: Ubuntu 24.04, 1 сервер, 1 інстанс
+- [x] Зафіксувати файлову модель (один root інстансу):
+  - [x] `~/armactl-data/default/` — root інстансу
+  - [x] `~/armactl-data/default/server/` — SteamCMD install dir
+  - [x] `~/armactl-data/default/config/config.json` — конфіг сервера
+  - [x] `~/armactl-data/default/backups/` — автоматичні backup-и
+  - [x] `~/armactl-data/default/state.json` — стан інстансу
+  - [x] `~/armactl-data/default/start-armareforger.sh` — launch script
+  - [x] `/etc/systemd/system/armareforger.service` — systemd service
+  - [x] `/etc/systemd/system/armareforger-restart.timer` — systemd timer
 
 ## Phase 1 — Discovery і state
 

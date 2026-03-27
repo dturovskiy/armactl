@@ -1,0 +1,9 @@
+[Unit]
+Description=Scheduled restart for Arma Reforger Dedicated Server
+
+[Timer]
+OnCalendar={{ on_calendar | default('*-*-* 06:00:00') }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

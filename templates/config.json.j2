@@ -1,0 +1,34 @@
+{
+  "bindAddress": "0.0.0.0",
+  "bindPort": {{ bind_port | default(2001) }},
+  "publicAddress": "",
+  "publicPort": {{ bind_port | default(2001) }},
+  "a2s": {
+    "address": "0.0.0.0",
+    "port": {{ a2s_port | default(17777) }}
+  },
+  "rcon": {
+    "address": "0.0.0.0",
+    "port": {{ rcon_port | default(19999) }},
+    "password": "{{ rcon_password | default('') }}",
+    "permission": "admin",
+    "maxClients": 16
+  },
+  "game": {
+    "name": "{{ server_name | default('Arma Reforger Server') }}",
+    "password": "",
+    "passwordAdmin": "{{ password_admin | default('') }}",
+    "scenarioId": "{{ scenario_id | default('{ECC61978EDCC2B5A}Missions/23_Campaign.conf') }}",
+    "maxPlayers": {{ max_players | default(64) }},
+    "visible": true,
+    "gameProperties": {
+      "serverMaxViewDistance": 2500,
+      "serverMinGrassDistance": 50,
+      "networkViewDistance": 1000,
+      "disableThirdPerson": true,
+      "fastValidation": true,
+      "battlEye": {{ battleye | default('true') }}
+    },
+    "mods": []
+  }
+}
