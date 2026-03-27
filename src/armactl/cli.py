@@ -293,7 +293,21 @@ def config() -> None:
 @click.pass_context
 def config_show(ctx: click.Context) -> None:
     """Show current configuration."""
-    click.echo(f"[{ctx.obj['instance']}] config show — not implemented yet")
+    from armactl.config_manager import load_config, ConfigError
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config not found.", err=True)
+        sys.exit(1)
+
+    try:
+        data = load_config(state.config_path)
+        click.echo(json.dumps(data, indent=4))
+    except ConfigError as e:
+        click.echo(f"[{instance}] {e}", err=True)
+        sys.exit(1)
 
 
 @config.command("set-name")
@@ -301,7 +315,21 @@ def config_show(ctx: click.Context) -> None:
 @click.pass_context
 def config_set_name(ctx: click.Context, name: str) -> None:
     """Set server name."""
-    click.echo(f"[{ctx.obj['instance']}] config set-name '{name}' — not implemented yet")
+    from armactl.config_manager import set_value, ConfigError
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config not found.", err=True)
+        sys.exit(1)
+
+    try:
+        set_value(state.config_path, "game", "name", name)
+        click.echo(f"[{instance}] Server name set to '{name}'.")
+    except ConfigError as e:
+        click.echo(f"[{instance}] {e}", err=True)
+        sys.exit(1)
 
 
 @config.command("set-scenario")
@@ -309,7 +337,21 @@ def config_set_name(ctx: click.Context, name: str) -> None:
 @click.pass_context
 def config_set_scenario(ctx: click.Context, scenario_id: str) -> None:
     """Set scenario ID."""
-    click.echo(f"[{ctx.obj['instance']}] config set-scenario '{scenario_id}' — not implemented yet")
+    from armactl.config_manager import set_value, ConfigError
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config not found.", err=True)
+        sys.exit(1)
+
+    try:
+        set_value(state.config_path, "game", "scenarioId", scenario_id)
+        click.echo(f"[{instance}] Scenario ID set to '{scenario_id}'.")
+    except ConfigError as e:
+        click.echo(f"[{instance}] {e}", err=True)
+        sys.exit(1)
 
 
 @config.command("set-maxplayers")
@@ -317,14 +359,94 @@ def config_set_scenario(ctx: click.Context, scenario_id: str) -> None:
 @click.pass_context
 def config_set_maxplayers(ctx: click.Context, count: int) -> None:
     """Set max players."""
-    click.echo(f"[{ctx.obj['instance']}] config set-maxplayers {count} — not implemented yet")
+    from armactl.config_manager import set_value, ConfigError
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config not found.", err=True)
+        sys.exit(1)
+
+    try:
+        set_value(state.config_path, "game", "maxPlayers", count)
+        click.echo(f"[{instance}] Max players set to {count}.")
+    except ConfigError as e:
+        click.echo(f"[{instance}] {e}", err=True)
+        sys.exit(1)
+
+
+@config.command("set-password-admin")
+@click.argument("password")
+@click.pass_context
+def config_set_password_admin(ctx: click.Context, password: str) -> None:
+    """Set admin password."""
+    from armactl.config_manager import set_value, ConfigError
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config not found.", err=True)
+        sys.exit(1)
+
+    try:
+        set_value(state.config_path, "", "adminPassword", password)
+        click.echo(f"[{instance}] Admin password updated.")
+    except ConfigError as e:
+        click.echo(f"[{instance}] {e}", err=True)
+        sys.exit(1)
+
+
+@config.command("set-rcon-password")
+@click.argument("password")
+@click.pass_context
+def config_set_rcon_password(ctx: click.Context, password: str) -> None:
+    """Set RCON password."""
+    # RCON password uses dedicated server password game properties
+    from armactl.config_manager import set_value, ConfigError
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config not found.", err=True)
+        sys.exit(1)
+
+    try:
+        set_value(state.config_path, "", "password", password)
+        click.echo(f"[{instance}] RCON/Server password updated.")
+    except ConfigError as e:
+        click.echo(f"[{instance}] {e}", err=True)
+        sys.exit(1)
 
 
 @config.command("validate")
 @click.pass_context
 def config_validate(ctx: click.Context) -> None:
     """Validate configuration."""
-    click.echo(f"[{ctx.obj['instance']}] config validate — not implemented yet")
+    from armactl.config_manager import validate_config, ConfigError
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config not found.", err=True)
+        sys.exit(1)
+
+    try:
+        errors = validate_config(config_path=state.config_path)
+        if errors:
+            click.echo(f"[{instance}] Validation failed:")
+            for err in errors:
+                click.echo(f"  - {err}")
+            sys.exit(1)
+        else:
+            click.echo(f"[{instance}] Config JSON format is valid.")
+            sys.exit(0)
+    except ConfigError as e:
+        click.echo(f"[{instance}] {e}", err=True)
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------

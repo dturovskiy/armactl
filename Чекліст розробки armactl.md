@@ -48,17 +48,17 @@
 
 ## Phase 3 — Config manager
 
-- [ ] Реалізувати читання `config.json`
-- [ ] Реалізувати валідацію JSON
-- [ ] Реалізувати backup перед записом
-- [ ] Реалізувати atomic write
-- [ ] Додати `config show`
-- [ ] Додати `config set-name`
-- [ ] Додати `config set-scenario`
-- [ ] Додати `config set-maxplayers`
-- [ ] Додати `config set-password-admin`
-- [ ] Додати `config set-rcon-password`
-- [ ] Додати `config validate`
+- [x] Реалізувати читання `config.json`
+- [x] Реалізувати валідацію JSON
+- [x] Реалізувати backup перед записом
+- [x] Реалізувати atomic write
+- [x] Додати `config show`
+- [x] Додати `config set-name`
+- [x] Додати `config set-scenario`
+- [x] Додати `config set-maxplayers`
+- [x] Додати `config set-password-admin`
+- [x] Додати `config set-rcon-password`
+- [x] Додати `config validate`
 - [ ] Перевірити, що зміни не ламають конфіг
 
 ## Phase 4 — Service і timer manager
