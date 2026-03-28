@@ -33,7 +33,7 @@ Current status:
   schedule actions through the existing armactl backend
 - Privileged service control is performed through a narrowly-scoped helper
   installed to `/usr/local/libexec/armactl-systemctl-helper` and authorized via
-  `/etc/sudoers.d/armactl-systemctl-helper`
+  `/etc/sudoers.d/armactl-systemctl-helper.sudoers`
 - Timer schedule updates use the same helper, but only through a dedicated
   narrow path that rewrites the allowed restart timer file instead of allowing
   arbitrary unit installation

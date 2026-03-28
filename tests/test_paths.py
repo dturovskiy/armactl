@@ -98,4 +98,8 @@ def test_privileged_helper_file():
 
 def test_privileged_sudoers_file():
     path = privileged_sudoers_file()
-    assert path == Path("/etc/sudoers.d") / "armactl-systemctl-helper"
+    assert path == Path("/etc/sudoers.d") / "armactl-systemctl-helper.sudoers"
+
+
+def test_privileged_helper_and_sudoers_paths_are_distinct():
+    assert privileged_helper_file() != privileged_sudoers_file()
