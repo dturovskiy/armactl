@@ -16,6 +16,7 @@ BE_PACKET_TERMINATOR = 0xFF
 BE_LOGIN = 0x00
 BE_COMMAND = 0x01
 BE_SERVER_MESSAGE = 0x02
+BE_PACKET_TYPES = {BE_LOGIN, BE_COMMAND, BE_SERVER_MESSAGE}
 
 
 class RconError(Exception):
@@ -98,6 +99,8 @@ def _parse_packet(data: bytes) -> bytes:
             trimmed_checksum = zlib.crc32(trimmed_payload) & 0xFFFFFFFF
             if trimmed_checksum == expected_checksum:
                 return trimmed_payload
+        if trimmed_payload and trimmed_payload[0] in BE_PACKET_TYPES:
+            return trimmed_payload
         raise RconError("Invalid BattlEye packet checksum.")
     return payload
 
