@@ -1,7 +1,6 @@
 """Integration-style tests for the installer orchestration flow."""
 
 from pathlib import Path
-from subprocess import CalledProcessError
 from unittest.mock import patch
 
 import armactl.i18n as i18n
@@ -23,7 +22,7 @@ def test_run_install_orchestrates_default_instance_flow() -> None:
         patch("armactl.installer.check_sudo"),
         patch("armactl.installer.install_steamcmd"),
         patch("armactl.installer.create_install_dir"),
-        patch("armactl.installer.download_server"),
+        patch("armactl.installer.download_server", return_value=iter(())),
         patch("armactl.installer.smoke_check"),
         patch("armactl.installer.generate_default_config"),
         patch("armactl.installer.generate_services", return_value=generate_results),
@@ -65,7 +64,7 @@ def test_run_install_uses_instance_specific_service_name() -> None:
         patch("armactl.installer.check_sudo"),
         patch("armactl.installer.install_steamcmd"),
         patch("armactl.installer.create_install_dir"),
-        patch("armactl.installer.download_server"),
+        patch("armactl.installer.download_server", return_value=iter(())),
         patch("armactl.installer.smoke_check"),
         patch("armactl.installer.generate_default_config"),
         patch(
@@ -87,20 +86,22 @@ def test_run_install_uses_instance_specific_service_name() -> None:
 
 
 def test_download_server_includes_steamcmd_details_in_error() -> None:
+    class FakeProc:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                ["ERROR! Failed to install app '1874900' (No subscription)\n"]
+            )
+
+        def wait(self) -> int:
+            return 7
+
     with (
         patch("armactl.installer.paths.server_dir", return_value=Path("/tmp/server")),
         patch("armactl.installer._resolve_steamcmd_binary", return_value="/usr/games/steamcmd"),
-        patch(
-            "armactl.installer.subprocess.run",
-            side_effect=CalledProcessError(
-                7,
-                ["/usr/games/steamcmd"],
-                stderr="ERROR! Failed to install app '1874900' (No subscription)\n",
-            ),
-        ),
+        patch("armactl.installer.subprocess.Popen", return_value=FakeProc()),
     ):
         try:
-            installer.download_server("default")
+            list(installer.download_server("default"))
         except installer.InstallError as error:
             message = str(error)
         else:
@@ -108,3 +109,30 @@ def test_download_server_includes_steamcmd_details_in_error() -> None:
 
     assert "Failed to download server via steamcmd:" in message
     assert "ERROR! Failed to install app '1874900' (No subscription)" in message
+
+
+def test_download_server_streams_steamcmd_output_lines() -> None:
+    class FakeProc:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                [
+                    "Connecting anonymously to Steam Public...OK\n",
+                    "\n",
+                    "Success! App '1874900' fully installed.\n",
+                ]
+            )
+
+        def wait(self) -> int:
+            return 0
+
+    with (
+        patch("armactl.installer.paths.server_dir", return_value=Path("/tmp/server")),
+        patch("armactl.installer._resolve_steamcmd_binary", return_value="/usr/games/steamcmd"),
+        patch("armactl.installer.subprocess.Popen", return_value=FakeProc()),
+    ):
+        lines = list(installer.download_server("default"))
+
+    assert lines == [
+        "Connecting anonymously to Steam Public...OK",
+        "Success! App '1874900' fully installed.",
+    ]

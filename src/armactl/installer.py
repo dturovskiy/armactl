@@ -11,6 +11,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+from collections import deque
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -162,8 +163,60 @@ def create_install_dir(instance: str) -> None:
     ensure_bot_config(instance)
 
 
-def download_server(instance: str) -> None:
-    """Download Arma Reforger via steamcmd."""
+def _stream_cmd(
+    cmd: list[str],
+    *,
+    err_msg: str,
+    env: dict[str, str] | None = None,
+) -> Iterator[str]:
+    """Run a subprocess and stream combined stdout/stderr lines."""
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            env=env or os.environ,
+        )
+    except OSError as e:
+        raise InstallError(
+            tr(
+                "{message}: {error}",
+                message=_(err_msg),
+                error=redact_sensitive_text(e),
+            )
+        ) from e
+
+    output_tail: deque[str] = deque(maxlen=50)
+    assert proc.stdout is not None
+
+    for raw_line in proc.stdout:
+        line = redact_sensitive_text(raw_line.rstrip())
+        if not line:
+            continue
+        output_tail.append(line)
+        yield line
+
+    return_code = proc.wait()
+    if return_code == 0:
+        return
+
+    details = "\n".join(output_tail).strip()
+    if not details:
+        details = _("steamcmd exited without additional output.")
+
+    raise InstallError(
+        tr(
+            "{message}:\n{details}",
+            message=_(err_msg),
+            details=details,
+        )
+    )
+
+
+def download_server(instance: str) -> Iterator[str]:
+    """Download Arma Reforger via steamcmd and stream steamcmd output."""
     install_dir = paths.server_dir(instance).absolute()
     steamcmd_bin = _resolve_steamcmd_binary() or "steamcmd"
     cmd = [
@@ -178,27 +231,10 @@ def download_server(instance: str) -> None:
         "+quit",
     ]
 
-    try:
-        subprocess.run(
-            cmd,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except subprocess.CalledProcessError as e:
-        raise InstallError(
-            tr(
-                "Failed to download server via steamcmd:\n{details}",
-                details=safe_subprocess_error(e.stderr, e.stdout),
-            )
-        ) from e
-    except OSError as e:
-        raise InstallError(
-            tr(
-                "Failed to download server via steamcmd: {error}",
-                error=redact_sensitive_text(e),
-            )
-        ) from e
+    yield from _stream_cmd(
+        cmd,
+        err_msg="Failed to download server via steamcmd",
+    )
 
 
 def generate_default_config(instance: str) -> None:
@@ -256,7 +292,7 @@ def run_install(instance: str) -> Iterator[str]:
     create_install_dir(instance)
 
     yield _("Downloading Arma Reforger via steamcmd... (This may take a while)")
-    download_server(instance)
+    yield from download_server(instance)
 
     yield _("Running smoke check...")
     smoke_check(instance)
