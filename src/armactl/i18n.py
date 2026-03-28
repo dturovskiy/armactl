@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 from armactl import paths
@@ -15,6 +16,7 @@ _available_locales = {}
 _locale_order = []
 
 LOCALES_DIR = Path(__file__).parent / "locales"
+
 
 def init_locales() -> None:
     """Scan the locales directory and load all available json files."""
@@ -62,6 +64,7 @@ def load_lang() -> None:
     except Exception:
         pass
 
+
 def save_lang(lang: str) -> None:
     global _current_lang
     if lang in _available_locales:
@@ -78,6 +81,7 @@ def save_lang(lang: str) -> None:
         except Exception:
             pass
 
+
 def toggle_lang() -> str:
     if not _locale_order:
         return _current_lang
@@ -89,15 +93,28 @@ def toggle_lang() -> str:
     save_lang(_locale_order[next_idx])
     return _locale_order[next_idx]
 
+
 def get_current_lang_name() -> str:
     if _current_lang in _available_locales:
-        return _available_locales[_current_lang].get("__meta__", {}).get("language", _current_lang)
+        return _available_locales[_current_lang].get("__meta__", {}).get(
+            "language",
+            _current_lang,
+        )
     return _current_lang
+
 
 def _(text: str) -> str:
     """Translate text to the currently selected language."""
     if _current_lang in _available_locales:
         translations = _available_locales[_current_lang].get("translations", {})
+        return translations.get(text, text)
+    return text
+
+
+def translate_for_lang(lang: str, text: str) -> str:
+    """Translate text using an explicit language code without mutating global state."""
+    if lang in _available_locales:
+        translations = _available_locales[lang].get("translations", {})
         return translations.get(text, text)
     return text
 
@@ -108,5 +125,27 @@ def tr(text: str, **kwargs: object) -> str:
     if kwargs:
         return translated.format(**kwargs)
     return translated
+
+
+def tr_for_lang(lang: str, text: str, **kwargs: object) -> str:
+    """Translate a format string for a specific language and interpolate it."""
+    translated = translate_for_lang(lang, text)
+    if kwargs:
+        return translated.format(**kwargs)
+    return translated
+
+
+@contextmanager
+def using_lang(lang: str):
+    """Temporarily switch the active language for backend-generated messages."""
+    global _current_lang
+    previous = _current_lang
+    if lang in _available_locales:
+        _current_lang = lang
+    try:
+        yield
+    finally:
+        _current_lang = previous
+
 
 load_lang()

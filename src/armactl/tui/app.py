@@ -116,13 +116,13 @@ class ArmaCtlApp(App):
         margin-bottom: 1;
     }
     #control-buttons, #schedule-buttons-primary, #schedule-buttons-secondary,
-    #bot-enable-buttons, #bot-config-buttons {
+    #bot-enable-buttons, #bot-config-buttons, #bot-service-buttons {
         height: auto;
         margin-bottom: 1;
     }
     #control-buttons Button, #schedule-buttons-primary Button,
     #schedule-buttons-secondary Button, #bot-enable-buttons Button,
-    #bot-config-buttons Button {
+    #bot-config-buttons Button, #bot-service-buttons Button {
         width: 1fr;
     }
     HorizontalGroup Button {

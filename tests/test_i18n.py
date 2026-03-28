@@ -10,16 +10,18 @@ LOCALIZED_MODULES = [
     REPO_ROOT / "src" / "armactl" / "tui" / "app.py",
     REPO_ROOT / "src" / "armactl" / "tui" / "screens.py",
     REPO_ROOT / "src" / "armactl" / "bot_config.py",
+    REPO_ROOT / "src" / "armactl" / "bot_manager.py",
     REPO_ROOT / "src" / "armactl" / "config_manager.py",
     REPO_ROOT / "src" / "armactl" / "mods_manager.py",
     REPO_ROOT / "src" / "armactl" / "service_manager.py",
     REPO_ROOT / "src" / "armactl" / "installer.py",
     REPO_ROOT / "src" / "armactl" / "repair.py",
+    REPO_ROOT / "src" / "armactl" / "telegram_bot.py",
 ]
 
 
 def _extract_translation_keys(path: Path) -> set[str]:
-    """Collect literal translation keys used via _() and tr()."""
+    """Collect literal translation keys used via i18n helper calls."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     keys: set[str] = set()
 
@@ -27,7 +29,15 @@ def _extract_translation_keys(path: Path) -> set[str]:
         def visit_Call(self, node: ast.Call) -> None:
             if (
                 isinstance(node.func, ast.Name)
-                and node.func.id in {"_", "tr"}
+                and node.func.id in {"_", "tr", "translate_for_lang", "tr_for_lang"}
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                keys.add(node.args[0].value)
+            elif (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"t", "tr"}
                 and node.args
                 and isinstance(node.args[0], ast.Constant)
                 and isinstance(node.args[0].value, str)

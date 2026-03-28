@@ -6,6 +6,7 @@ PROJECT_ROOT=$(dirname -- "$SCRIPT_DIR")
 VENV_PY="$PROJECT_ROOT/.venv/bin/python"
 RUFF_BIN="$PROJECT_ROOT/.venv/bin/ruff"
 BOOTSTRAP_SCRIPT="$PROJECT_ROOT/scripts/bootstrap.sh"
+STAMP_FILE="$PROJECT_ROOT/.venv/.armactl-pyproject.sha256"
 
 log() {
     printf '%s\n' "$*"
@@ -16,12 +17,23 @@ fail() {
     exit 1
 }
 
+pyproject_hash() {
+    sha256sum "$PROJECT_ROOT/pyproject.toml" | awk '{print $1}'
+}
+
+venv_needs_refresh() {
+    [ ! -f "$STAMP_FILE" ] || [ "$(cat "$STAMP_FILE")" != "$(pyproject_hash)" ]
+}
+
 if [ ! -f "$PROJECT_ROOT/pyproject.toml" ]; then
     fail "pyproject.toml not found; run this script from the armactl repo."
 fi
 
 if [ ! -x "$VENV_PY" ]; then
     log "==> Dev environment missing. Bootstrapping with --dev..."
+    "$BOOTSTRAP_SCRIPT" --dev
+elif venv_needs_refresh; then
+    log "==> pyproject changed. Refreshing dev environment..."
     "$BOOTSTRAP_SCRIPT" --dev
 fi
 

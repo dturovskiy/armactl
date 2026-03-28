@@ -85,7 +85,7 @@ armactl separates three layers:
 
 See [docs/architecture.md](docs/architecture.md) for full details.
 See [docs/localization.md](docs/localization.md) for adding and maintaining UI languages.
-See [docs/telegram-bot.md](docs/telegram-bot.md) for the planned Telegram bot design.
+See [docs/telegram-bot.md](docs/telegram-bot.md) for the Telegram bot design and runtime flow.
 
 ## File layout on server
 
@@ -138,10 +138,10 @@ armactl schedule disable    # Disable scheduled restarts
 .venv/bin/ruff check src/
 ```
 
-## Telegram bot design
+## Telegram bot
 
 Telegram bot management is an optional component, not part of the base server
-process. The current/runtime model is:
+process. The runtime model is:
 
 - separate systemd unit: `armactl-bot.service`
 - TUI settings screen: `Manage Existing Server -> Telegram Bot`
@@ -156,8 +156,28 @@ Runtime config path:
 The repository ships `.env.example` as a template, while real `.env` files are
 ignored by git.
 
+Typical host flow:
+
+1. Open `Manage Existing Server -> Telegram Bot`
+2. Save bot token, admin Chat ID(s) and language
+3. Click `Install / Update Bot Service`
+4. Click `Start Bot Service`
+
+Current bot commands:
+
+- `/start`
+- `/status`
+- `/stop`
+- `/restart`
+- `/schedule 05:00, 20:00`
+
+`/status` currently shows server/service/timer state. Player querying is still
+pending.
+
 `./scripts/run-host-tests` will auto-install the dev dependencies if the repo
-was only bootstrapped in prod mode before.
+was only bootstrapped in prod mode before, and both `./armactl` and
+`./scripts/run-host-tests` will refresh the repo-local `.venv` automatically
+after `pyproject.toml` dependency changes.
 
 For a repo-local smoke run on the Linux host, use:
 

@@ -1,0 +1,16 @@
+[Unit]
+Description=armactl Telegram Bot ({{ instance }})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ user }}
+WorkingDirectory={{ project_root }}
+ExecStart={{ python_bin }} -m armactl.telegram_bot --instance {{ instance }}
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

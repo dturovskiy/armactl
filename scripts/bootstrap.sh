@@ -4,6 +4,7 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_ROOT=$(dirname -- "$SCRIPT_DIR")
 VENV_DIR="$PROJECT_ROOT/.venv"
+STAMP_FILE="$VENV_DIR/.armactl-pyproject.sha256"
 MODE="${1:-}"
 
 log() {
@@ -17,6 +18,10 @@ fail() {
 
 need_cmd() {
     command -v "$1" >/dev/null 2>&1
+}
+
+pyproject_hash() {
+    sha256sum "$PROJECT_ROOT/pyproject.toml" | awk '{print $1}'
 }
 
 python_version_ok() {
@@ -98,6 +103,7 @@ fi
 chmod +x "$PROJECT_ROOT/armactl" 2>/dev/null || true
 chmod +x "$PROJECT_ROOT/scripts/run-tui" 2>/dev/null || true
 chmod +x "$PROJECT_ROOT/scripts/run-host-tests" 2>/dev/null || true
+printf '%s\n' "$(pyproject_hash)" > "$STAMP_FILE"
 
 log ""
 log "Done."

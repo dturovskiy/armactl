@@ -9,7 +9,10 @@ Current status:
 
 - instance-scoped `bot/.env` is implemented as the source of truth
 - the TUI already has a `Telegram Bot` settings screen that reads and writes it
-- the bot runtime and `armactl-bot.service` are still pending
+- the bot runtime is implemented via `python -m armactl.telegram_bot --instance <name>`
+- `armactl-bot.service` can now be installed and managed from the TUI
+- current gap: `/status` still reports server state only; player querying is not
+  implemented yet
 
 ## Goals
 
@@ -58,7 +61,17 @@ of the same `.env` file must produce the same final state that the TUI sees.
 1. Install server via the normal install flow
 2. Open `Manage Existing Server -> Telegram Bot`
 3. Save token and admin Chat ID(s) into the instance `.env`
-4. Later generate and enable `armactl-bot.service`
+4. Use `Install / Update Bot Service`
+5. Start the service from the same screen
+
+## Current bot surface
+
+- `/start` opens the inline control menu
+- `/status` shows current server and timer state
+- `/stop` stops the server
+- `/restart` restarts the server
+- `/schedule 05:00, 20:00` updates scheduled restart times
+- access is restricted by `ARMACTL_BOT_ADMIN_CHAT_IDS`
 
 ## Library choice
 

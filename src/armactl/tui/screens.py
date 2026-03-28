@@ -34,6 +34,13 @@ from armactl.bot_config import (
     save_bot_config,
     validate_bot_config,
 )
+from armactl.bot_manager import (
+    get_bot_service_status,
+    install_bot_service,
+    restart_bot_service,
+    start_bot_service,
+    stop_bot_service,
+)
 from armactl.cleaner import clean_junk, format_size, get_junk_stats
 from armactl.config_manager import load_config, save_config, validate_config
 from armactl.discovery import discover
@@ -758,6 +765,24 @@ class BotConfigScreen(Screen):
                 yield Button(_("Reload From Disk"), id="btn_reload_bot", variant="default")
                 yield Button(_("Copy .env Path"), id="btn_copy_bot_path", variant="primary")
                 yield Button(_("Back"), id="btn_back_bot", variant="error")
+            with HorizontalGroup(id="bot-service-buttons"):
+                yield Button(
+                    _("Install / Update Bot Service"),
+                    id="btn_install_bot_service",
+                    variant="primary",
+                )
+                yield Button(_("Start Bot Service"), id="btn_start_bot_service", variant="success")
+                yield Button(_("Stop Bot Service"), id="btn_stop_bot_service", variant="warning")
+                yield Button(
+                    _("Restart Bot Service"),
+                    id="btn_restart_bot_service",
+                    variant="default",
+                )
+                yield Button(
+                    _("Refresh Bot Service"),
+                    id="btn_refresh_bot_service",
+                    variant="default",
+                )
         yield Footer()
 
     def on_mount(self) -> None:
@@ -793,7 +818,12 @@ class BotConfigScreen(Screen):
         enable_button.disabled = self._enabled
         disable_button.disabled = not self._enabled
 
-    def _refresh_status_log(self, validation_errors: list[str] | None = None) -> None:
+    def _refresh_status_log(
+        self,
+        validation_errors: list[str] | None = None,
+        *,
+        include_service_status: bool = True,
+    ) -> None:
         config, draft_errors = self._build_draft_config()
         if validation_errors is None:
             validation_errors = draft_errors
@@ -810,6 +840,41 @@ class BotConfigScreen(Screen):
             tr("Admin Chat IDs: {value}", value=admins_value),
             tr("Bot language: {value}", value=config.language),
         ]
+
+        if include_service_status:
+            bot_service = get_bot_service_status()
+            service_installed = _("Yes") if bot_service.get("installed") else _("No")
+            service_enabled = _("Yes") if bot_service.get("enabled") else _("No")
+            runtime_status = bot_service.get("runtime", {})
+            runtime_ready = _("Yes") if runtime_status.get("success") else _("No")
+
+            lines.extend(
+                [
+                    tr(
+                        "Bot service unit: {value}",
+                        value=bot_service.get("service_name", paths.BOT_SERVICE_NAME),
+                    ),
+                    tr(
+                        "Bot service file: {path}",
+                        path=bot_service.get("service_file", paths.bot_service_file()),
+                    ),
+                    tr("Bot service installed: {value}", value=service_installed),
+                    tr("Bot service enabled on boot: {value}", value=service_enabled),
+                    tr(
+                        "Bot service active state: {value}",
+                        value=bot_service.get("active_state", _("Unknown")),
+                    ),
+                    tr("Bot runtime ready: {value}", value=runtime_ready),
+                    tr(
+                        "Bot runtime check: {value}",
+                        value=runtime_status.get("message", _("Unknown")),
+                    ),
+                ]
+            )
+
+            description = str(bot_service.get("description", "")).strip()
+            if description:
+                lines.append(tr("Bot service description: {value}", value=description))
 
         if validation_errors:
             lines.append(_("[bold yellow]Validation warnings[/bold yellow]"))
@@ -836,7 +901,7 @@ class BotConfigScreen(Screen):
         self.query_one("#inp_bot_chat_ids", Input).value = config.admin_chat_ids_text()
         self.query_one("#inp_bot_language", Input).value = config.language
         self._update_enable_buttons()
-        self._refresh_status_log(validation_errors=[])
+        self._refresh_status_log(validation_errors=[], include_service_status=True)
 
         if notify:
             self.app.notify(
@@ -854,37 +919,70 @@ class BotConfigScreen(Screen):
             title=_("Clipboard"),
         )
 
-    def action_save_bot_settings(self) -> None:
+    def action_save_bot_settings(self, notify: bool = True) -> bool:
         config, validation_errors = self._build_draft_config()
         if validation_errors:
-            self.app.notify(
-                validation_errors[0],
-                title=_("Telegram Bot"),
-                severity="error",
-            )
+            if notify:
+                self.app.notify(
+                    validation_errors[0],
+                    title=_("Telegram Bot"),
+                    severity="error",
+                )
             self._refresh_status_log(validation_errors)
-            return
+            return False
 
         try:
             saved_path = save_bot_config(config)
         except Exception as e:
+            if notify:
+                self.app.notify(
+                    tr("Failed to save Telegram bot settings: {error}", error=e),
+                    title=_("Telegram Bot"),
+                    severity="error",
+                )
+            return False
+
+        self._env_path = saved_path
+        self._refresh_status_log(validation_errors=[], include_service_status=True)
+        if notify:
             self.app.notify(
-                tr("Failed to save Telegram bot settings: {error}", error=e),
+                tr("Saved Telegram bot settings to {path}.", path=saved_path),
+                title=_("Telegram Bot"),
+            )
+        return True
+
+    def action_install_bot_service(self) -> None:
+        if not self.action_save_bot_settings(notify=False):
+            self.app.notify(
+                _("Save a valid bot config before installing the bot service."),
                 title=_("Telegram Bot"),
                 severity="error",
             )
             return
 
-        self._env_path = saved_path
+        results = install_bot_service(self.instance)
+        failures = [result.message for result in results if not result.success]
+        self._refresh_status_log(validation_errors=[])
+        if failures:
+            self.app.notify(failures[0], title=_("Telegram Bot"), severity="error")
+            return
+
+        self.app.notify(
+            _("Bot service installed/updated and enabled on boot."),
+            title=_("Telegram Bot"),
+        )
+
+    def _handle_bot_service_action(self, action_label: str, result) -> None:
         self._refresh_status_log(validation_errors=[])
         self.app.notify(
-            tr("Saved Telegram bot settings to {path}.", path=saved_path),
-            title=_("Telegram Bot"),
+            result.message,
+            title=action_label,
+            severity="error" if not result.success else "information",
         )
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id in {"inp_bot_token", "inp_bot_chat_ids", "inp_bot_language"}:
-            self._refresh_status_log()
+            self._refresh_status_log(include_service_status=False)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn_back_bot":
@@ -892,7 +990,7 @@ class BotConfigScreen(Screen):
         elif event.button.id == "btn_bot_enable":
             self._enabled = True
             self._update_enable_buttons()
-            self._refresh_status_log()
+            self._refresh_status_log(include_service_status=False)
             self.app.notify(
                 _("Telegram bot marked as enabled. Save settings to persist."),
                 title=_("Telegram Bot"),
@@ -900,7 +998,7 @@ class BotConfigScreen(Screen):
         elif event.button.id == "btn_bot_disable":
             self._enabled = False
             self._update_enable_buttons()
-            self._refresh_status_log()
+            self._refresh_status_log(include_service_status=False)
             self.app.notify(
                 _("Telegram bot marked as disabled. Save settings to persist."),
                 title=_("Telegram Bot"),
@@ -911,6 +1009,17 @@ class BotConfigScreen(Screen):
             self.action_reload_bot_settings()
         elif event.button.id == "btn_copy_bot_path":
             self.action_copy_bot_env_path()
+        elif event.button.id == "btn_install_bot_service":
+            self.action_install_bot_service()
+        elif event.button.id == "btn_start_bot_service":
+            self._handle_bot_service_action(_("Start Bot Service"), start_bot_service())
+        elif event.button.id == "btn_stop_bot_service":
+            self._handle_bot_service_action(_("Stop Bot Service"), stop_bot_service())
+        elif event.button.id == "btn_restart_bot_service":
+            self._handle_bot_service_action(_("Restart Bot Service"), restart_bot_service())
+        elif event.button.id == "btn_refresh_bot_service":
+            self._refresh_status_log(validation_errors=[])
+            self.app.notify(_("Refreshed bot service status."), title=_("Telegram Bot"))
 
 
 class CleanupScreen(Screen):
