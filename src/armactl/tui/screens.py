@@ -507,6 +507,14 @@ class ManageScreen(Screen):
             "",
             _("[bold cyan]Host / VM Metrics[/bold cyan]"),
             tr(
+                "Host CPU: {value}",
+                value=(
+                    format_cpu_percent(host_metrics.cpu_percent)
+                    if host_metrics.cpu_percent is not None
+                    else unknown_text
+                ),
+            ),
+            tr(
                 "Host RAM: {value}",
                 value=(
                     f"{format_bytes(host_metrics.memory_used_bytes)} / "

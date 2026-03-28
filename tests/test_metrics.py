@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from armactl.metrics import (
     estimate_service_cpu_percent,
+    estimate_host_cpu_percent,
     format_bytes,
     format_cpu_percent,
     format_duration,
@@ -34,6 +35,23 @@ def test_format_load_average_and_duration_handle_missing_values() -> None:
     assert format_load_average(0.75, 0.50, 0.25) == "0.75 / 0.50 / 0.25"
     assert format_duration(None) == "Unknown"
     assert format_duration(93784) == "1d 2h 3m"
+
+
+def test_estimate_host_cpu_percent_uses_proc_stat_delta() -> None:
+    proc_stat_samples = iter(
+        [
+            "cpu  100 0 100 700 100 0 0 0 0 0\n",
+            "cpu  160 0 140 730 110 0 0 0 0 0\n",
+        ]
+    )
+
+    with (
+        patch("armactl.metrics._read_text", side_effect=lambda path: next(proc_stat_samples)),
+        patch("armactl.metrics.time.sleep"),
+    ):
+        cpu_percent = estimate_host_cpu_percent()
+
+    assert cpu_percent == 70.0
 
 
 def test_query_process_metrics_reads_proc_files() -> None:
@@ -159,12 +177,14 @@ def test_query_host_metrics_reads_meminfo_disk_load_and_uptime() -> None:
 
     with (
         patch("armactl.metrics._read_text", side_effect=fake_read_text),
+        patch("armactl.metrics.estimate_host_cpu_percent", return_value=37.5),
         patch("armactl.metrics.shutil.disk_usage", return_value=disk_usage),
         patch("armactl.metrics.os.getloadavg", return_value=(0.75, 0.5, 0.25)),
     ):
         metrics = query_host_metrics("/")
 
     assert metrics.available is True
+    assert metrics.cpu_percent == 37.5
     assert metrics.memory_used_bytes == 4294967296
     assert metrics.memory_total_bytes == 8589934592
     assert metrics.disk_used_bytes == 400

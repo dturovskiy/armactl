@@ -85,6 +85,7 @@ def test_render_bot_metrics_text_uses_english_fallback():
         memory_rss_bytes=268435456,
         host_metrics=metrics.HostMetrics(
             available=True,
+            cpu_percent=37.5,
             memory_used_bytes=3221225472,
             memory_total_bytes=8589934592,
             disk_used_bytes=21474836480,
@@ -104,6 +105,7 @@ def test_render_bot_metrics_text_uses_english_fallback():
     assert "Server CPU: 12.5%" in text
     assert "Server RAM: 256.0 MiB" in text
     assert "Host / VM Metrics" in text
+    assert "Host CPU: 37.5%" in text
     assert "Host RAM: 3.0 GiB / 8.0 GiB" in text
     assert "Host Disk: 20.0 GiB / 100.0 GiB" in text
     assert "Host Load Avg: 0.75 / 0.50 / 0.25" in text

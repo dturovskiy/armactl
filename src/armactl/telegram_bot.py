@@ -9,19 +9,12 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any
 
+import armactl.metrics as metrics
+import armactl.status_summary as status_summary
 from armactl.a2s import query_player_status
 from armactl.bot_config import BotConfigError, load_bot_config
 from armactl.discovery import discover
 from armactl.i18n import tr_for_lang, translate_for_lang, using_lang
-from armactl.metrics import (
-    format_bytes,
-    format_cpu_percent,
-    format_duration,
-    format_load_average,
-    HostMetrics,
-    query_host_metrics,
-    query_service_runtime_metrics,
-)
 from armactl.rcon import query_player_roster
 from armactl.service_manager import (
     disable_service,
@@ -38,7 +31,6 @@ from armactl.service_manager import (
     timer_unit_name,
     update_restart_timer_schedule,
 )
-from armactl.status_summary import ConfigSummary, ModsSummary, load_status_summaries
 
 LOGGER = logging.getLogger(__name__)
 
@@ -99,14 +91,14 @@ class BotStatusSnapshot:
     main_pid: int = 0
     cpu_percent: float | None = None
     memory_rss_bytes: int | None = None
-    config_summary: ConfigSummary = field(
-        default_factory=lambda: ConfigSummary(False)
+    config_summary: status_summary.ConfigSummary = field(
+        default_factory=lambda: status_summary.ConfigSummary(False)
     )
-    mods_summary: ModsSummary = field(
-        default_factory=lambda: ModsSummary(False)
+    mods_summary: status_summary.ModsSummary = field(
+        default_factory=lambda: status_summary.ModsSummary(False)
     )
-    host_metrics: HostMetrics = field(
-        default_factory=lambda: HostMetrics(False)
+    host_metrics: metrics.HostMetrics = field(
+        default_factory=lambda: metrics.HostMetrics(False)
     )
     player_lines: list[str] = field(default_factory=list)
     roster_available: bool = False
@@ -185,32 +177,39 @@ def render_bot_metrics_text(snapshot: BotStatusSnapshot, lang: str) -> str:
     unknown_text = translate_for_lang(lang, "Unknown")
     pid_text = str(snapshot.main_pid) if snapshot.main_pid > 0 else unknown_text
     server_cpu_text = (
-        format_cpu_percent(snapshot.cpu_percent)
+        metrics.format_cpu_percent(snapshot.cpu_percent)
         if snapshot.cpu_percent is not None
         else unknown_text
     )
     server_ram_text = (
-        format_bytes(snapshot.memory_rss_bytes)
+        metrics.format_bytes(snapshot.memory_rss_bytes)
         if snapshot.memory_rss_bytes is not None
         else unknown_text
     )
     host = snapshot.host_metrics
     host_ram_text = (
-        f"{format_bytes(host.memory_used_bytes)} / {format_bytes(host.memory_total_bytes)}"
+        f"{metrics.format_bytes(host.memory_used_bytes)} / "
+        f"{metrics.format_bytes(host.memory_total_bytes)}"
         if host.memory_used_bytes is not None and host.memory_total_bytes is not None
         else unknown_text
     )
+    host_cpu_text = (
+        metrics.format_cpu_percent(host.cpu_percent)
+        if host.cpu_percent is not None
+        else unknown_text
+    )
     host_disk_text = (
-        f"{format_bytes(host.disk_used_bytes)} / {format_bytes(host.disk_total_bytes)}"
+        f"{metrics.format_bytes(host.disk_used_bytes)} / "
+        f"{metrics.format_bytes(host.disk_total_bytes)}"
         if host.disk_used_bytes is not None and host.disk_total_bytes is not None
         else unknown_text
     )
-    host_load_text = format_load_average(
+    host_load_text = metrics.format_load_average(
         host.load_average_1m,
         host.load_average_5m,
         host.load_average_15m,
     )
-    host_uptime_text = format_duration(host.uptime_seconds)
+    host_uptime_text = metrics.format_duration(host.uptime_seconds)
 
     return "\n".join(
         [
@@ -225,6 +224,7 @@ def render_bot_metrics_text(snapshot: BotStatusSnapshot, lang: str) -> str:
             _bullet_line(tr_for_lang(lang, "Server RAM: {value}", value=server_ram_text)),
             "",
             _icon_line(COMPUTER, translate_for_lang(lang, "Host / VM Metrics")),
+            _bullet_line(tr_for_lang(lang, "Host CPU: {value}", value=host_cpu_text)),
             _bullet_line(tr_for_lang(lang, "Host RAM: {value}", value=host_ram_text)),
             _bullet_line(tr_for_lang(lang, "Host Disk: {value}", value=host_disk_text)),
             _bullet_line(tr_for_lang(lang, "Host Load Avg: {value}", value=host_load_text)),
@@ -451,12 +451,15 @@ def _build_status_snapshot(instance: str) -> BotStatusSnapshot:
     service_status = get_service_status(service_unit_name(instance))
     timer_status = get_timer_status(timer_unit_name(instance))
     player_status = query_player_status(instance, state=state)
-    metrics = query_service_runtime_metrics(service_status)
-    main_pid = metrics.pid
+    runtime_metrics = metrics.query_service_runtime_metrics(service_status)
+    main_pid = runtime_metrics.pid
     if state.config_exists and state.config_path:
-        config_summary, mods_summary = load_status_summaries(state.config_path)
+        config_summary, mods_summary = status_summary.load_status_summaries(
+            state.config_path
+        )
     else:
-        config_summary, mods_summary = ConfigSummary(False), ModsSummary(False)
+        config_summary = status_summary.ConfigSummary(False)
+        mods_summary = status_summary.ModsSummary(False)
     roster_lines: list[str] = []
     roster_available = False
     if player_status.player_count and player_status.player_count > 0:
@@ -482,11 +485,11 @@ def _build_status_snapshot(instance: str) -> BotStatusSnapshot:
         player_count=player_status.player_count,
         max_players=player_status.max_players,
         main_pid=main_pid,
-        cpu_percent=metrics.cpu_percent,
-        memory_rss_bytes=metrics.memory_rss_bytes,
+        cpu_percent=runtime_metrics.cpu_percent,
+        memory_rss_bytes=runtime_metrics.memory_rss_bytes,
         config_summary=config_summary,
         mods_summary=mods_summary,
-        host_metrics=query_host_metrics(),
+        host_metrics=metrics.query_host_metrics(),
         player_lines=roster_lines,
         roster_available=roster_available,
     )

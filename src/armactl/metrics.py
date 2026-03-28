@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ class HostMetrics:
     """Best-effort host/VM metrics for diagnostics views."""
 
     available: bool
+    cpu_percent: float | None = None
     memory_used_bytes: int | None = None
     memory_total_bytes: int | None = None
     disk_used_bytes: int | None = None
@@ -130,6 +132,42 @@ def _parse_meminfo() -> tuple[int | None, int | None]:
     if total is None or available is None:
         return None, None
     return max(total - available, 0), total
+
+
+def _read_host_cpu_sample() -> tuple[int, int] | None:
+    """Return total and idle Linux CPU jiffies from /proc/stat."""
+    for line in _read_text(Path("/proc/stat")).splitlines():
+        if not line.startswith("cpu "):
+            continue
+        parts = line.split()[1:]
+        if len(parts) < 5:
+            return None
+        values = [int(part) for part in parts]
+        total = sum(values)
+        idle = values[3] + values[4]
+        return total, idle
+    return None
+
+
+def estimate_host_cpu_percent(sample_seconds: float = 0.05) -> float | None:
+    """Estimate host CPU utilization from two /proc/stat samples."""
+    try:
+        first_sample = _read_host_cpu_sample()
+        if first_sample is None:
+            return None
+        time.sleep(max(sample_seconds, 0.0))
+        second_sample = _read_host_cpu_sample()
+        if second_sample is None:
+            return None
+    except (OSError, ValueError):
+        return None
+
+    total_delta = second_sample[0] - first_sample[0]
+    idle_delta = second_sample[1] - first_sample[1]
+    if total_delta <= 0:
+        return None
+    busy_delta = max(total_delta - idle_delta, 0)
+    return (busy_delta / total_delta) * 100.0
 
 
 def estimate_service_cpu_percent(service_status: dict[str, Any]) -> float | None:
@@ -255,6 +293,7 @@ def query_service_runtime_metrics(service_status: dict[str, Any]) -> ProcessMetr
 
 def query_host_metrics(path: str | Path = "/") -> HostMetrics:
     """Return best-effort host/VM metrics for diagnostics views."""
+    cpu_percent: float | None = None
     memory_used_bytes: int | None = None
     memory_total_bytes: int | None = None
     disk_used_bytes: int | None = None
@@ -264,6 +303,11 @@ def query_host_metrics(path: str | Path = "/") -> HostMetrics:
     load_average_15m: float | None = None
     uptime_seconds: float | None = None
     errors: list[str] = []
+
+    try:
+        cpu_percent = estimate_host_cpu_percent()
+    except OSError as error:
+        errors.append(str(error))
 
     try:
         memory_used_bytes, memory_total_bytes = _parse_meminfo()
@@ -294,6 +338,7 @@ def query_host_metrics(path: str | Path = "/") -> HostMetrics:
     available = any(
         value is not None
         for value in (
+            cpu_percent,
             memory_total_bytes,
             disk_total_bytes,
             load_average_1m,
@@ -302,6 +347,7 @@ def query_host_metrics(path: str | Path = "/") -> HostMetrics:
     )
     return HostMetrics(
         available=available,
+        cpu_percent=cpu_percent,
         memory_used_bytes=memory_used_bytes,
         memory_total_bytes=memory_total_bytes,
         disk_used_bytes=disk_used_bytes,

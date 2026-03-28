@@ -151,6 +151,7 @@
     "Main PID: {value}": "Main PID: {value}",
     "Server CPU: {value}": "CPU сервера: {value}",
     "Server RAM: {value}": "RAM сервера: {value}",
+    "Host CPU: {value}": "CPU хоста: {value}",
     "Host RAM: {value}": "RAM хоста: {value}",
     "Host Disk: {value}": "Диск хоста: {value}",
     "Host Load Avg: {value}": "Load average хоста: {value}",
