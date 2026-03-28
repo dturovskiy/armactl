@@ -96,7 +96,8 @@ def _rotate_backups(backups_dir: Path, max_backups: int = 10) -> None:
     """Keep only the latest `max_backups` files matching config.json.*.bak."""
     backups = list(sorted(backups_dir.glob("config.json.*.bak"), key=os.path.getmtime))
     if len(backups) > max_backups:
-        for old_backup in backups[:-max_backups]:
+        num_to_delete = len(backups) - max_backups
+        for old_backup in backups[:num_to_delete]:
             try:
                 old_backup.unlink()
             except OSError:
@@ -160,3 +161,24 @@ def set_value(config_path: Path | str, section: str, key: str, value: Any) -> No
         data[key] = value
 
     save_config(config_path, data)
+    
+
+def unset_value(config_path: Path | str, section: str, key: str) -> None:
+    """Unset a nested value in the config."""
+    config_path = Path(config_path)
+    data = load_config(config_path)
+    
+    deleted = False
+    if section:
+        if section in data and isinstance(data[section], dict) and key in data[section]:
+            data[section].pop(key, None)
+            deleted = True
+    else:
+        if key in data:
+            data.pop(key, None)
+            deleted = True
+
+    if deleted:
+        save_config(config_path, data)
+    else:
+        raise ConfigError(f"Key '{key}' not found in config.")

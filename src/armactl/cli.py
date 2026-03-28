@@ -498,6 +498,36 @@ def config_set_rcon_password(ctx: click.Context, password: str) -> None:
         sys.exit(1)
 
 
+@config.command("unset")
+@click.argument("path")
+@click.pass_context
+def config_unset(ctx: click.Context, path: str) -> None:
+    """Remove a config value. Example: config unset password"""
+    from armactl.config_manager import unset_value, ConfigError
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config not found.", err=True)
+        sys.exit(1)
+
+    parts = path.split(".", 1)
+    if len(parts) == 1:
+        section = ""
+        key = parts[0]
+    else:
+        section = parts[0]
+        key = parts[1]
+
+    try:
+        unset_value(state.config_path, section, key)
+        click.echo(f"[{instance}] Parameter '{path}' removed.")
+    except ConfigError as e:
+        click.echo(f"[{instance}] {e}", err=True)
+        sys.exit(1)
+
+
 @config.command("validate")
 @click.pass_context
 def config_validate(ctx: click.Context) -> None:
