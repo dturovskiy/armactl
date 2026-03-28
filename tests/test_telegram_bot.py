@@ -30,6 +30,8 @@ def test_render_bot_status_text_uses_english_fallback():
 
     text = render_bot_status_text(snapshot, "en")
 
+    assert "🤖" in text
+    assert "🟢" in text
     assert "ArmaCtl Telegram Bot [default]" in text
     assert "Server: Running" in text
     assert "Service enabled: Yes" in text
@@ -48,6 +50,8 @@ def test_render_bot_schedule_text_uses_english_fallback():
         "en",
     )
 
+    assert "⏰" in text
+    assert "🛠️" in text
     assert "Restart Schedule: default" in text
     assert "Enabled: Yes" in text
     assert "Current schedule: 08:00, 20:00" in text

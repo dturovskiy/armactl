@@ -28,11 +28,22 @@ from armactl.service_manager import (
 )
 
 LOGGER = logging.getLogger(__name__)
+SEPARATOR = "────────────────────"
 
 
 def admin_chat_allowed(chat_id: int | str, admin_chat_ids: list[str]) -> bool:
     """Check whether a Telegram chat is in the configured admin allowlist."""
     return str(chat_id) in admin_chat_ids
+
+
+def _icon_line(icon: str, text: str) -> str:
+    """Prefix a Telegram-friendly line with an emoji/icon."""
+    return f"{icon} {text}"
+
+
+def _bullet_line(text: str) -> str:
+    """Render a simple bullet line for Telegram text blocks."""
+    return f"• {text}"
 
 
 @dataclass
@@ -63,38 +74,65 @@ def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
         if snapshot.service_enabled
         else translate_for_lang(lang, "No")
     )
+    server_icon = "🟢" if snapshot.server_running else "🔴"
 
     lines = [
-        tr_for_lang(lang, "ArmaCtl Telegram Bot [{instance}]", instance=snapshot.instance),
-        tr_for_lang(lang, "Server: {value}", value=running_text),
-        tr_for_lang(lang, "Service: {value}", value=snapshot.service_name),
-        tr_for_lang(lang, "Service active state: {value}", value=snapshot.service_active_state),
-        tr_for_lang(lang, "Service enabled: {value}", value=enabled_text),
-        tr_for_lang(lang, "Timer: {value}", value=snapshot.timer_name),
-        tr_for_lang(lang, "Current schedule: {value}", value=schedule_text),
-        tr_for_lang(lang, "Next run: {value}", value=next_run_text),
-        translate_for_lang(lang, "Players: not implemented yet."),
+        _icon_line(
+            "🤖",
+            tr_for_lang(lang, "ArmaCtl Telegram Bot [{instance}]", instance=snapshot.instance),
+        ),
+        SEPARATOR,
+        _icon_line(server_icon, tr_for_lang(lang, "Server: {value}", value=running_text)),
+        _icon_line("⚙️", tr_for_lang(lang, "Service: {value}", value=snapshot.service_name)),
+        _bullet_line(
+            tr_for_lang(
+                lang,
+                "Service active state: {value}",
+                value=snapshot.service_active_state,
+            )
+        ),
+        _bullet_line(tr_for_lang(lang, "Service enabled: {value}", value=enabled_text)),
+        "",
+        _icon_line("⏰", tr_for_lang(lang, "Timer: {value}", value=snapshot.timer_name)),
+        _bullet_line(tr_for_lang(lang, "Current schedule: {value}", value=schedule_text)),
+        _bullet_line(tr_for_lang(lang, "Next run: {value}", value=next_run_text)),
+        "",
+        _icon_line("👥", translate_for_lang(lang, "Players: not implemented yet.")),
     ]
     return "\n".join(lines)
 
 
 def render_bot_schedule_text(instance: str, timer_status: dict[str, Any], lang: str) -> str:
     """Render a localized schedule response for Telegram."""
-    schedule_text = timer_status.get("schedule", "").strip() or translate_for_lang(lang, "Unknown")
-    next_run_text = timer_status.get("next_run", "").strip() or translate_for_lang(lang, "Unknown")
+    schedule_text = timer_status.get("schedule", "").strip() or translate_for_lang(
+        lang,
+        "Unknown",
+    )
+    next_run_text = timer_status.get("next_run", "").strip() or translate_for_lang(
+        lang,
+        "Unknown",
+    )
     enabled_text = (
         translate_for_lang(lang, "Yes")
         if timer_status.get("enabled")
         else translate_for_lang(lang, "No")
     )
+    enabled_icon = "🟢" if timer_status.get("enabled") else "🔴"
 
     lines = [
-        tr_for_lang(lang, "Restart Schedule: {instance}", instance=instance),
-        tr_for_lang(lang, "Enabled: {value}", value=enabled_text),
-        tr_for_lang(lang, "Current schedule: {value}", value=schedule_text),
-        tr_for_lang(lang, "Next run: {value}", value=next_run_text),
-        translate_for_lang(lang, "Schedule controls:"),
-        translate_for_lang(lang, "Update the schedule with: /schedule 05:00, 20:00"),
+        _icon_line(
+            "⏰",
+            tr_for_lang(lang, "Restart Schedule: {instance}", instance=instance),
+        ),
+        SEPARATOR,
+        _icon_line(enabled_icon, tr_for_lang(lang, "Enabled: {value}", value=enabled_text)),
+        _bullet_line(tr_for_lang(lang, "Current schedule: {value}", value=schedule_text)),
+        _bullet_line(tr_for_lang(lang, "Next run: {value}", value=next_run_text)),
+        "",
+        _icon_line("🛠️", translate_for_lang(lang, "Schedule controls:")),
+        _bullet_line(
+            translate_for_lang(lang, "Update the schedule with: /schedule 05:00, 20:00")
+        ),
     ]
     return "\n".join(lines)
 
@@ -132,6 +170,28 @@ class ArmaCtlTelegramBot:
         """Translate and format for the configured bot language."""
         return tr_for_lang(self.lang, text, **kwargs)
 
+    def button_label(self, icon: str, text: str) -> str:
+        """Render a localized Telegram button label with an emoji prefix."""
+        return _icon_line(icon, self.t(text))
+
+    def menu_text(self) -> str:
+        """Render the main bot menu text."""
+        return "\n".join(
+            [
+                _icon_line(
+                    "🤖",
+                    self.tr("ArmaCtl Telegram Bot [{instance}]", instance=self.instance),
+                ),
+                SEPARATOR,
+                self.t("Choose an action:"),
+            ]
+        )
+
+    def action_result_text(self, result, details: str) -> str:
+        """Render a backend action result followed by a refreshed detail block."""
+        icon = "✅" if getattr(result, "success", False) else "❌"
+        return "\n".join([_icon_line(icon, result.message), "", details])
+
     def ensure_runtime_config(self) -> None:
         """Validate mandatory runtime bot settings before polling starts."""
         if not self.config.enabled:
@@ -146,16 +206,28 @@ class ArmaCtlTelegramBot:
 
         keyboard = [
             [
-                InlineKeyboardButton(self.t("Status"), callback_data="status"),
-                InlineKeyboardButton(self.t("Schedule"), callback_data="schedule"),
+                InlineKeyboardButton(self.button_label("📊", "Status"), callback_data="status"),
+                InlineKeyboardButton(self.button_label("⏰", "Schedule"), callback_data="schedule"),
             ],
             [
-                InlineKeyboardButton(self.t("Start Server"), callback_data="start"),
-                InlineKeyboardButton(self.t("Stop Server"), callback_data="stop:confirm"),
+                InlineKeyboardButton(
+                    self.button_label("▶️", "Start Server"),
+                    callback_data="start",
+                ),
+                InlineKeyboardButton(
+                    self.button_label("⏹️", "Stop Server"),
+                    callback_data="stop:confirm",
+                ),
             ],
             [
-                InlineKeyboardButton(self.t("Restart Server"), callback_data="restart:confirm"),
-                InlineKeyboardButton(self.t("Refresh Menu"), callback_data="menu"),
+                InlineKeyboardButton(
+                    self.button_label("🔄", "Restart Server"),
+                    callback_data="restart:confirm",
+                ),
+                InlineKeyboardButton(
+                    self.button_label("♻️", "Refresh Menu"),
+                    callback_data="menu",
+                ),
             ],
         ]
         return InlineKeyboardMarkup(keyboard)
@@ -165,12 +237,21 @@ class ArmaCtlTelegramBot:
 
         keyboard = [
             [
-                InlineKeyboardButton(self.t("Enable Timer"), callback_data="schedule:enable"),
-                InlineKeyboardButton(self.t("Disable Timer"), callback_data="schedule:disable"),
+                InlineKeyboardButton(
+                    self.button_label("✅", "Enable Timer"),
+                    callback_data="schedule:enable",
+                ),
+                InlineKeyboardButton(
+                    self.button_label("⏸️", "Disable Timer"),
+                    callback_data="schedule:disable",
+                ),
             ],
             [
-                InlineKeyboardButton(self.t("Restart Now"), callback_data="schedule:restart-now"),
-                InlineKeyboardButton(self.t("Back"), callback_data="menu"),
+                InlineKeyboardButton(
+                    self.button_label("🚨", "Restart Now"),
+                    callback_data="schedule:restart-now",
+                ),
+                InlineKeyboardButton(self.button_label("↩️", "Back"), callback_data="menu"),
             ],
         ]
         return InlineKeyboardMarkup(keyboard)
@@ -180,8 +261,11 @@ class ArmaCtlTelegramBot:
 
         keyboard = [
             [
-                InlineKeyboardButton(self.t("Yes"), callback_data=f"{action}:run"),
-                InlineKeyboardButton(self.t("Cancel"), callback_data="menu"),
+                InlineKeyboardButton(
+                    self.button_label("✅", "Yes"),
+                    callback_data=f"{action}:run",
+                ),
+                InlineKeyboardButton(self.button_label("❌", "Cancel"), callback_data="menu"),
             ]
         ]
         return InlineKeyboardMarkup(keyboard)
@@ -200,17 +284,26 @@ class ArmaCtlTelegramBot:
         chat_id = getattr(update.effective_chat, "id", "unknown")
         message = "\n".join(
             [
-                self.tr("Bot access denied for chat ID {chat_id}.", chat_id=chat_id),
-                self.tr(
-                    "Your chat ID is {chat_id}. Add it to "
-                    "ARMACTL_BOT_ADMIN_CHAT_IDS to authorize this chat.",
-                    chat_id=chat_id,
+                _icon_line(
+                    "⛔",
+                    self.tr("Bot access denied for chat ID {chat_id}.", chat_id=chat_id),
+                ),
+                _icon_line(
+                    "🆔",
+                    self.tr(
+                        "Your chat ID is {chat_id}. Add it to "
+                        "ARMACTL_BOT_ADMIN_CHAT_IDS to authorize this chat.",
+                        chat_id=chat_id,
+                    ),
                 ),
             ]
         )
 
         if getattr(update, "callback_query", None) is not None:
-            await update.callback_query.answer(self.t("Access denied."), show_alert=True)
+            await update.callback_query.answer(
+                self.t("Access denied."),
+                show_alert=True,
+            )
         elif getattr(update, "effective_message", None) is not None:
             await update.effective_message.reply_text(message)
 
@@ -239,13 +332,7 @@ class ArmaCtlTelegramBot:
     async def start_command(self, update, context) -> None:
         if not await self._ensure_allowed(update):
             return
-        text = "\n".join(
-            [
-                self.tr("ArmaCtl Telegram Bot [{instance}]", instance=self.instance),
-                self.t("Choose an action:"),
-            ]
-        )
-        await self._reply_with_menu(update, text)
+        await self._reply_with_menu(update, self.menu_text())
 
     async def status_command(self, update, context) -> None:
         if not await self._ensure_allowed(update):
@@ -256,13 +343,19 @@ class ArmaCtlTelegramBot:
         if not await self._ensure_allowed(update):
             return
         result = self._call_backend(stop_service, service_unit_name(self.instance))
-        await self._reply_with_menu(update, "\n\n".join([result.message, self._status_text()]))
+        await self._reply_with_menu(
+            update,
+            self.action_result_text(result, self._status_text()),
+        )
 
     async def restart_command(self, update, context) -> None:
         if not await self._ensure_allowed(update):
             return
         result = self._call_backend(restart_service, service_unit_name(self.instance))
-        await self._reply_with_menu(update, "\n\n".join([result.message, self._status_text()]))
+        await self._reply_with_menu(
+            update,
+            self.action_result_text(result, self._status_text()),
+        )
 
     async def schedule_command(self, update, context) -> None:
         if not await self._ensure_allowed(update):
@@ -285,7 +378,13 @@ class ArmaCtlTelegramBot:
             pretty_schedule = format_schedule_for_input(schedule_entries)
             text = "\n\n".join(
                 [
-                    self.tr("Restart schedule updated to {schedule}.", schedule=pretty_schedule),
+                    _icon_line(
+                        "✅",
+                        self.tr(
+                            "Restart schedule updated to {schedule}.",
+                            schedule=pretty_schedule,
+                        ),
+                    ),
                     self._schedule_text(),
                 ]
             )
@@ -303,15 +402,7 @@ class ArmaCtlTelegramBot:
         data = query.data or ""
 
         if data == "menu":
-            await self._reply_with_menu(
-                update,
-                "\n".join(
-                    [
-                        self.tr("ArmaCtl Telegram Bot [{instance}]", instance=self.instance),
-                        self.t("Choose an action:"),
-                    ]
-                ),
-            )
+            await self._reply_with_menu(update, self.menu_text())
             return
 
         if data == "status":
@@ -324,7 +415,10 @@ class ArmaCtlTelegramBot:
 
         if data == "start":
             result = self._call_backend(start_service, service_unit_name(self.instance))
-            await self._reply_with_menu(update, "\n\n".join([result.message, self._status_text()]))
+            await self._reply_with_menu(
+                update,
+                self.action_result_text(result, self._status_text()),
+            )
             return
 
         if data == "stop:confirm":
@@ -337,7 +431,10 @@ class ArmaCtlTelegramBot:
 
         if data == "stop:run":
             result = self._call_backend(stop_service, service_unit_name(self.instance))
-            await self._reply_with_menu(update, "\n\n".join([result.message, self._status_text()]))
+            await self._reply_with_menu(
+                update,
+                self.action_result_text(result, self._status_text()),
+            )
             return
 
         if data == "restart:confirm":
@@ -352,7 +449,7 @@ class ArmaCtlTelegramBot:
             result = self._call_backend(restart_service, service_unit_name(self.instance))
             await self._reply_with_menu(
                 update,
-                "\n\n".join([result.message, self._status_text()]),
+                self.action_result_text(result, self._status_text()),
             )
             return
 
@@ -360,7 +457,7 @@ class ArmaCtlTelegramBot:
             result = self._call_backend(enable_service, timer_unit_name(self.instance))
             await self._reply_with_menu(
                 update,
-                "\n\n".join([result.message, self._schedule_text()]),
+                self.action_result_text(result, self._schedule_text()),
                 schedule=True,
             )
             return
@@ -369,16 +466,19 @@ class ArmaCtlTelegramBot:
             result = self._call_backend(disable_service, timer_unit_name(self.instance))
             await self._reply_with_menu(
                 update,
-                "\n\n".join([result.message, self._schedule_text()]),
+                self.action_result_text(result, self._schedule_text()),
                 schedule=True,
             )
             return
 
         if data == "schedule:restart-now":
-            result = self._call_backend(start_service, restart_service_unit_name(self.instance))
+            result = self._call_backend(
+                start_service,
+                restart_service_unit_name(self.instance),
+            )
             await self._reply_with_menu(
                 update,
-                "\n\n".join([result.message, self._status_text()]),
+                self.action_result_text(result, self._status_text()),
                 schedule=True,
             )
 
