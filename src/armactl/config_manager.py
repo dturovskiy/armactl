@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+
 class ConfigError(Exception):
     """Raised when there's an error reading/writing/validating config."""
     pass
@@ -25,7 +26,7 @@ def load_config(config_path: Path | str) -> dict[str, Any]:
         raise ConfigError(f"Config file not found: {config_path}")
 
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             return json.load(f)
     except json.JSONDecodeError as e:
         raise ConfigError(f"Invalid JSON in config file: {e}")

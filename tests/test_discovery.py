@@ -18,8 +18,7 @@ from armactl.discovery import (
     discover,
     discover_manual,
 )
-from armactl.state import PortInfo, ServerState, save_state
-
+from armactl.state import PortInfo, save_state, ServerState
 
 # ---------------------------------------------------------------------------
 # Low-level check tests

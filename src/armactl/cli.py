@@ -12,8 +12,7 @@ from pathlib import Path
 
 import click
 
-from armactl import __version__
-from armactl import paths
+from armactl import __version__, paths
 
 
 @click.group(invoke_without_command=True)
@@ -112,7 +111,7 @@ def status(ctx: click.Context) -> None:
     click.echo(f"  Config:      {state.config_path}")
     click.echo(f"  Service:     {'✓' if state.service_exists else '✗'} {state.service_name}")
     if svc['enabled']:
-        click.echo(f"  Auto-start:  ✓ enabled")
+        click.echo("  Auto-start:  enabled")
     click.echo(f"  Timer:       {'✓' if state.timer_exists else '✗'} {state.timer_name}")
     if svc['main_pid']:
         click.echo(f"  PID:         {svc['main_pid']}")
@@ -400,7 +399,7 @@ def install(ctx: click.Context) -> None:
 @click.pass_context
 def repair(ctx: click.Context) -> None:
     """Repair broken installation."""
-    from armactl.repair import run_repair, RepairError
+    from armactl.repair import RepairError, run_repair
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -431,7 +430,7 @@ def config() -> None:
 @click.pass_context
 def config_show(ctx: click.Context) -> None:
     """Show current configuration."""
-    from armactl.config_manager import load_config, ConfigError
+    from armactl.config_manager import ConfigError, load_config
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -453,7 +452,7 @@ def config_show(ctx: click.Context) -> None:
 @click.pass_context
 def config_set_name(ctx: click.Context, name: str) -> None:
     """Set server name."""
-    from armactl.config_manager import set_value, ConfigError
+    from armactl.config_manager import ConfigError, set_value
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -475,7 +474,7 @@ def config_set_name(ctx: click.Context, name: str) -> None:
 @click.pass_context
 def config_set_scenario(ctx: click.Context, scenario_id: str) -> None:
     """Set scenario ID."""
-    from armactl.config_manager import set_value, ConfigError
+    from armactl.config_manager import ConfigError, set_value
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -497,7 +496,7 @@ def config_set_scenario(ctx: click.Context, scenario_id: str) -> None:
 @click.pass_context
 def config_set_maxplayers(ctx: click.Context, count: int) -> None:
     """Set max players."""
-    from armactl.config_manager import set_value, ConfigError
+    from armactl.config_manager import ConfigError, set_value
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -519,7 +518,7 @@ def config_set_maxplayers(ctx: click.Context, count: int) -> None:
 @click.pass_context
 def config_set_password_admin(ctx: click.Context, password: str) -> None:
     """Set admin password."""
-    from armactl.config_manager import set_value, ConfigError
+    from armactl.config_manager import ConfigError, set_value
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -542,7 +541,7 @@ def config_set_password_admin(ctx: click.Context, password: str) -> None:
 def config_set_rcon_password(ctx: click.Context, password: str) -> None:
     """Set RCON password."""
     # RCON password uses dedicated server password game properties
-    from armactl.config_manager import set_value, ConfigError
+    from armactl.config_manager import ConfigError, set_value
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -564,7 +563,7 @@ def config_set_rcon_password(ctx: click.Context, password: str) -> None:
 @click.pass_context
 def config_unset(ctx: click.Context, path: str) -> None:
     """Remove a config value. Example: config unset password"""
-    from armactl.config_manager import unset_value, ConfigError
+    from armactl.config_manager import ConfigError, unset_value
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -593,7 +592,7 @@ def config_unset(ctx: click.Context, path: str) -> None:
 @click.pass_context
 def config_validate(ctx: click.Context) -> None:
     """Validate configuration."""
-    from armactl.config_manager import validate_config, ConfigError
+    from armactl.config_manager import ConfigError, validate_config
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -721,49 +720,6 @@ def timer_disable_cmd(ctx: click.Context) -> None:
 # ---------------------------------------------------------------------------
 # Mods commands
 # ---------------------------------------------------------------------------
-
-
-@main.group()
-def mods() -> None:
-    """Manage server mods."""
-
-
-@mods.command("list")
-@click.pass_context
-def mods_list(ctx: click.Context) -> None:
-    """List installed mods."""
-    click.echo(f"[{ctx.obj['instance']}] mods list — not implemented yet")
-
-
-@mods.command("add")
-@click.argument("mod_id")
-@click.argument("name")
-@click.pass_context
-def mods_add(ctx: click.Context, mod_id: str, name: str) -> None:
-    """Add a mod."""
-    click.echo(f"[{ctx.obj['instance']}] mods add {mod_id} '{name}' — not implemented yet")
-
-
-@mods.command("remove")
-@click.argument("mod_id")
-@click.pass_context
-def mods_remove(ctx: click.Context, mod_id: str) -> None:
-    """Remove a mod."""
-    click.echo(f"[{ctx.obj['instance']}] mods remove {mod_id} — not implemented yet")
-
-
-@mods.command("dedupe")
-@click.pass_context
-def mods_dedupe(ctx: click.Context) -> None:
-    """Remove duplicate mods."""
-    click.echo(f"[{ctx.obj['instance']}] mods dedupe — not implemented yet")
-
-
-@mods.command("count")
-@click.pass_context
-def mods_count(ctx: click.Context) -> None:
-    """Show mod count."""
-    click.echo(f"[{ctx.obj['instance']}] mods count — not implemented yet")
 
 
 # ---------------------------------------------------------------------------
@@ -1000,8 +956,8 @@ def mods_export(ctx: click.Context, output_file: str) -> None:
 @click.pass_context
 def mods_import(ctx: click.Context, input_file: str, replace: bool) -> None:
     """Import a list of mods from a JSON file."""
-    from armactl.mods_manager import import_mods
     from armactl.config_manager import ConfigError
+    from armactl.mods_manager import import_mods
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)

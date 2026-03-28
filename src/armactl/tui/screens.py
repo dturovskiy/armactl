@@ -12,7 +12,16 @@ from textual import work
 from textual.app import ComposeResult
 from textual.containers import HorizontalGroup, VerticalGroup, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, Footer, Header, Input, Label, ListItem, ListView, RichLog
+from textual.widgets import (
+    Button,
+    Footer,
+    Header,
+    Input,
+    Label,
+    ListItem,
+    ListView,
+    RichLog,
+)
 
 from armactl import paths, ports
 from armactl.cleaner import clean_junk, format_size, get_junk_stats
@@ -24,6 +33,7 @@ from armactl.mods import add_mod, dedupe_mods, remove_mod
 from armactl.mods_manager import export_mods, get_mods, import_mods
 from armactl.repair import run_repair
 from armactl.service_manager import restart_service, start_service, stop_service
+
 
 class LogWorkerScreen(Screen):
     """A generic screen that runs a background task and displays logs."""
