@@ -39,6 +39,28 @@ def main(ctx: click.Context, instance: str, use_json: bool) -> None:
     ctx.obj["json"] = use_json
 
     if ctx.invoked_subcommand is None:
+        import subprocess
+        import threading
+        import time
+
+        def keep_sudo_alive() -> None:
+            while True:
+                time.sleep(300)  # Refresh sudo timestamp every 5 mins
+                try:
+                    subprocess.run(["sudo", "-n", "-v"], capture_output=True)
+                except Exception:
+                    pass
+
+        # Pre-authenticate sudo immediately so TUI doesn't get messed up later
+        click.echo("Authorizing sudo privileges for server management...")
+        try:
+            subprocess.run(["sudo", "-v"], check=True)
+            # Start daemon thread to keep sudo alive while TUI is open
+            t = threading.Thread(target=keep_sudo_alive, daemon=True)
+            t.start()
+        except subprocess.CalledProcessError:
+            click.echo("Failed to acquire sudo privileges! Background commands might fail.", err=True)
+
         from armactl.tui.app import run_tui
         # If no strict command given, launch the visual TUI
         run_tui(instance)
