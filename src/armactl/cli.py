@@ -16,7 +16,7 @@ from armactl import __version__
 from armactl import paths as P
 
 
-@click.group()
+@click.group(invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="armactl")
 @click.option(
     "--instance",
@@ -33,9 +33,15 @@ from armactl import paths as P
 @click.pass_context
 def main(ctx: click.Context, instance: str, use_json: bool) -> None:
     """armactl — installer, manager and TUI for Arma Reforger Dedicated Server."""
+    # Add common args to context
     ctx.ensure_object(dict)
     ctx.obj["instance"] = instance
     ctx.obj["json"] = use_json
+
+    if ctx.invoked_subcommand is None:
+        from armactl.tui.app import run_tui
+        # If no strict command given, launch the visual TUI
+        run_tui(instance)
 
 
 def _get_state(ctx: click.Context):
