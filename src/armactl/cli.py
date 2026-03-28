@@ -468,7 +468,7 @@ def config_set_password_admin(ctx: click.Context, password: str) -> None:
         sys.exit(1)
 
     try:
-        set_value(state.config_path, "", "adminPassword", password)
+        set_value(state.config_path, "game", "passwordAdmin", password)
         click.echo(f"[{instance}] Admin password updated.")
     except ConfigError as e:
         click.echo(f"[{instance}] {e}", err=True)
@@ -491,8 +491,8 @@ def config_set_rcon_password(ctx: click.Context, password: str) -> None:
         sys.exit(1)
 
     try:
-        set_value(state.config_path, "", "password", password)
-        click.echo(f"[{instance}] RCON/Server password updated.")
+        set_value(state.config_path, "rcon", "password", password)
+        click.echo(f"[{instance}] RCON password updated.")
     except ConfigError as e:
         click.echo(f"[{instance}] {e}", err=True)
         sys.exit(1)
