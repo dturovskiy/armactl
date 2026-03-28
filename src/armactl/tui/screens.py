@@ -6,7 +6,7 @@ from textual import work
 from textual.app import ComposeResult
 from textual.containers import VerticalGroup
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Log, Button, Label
+from textual.widgets import Header, Footer, RichLog, Button, Label
 
 from armactl.installer import run_install
 from armactl.repair import run_repair
@@ -29,7 +29,7 @@ class LogWorkerScreen(Screen):
         yield Header()
         with VerticalGroup():
             yield Label(self.worker_title, id="screen-title")
-            yield Log(id="task-log", highlight=True, markup=True)
+            yield RichLog(id="task-log", highlight=True, markup=True)
             yield Button("Close Task (Running...)", id="btn_close", variant="default", disabled=True)
         yield Footer()
 
@@ -52,13 +52,13 @@ class InstallScreen(LogWorkerScreen):
 
     @work(exclusive=True, thread=True)
     def run_installation_task(self) -> None:
-        log_widget = self.query_one("#task-log", Log)
+        log_widget = self.query_one("#task-log", RichLog)
         try:
             for message in run_install(self.instance):
-                self.app.call_from_thread(log_widget.write_line, message)
-            self.app.call_from_thread(log_widget.write_line, "[green]Installation completely finished![/green]")
+                self.app.call_from_thread(log_widget.write, message)
+            self.app.call_from_thread(log_widget.write, "[green]Installation completely finished![/green]")
         except Exception as e:
-            self.app.call_from_thread(log_widget.write_line, f"[red]Installation failed: {e}[/red]")
+            self.app.call_from_thread(log_widget.write, f"[red]Installation failed: {e}[/red]")
         
         def enable_close():
             btn = self.query_one("#btn_close", Button)
@@ -77,15 +77,15 @@ class RepairScreen(LogWorkerScreen):
 
     @work(exclusive=True, thread=True)
     def run_repair_task(self) -> None:
-        log_widget = self.query_one("#task-log", Log)
+        log_widget = self.query_one("#task-log", RichLog)
         state = discover(self.instance, save=False)
         try:
             # We call run_repair from backend
             for message in run_repair(self.instance, state.install_dir, state.config_path):
-                self.app.call_from_thread(log_widget.write_line, message)
-            self.app.call_from_thread(log_widget.write_line, "[green]Repair completed successfully![/green]")
+                self.app.call_from_thread(log_widget.write, message)
+            self.app.call_from_thread(log_widget.write, "[green]Repair completed successfully![/green]")
         except Exception as e:
-            self.app.call_from_thread(log_widget.write_line, f"[red]Repair failed: {e}[/red]")
+            self.app.call_from_thread(log_widget.write, f"[red]Repair failed: {e}[/red]")
             
         def enable_close():
             btn = self.query_one("#btn_close", Button)
