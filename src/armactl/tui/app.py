@@ -69,8 +69,17 @@ class ArmaCtlApp(App):
         """Event handler called when a button is pressed."""
         if event.button.id == "btn_exit":
             self.exit(0)
+        elif event.button.id == "btn_manage":
+            from armactl.tui.screens import ManageScreen
+            self.push_screen(ManageScreen(instance=self.instance))
+        elif event.button.id == "btn_install":
+            from armactl.tui.screens import InstallScreen
+            self.push_screen(InstallScreen(instance=self.instance, title=f"Installing Server -> {self.instance}"))
+        elif event.button.id == "btn_repair":
+            from armactl.tui.screens import RepairScreen
+            self.push_screen(RepairScreen(instance=self.instance, title=f"Repairing Server -> {self.instance}"))
         else:
-            self.notify("The requested screen is coming in the next Phase!", title="WIP", timeout=3)
+            self.notify("Action unhandled", title="Error", timeout=3)
 
 def run_tui(instance: str) -> None:
     """Entry point for the TUI."""
