@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""Narrow root-owned helper for armactl systemctl actions."""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+import tempfile
+from fnmatch import fnmatch
+from pathlib import Path
+
+INSTALL_BIN = "{{ install_bin }}"
+SYSTEMCTL_BIN = "{{ systemctl_bin }}"
+SYSTEMD_DIR = Path("/etc/systemd/system")
+
+ALLOWED_UNITS = [
+    "armareforger.service",
+    "armareforger@*.service",
+    "armareforger-restart.service",
+    "armareforger-restart.timer",
+    "armareforger-restart@*.service",
+    "armareforger-restart@*.timer",
+    "armactl-bot.service",
+]
+
+ALLOWED_TIMERS = [
+    "armareforger-restart.timer",
+    "armareforger-restart@*.timer",
+]
+
+
+def fail(message: str, code: int = 1) -> int:
+    print(message, file=sys.stderr)
+    return code
+
+
+def is_allowed(name: str, patterns: list[str]) -> bool:
+    return any(fnmatch(name, pattern) for pattern in patterns)
+
+
+def install_timer_file(timer_name: str, entries: list[str]) -> int:
+    if not entries:
+        return fail("Denied: at least one OnCalendar entry is required.")
+
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            newline="\n",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            handle.write("[Unit]\n")
+            handle.write("Description=Scheduled restart for Arma Reforger Dedicated Server\n")
+            handle.write("\n")
+            handle.write("[Timer]\n")
+            for entry in entries:
+                if not entry:
+                    return fail("Denied: invalid OnCalendar entry.")
+                handle.write(f"OnCalendar={entry}\n")
+            handle.write("Persistent=true\n")
+            handle.write("\n")
+            handle.write("[Install]\n")
+            handle.write("WantedBy=timers.target\n")
+
+        result = subprocess.run(
+            [
+                INSTALL_BIN,
+                "-D",
+                "-o",
+                "root",
+                "-g",
+                "root",
+                "-m",
+                "0644",
+                str(temp_path),
+                str(SYSTEMD_DIR / timer_name),
+            ]
+        )
+        return int(result.returncode)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2:
+        return fail("Usage: armactl-systemctl-helper ACTION [UNIT]")
+
+    action = argv[1]
+
+    if action in {"start", "stop", "restart", "enable", "disable"}:
+        if len(argv) != 3:
+            return fail(f"Usage: armactl-systemctl-helper {action} UNIT")
+        unit_name = argv[2]
+        if not is_allowed(unit_name, ALLOWED_UNITS):
+            return fail(f"Denied: unsupported unit '{unit_name}'.")
+        return int(subprocess.run([SYSTEMCTL_BIN, action, unit_name]).returncode)
+
+    if action == "daemon-reload":
+        if len(argv) != 2:
+            return fail("Denied: daemon-reload does not accept a unit argument.")
+        return int(subprocess.run([SYSTEMCTL_BIN, "daemon-reload"]).returncode)
+
+    if action == "update-timer":
+        if len(argv) < 4:
+            return fail(
+                "Usage: armactl-systemctl-helper "
+                "update-timer TIMER_NAME ONCALENDAR..."
+            )
+        timer_name = argv[2]
+        if not is_allowed(timer_name, ALLOWED_TIMERS):
+            return fail(f"Denied: unsupported timer '{timer_name}'.")
+        return install_timer_file(timer_name, argv[3:])
+
+    return fail(f"Denied: unsupported action '{action}'.")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

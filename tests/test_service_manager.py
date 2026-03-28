@@ -113,12 +113,12 @@ def test_has_privileged_systemctl_channel_requires_helper_and_sudoers(tmp_path: 
         assert has_privileged_systemctl_channel() is True
 
 
-def test_render_privileged_helper_script_uses_shell_and_lf_newlines() -> None:
+def test_render_privileged_helper_script_uses_python_and_lf_newlines() -> None:
     rendered = _render_privileged_helper_script()
 
-    assert rendered.startswith("#!/bin/sh\n")
+    assert rendered.startswith("#!/usr/bin/env python3\n")
     assert "\r" not in rendered
-    assert "(" not in rendered
+    assert "def main(argv: list[str]) -> int:" in rendered
 
 
 def test_build_systemctl_command_prefers_secure_helper_channel() -> None:
@@ -127,12 +127,17 @@ def test_build_systemctl_command_prefers_secure_helper_channel() -> None:
     with (
         patch("armactl.service_manager.has_privileged_systemctl_channel", return_value=True),
         patch("armactl.service_manager.paths.privileged_helper_file", return_value=helper_path),
+        patch(
+            "armactl.service_manager._resolve_helper_python_binary",
+            return_value="/usr/bin/python3",
+        ),
     ):
         command = _build_systemctl_command("restart", "armareforger.service")
 
     assert command == [
         "sudo",
         "-n",
+        "/usr/bin/python3",
         str(helper_path),
         "restart",
         "armareforger.service",
@@ -162,19 +167,19 @@ def test_build_systemctl_command_uses_noninteractive_sudo_without_tty() -> None:
 def test_update_restart_timer_schedule_uses_secure_helper_channel() -> None:
     helper_path = Path("/usr/local/libexec/armactl-systemctl-helper")
     update_completed = CompletedProcess(
-        args=["sudo", "-n", str(helper_path), "update-timer"],
+        args=["sudo", "-n", "/usr/bin/python3", str(helper_path), "update-timer"],
         returncode=0,
         stdout="",
         stderr="",
     )
     reload_completed = CompletedProcess(
-        args=["sudo", "-n", str(helper_path), "daemon-reload"],
+        args=["sudo", "-n", "/usr/bin/python3", str(helper_path), "daemon-reload"],
         returncode=0,
         stdout="",
         stderr="",
     )
     restart_completed = CompletedProcess(
-        args=["sudo", "-n", str(helper_path), "restart", paths.TIMER_NAME],
+        args=["sudo", "-n", "/usr/bin/python3", str(helper_path), "restart", paths.TIMER_NAME],
         returncode=0,
         stdout="",
         stderr="",
@@ -183,6 +188,10 @@ def test_update_restart_timer_schedule_uses_secure_helper_channel() -> None:
     with (
         patch("armactl.service_manager.has_privileged_systemctl_channel", return_value=True),
         patch("armactl.service_manager.paths.privileged_helper_file", return_value=helper_path),
+        patch(
+            "armactl.service_manager._resolve_helper_python_binary",
+            return_value="/usr/bin/python3",
+        ),
         patch(
             "armactl.service_manager.subprocess.run",
             side_effect=[update_completed, reload_completed, restart_completed],
@@ -195,6 +204,7 @@ def test_update_restart_timer_schedule_uses_secure_helper_channel() -> None:
         [
             "sudo",
             "-n",
+            "/usr/bin/python3",
             str(helper_path),
             "update-timer",
             paths.TIMER_NAME,

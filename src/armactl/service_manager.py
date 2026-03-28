@@ -135,6 +135,11 @@ def _resolve_install_binary() -> str:
     return shutil.which("install") or "/usr/bin/install"
 
 
+def _resolve_helper_python_binary() -> str:
+    """Return the Python interpreter used for the privileged helper."""
+    return shutil.which("python3") or sys.executable or "/usr/bin/python3"
+
+
 def has_privileged_systemctl_channel() -> bool:
     """Return whether the narrow passwordless helper channel is installed."""
     return (
@@ -163,7 +168,13 @@ def _build_systemctl_command(
         return cmd
 
     if has_privileged_systemctl_channel():
-        cmd = ["sudo", "-n", str(paths.privileged_helper_file()), action]
+        cmd = [
+            "sudo",
+            "-n",
+            _resolve_helper_python_binary(),
+            str(paths.privileged_helper_file()),
+            action,
+        ]
         if service_name:
             cmd.append(service_name)
         return cmd
@@ -207,7 +218,7 @@ def _normalize_generated_text(text: str) -> str:
 def _render_privileged_helper_script() -> str:
     """Render the root-owned helper script text."""
     env = _template_environment()
-    rendered = env.get_template("armactl-systemctl-helper.sh.j2").render(
+    rendered = env.get_template("armactl-systemctl-helper.py.j2").render(
         install_bin=_resolve_install_binary(),
         systemctl_bin=_resolve_systemctl_binary(),
     )
@@ -219,6 +230,7 @@ def _render_privileged_sudoers(user: str) -> str:
     env = _template_environment()
     rendered = env.get_template("armactl-systemctl-helper.sudoers.j2").render(
         user=user,
+        python_bin=_resolve_helper_python_binary(),
         helper_path=str(paths.privileged_helper_file()),
     )
     return _normalize_generated_text(rendered)
@@ -240,10 +252,10 @@ def install_privileged_systemctl_channel() -> list[ServiceResult]:
             helper_temp.write_text(helper_text, encoding="utf-8")
             sudoers_temp.write_text(sudoers_text, encoding="utf-8")
 
-            shell_bin = shutil.which("sh") or "/bin/sh"
-            if Path(shell_bin).exists():
+            python_bin = _resolve_helper_python_binary()
+            if Path(python_bin).exists():
                 validation = subprocess.run(
-                    [shell_bin, "-n", str(helper_temp)],
+                    [python_bin, "-m", "py_compile", str(helper_temp)],
                     capture_output=True,
                     text=True,
                 )
@@ -413,6 +425,7 @@ def update_restart_timer_schedule(
             command = [
                 "sudo",
                 "-n",
+                _resolve_helper_python_binary(),
                 str(paths.privileged_helper_file()),
                 "update-timer",
                 timer_name,
