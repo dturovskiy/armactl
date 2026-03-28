@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from textual import work
@@ -69,6 +70,15 @@ class LogWorkerScreen(Screen):
         """Append a line to the visible log and the copy buffer."""
         self._output_lines.append((plain if plain is not None else rendered).rstrip())
         self.query_one("#task-log", RichLog).write(rendered)
+
+    def save_output_to_file(self, output_path: Path, lines: list[str] | None = None) -> None:
+        """Persist the current buffered output to a text file."""
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        source_lines = self._output_lines if lines is None else lines
+        text = "\n".join(line for line in source_lines).rstrip()
+        if text:
+            text += "\n"
+        output_path.write_text(text, encoding="utf-8")
 
     def complete_task(self, *, label: str = "Return to Menu", variant: str = "success") -> None:
         """Enable task closing once the background action is finished."""
@@ -142,8 +152,11 @@ class HostTestsScreen(LogWorkerScreen):
     def run_host_tests_task(self) -> None:
         import subprocess
 
+        saved_output: list[str] = []
         project_root = Path(__file__).resolve().parents[3]
         script_path = project_root / "scripts" / "run-host-tests"
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        log_path = P.logs_dir(self.instance) / f"host-tests-{timestamp}.log"
 
         if not script_path.exists():
             self.app.call_from_thread(
@@ -155,15 +168,23 @@ class HostTestsScreen(LogWorkerScreen):
             return
 
         cmd = ["/bin/sh", str(script_path)]
+        saved_output.append(f"Running: {' '.join(cmd)}")
         self.app.call_from_thread(
             self.append_output,
             f"[cyan]Running:[/cyan] {' '.join(cmd)}",
             f"Running: {' '.join(cmd)}",
         )
+        saved_output.append(f"Working directory: {project_root}")
         self.app.call_from_thread(
             self.append_output,
             f"[cyan]Working directory:[/cyan] {project_root}",
             f"Working directory: {project_root}",
+        )
+        saved_output.append(f"Log file: {log_path}")
+        self.app.call_from_thread(
+            self.append_output,
+            f"[cyan]Log file:[/cyan] {log_path}",
+            f"Log file: {log_path}",
         )
 
         try:
@@ -186,23 +207,38 @@ class HostTestsScreen(LogWorkerScreen):
         assert proc.stdout is not None
         for line in proc.stdout:
             text = line.rstrip()
+            saved_output.append(text)
             self.app.call_from_thread(self.append_output, text)
 
         return_code = proc.wait()
         if return_code == 0:
+            saved_output.append("Host tests finished successfully.")
             self.app.call_from_thread(
                 self.append_output,
                 "[green]Host tests finished successfully.[/green]",
                 "Host tests finished successfully.",
             )
+            self.app.call_from_thread(
+                self.app.notify,
+                f"Saved host test log to {log_path}",
+                title="Host Tests Log",
+            )
             self.app.call_from_thread(self.complete_task)
         else:
+            saved_output.append(f"Host tests failed with exit code {return_code}.")
             self.app.call_from_thread(
                 self.append_output,
                 f"[red]Host tests failed with exit code {return_code}.[/red]",
                 f"Host tests failed with exit code {return_code}.",
             )
+            self.app.call_from_thread(
+                self.app.notify,
+                f"Saved failing host test log to {log_path}",
+                title="Host Tests Log",
+                severity="warning",
+            )
             self.app.call_from_thread(self.complete_task, label="Close", variant="error")
+        self.save_output_to_file(log_path, saved_output)
 
 
 class ConfirmScreen(Screen):

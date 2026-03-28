@@ -13,9 +13,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from armactl import paths as P
-
-
 class ConfigError(Exception):
     """Raised when there's an error reading/writing/validating config."""
     pass
@@ -64,20 +61,15 @@ def save_config(config_path: Path | str, data: dict[str, Any], backup: bool = Tr
 def _create_backup(config_path: Path) -> None:
     """Create a timestamped backup of config.json in the backups/ directory."""
     try:
-        # Determine the instance name from the config_path.
-        # e.g., ~/armactl-data/default/config/config.json -> 'default'
-        # config_path.parent == config/
-        # config_path.parent.parent == default/
-        instance_dir = config_path.parent.parent
-        instance_name = instance_dir.name
-        
-        # We can use P.backups_dir to be sure, though it requires instance name.
-        if instance_name:
-            backups_dir = P.backups_dir(instance_name)
+        # Standard layout:
+        #   <instance>/config/config.json -> <instance>/backups/
+        # Non-standard layout:
+        #   <dir>/config.json -> <dir>/backups/
+        if config_path.parent.name == "config":
+            backups_dir = config_path.parent.parent / "backups"
         else:
-            # Fallback if path structure is non-standard
             backups_dir = config_path.parent / "backups"
-            
+
         backups_dir.mkdir(parents=True, exist_ok=True)
         
         timestamp = int(time.time())

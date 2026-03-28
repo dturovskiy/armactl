@@ -110,6 +110,12 @@ For a repo-local smoke run on the Linux host, use:
 ./scripts/run-host-tests
 ```
 
+When launched from the TUI, host test runs are also saved to:
+
+```text
+~/armactl-data/<instance>/logs/host-tests-YYYYMMDD-HHMMSS.log
+```
+
 ## License
 
 MIT

@@ -63,6 +63,14 @@ def backups_dir(
     return instance_root(instance, data_root) / "backups"
 
 
+def logs_dir(
+    instance: str = DEFAULT_INSTANCE_NAME,
+    data_root: Path = DEFAULT_DATA_ROOT,
+) -> Path:
+    """Directory for textual task logs and host-side diagnostics."""
+    return instance_root(instance, data_root) / "logs"
+
+
 def state_file(
     instance: str = DEFAULT_INSTANCE_NAME,
     data_root: Path = DEFAULT_DATA_ROOT,
