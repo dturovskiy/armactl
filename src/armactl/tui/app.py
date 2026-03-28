@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import sys
-from textual.app import App, ComposeResult
-from textual.containers import VerticalGroup
-from textual.widgets import Header, Footer, Button, Label
-from textual.binding import Binding
 
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import VerticalGroup
+from textual.widgets import Button, Footer, Header, Label
+
+from armactl import paths
 from armactl.discovery import discover
-from armactl import paths as P
+from armactl.i18n import _, get_current_lang_name, toggle_lang
+
 
 class ArmaCtlApp(App):
     """The main TUI Application for armactl."""
@@ -113,32 +116,29 @@ class ArmaCtlApp(App):
         Binding("q", "quit", "Quit", show=True),
     ]
 
-    def __init__(self, instance: str = P.DEFAULT_INSTANCE_NAME, **kwargs):
+    def __init__(self, instance: str = paths.DEFAULT_INSTANCE_NAME, **kwargs):
         super().__init__(**kwargs)
         self.instance = instance
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
-        from armactl.i18n import _, toggle_lang, get_current_lang_name
         yield Header(show_clock=True)
         with VerticalGroup(id="main-menu"):
             yield Label(f"Arma Reforger Manager [{self.instance}]", id="title")
-            
-            # Conditionally show buttons based on install state
+
             state = discover(instance=self.instance, save=False)
-            
             if state.server_installed:
                 yield Button(_("Manage Existing Server >>"), id="btn_manage", variant="primary")
             else:
                 yield Button(_("Install New Server"), id="btn_install", variant="success")
-                
+
             yield Button(_("Repair Installation"), id="btn_repair", variant="warning")
             yield Button(_("Detect Existing Server"), id="btn_detect", variant="default")
             yield Button(_("Run Host Tests"), id="btn_host_tests", variant="primary")
             lang_label = _("Language:") + f" {get_current_lang_name()}"
             yield Button(lang_label, id="btn_lang", variant="default")
             yield Button(_("Exit"), id="btn_exit", variant="error")
-            
+
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -155,7 +155,6 @@ class ArmaCtlApp(App):
             else:
                 self.notify("No server installation found at default paths.", severity="error")
         elif event.button.id == "btn_lang":
-            from armactl.i18n import toggle_lang, _
             toggle_lang()
             self.notify(
                 _("Language changed! Please exit and run armactl again to apply changes."),
@@ -164,9 +163,11 @@ class ArmaCtlApp(App):
             )
         elif event.button.id == "btn_manage":
             from armactl.tui.screens import ManageScreen
+
             self.push_screen(ManageScreen(instance=self.instance))
         elif event.button.id == "btn_install":
             from armactl.tui.screens import InstallScreen
+
             self.push_screen(
                 InstallScreen(
                     instance=self.instance,
@@ -175,6 +176,7 @@ class ArmaCtlApp(App):
             )
         elif event.button.id == "btn_repair":
             from armactl.tui.screens import RepairScreen
+
             self.push_screen(
                 RepairScreen(
                     instance=self.instance,
@@ -182,8 +184,8 @@ class ArmaCtlApp(App):
                 )
             )
         elif event.button.id == "btn_host_tests":
-            from armactl.i18n import _
             from armactl.tui.screens import HostTestsScreen
+
             self.push_screen(
                 HostTestsScreen(
                     instance=self.instance,
@@ -191,8 +193,10 @@ class ArmaCtlApp(App):
                 )
             )
 
+
 def run_tui(instance: str) -> None:
     """Entry point for the TUI."""
     app = ArmaCtlApp(instance=instance)
     reply = app.run()
     sys.exit(reply or 0)
+

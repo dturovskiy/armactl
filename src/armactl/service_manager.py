@@ -1,4 +1,4 @@
-"""Service manager — manage the Arma Reforger systemd service.
+"""Service manager - manage the Arma Reforger systemd service.
 
 Uses service_name from state.json (default: armareforger.service).
 All systemctl calls go through subprocess with proper error handling.
@@ -18,7 +18,7 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
 
-from armactl import paths as P
+from armactl import paths
 
 
 @dataclass
@@ -75,7 +75,7 @@ def _run_systemctl(
     except FileNotFoundError:
         return ServiceResult(
             success=False,
-            message="systemctl not found — is systemd installed?",
+            message="systemctl not found - is systemd installed?",
             exit_code=1,
         )
     except OSError as e:
@@ -190,10 +190,13 @@ def daemon_reload() -> ServiceResult:
     return _run_systemctl("daemon-reload", "", use_sudo=True)
 
 
-def generate_services(instance: str = P.DEFAULT_INSTANCE_NAME, on_calendar: str = "*-*-* 06:00:00") -> list[ServiceResult]:
+def generate_services(
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    on_calendar: str = "*-*-* 06:00:00",
+) -> list[ServiceResult]:
     """Generate and install all systemd service and timer files for the given instance."""
     results = []
-    
+
     # 1. Paths and Variables
     user = os.getenv("USER", "root")
     try:
@@ -202,30 +205,42 @@ def generate_services(instance: str = P.DEFAULT_INSTANCE_NAME, on_calendar: str 
     except OSError:
         pass
 
-    inst_root = P.instance_root(instance)
-    
+    inst_root = paths.instance_root(instance)
+
     # Check if instance actually exists contextually
     if not inst_root.exists():
         inst_root.mkdir(parents=True, exist_ok=True)
-    
-    start_sh = P.start_script(instance)
-    
-    service_name = f"armareforger@{instance}.service" if instance != "default" else P.SERVICE_NAME
-    restart_service_name = f"armareforger-restart@{instance}.service" if instance != "default" else P.RESTART_SERVICE_NAME
-    timer_name = f"armareforger-restart@{instance}.timer" if instance != "default" else P.TIMER_NAME
-    
-    service_path = P.SYSTEMD_DIR / service_name
-    restart_service_path = P.SYSTEMD_DIR / restart_service_name
-    timer_path = P.SYSTEMD_DIR / timer_name
+
+    start_sh = paths.start_script(instance)
+
+    service_name = (
+        f"armareforger@{instance}.service"
+        if instance != "default"
+        else paths.SERVICE_NAME
+    )
+    restart_service_name = (
+        f"armareforger-restart@{instance}.service"
+        if instance != "default"
+        else paths.RESTART_SERVICE_NAME
+    )
+    timer_name = (
+        f"armareforger-restart@{instance}.timer"
+        if instance != "default"
+        else paths.TIMER_NAME
+    )
+
+    service_path = paths.SYSTEMD_DIR / service_name
+    restart_service_path = paths.SYSTEMD_DIR / restart_service_name
+    timer_path = paths.SYSTEMD_DIR / timer_name
 
     project_root = Path(__file__).parent.parent.parent
     templates_dir = project_root / "templates"
-    
+
     if not templates_dir.exists():
         return [ServiceResult(False, f"Templates directory not found at {templates_dir}", 1)]
 
     env = Environment(loader=FileSystemLoader(str(templates_dir)))
-    
+
     # 2. Render templates
     try:
         start_sh_render = env.get_template("start-armareforger.sh.j2").render(
@@ -236,14 +251,18 @@ def generate_services(instance: str = P.DEFAULT_INSTANCE_NAME, on_calendar: str 
             user=user,
             instance_root=str(inst_root),
         )
-        # Assuming you will modify armareforger-restart.service.j2 to template the target service name
-        # But we'll try to support default as is first.
-        restart_service_render = f"[Unit]\nDescription=Restart Arma Reforger Dedicated Server ({instance})\n\n[Service]\nType=oneshot\nExecStart=/usr/bin/systemctl restart {service_name}\n"
-        
+        restart_service_render = (
+            "[Unit]\n"
+            f"Description=Restart Arma Reforger Dedicated Server ({instance})\n\n"
+            "[Service]\n"
+            "Type=oneshot\n"
+            f"ExecStart=/usr/bin/systemctl restart {service_name}\n"
+        )
+
         timer_render = env.get_template("armareforger-restart.timer.j2").render(
             on_calendar=on_calendar,
         )
-        
+
         # 3. Write start script (no sudo needed, it's in user's home)
         with open(start_sh, "w") as f:
             f.write(start_sh_render)
@@ -253,15 +272,18 @@ def generate_services(instance: str = P.DEFAULT_INSTANCE_NAME, on_calendar: str 
         # 4. Write systemd files to temp and sudo mv them
         with tempfile.TemporaryDirectory() as tempd:
             temp_dir = Path(tempd)
-            
+
             tservice = temp_dir / service_name
             trestart = temp_dir / restart_service_name
             ttimer = temp_dir / timer_name
-            
-            with open(tservice, "w") as f: f.write(service_render)
-            with open(trestart, "w") as f: f.write(restart_service_render)
-            with open(ttimer, "w") as f: f.write(timer_render)
-            
+
+            with open(tservice, "w") as f:
+                f.write(service_render)
+            with open(trestart, "w") as f:
+                f.write(restart_service_render)
+            with open(ttimer, "w") as f:
+                f.write(timer_render)
+
             for tmp_file, dest_file in [
                 (tservice, service_path),
                 (trestart, restart_service_path),
@@ -270,22 +292,54 @@ def generate_services(instance: str = P.DEFAULT_INSTANCE_NAME, on_calendar: str 
                 cmd = ["sudo", "mv", str(tmp_file), str(dest_file)]
                 ans = subprocess.run(cmd, capture_output=True, text=True)
                 if ans.returncode != 0:
-                    results.append(ServiceResult(False, f"Failed to install {dest_file.name}: {ans.stderr.strip()}", ans.returncode))
+                    results.append(
+                        ServiceResult(
+                            False,
+                            f"Failed to install {dest_file.name}: {ans.stderr.strip()}",
+                            ans.returncode,
+                        )
+                    )
                 else:
-                    results.append(ServiceResult(True, f"Installed {dest_file.name} to {dest_file.parent}"))
-            
+                    results.append(
+                        ServiceResult(
+                            True,
+                            f"Installed {dest_file.name} to {dest_file.parent}",
+                        )
+                    )
+
         # Sudo chown
-            subprocess.run(["sudo", "chown", "root:root", str(service_path), str(restart_service_path), str(timer_path)])
-            
+            subprocess.run(
+                [
+                    "sudo",
+                    "chown",
+                    "root:root",
+                    str(service_path),
+                    str(restart_service_path),
+                    str(timer_path),
+                ]
+            )
+
         dr_res = daemon_reload()
-        results.append(ServiceResult(dr_res.success, "Systemd daemon reloaded" if dr_res.success else f"Daemon reload failed: {dr_res.message}"))
-        
+        results.append(
+            ServiceResult(
+                dr_res.success,
+                (
+                    "Systemd daemon reloaded"
+                    if dr_res.success
+                    else f"Daemon reload failed: {dr_res.message}"
+                ),
+            )
+        )
+
         # Restart the timer to apply new schedule immediately
         tr_res = _run_systemctl("restart", timer_name)
         if tr_res.success:
-            results.append(ServiceResult(True, f"Timer {timer_name} restarted to apply schedule"))
-        
+            results.append(
+                ServiceResult(True, f"Timer {timer_name} restarted to apply schedule")
+            )
+
     except Exception as e:
         results.append(ServiceResult(False, f"Service generation failed: {e}", 1))
-        
+
     return results
+

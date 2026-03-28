@@ -18,7 +18,7 @@ from armactl.discovery import (
     discover,
     discover_manual,
 )
-from armactl.state import save_state, ServerState, PortInfo
+from armactl.state import PortInfo, ServerState, save_state
 
 
 # ---------------------------------------------------------------------------
@@ -298,3 +298,4 @@ def test_discover_manual(tmp_path: Path):
     # Verify state.json was saved
     sf = data_root / "default" / "state.json"
     assert sf.is_file()
+
