@@ -297,7 +297,7 @@ def test_render_bot_players_text_explains_roster_failures():
 
     text = telegram_bot.render_bot_players_text(snapshot, "en")
 
-    assert "Player Roster" in text
+    assert "Players: default" in text
     assert "Players: 2/64" in text
     assert "Player roster unavailable: RCON command timed out." in text
     assert "Check local RCON address, port, and password." in text
