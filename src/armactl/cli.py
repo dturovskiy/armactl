@@ -778,3 +778,153 @@ def schedule_restart_now(ctx: click.Context) -> None:
     click.echo(f"[{instance}] Triggering restart...")
     res = start_service(restart_service_name)
     click.echo(f"[{instance}] {res.message}")
+
+
+# ---------------------------------------------------------------------------
+# Mods commands
+# ---------------------------------------------------------------------------
+
+
+@main.group(invoke_without_command=True)
+@click.pass_context
+def mods(ctx: click.Context) -> None:
+    """Manage server mods."""
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(mods_list)
+
+
+@mods.command("list")
+@click.pass_context
+def mods_list(ctx: click.Context) -> None:
+    """List all installed mods."""
+    from armactl.mods_manager import get_mods
+    
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config not found. Cannot read mods.", err=True)
+        sys.exit(1)
+        
+    mods_arr = get_mods(state.config_path)
+    
+    if ctx.obj["json"]:
+        click.echo(json.dumps(mods_arr))
+        return
+        
+    if not mods_arr:
+        click.echo(f"[{instance}] No mods configured.")
+        return
+        
+    click.echo(f"[{instance}] Installed mods ({len(mods_arr)}):")
+    for idx, mod in enumerate(mods_arr, 1):
+        mod_id = mod.get("modId", "UNKNOWN")
+        name = mod.get("name", "Unnamed")
+        ver = mod.get("version", "latest")
+        click.echo(f"  {idx:2d}. {mod_id:<18} | {name:<30} | {ver}")
+
+
+@mods.command("add")
+@click.argument("mod_id")
+@click.option("-n", "--name", default="", help="Human-readable name of the mod.")
+@click.option("-v", "--version", default="", help="Specific version to load.")
+@click.pass_context
+def mods_add(ctx: click.Context, mod_id: str, name: str, version: str) -> None:
+    """Add a mod by ID to the configuration."""
+    from armactl.mods_manager import add_mod
+    
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config not found.", err=True)
+        sys.exit(1)
+        
+    added = add_mod(state.config_path, mod_id, name, version)
+    if added:
+        click.echo(f"[{instance}] ✓ Mod {mod_id} ({name}) added.")
+    else:
+        click.echo(f"[{instance}] ! Mod {mod_id} is already in the list.")
+
+
+@mods.command("remove")
+@click.argument("mod_id")
+@click.pass_context
+def mods_remove(ctx: click.Context, mod_id: str) -> None:
+    """Remove a mod by ID from the configuration."""
+    from armactl.mods_manager import remove_mod
+    
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config not found.", err=True)
+        sys.exit(1)
+        
+    removed = remove_mod(state.config_path, mod_id)
+    if removed:
+        click.echo(f"[{instance}] ✓ Mod {mod_id} removed.")
+    else:
+        click.echo(f"[{instance}] ! Mod {mod_id} not found in the list.")
+
+
+@mods.command("dedupe")
+@click.pass_context
+def mods_dedupe(ctx: click.Context) -> None:
+    """Remove duplicate mods with the same ID."""
+    from armactl.mods_manager import dedupe_mods
+    
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config not found.", err=True)
+        sys.exit(1)
+        
+    count = dedupe_mods(state.config_path)
+    if count > 0:
+        click.echo(f"[{instance}] ✓ Removed {count} duplicate mod(s).")
+    else:
+        click.echo(f"[{instance}] ✓ No duplicates found.")
+
+
+@mods.command("export")
+@click.argument("output_file", type=click.Path())
+@click.pass_context
+def mods_export(ctx: click.Context, output_file: str) -> None:
+    """Export the list of mods to a JSON file."""
+    from armactl.mods_manager import export_mods
+    
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config not found.", err=True)
+        sys.exit(1)
+        
+    count = export_mods(state.config_path, output_file)
+    click.echo(f"[{instance}] ✓ Exported {count} mods to {output_file}.")
+
+
+@mods.command("import")
+@click.argument("input_file", type=click.Path(exists=True))
+@click.option("--replace", is_flag=True, help="Replace existing mods instead of appending.")
+@click.pass_context
+def mods_import(ctx: click.Context, input_file: str, replace: bool) -> None:
+    """Import a list of mods from a JSON file."""
+    from armactl.mods_manager import import_mods
+    from armactl.config_manager import ConfigError
+    
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config not found.", err=True)
+        sys.exit(1)
+        
+    try:
+        added, skipped = import_mods(state.config_path, input_file, append=not replace)
+        click.echo(f"[{instance}] ✓ Imported mods from {input_file}.")
+        click.echo(f"  Added: {added}, Skipped duplicates: {skipped}")
+    except ConfigError as e:
+        click.echo(f"[{instance}] ✗ Failed to import: {e}", err=True)
+        sys.exit(1)
