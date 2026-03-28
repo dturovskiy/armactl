@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import zlib
 from unittest.mock import patch
 
 import armactl.rcon as rcon
@@ -13,6 +14,19 @@ def test_build_and_parse_packet_roundtrip() -> None:
     packet = rcon._build_packet(payload)
 
     assert rcon._parse_packet(packet) == payload
+
+
+def test_parse_packet_tolerates_reforger_checksum_mismatch_on_rcon_payload() -> None:
+    payload = b"\x01\x00Denis\nVova\x00"
+    wrong_checksum = (zlib.crc32(payload.rstrip(b"\x00")) + 1) & 0xFFFFFFFF
+    packet = (
+        b"BE"
+        + wrong_checksum.to_bytes(4, "little")
+        + bytes([rcon.BE_PACKET_TERMINATOR])
+        + payload
+    )
+
+    assert rcon._parse_packet(packet) == payload.rstrip(b"\x00")
 
 
 def test_parse_player_lines_extracts_ids_when_possible() -> None:
