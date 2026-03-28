@@ -867,6 +867,26 @@ def mods_remove(ctx: click.Context, mod_id: str) -> None:
         click.echo(f"[{instance}] ! Mod {mod_id} not found in the list.")
 
 
+@mods.command("count")
+@click.pass_context
+def mods_count(ctx: click.Context) -> None:
+    """Show the total number of installed mods."""
+    from armactl.mods_manager import get_mods
+    
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config not found.", err=True)
+        sys.exit(1)
+        
+    mods_arr = get_mods(state.config_path)
+    if ctx.obj["json"]:
+        click.echo(json.dumps({"count": len(mods_arr)}))
+    else:
+        click.echo(len(mods_arr))
+
+
 @mods.command("dedupe")
 @click.pass_context
 def mods_dedupe(ctx: click.Context) -> None:
