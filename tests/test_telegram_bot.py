@@ -1,8 +1,10 @@
 """Tests for Telegram bot runtime helpers."""
 
-from __future__ import annotations
-
-from armactl.status_summary import ConfigSummary, ModSummaryEntry, ModsSummary
+from armactl.status_summary import (
+    ConfigSummary,
+    ModSummaryEntry,
+    ModsSummary,
+)
 from armactl.telegram_bot import (
     BotStatusSnapshot,
     admin_chat_allowed,
