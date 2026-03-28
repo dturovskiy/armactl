@@ -6,8 +6,10 @@ from unittest.mock import patch
 
 from armactl import paths
 from armactl.service_manager import (
+    format_schedule_for_input,
     get_timer_status,
     normalize_on_calendar,
+    normalize_on_calendar_entries,
     service_unit_name,
     timer_unit_name,
 )
@@ -17,6 +19,22 @@ def test_normalize_on_calendar_accepts_time_only() -> None:
     """Short HH:MM input should expand to a full OnCalendar expression."""
     assert normalize_on_calendar("05:30") == "*-*-* 05:30:00"
     assert normalize_on_calendar("05:30:10") == "*-*-* 05:30:10"
+
+
+def test_normalize_on_calendar_entries_accepts_multiple_times() -> None:
+    """Comma-separated times should become multiple OnCalendar entries."""
+    assert normalize_on_calendar_entries("05:00, 13:30, 22:00") == [
+        "*-*-* 05:00:00",
+        "*-*-* 13:30:00",
+        "*-*-* 22:00:00",
+    ]
+
+
+def test_format_schedule_for_input_compacts_daily_times() -> None:
+    """Stored daily schedules should render back to user-friendly times."""
+    assert format_schedule_for_input(
+        ["*-*-* 05:00:00", "*-*-* 13:30:00", "*-*-* 22:00:00"]
+    ) == "05:00, 13:30, 22:00"
 
 
 def test_unit_name_helpers_respect_instances() -> None:
@@ -33,7 +51,7 @@ def test_get_timer_status_falls_back_to_timer_file_schedule(tmp_path: Path) -> N
     systemd_dir = tmp_path / "systemd"
     systemd_dir.mkdir()
     (systemd_dir / timer_name).write_text(
-        "[Timer]\nOnCalendar=*-*-* 05:30:00\n",
+        "[Timer]\nOnCalendar=*-*-* 05:30:00\nOnCalendar=*-*-* 13:45:00\n",
         encoding="utf-8",
     )
     completed = CompletedProcess(
@@ -60,5 +78,6 @@ def test_get_timer_status_falls_back_to_timer_file_schedule(tmp_path: Path) -> N
     assert status["exists"] is True
     assert status["active"] is True
     assert status["enabled"] is True
-    assert status["schedule"] == "*-*-* 05:30:00"
+    assert status["schedule_entries"] == ["*-*-* 05:30:00", "*-*-* 13:45:00"]
+    assert status["schedule"] == "05:30, 13:45"
     assert status["next_run"] == "Mon 2026-03-30 05:30:00 UTC"

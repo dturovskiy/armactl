@@ -19,6 +19,9 @@ from jinja2 import Environment, FileSystemLoader
 from armactl import paths
 from armactl.i18n import _, tr
 
+TIME_ONLY_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
+DAILY_TIME_RE = re.compile(r"^\*-\*-\* (\d{1,2}:\d{2}:\d{2})$")
+
 
 @dataclass
 class ServiceResult:
@@ -239,11 +242,64 @@ def timer_unit_name(instance: str = paths.DEFAULT_INSTANCE_NAME) -> str:
 def normalize_on_calendar(on_calendar: str) -> str:
     """Normalize friendly time-only input into a full systemd OnCalendar value."""
     value = on_calendar.strip()
-    if re.match(r"^\d{1,2}:\d{2}(:\d{2})?$", value):
+    if TIME_ONLY_RE.match(value):
         if value.count(":") == 1:
             value += ":00"
         return f"*-*-* {value}"
     return value
+
+
+def normalize_on_calendar_entries(on_calendar: str | list[str]) -> list[str]:
+    """Normalize one or more schedule entries into systemd OnCalendar expressions."""
+    if isinstance(on_calendar, list):
+        raw_entries = on_calendar
+    else:
+        value = on_calendar.strip()
+        if not value:
+            return []
+        if "\n" in value:
+            raw_entries = value.splitlines()
+        elif ";" in value:
+            raw_entries = value.split(";")
+        elif "," in value:
+            comma_entries = [entry.strip() for entry in value.split(",") if entry.strip()]
+            if comma_entries and all(TIME_ONLY_RE.match(entry) for entry in comma_entries):
+                raw_entries = comma_entries
+            else:
+                raw_entries = [value]
+        else:
+            raw_entries = [value]
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for entry in raw_entries:
+        cleaned = entry.strip()
+        if not cleaned:
+            continue
+        normalized_entry = normalize_on_calendar(cleaned)
+        if normalized_entry in seen:
+            continue
+        seen.add(normalized_entry)
+        normalized.append(normalized_entry)
+    return normalized
+
+
+def format_schedule_for_input(schedule_entries: list[str]) -> str:
+    """Convert stored OnCalendar entries into a friendly input string for TUI/CLI."""
+    if not schedule_entries:
+        return ""
+
+    display_times: list[str] = []
+    for entry in schedule_entries:
+        match = DAILY_TIME_RE.fullmatch(entry.strip())
+        if not match:
+            return "; ".join(schedule_entries)
+        time_value = match.group(1)
+        if time_value.endswith(":00"):
+            time_value = time_value[:-3]
+        display_times.append(time_value)
+
+    return ", ".join(display_times)
 
 
 def _parse_systemctl_show(output: str) -> dict[str, str]:
@@ -257,20 +313,24 @@ def _parse_systemctl_show(output: str) -> dict[str, str]:
     return parsed
 
 
-def _read_timer_schedule(timer_path: Path) -> str:
-    """Read OnCalendar from a timer unit file when systemctl data is unavailable."""
+def _read_timer_schedule_entries(timer_path: Path) -> list[str]:
+    """Read all OnCalendar entries from a timer unit file."""
+    entries: list[str] = []
     try:
         for line in timer_path.read_text(encoding="utf-8").splitlines():
             if line.startswith("OnCalendar="):
-                return line.split("=", 1)[1].strip()
+                value = line.split("=", 1)[1].strip()
+                if value:
+                    entries.append(value)
     except OSError:
-        return ""
-    return ""
+        return []
+    return entries
 
 
 def get_timer_status(timer_name: str = paths.TIMER_NAME) -> dict[str, Any]:
     """Return structured timer state suitable for CLI and TUI display."""
     timer_path = paths.SYSTEMD_DIR / timer_name
+    schedule_entries = _read_timer_schedule_entries(timer_path)
     status: dict[str, Any] = {
         "timer_name": timer_name,
         "exists": timer_path.is_file(),
@@ -280,7 +340,8 @@ def get_timer_status(timer_name: str = paths.TIMER_NAME) -> dict[str, Any]:
         "sub_state": "unknown",
         "unit_file_state": "unknown",
         "description": "",
-        "schedule": "",
+        "schedule_entries": schedule_entries,
+        "schedule": format_schedule_for_input(schedule_entries),
         "next_run": "",
         "last_trigger": "",
     }
@@ -306,7 +367,11 @@ def get_timer_status(timer_name: str = paths.TIMER_NAME) -> dict[str, Any]:
     parsed = _parse_systemctl_show(result.stdout)
     active_state = parsed.get("ActiveState", "unknown")
     unit_file_state = parsed.get("UnitFileState", "unknown")
-    schedule = parsed.get("TimersCalendar", "") or _read_timer_schedule(timer_path)
+    if not schedule_entries:
+        raw_schedule = parsed.get("TimersCalendar", "").strip()
+        if raw_schedule:
+            schedule_entries = [raw_schedule]
+
     status.update(
         active=active_state == "active",
         enabled=unit_file_state.startswith("enabled"),
@@ -314,7 +379,8 @@ def get_timer_status(timer_name: str = paths.TIMER_NAME) -> dict[str, Any]:
         sub_state=parsed.get("SubState", "unknown"),
         unit_file_state=unit_file_state,
         description=parsed.get("Description", ""),
-        schedule=schedule,
+        schedule_entries=schedule_entries,
+        schedule=format_schedule_for_input(schedule_entries),
         next_run=parsed.get("NextElapseUSecRealtime", ""),
         last_trigger=parsed.get("LastTriggerUSec", ""),
     )
@@ -323,7 +389,7 @@ def get_timer_status(timer_name: str = paths.TIMER_NAME) -> dict[str, Any]:
 
 def generate_services(
     instance: str = paths.DEFAULT_INSTANCE_NAME,
-    on_calendar: str = "*-*-* 06:00:00",
+    on_calendar: str | list[str] = "*-*-* 06:00:00",
 ) -> list[ServiceResult]:
     """Generate and install all systemd service and timer files for the given instance."""
     results = []
@@ -347,7 +413,9 @@ def generate_services(
     service_name = service_unit_name(instance)
     restart_service_name = restart_service_unit_name(instance)
     timer_name = timer_unit_name(instance)
-    on_calendar = normalize_on_calendar(on_calendar)
+    on_calendar_entries = normalize_on_calendar_entries(on_calendar)
+    if not on_calendar_entries:
+        on_calendar_entries = [normalize_on_calendar("*-*-* 06:00:00")]
 
     service_path = paths.SYSTEMD_DIR / service_name
     restart_service_path = paths.SYSTEMD_DIR / restart_service_name
@@ -386,7 +454,7 @@ def generate_services(
         )
 
         timer_render = env.get_template("armareforger-restart.timer.j2").render(
-            on_calendar=on_calendar,
+            on_calendar_entries=on_calendar_entries,
         )
 
         # 3. Write start script (no sudo needed, it's in user's home)

@@ -2,7 +2,9 @@
 Description=Scheduled restart for Arma Reforger Dedicated Server
 
 [Timer]
-OnCalendar={{ on_calendar | default('*-*-* 06:00:00') }}
+{% for entry in on_calendar_entries | default(['*-*-* 06:00:00']) -%}
+OnCalendar={{ entry }}
+{% endfor -%}
 Persistent=true
 
 [Install]

@@ -51,6 +51,9 @@
     "[green]OPEN listening[/green]": "[green]ВІДКРИТО, прослуховується[/green]",
     "[red]CLOSED[/red]": "[red]ЗАКРИТО[/red]",
     "Manage the systemd timer used for scheduled server restarts.": "Керування systemd-таймером для планових перезапусків сервера.",
+    "Enter one or more exact restart times separated by commas. Example: 05:00, 13:30, 22:00.": "Вкажіть один або кілька точних часів перезапуску через кому. Наприклад: 05:00, 13:30, 22:00.",
+    "Restart Time(s):": "Час(и) перезапуску:",
+    "05:00, 13:30, 22:00": "05:00, 13:30, 22:00",
     "Restart Schedule (OnCalendar or HH:MM[:SS]):": "Розклад перезапуску (OnCalendar або HH:MM[:SS]):",
     "*-*-* 06:00:00 or 05:30": "*-*-* 06:00:00 або 05:30",
     "Apply Schedule": "Застосувати розклад",
@@ -67,6 +70,7 @@
     "Last trigger: {value}": "Останній запуск: {value}",
     "Description: {value}": "Опис: {value}",
     "Restart schedule is required.": "Потрібно вказати розклад перезапуску.",
+    "At least one restart time is required.": "Потрібно вказати хоча б один час перезапуску.",
     "Restart schedule updated to {schedule}.": "Розклад перезапуску оновлено до {schedule}.",
     "Are you sure you want to RESTART the server now?": "Ви точно хочете ПЕРЕЗАПУСТИТИ сервер зараз?",
 

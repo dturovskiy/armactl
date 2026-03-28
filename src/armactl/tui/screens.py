@@ -41,9 +41,10 @@ from armactl.repair import run_repair
 from armactl.service_manager import (
     disable_service,
     enable_service,
+    format_schedule_for_input,
     generate_services,
     get_timer_status,
-    normalize_on_calendar,
+    normalize_on_calendar_entries,
     restart_service,
     service_unit_name,
     start_service,
@@ -544,13 +545,16 @@ class ScheduleScreen(Screen):
                 id="screen-title",
             )
             yield Label(
-                _("Manage the systemd timer used for scheduled server restarts."),
+                _(
+                    "Enter one or more exact restart times separated by commas. "
+                    "Example: 05:00, 13:30, 22:00."
+                ),
                 id="schedule-help",
             )
-            yield Label(_("Restart Schedule (OnCalendar or HH:MM[:SS]):"))
+            yield Label(_("Restart Time(s):"))
             yield Input(
                 id="inp_restart_schedule",
-                placeholder=_("*-*-* 06:00:00 or 05:30"),
+                placeholder=_("05:00, 13:30, 22:00"),
             )
             yield RichLog(id="timer-status-log", markup=True)
             with HorizontalGroup(id="schedule-buttons-primary"):
@@ -626,14 +630,22 @@ class ScheduleScreen(Screen):
         schedule_value = self.query_one("#inp_restart_schedule", Input).value.strip()
         if not schedule_value:
             self.app.notify(
-                _("Restart schedule is required."),
+                _("At least one restart time is required."),
                 title=_("Restart Schedule"),
                 severity="error",
             )
             return
 
-        normalized_schedule = normalize_on_calendar(schedule_value)
-        results = generate_services(self.instance, on_calendar=normalized_schedule)
+        schedule_entries = normalize_on_calendar_entries(schedule_value)
+        if not schedule_entries:
+            self.app.notify(
+                _("At least one restart time is required."),
+                title=_("Restart Schedule"),
+                severity="error",
+            )
+            return
+
+        results = generate_services(self.instance, on_calendar=schedule_entries)
         failures = [result.message for result in results if not result.success]
         if failures:
             self.app.notify(
@@ -643,10 +655,11 @@ class ScheduleScreen(Screen):
             )
             return
 
-        self.query_one("#inp_restart_schedule", Input).value = normalized_schedule
-        self._loaded_schedule = normalized_schedule
+        pretty_schedule = format_schedule_for_input(schedule_entries)
+        self.query_one("#inp_restart_schedule", Input).value = pretty_schedule
+        self._loaded_schedule = pretty_schedule
         self.app.notify(
-            tr("Restart schedule updated to {schedule}.", schedule=normalized_schedule),
+            tr("Restart schedule updated to {schedule}.", schedule=pretty_schedule),
             title=_("Restart Schedule"),
         )
         self.action_refresh_schedule()

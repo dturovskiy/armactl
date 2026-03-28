@@ -736,42 +736,34 @@ def schedule() -> None:
 @click.pass_context
 def schedule_show(ctx: click.Context) -> None:
     """Show current restart schedule."""
-    import subprocess
-    instance = ctx.obj["instance"]
-    timer_name = (
-        f"armareforger-restart@{instance}.timer"
-        if instance != "default"
-        else paths.TIMER_NAME
-    )
+    from armactl.service_manager import get_timer_status, timer_unit_name
 
-    try:
-        ans = subprocess.run(
-            ["systemctl", "show", timer_name, "--property=TimersCalendar"],
-            capture_output=True,
-            text=True,
-        )
-        click.echo(f"[{instance}] Schedule: {ans.stdout.strip()}")
-    except OSError:
-        click.echo(f"[{instance}] Failed to read timer status.")
+    instance = ctx.obj["instance"]
+    timer_name = timer_unit_name(instance)
+    status = get_timer_status(timer_name)
+    schedule = status.get("schedule") or "Unknown"
+    click.echo(f"[{instance}] Schedule: {schedule}")
 
 @schedule.command("set")
 @click.argument("cron_expr")
 @click.pass_context
 def schedule_set(ctx: click.Context, cron_expr: str) -> None:
     """Set restart schedule (OnCalendar expression)."""
-    import re
+    from armactl.service_manager import (
+        format_schedule_for_input,
+        generate_services,
+        normalize_on_calendar_entries,
+    )
 
-    from armactl.service_manager import generate_services
     instance = ctx.obj["instance"]
+    schedule_entries = normalize_on_calendar_entries(cron_expr)
+    if not schedule_entries:
+        click.echo(f"[{instance}] No valid restart time provided.")
+        return
 
-    # If the user just provides '05:00' or '05:00:00', format to systemd OnCalendar '*-*-* HH:MM:SS'
-    if re.match(r"^\d{1,2}:\d{2}(:\d{2})?$", cron_expr):
-        if cron_expr.count(":") == 1:
-            cron_expr += ":00"
-        cron_expr = f"*-*-* {cron_expr}"
-
-    click.echo(f"[{instance}] Updating schedule to '{cron_expr}'...")
-    results = generate_services(instance=instance, on_calendar=cron_expr)
+    display_value = format_schedule_for_input(schedule_entries)
+    click.echo(f"[{instance}] Updating schedule to '{display_value}'...")
+    results = generate_services(instance=instance, on_calendar=schedule_entries)
     for r in results:
         if "timer" in r.message.lower() or "daemon" in r.message.lower():
             click.echo(f"  {'✓' if r.success else '✗'} {r.message}")
