@@ -101,4 +101,12 @@ def _(text: str) -> str:
         return translations.get(text, text)
     return text
 
+
+def tr(text: str, **kwargs: object) -> str:
+    """Translate a format string and interpolate named placeholders."""
+    translated = _(text)
+    if kwargs:
+        return translated.format(**kwargs)
+    return translated
+
 load_lang()

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from armactl.config_manager import ConfigError, load_config, save_config
+from armactl.i18n import _, tr
 
 
 def get_mods(config_path: Path | str) -> list[dict[str, Any]]:
@@ -100,20 +101,22 @@ def _extract_import_mods(payload: Any) -> list[dict[str, str]]:
 
     if not isinstance(payload, list):
         raise ConfigError(
-            "Import file must contain either a JSON array of mod objects "
-            "or a full config object with game.mods."
+            _(
+                "Import file must contain either a JSON array of mod objects "
+                "or a full config object with game.mods."
+            )
         )
 
     normalized: list[dict[str, str]] = []
     for mod in payload:
         if not isinstance(mod, dict) or "modId" not in mod:
             raise ConfigError(
-                "Each imported mod must be an object containing a 'modId' key."
+                _("Each imported mod must be an object containing a 'modId' key.")
             )
 
         mod_id = str(mod.get("modId", "")).strip()
         if not mod_id:
-            raise ConfigError("Imported mod 'modId' cannot be empty.")
+            raise ConfigError(_("Imported mod 'modId' cannot be empty."))
 
         normalized.append(
             {
@@ -132,7 +135,7 @@ def _load_import_mods(import_file: Path | str) -> list[dict[str, str]]:
         try:
             return _extract_import_mods(json.load(f))
         except json.JSONDecodeError as e:
-            raise ConfigError(f"Invalid JSON in import file: {e}") from e
+            raise ConfigError(tr("Invalid JSON in import file: {error}", error=e)) from e
 
 
 def preview_import_mods(import_file: Path | str) -> int:

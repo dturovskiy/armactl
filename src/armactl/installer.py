@@ -18,6 +18,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from armactl import paths
 from armactl.discovery import discover
+from armactl.i18n import _, tr
 from armactl.service_manager import enable_service, generate_services, restart_service
 
 
@@ -36,15 +37,21 @@ def _run_cmd(cmd: list[str], err_msg: str, env: dict[str, str] | None = None) ->
             env=env or os.environ,
         )
     except subprocess.CalledProcessError as e:
-        raise InstallError(f"{err_msg}:\n{e.stderr.strip() or e.stdout.strip()}") from e
+        raise InstallError(
+            tr(
+                "{message}:\n{details}",
+                message=_(err_msg),
+                details=e.stderr.strip() or e.stdout.strip(),
+            )
+        ) from e
     except OSError as e:
-        raise InstallError(f"{err_msg}: {e}") from e
+        raise InstallError(tr("{message}: {error}", message=_(err_msg), error=e)) from e
 
 
 def check_os() -> None:
     """Verify we are running on Linux (and ideally Ubuntu)."""
     if sys.platform != "linux":
-        raise InstallError("armactl must be run on a Linux system.")
+        raise InstallError(_("armactl must be run on a Linux system."))
 
 
 def check_sudo() -> None:
@@ -52,7 +59,7 @@ def check_sudo() -> None:
     try:
         subprocess.run(["sudo", "-v"], check=True)
     except subprocess.CalledProcessError:
-        raise InstallError("Sudo access is required for installation.")
+        raise InstallError(_("Sudo access is required for installation."))
 
 
 def install_steamcmd() -> None:
@@ -62,7 +69,7 @@ def install_steamcmd() -> None:
 
     if not shutil.which("apt-get"):
         raise InstallError(
-            "apt-get not found. steamcmd must be installed manually on this OS."
+            _("apt-get not found. steamcmd must be installed manually on this OS.")
         )
 
     env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
@@ -91,7 +98,9 @@ def install_steamcmd() -> None:
         try:
             subprocess.run(cmd, shell=True, check=True)
         except subprocess.CalledProcessError as e:
-            raise InstallError(f"Failed to auto-accept Steamcmd EULA: {e}") from e
+            raise InstallError(
+                tr("Failed to auto-accept Steamcmd EULA: {error}", error=e)
+            ) from e
 
     _run_cmd(
         ["sudo", "apt-get", "install", "-y", "steamcmd"],
@@ -104,7 +113,9 @@ def install_steamcmd() -> None:
 
     if not shutil.which("steamcmd"):
         raise InstallError(
-            "steamcmd installation seemed to succeed, but binary still not found in PATH."
+            _(
+                "steamcmd installation seemed to succeed, but binary still not found in PATH."
+            )
         )
 
 
@@ -136,7 +147,7 @@ def download_server(instance: str) -> None:
     try:
         subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError as e:
-        raise InstallError("Failed to download server via steamcmd") from e
+        raise InstallError(_("Failed to download server via steamcmd")) from e
 
 
 def generate_default_config(instance: str) -> None:
@@ -149,7 +160,7 @@ def generate_default_config(instance: str) -> None:
     templates_dir = project_root / "templates"
 
     if not templates_dir.exists():
-        raise InstallError(f"Templates directory missing at {templates_dir}")
+        raise InstallError(tr("Templates directory missing at {path}", path=templates_dir))
 
     env = Environment(loader=FileSystemLoader(str(templates_dir)))
     try:
@@ -162,7 +173,7 @@ def generate_default_config(instance: str) -> None:
         with open(config_path, "w", encoding="utf-8") as f:
             f.write(config_render)
     except Exception as e:
-        raise InstallError(f"Failed to generate default config: {e}") from e
+        raise InstallError(tr("Failed to generate default config: {error}", error=e)) from e
 
 
 def smoke_check(instance: str) -> None:
@@ -170,40 +181,42 @@ def smoke_check(instance: str) -> None:
     binary = paths.server_binary(instance)
     if not binary.exists():
         raise InstallError(
-            f"Smoke check failed: binary missing at {binary}. "
-            "Did steamcmd download fail?"
+            tr(
+                "Smoke check failed: binary missing at {path}. Did steamcmd download fail?",
+                path=binary,
+            )
         )
 
 
 def run_install(instance: str) -> Iterator[str]:
     """Execute the full installation sequence, yielding progress messages."""
-    yield "Verifying OS requirements..."
+    yield _("Verifying OS requirements...")
     check_os()
 
-    yield "Verifying sudo permissions..."
+    yield _("Verifying sudo permissions...")
     check_sudo()
 
-    yield "Verifying steamcmd..."
+    yield _("Verifying steamcmd...")
     install_steamcmd()
 
-    yield "Creating installation directories..."
+    yield _("Creating installation directories...")
     create_install_dir(instance)
 
-    yield "Downloading Arma Reforger via steamcmd... (This may take a while)"
+    yield _("Downloading Arma Reforger via steamcmd... (This may take a while)")
     download_server(instance)
 
-    yield "Running smoke check..."
+    yield _("Running smoke check...")
     smoke_check(instance)
 
-    yield "Generating default configuration..."
+    yield _("Generating default configuration...")
     generate_default_config(instance)
 
-    yield "Generating systemd services and timers..."
+    yield _("Generating systemd services and timers...")
     results = generate_services(instance=instance)
     for result in results:
-        yield f"  - {result.message}"
+        yield tr("  - {message}", message=result.message)
 
-    yield "Setting permissions and starting the server..."
+    yield _("Setting permissions and starting the server...")
     service_name = (
         f"armareforger@{instance}.service"
         if instance != "default"
@@ -212,7 +225,7 @@ def run_install(instance: str) -> Iterator[str]:
     enable_service(service_name)
     restart_service(service_name)  # Ensure clean start.
 
-    yield "Saving state.json..."
+    yield _("Saving state.json...")
     discover(instance=instance)
 
-    yield "Installation complete!"
+    yield _("Installation complete!")

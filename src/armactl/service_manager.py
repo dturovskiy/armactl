@@ -16,6 +16,7 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader
 
 from armactl import paths
+from armactl.i18n import _, tr
 
 
 @dataclass
@@ -42,6 +43,14 @@ def _run_systemctl(
     cmd.extend(["systemctl", action])
     if service_name:
         cmd.append(service_name)
+    action_label = {
+        "start": _("Systemctl action: start"),
+        "stop": _("Systemctl action: stop"),
+        "restart": _("Systemctl action: restart"),
+        "enable": _("Systemctl action: enable"),
+        "disable": _("Systemctl action: disable"),
+        "daemon-reload": _("Systemctl action: daemon-reload"),
+    }.get(action, action)
 
     try:
         result = subprocess.run(
@@ -53,32 +62,50 @@ def _run_systemctl(
         if result.returncode == 0:
             return ServiceResult(
                 success=True,
-                message=f"{action} {service_name}: ok",
+                message=tr(
+                    "{action} {service_name}: ok",
+                    action=action_label,
+                    service_name=service_name,
+                ),
                 exit_code=0,
             )
         else:
             stderr = result.stderr.strip()
             return ServiceResult(
                 success=False,
-                message=f"{action} {service_name} failed: {stderr}",
+                message=tr(
+                    "{action} {service_name} failed: {stderr}",
+                    action=action_label,
+                    service_name=service_name,
+                    stderr=stderr,
+                ),
                 exit_code=result.returncode,
             )
     except subprocess.TimeoutExpired:
         return ServiceResult(
             success=False,
-            message=f"{action} {service_name}: timed out after 30s",
+            message=tr(
+                "{action} {service_name}: timed out after 30s",
+                action=action_label,
+                service_name=service_name,
+            ),
             exit_code=1,
         )
     except FileNotFoundError:
         return ServiceResult(
             success=False,
-            message="systemctl not found - is systemd installed?",
+            message=_("systemctl not found - is systemd installed?"),
             exit_code=1,
         )
     except OSError as e:
         return ServiceResult(
             success=False,
-            message=f"{action} {service_name}: {e}",
+            message=tr(
+                "{action} {service_name}: {error}",
+                action=action_label,
+                service_name=service_name,
+                error=e,
+            ),
             exit_code=1,
         )
 
@@ -234,7 +261,13 @@ def generate_services(
     templates_dir = project_root / "templates"
 
     if not templates_dir.exists():
-        return [ServiceResult(False, f"Templates directory not found at {templates_dir}", 1)]
+        return [
+            ServiceResult(
+                False,
+                tr("Templates directory not found at {path}", path=templates_dir),
+                1,
+            )
+        ]
 
     env = Environment(loader=FileSystemLoader(str(templates_dir)))
 
@@ -264,7 +297,7 @@ def generate_services(
         with open(start_sh, "w") as f:
             f.write(start_sh_render)
         start_sh.chmod(0o755)
-        results.append(ServiceResult(True, f"Generated {start_sh}"))
+        results.append(ServiceResult(True, tr("Generated {path}", path=start_sh)))
 
         # 4. Write systemd files to temp and sudo mv them
         with tempfile.TemporaryDirectory() as tempd:
@@ -292,7 +325,11 @@ def generate_services(
                     results.append(
                         ServiceResult(
                             False,
-                            f"Failed to install {dest_file.name}: {ans.stderr.strip()}",
+                            tr(
+                                "Failed to install {name}: {error}",
+                                name=dest_file.name,
+                                error=ans.stderr.strip(),
+                            ),
                             ans.returncode,
                         )
                     )
@@ -300,7 +337,11 @@ def generate_services(
                     results.append(
                         ServiceResult(
                             True,
-                            f"Installed {dest_file.name} to {dest_file.parent}",
+                            tr(
+                                "Installed {name} to {path}",
+                                name=dest_file.name,
+                                path=dest_file.parent,
+                            ),
                         )
                     )
 
@@ -321,9 +362,9 @@ def generate_services(
             ServiceResult(
                 dr_res.success,
                 (
-                    "Systemd daemon reloaded"
+                    _("Systemd daemon reloaded")
                     if dr_res.success
-                    else f"Daemon reload failed: {dr_res.message}"
+                    else tr("Daemon reload failed: {message}", message=dr_res.message)
                 ),
             )
         )
@@ -332,11 +373,16 @@ def generate_services(
         tr_res = _run_systemctl("restart", timer_name)
         if tr_res.success:
             results.append(
-                ServiceResult(True, f"Timer {timer_name} restarted to apply schedule")
+                ServiceResult(
+                    True,
+                    tr("Timer {timer_name} restarted to apply schedule", timer_name=timer_name),
+                )
             )
 
     except Exception as e:
-        results.append(ServiceResult(False, f"Service generation failed: {e}", 1))
+        results.append(
+            ServiceResult(False, tr("Service generation failed: {error}", error=e), 1)
+        )
 
     return results
 

@@ -21,13 +21,14 @@ from textual.widgets import (
     ListItem,
     ListView,
     RichLog,
+    TextArea,
 )
 
 from armactl import paths, ports
 from armactl.cleaner import clean_junk, format_size, get_junk_stats
-from armactl.config_manager import load_config, save_config
+from armactl.config_manager import load_config, save_config, validate_config
 from armactl.discovery import discover
-from armactl.i18n import _
+from armactl.i18n import _, tr
 from armactl.installer import run_install
 from armactl.mods import add_mod, dedupe_mods, remove_mod
 from armactl.mods_manager import (
@@ -44,8 +45,8 @@ class LogWorkerScreen(Screen):
     """A generic screen that runs a background task and displays logs."""
 
     BINDINGS = [
-        ("b", "go_back", "Back to Menu"),
-        ("c", "copy_output", "Copy Output"),
+        ("b", "go_back", _("Back to Menu")),
+        ("c", "copy_output", _("Copy Output")),
     ]
 
     def __init__(self, instance: str, title: str, **kwargs):
@@ -60,9 +61,9 @@ class LogWorkerScreen(Screen):
             yield Label(self.worker_title, id="screen-title")
             yield RichLog(id="task-log", highlight=True, markup=True)
             with HorizontalGroup(id="task-actions"):
-                yield Button("Copy Output", id="btn_copy_output", variant="primary")
+                yield Button(_("Copy Output"), id="btn_copy_output", variant="primary")
                 yield Button(
-                    "Close Task (Running...)",
+                    _("Close Task (Running...)"),
                     id="btn_close",
                     variant="default",
                     disabled=True,
@@ -84,11 +85,11 @@ class LogWorkerScreen(Screen):
     def action_copy_output(self) -> None:
         text = "\n".join(line for line in self._output_lines if line)
         if not text:
-            self.app.notify("There is no output to copy yet.", severity="warning")
+            self.app.notify(_("There is no output to copy yet."), severity="warning")
             return
 
         self.app.copy_to_clipboard(text)
-        self.app.notify("Copied full output to clipboard.", title="Clipboard")
+        self.app.notify(_("Copied full output to clipboard."), title=_("Clipboard"))
 
     def append_output(self, rendered: str, plain: str | None = None) -> None:
         """Append a line to the visible log and the copy buffer."""
@@ -104,11 +105,16 @@ class LogWorkerScreen(Screen):
             text += "\n"
         output_path.write_text(text, encoding="utf-8")
 
-    def complete_task(self, *, label: str = "Return to Menu", variant: str = "success") -> None:
+    def complete_task(
+        self,
+        *,
+        label: str | None = None,
+        variant: str = "success",
+    ) -> None:
         """Enable task closing once the background action is finished."""
         btn = self.query_one("#btn_close", Button)
         btn.disabled = False
-        btn.label = label
+        btn.label = label or _("Return to Menu")
         btn.variant = variant
 
 
@@ -125,14 +131,14 @@ class InstallScreen(LogWorkerScreen):
                 self.app.call_from_thread(self.append_output, message)
             self.app.call_from_thread(
                 self.append_output,
-                "[green]Installation completely finished![/green]",
-                "Installation completely finished!",
+                _("[green]Installation completely finished![/green]"),
+                _("Installation completely finished!"),
             )
         except Exception as e:
             self.app.call_from_thread(
                 self.append_output,
-                f"[red]Installation failed: {e}[/red]",
-                f"Installation failed: {e}",
+                tr("[red]Installation failed: {error}[/red]", error=e),
+                tr("Installation failed: {error}", error=e),
             )
 
         self.app.call_from_thread(self.complete_task)
@@ -153,14 +159,14 @@ class RepairScreen(LogWorkerScreen):
                 self.app.call_from_thread(self.append_output, message)
             self.app.call_from_thread(
                 self.append_output,
-                "[green]Repair completed successfully![/green]",
-                "Repair completed successfully!",
+                _("[green]Repair completed successfully![/green]"),
+                _("Repair completed successfully!"),
             )
         except Exception as e:
             self.app.call_from_thread(
                 self.append_output,
-                f"[red]Repair failed: {e}[/red]",
-                f"Repair failed: {e}",
+                tr("[red]Repair failed: {error}[/red]", error=e),
+                tr("Repair failed: {error}", error=e),
             )
 
         self.app.call_from_thread(self.complete_task)
@@ -183,30 +189,30 @@ class HostTestsScreen(LogWorkerScreen):
         if not script_path.exists():
             self.app.call_from_thread(
                 self.append_output,
-                f"[red]Host test script not found: {script_path}[/red]",
-                f"Host test script not found: {script_path}",
+                tr("[red]Host test script not found: {path}[/red]", path=script_path),
+                tr("Host test script not found: {path}", path=script_path),
             )
-            self.app.call_from_thread(self.complete_task, label="Close", variant="error")
+            self.app.call_from_thread(self.complete_task, label=_("Close"), variant="error")
             return
 
         cmd = ["/bin/sh", str(script_path)]
-        saved_output.append(f"Running: {' '.join(cmd)}")
+        saved_output.append(tr("Running: {command}", command=" ".join(cmd)))
         self.app.call_from_thread(
             self.append_output,
-            f"[cyan]Running:[/cyan] {' '.join(cmd)}",
-            f"Running: {' '.join(cmd)}",
+            f"[cyan]{_('Running:')}[/cyan] {' '.join(cmd)}",
+            tr("Running: {command}", command=" ".join(cmd)),
         )
-        saved_output.append(f"Working directory: {project_root}")
+        saved_output.append(tr("Working directory: {path}", path=project_root))
         self.app.call_from_thread(
             self.append_output,
-            f"[cyan]Working directory:[/cyan] {project_root}",
-            f"Working directory: {project_root}",
+            f"[cyan]{_('Working directory:')}[/cyan] {project_root}",
+            tr("Working directory: {path}", path=project_root),
         )
-        saved_output.append(f"Log file: {log_path}")
+        saved_output.append(tr("Log file: {path}", path=log_path))
         self.app.call_from_thread(
             self.append_output,
-            f"[cyan]Log file:[/cyan] {log_path}",
-            f"Log file: {log_path}",
+            f"[cyan]{_('Log file:')}[/cyan] {log_path}",
+            tr("Log file: {path}", path=log_path),
         )
 
         try:
@@ -220,10 +226,10 @@ class HostTestsScreen(LogWorkerScreen):
         except Exception as e:
             self.app.call_from_thread(
                 self.append_output,
-                f"[red]Failed to start host tests: {e}[/red]",
-                f"Failed to start host tests: {e}",
+                tr("[red]Failed to start host tests: {error}[/red]", error=e),
+                tr("Failed to start host tests: {error}", error=e),
             )
-            self.app.call_from_thread(self.complete_task, label="Close", variant="error")
+            self.app.call_from_thread(self.complete_task, label=_("Close"), variant="error")
             return
 
         assert proc.stdout is not None
@@ -234,32 +240,34 @@ class HostTestsScreen(LogWorkerScreen):
 
         return_code = proc.wait()
         if return_code == 0:
-            saved_output.append("Host tests finished successfully.")
+            saved_output.append(_("Host tests finished successfully."))
             self.app.call_from_thread(
                 self.append_output,
-                "[green]Host tests finished successfully.[/green]",
-                "Host tests finished successfully.",
+                _("[green]Host tests finished successfully.[/green]"),
+                _("Host tests finished successfully."),
             )
             self.app.call_from_thread(
                 self.app.notify,
-                f"Saved host test log to {log_path}",
-                title="Host Tests Log",
+                tr("Saved host test log to {path}", path=log_path),
+                title=_("Host Tests Log"),
             )
             self.app.call_from_thread(self.complete_task)
         else:
-            saved_output.append(f"Host tests failed with exit code {return_code}.")
+            saved_output.append(
+                tr("Host tests failed with exit code {code}.", code=return_code)
+            )
             self.app.call_from_thread(
                 self.append_output,
-                f"[red]Host tests failed with exit code {return_code}.[/red]",
-                f"Host tests failed with exit code {return_code}.",
+                tr("[red]Host tests failed with exit code {code}.[/red]", code=return_code),
+                tr("Host tests failed with exit code {code}.", code=return_code),
             )
             self.app.call_from_thread(
                 self.app.notify,
-                f"Saved failing host test log to {log_path}",
-                title="Host Tests Log",
+                tr("Saved failing host test log to {path}", path=log_path),
+                title=_("Host Tests Log"),
                 severity="warning",
             )
-            self.app.call_from_thread(self.complete_task, label="Close", variant="error")
+            self.app.call_from_thread(self.complete_task, label=_("Close"), variant="error")
         self.save_output_to_file(log_path, saved_output)
 
 
@@ -273,8 +281,8 @@ class ConfirmScreen(Screen):
         with VerticalGroup(id="confirm-dialog"):
             yield Label(self.prompt, id="confirm-prompt")
             with HorizontalGroup():
-                yield Button("Yes", id="btn_yes", variant="error")
-                yield Button("No", id="btn_no", variant="primary")
+                yield Button(_("Yes"), id="btn_yes", variant="error")
+                yield Button(_("No"), id="btn_no", variant="primary")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn_yes":
@@ -285,7 +293,7 @@ class ConfirmScreen(Screen):
 
 class TailLogScreen(Screen):
     """Screen for viewing live tailing logs via journalctl."""
-    BINDINGS = [("q", "quit_logs", "Close Logs")]
+    BINDINGS = [("q", "quit_logs", _("Close Logs"))]
 
     def __init__(self, instance: str, **kwargs):
         super().__init__(**kwargs)
@@ -294,7 +302,10 @@ class TailLogScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Label(f"Live Logs: {self.instance} (Press Q to exit)", id="screen-title")
+        yield Label(
+            tr("Live Logs: {instance} (Press Q to exit)", instance=self.instance),
+            id="screen-title",
+        )
         yield RichLog(id="tail-log", highlight=True, markup=False)
         yield Footer()
 
@@ -332,7 +343,7 @@ class TailLogScreen(Screen):
 
 class InfoViewerScreen(Screen):
     """Generic screen to view static text information (like Ports or Status)."""
-    BINDINGS = [("b", "pop_screen", "Back")]
+    BINDINGS = [("b", "pop_screen", _("Back"))]
 
     def __init__(self, title: str, content: str, **kwargs):
         super().__init__(**kwargs)
@@ -344,7 +355,7 @@ class InfoViewerScreen(Screen):
         with VerticalGroup(id="info-container"):
             yield Label(self._title, id="screen-title")
             yield RichLog(id="info-log", markup=True)
-            yield Button("Back", id="btn_back", variant="primary")
+            yield Button(_("Back"), id="btn_back", variant="primary")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -360,8 +371,8 @@ class ManageScreen(Screen):
     """Dashboard screen for Manage Server."""
 
     BINDINGS = [
-        ("b", "pop_screen", "Back to Menu"),
-        ("r", "refresh_state", "Refresh Status"),
+        ("b", "pop_screen", _("Back to Menu")),
+        ("r", "refresh_state", _("Refresh Status")),
     ]
 
     def __init__(self, instance: str, **kwargs):
@@ -381,18 +392,18 @@ class ManageScreen(Screen):
         btn_toggle = self.query_one("#btn_toggle", Button)
 
         if state.server_running:
-            lbl.update("[bold green]SERVER IS RUNNING[/bold green]")
+            lbl.update(_("[bold green]SERVER IS RUNNING[/bold green]"))
             btn_toggle.label = _("Stop")
             btn_toggle.variant = "error"
         else:
-            lbl.update("[bold red]SERVER IS STOPPED[/bold red]")
+            lbl.update(_("[bold red]SERVER IS STOPPED[/bold red]"))
             btn_toggle.label = _("Start")
             btn_toggle.variant = "success"
 
     def compose(self) -> ComposeResult:
         yield Header()
         with VerticalGroup(id="manage-container"):
-            yield Label(f"Manage Server: {self.instance}", id="screen-title")
+            yield Label(tr("Manage Server: {instance}", instance=self.instance), id="screen-title")
             yield Label(_("Loading status..."), id="server-status")
 
             with HorizontalGroup(id="control-buttons"):
@@ -400,6 +411,7 @@ class ManageScreen(Screen):
                 yield Button(_("Restart"), id="btn_restart", variant="warning")
 
             yield Button(_("Edit Configuration"), id="btn_config", variant="success")
+            yield Button(_("Raw Config JSON"), id="btn_config_raw", variant="default")
             yield Button(_("Mods Manager"), id="btn_mods", variant="primary")
             yield Button(_("Maintenance / Cleanup"), id="btn_cleanup", variant="warning")
             yield Button(_("View Live Logs"), id="btn_logs", variant="primary")
@@ -425,16 +437,16 @@ class ManageScreen(Screen):
                 def check_stop(confirm: bool):
                     if confirm:
                         res = stop_service(service_name)
-                        self.app.notify(res.message, title="Stop")
+                        self.app.notify(_(res.message), title=_("Stop"))
                         self.action_refresh_state()
 
                 self.app.push_screen(
-                    ConfirmScreen("Are you sure you want to STOP the server?"),
+                    ConfirmScreen(_("Are you sure you want to STOP the server?")),
                     check_stop,
                 )
             else:
                 res = start_service(service_name)
-                self.app.notify(res.message, title="Start")
+                self.app.notify(_(res.message), title=_("Start"))
                 self.action_refresh_state()
 
         elif event.button.id == "btn_restart":
@@ -442,11 +454,11 @@ class ManageScreen(Screen):
             def check_restart(confirm: bool):
                 if confirm:
                     res = restart_service(service_name)
-                    self.app.notify(res.message, title="Restart")
+                    self.app.notify(_(res.message), title=_("Restart"))
                     self.action_refresh_state()
 
             self.app.push_screen(
-                ConfirmScreen("Are you sure you want to RESTART the server?"),
+                ConfirmScreen(_("Are you sure you want to RESTART the server?")),
                 check_restart,
             )
 
@@ -456,14 +468,14 @@ class ManageScreen(Screen):
         elif event.button.id == "btn_status":
             state = discover(self.instance, save=False)
             text = json.dumps(state.to_dict(), indent=2)
-            self.app.push_screen(InfoViewerScreen("Detailed Server Status", text))
+            self.app.push_screen(InfoViewerScreen(_("Detailed Server Status"), text))
 
         elif event.button.id == "btn_ports":
             state = discover(self.instance, save=False)
             if not state.config_exists:
                 self.app.notify(
-                    "Config missing. Cannot read ports.",
-                    title="Error",
+                    _("Config missing. Cannot read ports."),
+                    title=_("Error"),
                     severity="error",
                 )
                 return
@@ -475,15 +487,18 @@ class ManageScreen(Screen):
             text_lines = []
             for name, info in arr.items():
                 status = (
-                    "[green]OPEN listening[/green]"
+                    _("[green]OPEN listening[/green]")
                     if info["listening"]
-                    else "[red]CLOSED[/red]"
+                    else _("[red]CLOSED[/red]")
                 )
                 text_lines.append(f"{name:<10} | {info['port']:<6} | {status}")
-            self.app.push_screen(InfoViewerScreen("Ports Status", "\n".join(text_lines)))
+            self.app.push_screen(InfoViewerScreen(_("Ports Status"), "\n".join(text_lines)))
 
         elif event.button.id == "btn_config":
             self.app.push_screen(ConfigEditorScreen(self.instance))
+
+        elif event.button.id == "btn_config_raw":
+            self.app.push_screen(RawConfigScreen(self.instance))
 
         elif event.button.id == "btn_mods":
             self.app.push_screen(ModManagerScreen(self.instance))
@@ -496,8 +511,8 @@ class CleanupScreen(Screen):
     """Screen for analyzing and cleaning up server logs and stale files."""
 
     BINDINGS = [
-        ("b", "pop_screen", "Back"),
-        ("c", "clean_junk", "Clean Now"),
+        ("b", "pop_screen", _("Back")),
+        ("c", "clean_junk", _("Clean Now")),
     ]
 
     def __init__(self, instance: str, **kwargs):
@@ -524,26 +539,42 @@ class CleanupScreen(Screen):
 
         log.clear()
         lines = []
-        lines.append("[bold cyan]Server Junk Analysis[/bold cyan]")
+        lines.append(_("[bold cyan]Server Junk Analysis[/bold cyan]"))
         lines.append("-------------------------")
 
         sz_logs = format_size(stats['logs']['size'])
-        lines.append(f"- Old Logs:       {stats['logs']['count']} files ({sz_logs})")
+        lines.append(
+            tr("- Old Logs: {count} files ({size})", count=stats["logs"]["count"], size=sz_logs)
+        )
 
         sz_dumps = format_size(stats['dumps']['size'])
-        lines.append(f"- Crash Dumps:    {stats['dumps']['count']} files ({sz_dumps})")
+        lines.append(
+            tr(
+                "- Crash Dumps: {count} files ({size})",
+                count=stats["dumps"]["count"],
+                size=sz_dumps,
+            )
+        )
 
         sz_backups = format_size(stats['backups']['size'])
-        lines.append(f"- Stale Backups:  {stats['backups']['count']} files ({sz_backups})")
+        lines.append(
+            tr(
+                "- Stale Backups: {count} files ({size})",
+                count=stats["backups"]["count"],
+                size=sz_backups,
+            )
+        )
 
         lines.append("-------------------------")
         tot = format_size(stats['total_size'])
 
         if stats['total_size'] > 0:
-            lines.append(f"[bold red]Total Recoverable Space: {tot}[/bold red]")
+            lines.append(
+                tr("[bold red]Total Recoverable Space: {size}[/bold red]", size=tot)
+            )
             btn.disabled = False
         else:
-            lines.append("[bold green]System is clean! Nothing to remove.[/bold green]")
+            lines.append(_("[bold green]System is clean! Nothing to remove.[/bold green]"))
             btn.disabled = True
 
         log.write("\n".join(lines))
@@ -559,14 +590,14 @@ class CleanupScreen(Screen):
                     freed = format_size(res["freed_bytes"])
                     count = res["files_deleted"]
                     self.app.notify(
-                        f"Cleaned {count} files, freed {freed}!",
-                        title="Cleanup Success",
+                        tr("Cleaned {count} files, freed {freed}!", count=count, freed=freed),
+                        title=_("Cleanup Success"),
                     )
                     self.refresh_stats()
 
             self.app.push_screen(
                 ConfirmScreen(
-                    "Are you sure you want to permanently delete these files?"
+                    _("Are you sure you want to permanently delete these files?")
                 ),
                 confirm_cleanup,
             )
@@ -576,7 +607,7 @@ class ConfigEditorScreen(Screen):
     """Screen for editing the config.json file directly from TUI."""
 
     BINDINGS = [
-        ("b", "pop_screen", "Back without saving"),
+        ("b", "pop_screen", _("Back without saving")),
     ]
 
     def __init__(self, instance: str, **kwargs):
@@ -587,7 +618,7 @@ class ConfigEditorScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Label(f"Edit Config: {self.instance}", id="screen-title")
+        yield Label(tr("Edit Config: {instance}", instance=self.instance), id="screen-title")
 
         with VerticalScroll(id="config-editor"):
             yield Label(_("Server Name:"))
@@ -622,14 +653,14 @@ class ConfigEditorScreen(Screen):
         state = discover(self.instance, save=False)
         self.config_path = state.config_path
         if not state.config_exists:
-            self.app.notify("Config file missing!", severity="error")
+            self.app.notify(_("Config file missing!"), severity="error")
             self.app.pop_screen()
             return
 
         try:
             self.config_data = load_config(self.config_path)
         except Exception as e:
-            self.app.notify(f"Cannot parse config: {e}", severity="error")
+            self.app.notify(tr("Cannot parse config: {error}", error=e), severity="error")
             self.app.pop_screen()
             return
 
@@ -693,8 +724,8 @@ class ConfigEditorScreen(Screen):
         try:
             save_config(self.config_path, self.config_data, backup=True)
             self.app.notify(
-                "Config saved successfully (backup created automatically)",
-                title="Success",
+                _("Config saved successfully (backup created automatically)"),
+                title=_("Success"),
             )
 
             if restart:
@@ -704,19 +735,156 @@ class ConfigEditorScreen(Screen):
                     else paths.SERVICE_NAME
                 )
                 res = restart_service(service_name)
-                self.app.notify(res.message, title="Restart")
+                self.app.notify(_(res.message), title=_("Restart"))
 
             self.app.pop_screen()
         except Exception as e:
-            self.app.notify(f"Error saving config: {e}", severity="error")
+            self.app.notify(tr("Error saving config: {error}", error=e), severity="error")
+
+
+class RawConfigScreen(Screen):
+    """Screen for viewing and editing the raw config.json text."""
+
+    BINDINGS = [
+        ("b", "pop_screen", _("Back")),
+        ("ctrl+s", "save_raw_config", _("Save JSON")),
+        ("ctrl+r", "reload_raw_config", _("Reload")),
+        ("c", "copy_raw_config", _("Copy JSON")),
+    ]
+
+    def __init__(self, instance: str, **kwargs):
+        super().__init__(**kwargs)
+        self.instance = instance
+        self.config_path = ""
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with VerticalGroup(id="raw-config-container"):
+            yield Label(f"{_('Raw Config JSON')}: {self.instance}", id="screen-title")
+            yield Label(
+                _(
+                    "Manual JSON editor. Save keeps an automatic backup before writing."
+                ),
+                id="raw-config-help",
+            )
+            yield TextArea("", id="raw-config-editor")
+            with HorizontalGroup(id="control-buttons"):
+                yield Button(_("Save Config"), id="btn_raw_save", variant="success")
+                yield Button(
+                    _("Save & Restart"),
+                    id="btn_raw_save_restart",
+                    variant="warning",
+                )
+                yield Button(_("Reload From Disk"), id="btn_raw_reload", variant="default")
+                yield Button(_("Copy JSON"), id="btn_raw_copy", variant="primary")
+                yield Button(_("Back"), id="btn_raw_back", variant="error")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        state = discover(self.instance, save=False)
+        self.config_path = state.config_path
+        if not state.config_exists:
+            self.app.notify(_("Config file missing!"), severity="error")
+            self.app.pop_screen()
+            return
+
+        try:
+            self.reload_from_disk()
+            self.query_one("#raw-config-editor", TextArea).focus()
+        except Exception as e:
+            self.app.notify(tr("Cannot load config: {error}", error=e), severity="error")
+            self.app.pop_screen()
+
+    def _get_editor(self) -> TextArea:
+        return self.query_one("#raw-config-editor", TextArea)
+
+    def _set_editor_text(self, text: str) -> None:
+        editor = self._get_editor()
+        if hasattr(editor, "load_text"):
+            editor.load_text(text)
+        else:
+            editor.text = text
+
+    def _get_editor_text(self) -> str:
+        return self._get_editor().text
+
+    def reload_from_disk(self) -> None:
+        config_text = Path(self.config_path).read_text(encoding="utf-8")
+        self._set_editor_text(config_text)
+
+    def action_reload_raw_config(self) -> None:
+        try:
+            self.reload_from_disk()
+            self.app.notify(_("Reloaded config.json from disk."), title=_("Config Reload"))
+        except Exception as e:
+            self.app.notify(tr("Failed to reload config: {error}", error=e), severity="error")
+
+    def action_copy_raw_config(self) -> None:
+        text = self._get_editor_text().strip()
+        if not text:
+            self.app.notify(_("There is no config text to copy."), severity="warning")
+            return
+
+        self.app.copy_to_clipboard(text)
+        self.app.notify(_("Copied config.json to clipboard."), title=_("Clipboard"))
+
+    def action_save_raw_config(self) -> None:
+        self.save_raw_config(restart=False)
+
+    def save_raw_config(self, restart: bool) -> None:
+        raw_text = self._get_editor_text()
+
+        try:
+            data = json.loads(raw_text)
+        except json.JSONDecodeError as e:
+            self.app.notify(tr("Invalid JSON: {error}", error=e), severity="error")
+            return
+
+        errors = validate_config(data=data)
+        if errors:
+            self.app.notify(_(errors[0]), title=_("Config Validation"), severity="error")
+            return
+
+        try:
+            save_config(self.config_path, data, backup=True)
+            pretty_text = json.dumps(data, indent=4)
+            self._set_editor_text(pretty_text)
+            self.app.notify(
+                _("Raw config saved successfully (backup created automatically)"),
+                title=_("Success"),
+            )
+        except Exception as e:
+            self.app.notify(tr("Error saving config: {error}", error=e), severity="error")
+            return
+
+        if restart:
+            service_name = (
+                f"armareforger@{self.instance}.service"
+                if self.instance != "default"
+                else paths.SERVICE_NAME
+            )
+            res = restart_service(service_name)
+            self.app.notify(_(res.message), title=_("Restart"))
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn_raw_back":
+            self.app.pop_screen()
+        elif event.button.id == "btn_raw_reload":
+            self.action_reload_raw_config()
+        elif event.button.id == "btn_raw_copy":
+            self.action_copy_raw_config()
+        elif event.button.id == "btn_raw_save":
+            self.save_raw_config(restart=False)
+        elif event.button.id == "btn_raw_save_restart":
+            self.save_raw_config(restart=True)
 
 
 class ModPackFileScreen(Screen):
     """Prompt screen for mod pack import/export file paths."""
 
     BINDINGS = [
-        ("b", "cancel", "Back"),
-        ("escape", "cancel", "Cancel"),
+        ("b", "cancel", _("Back")),
+        ("escape", "cancel", _("Cancel")),
     ]
 
     def __init__(
@@ -741,20 +909,23 @@ class ModPackFileScreen(Screen):
             yield Label(self._title, id="screen-title")
 
             if self._mode == "import":
-                help_text = (
+                help_text = _(
                     "Import accepts either an exported mod pack JSON "
                     "or a full config.json with game.mods."
                 )
-                placeholder = "Path to mod pack JSON or config.json"
+                placeholder = _("Path to mod pack JSON or config.json")
             else:
-                help_text = "Export writes the current mod list as a standalone JSON mod pack."
-                placeholder = "Path to save mod pack JSON"
+                help_text = _("Export writes the current mod list as a standalone JSON mod pack.")
+                placeholder = _("Path to save mod pack JSON")
 
             yield Label(help_text, id="modpack-help")
             if self._mode == "import" and self._suggested_files:
                 yield Label(
-                    "Suggested files below come from templates and this instance's "
-                    "modpacks folder. Selecting one fills the path field.",
+                    _(
+                        "Suggested files below come from templates and this "
+                        "instance's modpacks folder. Selecting one fills the "
+                        "path field."
+                    ),
                     id="modpack-source-note",
                 )
                 with VerticalScroll(id="modpack-suggestions"):
@@ -771,11 +942,11 @@ class ModPackFileScreen(Screen):
 
             with HorizontalGroup():
                 if self._mode == "import":
-                    yield Button("Import (Append)", id="btn_import_append", variant="success")
-                    yield Button("Import (Replace)", id="btn_import_replace", variant="warning")
+                    yield Button(_("Import (Append)"), id="btn_import_append", variant="success")
+                    yield Button(_("Import (Replace)"), id="btn_import_replace", variant="warning")
                 else:
-                    yield Button("Export", id="btn_export_modpack", variant="success")
-                yield Button("Cancel", id="btn_cancel_modpack", variant="error")
+                    yield Button(_("Export"), id="btn_export_modpack", variant="success")
+                yield Button(_("Cancel"), id="btn_cancel_modpack", variant="error")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -799,7 +970,7 @@ class ModPackFileScreen(Screen):
 
         file_path = self.query_one("#inp_modpack_path", Input).value.strip()
         if not file_path:
-            self.app.notify("File path is required.", severity="error")
+            self.app.notify(_("File path is required."), severity="error")
             return
 
         if event.button.id == "btn_export_modpack":
@@ -814,8 +985,8 @@ class ModManagerScreen(Screen):
     """Screen for managing Arma Reforger mods in config.json."""
 
     BINDINGS = [
-        ("b", "pop_screen", "Back to Menu"),
-        ("ctrl+r", "action_refresh_mods", "Refresh List"),
+        ("b", "pop_screen", _("Back to Menu")),
+        ("ctrl+r", "action_refresh_mods", _("Refresh List")),
     ]
 
     def __init__(self, instance: str, **kwargs):
@@ -832,7 +1003,7 @@ class ModManagerScreen(Screen):
             yield Button(_("Add/Update Mod"), id="btn_add_mod", variant="success")
 
             yield Label(_("Installed Mods:"), id="mods-list-title")
-            yield Label("Installed Mods: 0", id="mods-summary")
+            yield Label(_("Installed Mods: 0"), id="mods-summary")
             yield ListView(id="mods-list")
 
             with HorizontalGroup():
@@ -855,9 +1026,11 @@ class ModManagerScreen(Screen):
     def _import_directory_note(self) -> str:
         modpacks_dir = paths.modpacks_dir(self.instance)
         templates_dir = self._repo_root() / "templates"
-        return (
-            f"armactl checks {modpacks_dir} for saved mod packs and "
-            f"{templates_dir} for example JSON configs."
+        return tr(
+            "armactl checks {modpacks_dir} for saved mod packs and "
+            "{templates_dir} for example JSON configs.",
+            modpacks_dir=modpacks_dir,
+            templates_dir=templates_dir,
         )
 
     def _format_import_suggestion(self, path: Path) -> tuple[str, str]:
@@ -866,16 +1039,16 @@ class ModManagerScreen(Screen):
         legacy_export = paths.instance_root(self.instance) / "mods-export.json"
 
         if path.parent == modpacks_dir:
-            source = "Saved mod pack"
+            source = _("Saved mod pack")
         elif path.parent == templates_dir:
-            source = "Template example"
+            source = _("Template example")
         elif path == legacy_export:
-            source = "Legacy export"
+            source = _("Legacy export")
         else:
-            source = "JSON file"
+            source = _("JSON file")
 
         try:
-            count_text = f" ({preview_import_mods(path)} mods)"
+            count_text = tr(" ({count} mods)", count=preview_import_mods(path))
         except Exception:
             count_text = ""
 
@@ -934,40 +1107,47 @@ class ModManagerScreen(Screen):
             if action == "export":
                 count = export_mods(cfg, file_path)
                 self.app.notify(
-                    f"Exported {count} mods to {file_path}.",
-                    title="Mod Pack Export",
+                    tr("Exported {count} mods to {path}.", count=count, path=file_path),
+                    title=_("Mod Pack Export"),
                 )
                 return
 
             added, skipped = import_mods(cfg, file_path, append=(action == "append"))
-            mode_label = "appended" if action == "append" else "replaced"
+            mode_label = _("appended") if action == "append" else _("replaced")
             self.app.notify(
-                f"Mod pack {mode_label}: added {added}, skipped {skipped} duplicate(s).",
-                title="Mod Pack Import",
+                tr(
+                    "Mod pack {mode}: added {added}, skipped {skipped} duplicate(s).",
+                    mode=mode_label,
+                    added=added,
+                    skipped=skipped,
+                ),
+                title=_("Mod Pack Import"),
             )
             self.action_refresh_mods()
         except Exception as e:
-            self.app.notify(f"Mod pack operation failed: {e}", severity="error")
+            self.app.notify(tr("Mod pack operation failed: {error}", error=e), severity="error")
 
     def action_refresh_mods(self) -> None:
         cfg = paths.config_file(self.instance)
         try:
             mods = get_mods(cfg)
         except Exception as e:
-            self.app.notify(f"Error loading mods: {e}", severity="error")
+            self.app.notify(tr("Error loading mods: {error}", error=e), severity="error")
             return
 
-        self.query_one("#mods-summary", Label).update(f"Installed Mods: {len(mods)}")
+        self.query_one("#mods-summary", Label).update(
+            tr("Installed Mods: {count}", count=len(mods))
+        )
 
         list_view = self.query_one("#mods-list", ListView)
         list_view.clear()
 
         if not mods:
-            list_view.append(ListItem(Label("No mods installed.")))
+            list_view.append(ListItem(Label(_("No mods installed."))))
             return
 
         for idx, mod in enumerate(mods, 1):
-            mod_id = mod.get("modId", "Unknown")
+            mod_id = mod.get("modId", _("Unknown"))
             name = mod.get("name", "")
             display = f"[{idx}] {mod_id}"
             if name:
@@ -987,7 +1167,7 @@ class ModManagerScreen(Screen):
             default_path = suggestions[0][1] if suggestions else ""
             self.app.push_screen(
                 ModPackFileScreen(
-                    "Import Mod Pack",
+                    _("Import Mod Pack"),
                     "import",
                     default_path=default_path,
                     suggested_files=suggestions,
@@ -999,12 +1179,14 @@ class ModManagerScreen(Screen):
         elif event.button.id == "btn_export_pack":
             self.app.push_screen(
                 ModPackFileScreen(
-                    "Export Mod Pack",
+                    _("Export Mod Pack"),
                     "export",
                     default_path=self._default_export_path(),
                     directory_note=(
-                        "By default exports are saved in "
-                        f"{paths.modpacks_dir(self.instance)}."
+                        tr(
+                            "By default exports are saved in {path}.",
+                            path=paths.modpacks_dir(self.instance),
+                        )
                     ),
                 ),
                 self._handle_mod_pack_result,
@@ -1017,21 +1199,21 @@ class ModManagerScreen(Screen):
             name = inp_name.value.strip()
 
             if not raw_id:
-                self.app.notify("Mod string is required!", severity="error")
+                self.app.notify(_("Mod string is required!"), severity="error")
                 return
 
             match = re.search(r"([0-9A-Fa-f]{10,24})", raw_id)
             if not match:
-                self.app.notify("Could not find a valid Mod ID in the input!", severity="error")
+                self.app.notify(_("Could not find a valid Mod ID in the input!"), severity="error")
                 return
 
             mod_id = match.group(1).upper()
 
             is_new = add_mod(cfg, mod_id, name)
             if is_new:
-                self.app.notify(f"Mod {mod_id} added successfully.")
+                self.app.notify(tr("Mod {mod_id} added successfully.", mod_id=mod_id))
             else:
-                self.app.notify(f"Mod {mod_id} updated successfully.")
+                self.app.notify(tr("Mod {mod_id} updated successfully.", mod_id=mod_id))
 
             inp_id.value = ""
             inp_name.value = ""
@@ -1040,7 +1222,7 @@ class ModManagerScreen(Screen):
         elif event.button.id == "btn_remove_mod":
             list_view = self.query_one("#mods-list", ListView)
             if list_view.highlighted_child is None:
-                self.app.notify("Select a mod to remove first.", severity="warning")
+                self.app.notify(_("Select a mod to remove first."), severity="warning")
                 return
 
             mod_id = getattr(list_view.highlighted_child, "mod_id", None)
@@ -1050,19 +1232,26 @@ class ModManagerScreen(Screen):
                     if confirm:
                         success = remove_mod(cfg, mod_id)
                         if success:
-                            self.app.notify(f"Removed mod {mod_id}.")
+                            self.app.notify(tr("Removed mod {mod_id}.", mod_id=mod_id))
                             self.action_refresh_mods()
                         else:
-                            self.app.notify(f"Mod {mod_id} not found.", severity="error")
+                            self.app.notify(
+                                tr("Mod {mod_id} not found.", mod_id=mod_id),
+                                severity="error",
+                            )
 
                 self.app.push_screen(
-                    ConfirmScreen(f"Are you sure you want to remove Mod '{mod_id}'?"),
+                    ConfirmScreen(
+                        tr("Are you sure you want to remove Mod '{mod_id}'?", mod_id=mod_id)
+                    ),
                     confirm_remove,
                 )
 
         elif event.button.id == "btn_dedupe_mods":
             count = dedupe_mods(cfg)
-            self.app.notify(f"Deduped mods. Reclaimed {count} duplicates.")
+            self.app.notify(
+                tr("Deduped mods. Reclaimed {count} duplicates.", count=count)
+            )
             if count > 0:
                 self.action_refresh_mods()
 

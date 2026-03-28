@@ -13,6 +13,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from armactl.i18n import _, tr
+
 
 class ConfigError(Exception):
     """Raised when there's an error reading/writing/validating config."""
@@ -23,15 +25,15 @@ def load_config(config_path: Path | str) -> dict[str, Any]:
     """Load config.json from disk."""
     config_path = Path(config_path)
     if not config_path.exists():
-        raise ConfigError(f"Config file not found: {config_path}")
+        raise ConfigError(tr("Config file not found: {path}", path=config_path))
 
     try:
         with open(config_path, encoding="utf-8") as f:
             return json.load(f)
     except json.JSONDecodeError as e:
-        raise ConfigError(f"Invalid JSON in config file: {e}")
+        raise ConfigError(tr("Invalid JSON in config file: {error}", error=e))
     except OSError as e:
-        raise ConfigError(f"Failed to read config file: {e}")
+        raise ConfigError(tr("Failed to read config file: {error}", error=e))
 
 
 def save_config(config_path: Path | str, data: dict[str, Any], backup: bool = True) -> None:
@@ -56,7 +58,7 @@ def save_config(config_path: Path | str, data: dict[str, Any], backup: bool = Tr
     except OSError as e:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
-        raise ConfigError(f"Failed to save config file: {e}")
+        raise ConfigError(tr("Failed to save config file: {error}", error=e))
 
 
 def _create_backup(config_path: Path) -> None:
@@ -82,7 +84,7 @@ def _create_backup(config_path: Path) -> None:
         # Optional: rotate old backups to avoid filling up disk.
         _rotate_backups(backups_dir)
     except (OSError, Exception) as e:
-        raise ConfigError(f"Failed to create config backup: {e}")
+        raise ConfigError(tr("Failed to create config backup: {error}", error=e))
 
 
 def _rotate_backups(backups_dir: Path, max_backups: int = 10) -> None:
@@ -112,34 +114,34 @@ def validate_config(
             return [str(e)]
 
     if data is None:
-        return ["No data provided to validate."]
+        return [_("No data provided to validate.")]
 
     errors = []
 
     if not isinstance(data, dict):
-        return ["Config root must be a JSON object (dict)."]
+        return [_("Config root must be a JSON object (dict).")]
 
     # Check for core sections according to typical Arma Reforger config
     if "bindAddress" not in data:
-        errors.append("Missing 'bindAddress' in config.")
+        errors.append(_("Missing 'bindAddress' in config."))
     if "bindPort" not in data:
-        errors.append("Missing 'bindPort' in config.")
+        errors.append(_("Missing 'bindPort' in config."))
 
     if "game" not in data:
-        errors.append("Missing 'game' section in config.")
+        errors.append(_("Missing 'game' section in config."))
     elif not isinstance(data["game"], dict):
-        errors.append("'game' section must be an object.")
+        errors.append(_("'game' section must be an object."))
     else:
         # Check game properties
         game = data["game"]
         if "name" not in game:
-            errors.append("Missing 'game.name' (server name).")
+            errors.append(_("Missing 'game.name' (server name)."))
         if "scenarioId" not in game:
-            errors.append("Missing 'game.scenarioId'.")
+            errors.append(_("Missing 'game.scenarioId'."))
         if "maxPlayers" not in game:
-            errors.append("Missing 'game.maxPlayers'.")
+            errors.append(_("Missing 'game.maxPlayers'."))
         elif not isinstance(game["maxPlayers"], int):
-            errors.append("'game.maxPlayers' must be an integer.")
+            errors.append(_("'game.maxPlayers' must be an integer."))
 
     return errors
 
@@ -177,4 +179,4 @@ def unset_value(config_path: Path | str, section: str, key: str) -> None:
     if deleted:
         save_config(config_path, data)
     else:
-        raise ConfigError(f"Key '{key}' not found in config.")
+        raise ConfigError(tr("Key '{key}' not found in config.", key=key))

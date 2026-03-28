@@ -10,6 +10,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 from armactl.discovery import discover_manual
+from armactl.i18n import _, tr
 from armactl.paths import start_script
 from armactl.service_manager import generate_services, stop_service
 
@@ -24,26 +25,29 @@ def run_repair(
     config_path: Path | str,
 ) -> Iterator[str]:
     """Generator that repairs an existing server installation."""
-    yield f"[{instance}] Diagnosing existing installation..."
+    yield tr("[{instance}] Diagnosing existing installation...", instance=instance)
 
     install_dir = Path(install_dir)
     config_path = Path(config_path)
 
     if not install_dir.exists():
-        yield f"  ! Critical: Install directory {install_dir} is completely missing!"
+        yield tr(
+            "  ! Critical: Install directory {path} is completely missing!",
+            path=install_dir,
+        )
         raise RepairError(
-            "Will not repair missing base directory. Try running 'install' instead."
+            _("Will not repair missing base directory. Try running 'install' instead.")
         )
 
-    yield f"[{instance}] Step 1: Stopping services..."
+    yield tr("[{instance}] Step 1: Stopping services...", instance=instance)
     state = discover_manual(install_dir, config_path, instance=instance, save=False)
     if state.server_running:
         stop_service(state.service_name)
-        yield "  OK Server stopped"
+        yield _("  OK Server stopped")
     else:
-        yield "  - Server is already stopped"
+        yield _("  - Server is already stopped")
 
-    yield f"[{instance}] Step 2: Validating game files via SteamCMD..."
+    yield tr("[{instance}] Step 2: Validating game files via SteamCMD...", instance=instance)
     cmd = [
         "steamcmd",
         "+force_install_dir",
@@ -57,17 +61,17 @@ def run_repair(
     ]
     try:
         subprocess.run(cmd, capture_output=True, text=True, check=True)
-        yield "  OK Server files validated and updated"
+        yield _("  OK Server files validated and updated")
     except subprocess.CalledProcessError as e:
         raise RepairError(
-            f"SteamCMD failed:\n{e.stderr.strip() or e.stdout.strip()}"
+            tr("SteamCMD failed:\n{details}", details=e.stderr.strip() or e.stdout.strip())
         ) from e
     except FileNotFoundError:
-        raise RepairError("SteamCMD not found in PATH. Make sure it is installed.")
+        raise RepairError(_("SteamCMD not found in PATH. Make sure it is installed."))
 
-    yield f"[{instance}] Step 3: Checking configuration..."
+    yield tr("[{instance}] Step 3: Checking configuration...", instance=instance)
     if not config_path.exists():
-        yield "  ! Config missing! Regenerating default config..."
+        yield _("  ! Config missing! Regenerating default config...")
         project_root = Path(__file__).resolve().parent.parent.parent
         templates_dir = project_root / "templates"
 
@@ -80,28 +84,33 @@ def run_repair(
         )
         with open(config_path, "w", encoding="utf-8") as f:
             f.write(config_render)
-        yield "  OK Default config generated"
+        yield _("  OK Default config generated")
     else:
-        yield "  OK Config exists (skipping overwrite)"
+        yield _("  OK Config exists (skipping overwrite)")
 
-    yield f"[{instance}] Step 4: Repairing systemd services..."
+    yield tr("[{instance}] Step 4: Repairing systemd services...", instance=instance)
     results = generate_services(instance=instance)
     for result in results:
         if result.success:
-            yield f"  OK {result.message}"
+            yield tr("  OK {message}", message=result.message)
         else:
-            raise RepairError(f"Failed to generate systemd units: {result.message}")
+            raise RepairError(
+                tr("Failed to generate systemd units: {message}", message=result.message)
+            )
 
-    yield f"[{instance}] Step 5: Fixing permissions..."
+    yield tr("[{instance}] Step 5: Fixing permissions...", instance=instance)
     script_path = start_script(instance)
     if script_path.exists():
         script_path.chmod(0o755)
-        yield "  OK Start script permissions fixed"
+        yield _("  OK Start script permissions fixed")
     else:
-        yield "  ! Start script still missing?"
+        yield _("  ! Start script still missing?")
 
-    yield f"[{instance}] Step 6: Updating server state..."
+    yield tr("[{instance}] Step 6: Updating server state...", instance=instance)
     discover_manual(install_dir, config_path, instance=instance, save=True)
-    yield "  OK Server state synchronized"
+    yield _("  OK Server state synchronized")
 
-    yield f"[{instance}] Repair complete! Run 'start' to boot the server."
+    yield tr(
+        "[{instance}] Repair complete! Run 'start' to boot the server.",
+        instance=instance,
+    )

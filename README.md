@@ -49,6 +49,7 @@ armactl separates three layers:
 | System services | `/etc/systemd/system/` | Auto-start and scheduled restarts |
 
 See [docs/architecture.md](docs/architecture.md) for full details.
+See [docs/localization.md](docs/localization.md) for adding and maintaining UI languages.
 
 ## File layout on server
 

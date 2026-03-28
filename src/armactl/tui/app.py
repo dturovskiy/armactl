@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 
 from textual.app import App, ComposeResult
@@ -11,7 +12,47 @@ from textual.widgets import Button, Footer, Header, Label
 
 from armactl import paths
 from armactl.discovery import discover
-from armactl.i18n import _, get_current_lang_name, toggle_lang
+from armactl.i18n import _, get_current_lang_name, toggle_lang, tr
+
+
+def _restore_terminal_state() -> None:
+    """Best-effort cleanup for terminals after Textual exits."""
+    reset_sequences = (
+        "\033[?1l"     # Normal cursor keys
+        "\033>"        # Normal keypad mode
+        "\033[?25h"    # Show cursor
+        "\033[?1000l"  # X10 mouse tracking
+        "\033[?1001l"  # VT200 highlight mouse tracking
+        "\033[?1002l"  # Button-event mouse tracking
+        "\033[?1003l"  # Any-event mouse tracking
+        "\033[?1004l"  # Focus in/out events
+        "\033[?1005l"  # UTF-8 mouse mode
+        "\033[?1006l"  # SGR mouse mode
+        "\033[?1007l"  # Alternate scroll mode
+        "\033[?1015l"  # urxvt mouse mode
+        "\033[?1016l"  # Pixel mouse mode
+        "\033[?1049l"  # Alternate screen buffer
+        "\033[?2004l"  # Bracketed paste
+    )
+    sys.stdout.write(reset_sequences)
+    sys.stdout.flush()
+
+    if os.name != "posix":
+        return
+
+    try:
+        import select
+        import termios
+
+        fd = sys.stdin.fileno()
+        while True:
+            readable, _, _ = select.select([fd], [], [], 0)
+            if not readable:
+                break
+            os.read(fd, 1024)
+        termios.tcflush(fd, termios.TCIFLUSH)
+    except Exception:
+        pass
 
 
 class ArmaCtlApp(App):
@@ -47,6 +88,13 @@ class ArmaCtlApp(App):
         width: 100%;
         height: 1fr;
         padding: 1 2;
+    }
+    #raw-config-container {
+        width: 90%;
+        height: 90%;
+        border: solid green;
+        padding: 1 2;
+        background: $surface;
     }
     #screen-title {
         content-align: center middle;
@@ -110,6 +158,17 @@ class ArmaCtlApp(App):
         margin-bottom: 1;
         color: $text-muted;
     }
+    #raw-config-help {
+        width: 100%;
+        margin-bottom: 1;
+        color: $text-muted;
+    }
+    #raw-config-editor {
+        width: 100%;
+        height: 1fr;
+        border: solid green;
+        margin-bottom: 1;
+    }
     #modpack-source-note {
         width: 100%;
         margin-bottom: 1;
@@ -127,7 +186,7 @@ class ArmaCtlApp(App):
     """
 
     BINDINGS = [
-        Binding("q", "quit", "Quit", show=True),
+        Binding("q", "quit", _("Quit"), show=True),
     ]
 
     def __init__(self, instance: str = paths.DEFAULT_INSTANCE_NAME, **kwargs):
@@ -138,7 +197,10 @@ class ArmaCtlApp(App):
         """Create child widgets for the app."""
         yield Header(show_clock=True)
         with VerticalGroup(id="main-menu"):
-            yield Label(f"Arma Reforger Manager [{self.instance}]", id="title")
+            yield Label(
+                tr("Arma Reforger Manager [{instance}]", instance=self.instance),
+                id="title",
+            )
 
             state = discover(instance=self.instance, save=False)
             if state.server_installed:
@@ -163,11 +225,14 @@ class ArmaCtlApp(App):
             state = discover(instance=self.instance, save=True)
             if state.server_installed:
                 self.notify(
-                    "Server files detected! Restart app to see Manage screen.",
-                    title="Success",
+                    _("Server files detected! Restart app to see Manage screen."),
+                    title=_("Success"),
                 )
             else:
-                self.notify("No server installation found at default paths.", severity="error")
+                self.notify(
+                    _("No server installation found at default paths."),
+                    severity="error",
+                )
         elif event.button.id == "btn_lang":
             toggle_lang()
             self.notify(
@@ -185,7 +250,7 @@ class ArmaCtlApp(App):
             self.push_screen(
                 InstallScreen(
                     instance=self.instance,
-                    title=f"Installing Server -> {self.instance}",
+                    title=tr("Installing Server -> {instance}", instance=self.instance),
                 )
             )
         elif event.button.id == "btn_repair":
@@ -194,7 +259,7 @@ class ArmaCtlApp(App):
             self.push_screen(
                 RepairScreen(
                     instance=self.instance,
-                    title=f"Repairing Server -> {self.instance}",
+                    title=tr("Repairing Server -> {instance}", instance=self.instance),
                 )
             )
         elif event.button.id == "btn_host_tests":
@@ -212,5 +277,7 @@ def run_tui(instance: str) -> None:
     """Entry point for the TUI."""
     app = ArmaCtlApp(instance=instance)
     reply = app.run()
+    _restore_terminal_state()
+
     sys.exit(reply or 0)
 
