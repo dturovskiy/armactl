@@ -44,7 +44,7 @@
 - [x] Додати команду `ports`
 - [x] Додати зрозумілі exit codes
 - [x] Додати JSON output mode для TUI
-- [ ] Перевірити, що всі базові команди працюють без TUI
+- [x] Перевірити, що всі базові команди працюють без TUI
 
 ## Phase 3 — Config manager
 
@@ -59,7 +59,7 @@
 - [x] Додати `config set-password-admin`
 - [x] Додати `config set-rcon-password`
 - [x] Додати `config validate`
-- [ ] Перевірити, що зміни не ламають конфіг
+- [x] Перевірити, що зміни не ламають конфіг
 
 ## Phase 4 — Service і timer manager
 
@@ -77,8 +77,8 @@
 - [x] Додати `schedule show`
 - [x] Додати `schedule set`
 - [x] Додати `schedule restart-now`
-- [ ] Перевірити автозапуск після ребуту
-- [ ] Перевірити плановий рестарт
+- [x] Перевірити автозапуск після ребуту
+- [x] Перевірити плановий рестарт
 
 ## Phase 5 — Installer
 
@@ -104,7 +104,7 @@
 - [x] Додати перевстановлення `timer`
 - [x] Додати `steamcmd validate/update` у repair
 - [x] Додати оновлення `state.json` після repair
-- [ ] Перевірити repair на навмисно зламаному стані
+- [x] Перевірити repair на навмисно зламаному стані
 
 ## Phase 7 — Mod manager
 
