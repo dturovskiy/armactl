@@ -1,5 +1,7 @@
 """Integration-style tests for the installer orchestration flow."""
 
+from pathlib import Path
+from subprocess import CalledProcessError
 from unittest.mock import patch
 
 import armactl.i18n as i18n
@@ -82,3 +84,27 @@ def test_run_install_uses_instance_specific_service_name() -> None:
 
     enable_service_mock.assert_called_once_with("armareforger@alpha.service")
     restart_service_mock.assert_called_once_with("armareforger@alpha.service")
+
+
+def test_download_server_includes_steamcmd_details_in_error() -> None:
+    with (
+        patch("armactl.installer.paths.server_dir", return_value=Path("/tmp/server")),
+        patch("armactl.installer._resolve_steamcmd_binary", return_value="/usr/games/steamcmd"),
+        patch(
+            "armactl.installer.subprocess.run",
+            side_effect=CalledProcessError(
+                7,
+                ["/usr/games/steamcmd"],
+                stderr="ERROR! Failed to install app '1874900' (No subscription)\n",
+            ),
+        ),
+    ):
+        try:
+            installer.download_server("default")
+        except installer.InstallError as error:
+            message = str(error)
+        else:
+            raise AssertionError("download_server() should raise InstallError")
+
+    assert "Failed to download server via steamcmd:" in message
+    assert "ERROR! Failed to install app '1874900' (No subscription)" in message

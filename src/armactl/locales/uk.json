@@ -399,6 +399,8 @@
     "Failed to install steamcmd via apt-get": "Не вдалося встановити steamcmd через apt-get",
     "steamcmd installation seemed to succeed, but binary still not found in PATH.": "Схоже, встановлення steamcmd завершилося успішно, але бінарник досі не знайдено в PATH.",
     "Failed to download server via steamcmd": "Не вдалося завантажити сервер через steamcmd",
+    "Failed to download server via steamcmd:\n{details}": "Не вдалося завантажити сервер через steamcmd:\n{details}",
+    "Failed to download server via steamcmd: {error}": "Не вдалося завантажити сервер через steamcmd: {error}",
     "Templates directory missing at {path}": "Директорія шаблонів відсутня за шляхом {path}",
     "Failed to generate default config: {error}": "Не вдалося згенерувати типовий конфіг: {error}",
     "Smoke check failed: binary missing at {path}. Did steamcmd download fail?": "Smoke check не пройдено: бінарник відсутній за шляхом {path}. Можливо, steamcmd не докачав сервер?",

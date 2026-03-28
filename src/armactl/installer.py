@@ -33,6 +33,18 @@ class InstallError(Exception):
     """Raised when installation fails at any step."""
 
 
+def _resolve_steamcmd_binary() -> str | None:
+    """Return the best available steamcmd binary path."""
+    found = shutil.which("steamcmd")
+    if found:
+        return found
+
+    fallback = Path("/usr/games/steamcmd")
+    if fallback.exists():
+        return str(fallback)
+    return None
+
+
 def _run_cmd(cmd: list[str], err_msg: str, env: dict[str, str] | None = None) -> None:
     """Run a subprocess command and raise InstallError on failure."""
     try:
@@ -77,7 +89,10 @@ def check_sudo() -> None:
 
 def install_steamcmd() -> None:
     """Install steamcmd via apt if missing."""
-    if shutil.which("steamcmd"):
+    steamcmd_bin = _resolve_steamcmd_binary()
+    if steamcmd_bin:
+        if steamcmd_bin.startswith("/usr/games") and "/usr/games" not in os.environ.get("PATH", ""):
+            os.environ["PATH"] += f"{os.pathsep}/usr/games"
         return
 
     if not shutil.which("apt-get"):
@@ -124,10 +139,11 @@ def install_steamcmd() -> None:
         env=env,
     )
 
-    if not shutil.which("steamcmd") and Path("/usr/games/steamcmd").exists():
+    steamcmd_bin = _resolve_steamcmd_binary()
+    if steamcmd_bin and steamcmd_bin.startswith("/usr/games"):
         os.environ["PATH"] += f"{os.pathsep}/usr/games"
 
-    if not shutil.which("steamcmd"):
+    if not steamcmd_bin:
         raise InstallError(
             _(
                 "steamcmd installation seemed to succeed, but binary still not found in PATH."
@@ -149,8 +165,9 @@ def create_install_dir(instance: str) -> None:
 def download_server(instance: str) -> None:
     """Download Arma Reforger via steamcmd."""
     install_dir = paths.server_dir(instance).absolute()
+    steamcmd_bin = _resolve_steamcmd_binary() or "steamcmd"
     cmd = [
-        "steamcmd",
+        steamcmd_bin,
         "+force_install_dir",
         str(install_dir),
         "+login",
@@ -161,11 +178,27 @@ def download_server(instance: str) -> None:
         "+quit",
     ]
 
-    # Run synchronously with output to stdout.
     try:
-        subprocess.run(cmd, check=True)
+        subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
     except subprocess.CalledProcessError as e:
-        raise InstallError(_("Failed to download server via steamcmd")) from e
+        raise InstallError(
+            tr(
+                "Failed to download server via steamcmd:\n{details}",
+                details=safe_subprocess_error(e.stderr, e.stdout),
+            )
+        ) from e
+    except OSError as e:
+        raise InstallError(
+            tr(
+                "Failed to download server via steamcmd: {error}",
+                error=redact_sensitive_text(e),
+            )
+        ) from e
 
 
 def generate_default_config(instance: str) -> None:
