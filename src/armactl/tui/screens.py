@@ -203,6 +203,10 @@ class ManageScreen(Screen):
     def on_mount(self) -> None:
         self.action_refresh_state()
 
+    def on_screen_resume(self) -> None:
+        """Auto-refresh state when returning from a sub-screen like ConfigEditor."""
+        self.action_refresh_state()
+
     def action_refresh_state(self) -> None:
         state = discover(self.instance, save=False)
         lbl = self.query_one("#server-status", Label)
@@ -229,6 +233,7 @@ class ManageScreen(Screen):
                 yield Button("Restart", id="btn_restart", variant="warning")
                 
             yield Button("Edit Configuration", id="btn_config", variant="success")
+            yield Button("Maintenance / Cleanup", id="btn_cleanup", variant="warning")
             yield Button("View Live Logs", id="btn_logs", variant="primary")
             yield Button("Status Details", id="btn_status", variant="default")
             yield Button("Check Ports", id="btn_ports", variant="default")
@@ -288,6 +293,83 @@ class ManageScreen(Screen):
             
         elif event.button.id == "btn_config":
             self.app.push_screen(ConfigEditorScreen(self.instance))
+            
+        elif event.button.id == "btn_cleanup":
+            self.app.push_screen(CleanupScreen(self.instance))
+
+
+class CleanupScreen(Screen):
+    """Screen for analyzing and cleaning up server logs and stale files."""
+    
+    BINDINGS = [
+        ("b", "pop_screen", "Back"),
+        ("c", "clean_junk", "Clean Now"),
+    ]
+    
+    def __init__(self, instance: str, **kwargs):
+        super().__init__(**kwargs)
+        self.instance = instance
+
+    def compose(self) -> ComposeResult:
+        from textual.containers import VerticalGroup, HorizontalGroup
+        yield Header()
+        with VerticalGroup(id="info-container"):
+            yield Label(f"Maintenance & Cleanup: {self.instance}", id="screen-title")
+            yield RichLog(id="info-log", markup=True)
+            with HorizontalGroup(id="control-buttons"):
+                yield Button("Clean Junk Files", id="btn_clean_now", variant="warning")
+                yield Button("Back", id="btn_back", variant="default")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.refresh_stats()
+
+    def refresh_stats(self) -> None:
+        from armactl.cleaner import get_junk_stats, format_size
+        
+        stats = get_junk_stats(self.instance)
+        log = self.query_one("#info-log", RichLog)
+        btn = self.query_one("#btn_clean_now", Button)
+        
+        log.clear()
+        lines = []
+        lines.append("[bold cyan]Server Junk Analysis[/bold cyan]")
+        lines.append("─────────────────────────")
+        
+        sz_logs = format_size(stats['logs']['size'])
+        lines.append(f"• Old Logs:       {stats['logs']['count']} files ({sz_logs})")
+        
+        sz_dumps = format_size(stats['dumps']['size'])
+        lines.append(f"• Crash Dumps:    {stats['dumps']['count']} files ({sz_dumps})")
+        
+        sz_backups = format_size(stats['backups']['size'])
+        lines.append(f"• Stale Backups:  {stats['backups']['count']} files ({sz_backups})")
+        
+        lines.append("─────────────────────────")
+        tot = format_size(stats['total_size'])
+        
+        if stats['total_size'] > 0:
+            lines.append(f"[bold red]Total Recoverable Space: {tot}[/bold red]")
+            btn.disabled = False
+        else:
+            lines.append("[bold green]System is clean! Nothing to remove.[/bold green]")
+            btn.disabled = True
+            
+        log.write("\n".join(lines))
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn_back":
+            self.app.pop_screen()
+        elif event.button.id == "btn_clean_now":
+            def confirm_cleanup(confirm: bool):
+                if confirm:
+                    from armactl.cleaner import clean_junk, format_size
+                    res = clean_junk(self.instance)
+                    freed = format_size(res["freed_bytes"])
+                    count = res["files_deleted"]
+                    self.app.notify(f"Cleaned {count} files, freed {freed}!", title="Cleanup Success")
+                    self.refresh_stats()
+            self.app.push_screen(ConfirmScreen("Are you sure you want to permanently delete these files?"), confirm_cleanup)
 
 
 class ConfigEditorScreen(Screen):
