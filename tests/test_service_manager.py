@@ -137,6 +137,32 @@ def test_get_service_status_falls_back_to_exec_main_pid() -> None:
     assert status["active_enter_usec"] == 4000000
 
 
+def test_get_service_status_keeps_zero_memory_current() -> None:
+    completed = CompletedProcess(
+        args=["systemctl", "show", "armareforger.service"],
+        returncode=0,
+        stdout=(
+            "ActiveState=active\n"
+            "SubState=running\n"
+            "Description=Arma Reforger Dedicated Server\n"
+            "MainPID=4321\n"
+            "ExecMainPID=4321\n"
+            "ControlPID=0\n"
+            "MemoryCurrent=0\n"
+        ),
+        stderr="",
+    )
+
+    with (
+        patch("armactl.service_manager.is_active", return_value=True),
+        patch("armactl.service_manager.is_enabled", return_value=True),
+        patch("armactl.service_manager.subprocess.run", return_value=completed),
+    ):
+        status = get_service_status("armareforger.service")
+
+    assert status["memory_current_bytes"] == 0
+
+
 def test_has_privileged_systemctl_channel_requires_helper_and_sudoers(tmp_path: Path) -> None:
     helper_path = tmp_path / "armactl-systemctl-helper"
     sudoers_path = tmp_path / "armactl-systemctl-helper.sudoers"

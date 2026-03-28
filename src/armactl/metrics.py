@@ -51,6 +51,11 @@ def _cpu_count() -> int:
     return max(os.cpu_count() or 1, 1)
 
 
+def _page_size() -> int:
+    """Return a sane Linux page size for statm RSS fallback parsing."""
+    return max(int(os.sysconf("SC_PAGE_SIZE")), 1)
+
+
 def estimate_service_cpu_percent(service_status: dict[str, Any]) -> float | None:
     """Estimate CPU percent from systemd show data when /proc PID metrics are unavailable."""
     cpu_usage_nsec = service_status.get("cpu_usage_nsec")
@@ -84,14 +89,24 @@ def query_process_metrics(pid: int) -> ProcessMetrics:
     proc_dir = Path("/proc") / str(pid)
     stat_path = proc_dir / "stat"
     status_path = proc_dir / "status"
+    statm_path = proc_dir / "statm"
     uptime_path = Path("/proc/uptime")
 
     try:
         stat_text = _read_text(stat_path)
-        status_text = _read_text(status_path)
         uptime_text = _read_text(uptime_path)
     except OSError as error:
         return ProcessMetrics(False, pid, error=str(error))
+
+    try:
+        status_text = _read_text(status_path)
+    except OSError:
+        status_text = ""
+
+    try:
+        statm_text = _read_text(statm_path)
+    except OSError:
+        statm_text = ""
 
     try:
         stat_fields = stat_text.split()
@@ -112,6 +127,13 @@ def query_process_metrics(pid: int) -> ProcessMetrics:
         if len(parts) >= 2:
             memory_rss_bytes = int(parts[1]) * 1024
         break
+
+    if memory_rss_bytes is None and statm_text:
+        try:
+            resident_pages = int(statm_text.split()[1])
+            memory_rss_bytes = resident_pages * _page_size()
+        except (IndexError, OSError, ValueError):
+            pass
 
     return ProcessMetrics(
         True,

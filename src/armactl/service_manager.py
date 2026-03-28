@@ -594,7 +594,7 @@ def get_service_status(service_name: str = "armareforger.service") -> dict[str, 
             elif key == "MemoryCurrent":
                 try:
                     parsed = int(val)
-                    if 0 < parsed < 2**63:
+                    if 0 <= parsed < 2**63:
                         memory_current_bytes = parsed
                 except ValueError:
                     pass
