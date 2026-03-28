@@ -228,6 +228,7 @@ class ManageScreen(Screen):
                 yield Button("...", id="btn_toggle", variant="primary")
                 yield Button("Restart", id="btn_restart", variant="warning")
                 
+            yield Button("Edit Configuration", id="btn_config", variant="success")
             yield Button("View Live Logs", id="btn_logs", variant="primary")
             yield Button("Status Details", id="btn_status", variant="default")
             yield Button("Check Ports", id="btn_ports", variant="default")
@@ -284,3 +285,156 @@ class ManageScreen(Screen):
                 status = "[green]✓ listening[/green]" if info["listening"] else "[red]✗ closed[/red]"
                 text_lines.append(f"{name:<10} | {info['port']:<6} | {status}")
             self.app.push_screen(InfoViewerScreen("Ports Status", "\n".join(text_lines)))
+            
+        elif event.button.id == "btn_config":
+            self.app.push_screen(ConfigEditorScreen(self.instance))
+
+
+class ConfigEditorScreen(Screen):
+    """Screen for editing the config.json file directly from TUI."""
+    
+    BINDINGS = [
+        ("b", "pop_screen", "Back without saving"),
+    ]
+
+    def __init__(self, instance: str, **kwargs):
+        super().__init__(**kwargs)
+        self.instance = instance
+        self.config_path = ""
+        self.config_data = {}
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Label(f"Edit Config: {self.instance}", id="screen-title")
+        
+        from textual.containers import VerticalScroll, HorizontalGroup
+        from textual.widgets import Input
+        with VerticalScroll(id="config-editor"):
+            yield Label("Server Name:")
+            yield Input(id="inp_name")
+            yield Label("Scenario ID:")
+            yield Input(id="inp_scenario")
+            yield Label("Max Players:")
+            yield Input(id="inp_players", type="integer")
+            
+            yield Label("Game Port (UDP):")
+            yield Input(id="inp_game_port", type="integer")
+            yield Label("A2S Port (UDP):")
+            yield Input(id="inp_a2s_port", type="integer")
+            yield Label("RCON Port (TCP/UDP):")
+            yield Input(id="inp_rcon_port", type="integer")
+            
+            yield Label("Game Password (for players):")
+            yield Input(id="inp_game_pass", placeholder="Leave empty for open public server")
+            yield Label("Admin Password:")
+            yield Input(id="inp_admin_pass")
+            yield Label("RCON Password:")
+            yield Input(id="inp_rcon_pass")
+            
+            with HorizontalGroup(id="control-buttons"):
+                yield Button("Save Config", id="btn_save", variant="success")
+                yield Button("Save & Restart", id="btn_save_restart", variant="warning")
+                yield Button("Cancel", id="btn_cancel", variant="error")
+                
+        yield Footer()
+
+    def on_mount(self) -> None:
+        state = discover(self.instance, save=False)
+        self.config_path = state.config_path
+        if not state.config_exists:
+            self.app.notify("Config file missing!", severity="error")
+            self.app.pop_screen()
+            return
+            
+        from armactl.config_manager import parse_config_file
+        try:
+            self.config_data = parse_config_file(self.config_path)
+        except Exception as e:
+            self.app.notify(f"Cannot parse config: {e}", severity="error")
+            self.app.pop_screen()
+            return
+
+        game = self.config_data.get("game", {})
+        rcon = self.config_data.get("rcon", {})
+        a2s = self.config_data.get("a2s", {})
+        
+        from textual.widgets import Input
+        self.query_one("#inp_name", Input).value = game.get("name", "")
+        self.query_one("#inp_scenario", Input).value = game.get("scenarioId", "")
+        self.query_one("#inp_players", Input).value = str(game.get("maxPlayers", 64))
+        
+        self.query_one("#inp_game_port", Input).value = str(self.config_data.get("bindPort", 2001))
+        self.query_one("#inp_a2s_port", Input).value = str(a2s.get("port", 17777))
+        self.query_one("#inp_rcon_port", Input).value = str(rcon.get("port", 19999))
+        
+        self.query_one("#inp_game_pass", Input).value = game.get("password", "")
+        self.query_one("#inp_admin_pass", Input).value = game.get("passwordAdmin", "")
+        self.query_one("#inp_rcon_pass", Input).value = rcon.get("password", "")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id in ("btn_save", "btn_save_restart"):
+            self.save_and_exit(restart=(event.button.id == "btn_save_restart"))
+        elif event.button.id == "btn_cancel":
+            self.app.pop_screen()
+
+    def save_and_exit(self, restart: bool) -> None:
+        from textual.widgets import Input
+        
+        game = self.config_data.get("game", {})
+        rcon = self.config_data.get("rcon", {})
+        a2s = self.config_data.get("a2s", {})
+
+        game["name"] = self.query_one("#inp_name", Input).value
+        game["scenarioId"] = self.query_one("#inp_scenario", Input).value
+        try:
+            game["maxPlayers"] = int(self.query_one("#inp_players", Input).value)
+        except ValueError:
+            pass
+            
+        try:
+            self.config_data["bindPort"] = int(self.query_one("#inp_game_port", Input).value)
+            self.config_data["publicPort"] = int(self.query_one("#inp_game_port", Input).value)
+        except ValueError:
+            pass
+        try:
+            a2s["port"] = int(self.query_one("#inp_a2s_port", Input).value)
+            self.config_data["a2s"] = a2s
+        except ValueError:
+            pass
+        try:
+            rcon["port"] = int(self.query_one("#inp_rcon_port", Input).value)
+            self.config_data["rcon"] = rcon
+        except ValueError:
+            pass
+
+        game["password"] = self.query_one("#inp_game_pass", Input).value
+        game["passwordAdmin"] = self.query_one("#inp_admin_pass", Input).value
+        rcon["password"] = self.query_one("#inp_rcon_pass", Input).value
+        
+        self.config_data["game"] = game
+        self.config_data["rcon"] = rcon
+
+        from armactl.config_manager import save_config_file
+        import shutil
+        import datetime
+        import os
+        
+        backup_name = f"config.{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.bak"
+        backup_path = os.path.join(os.path.dirname(self.config_path), backup_name)
+        
+        try:
+            if os.path.exists(self.config_path):
+                shutil.copy2(self.config_path, backup_path)
+            
+            save_config_file(self.config_path, self.config_data)
+            self.app.notify(f"Config saved! Backup created: {backup_name}", title="Success", timeout=5)
+            
+            if restart:
+                from armactl.service_manager import restart_service
+                service_name = f"armareforger@{self.instance}.service" if self.instance != "default" else P.SERVICE_NAME
+                res = restart_service(service_name)
+                self.app.notify(res.message, title="Restart")
+            
+            self.app.pop_screen()
+        except Exception as e:
+            self.app.notify(f"Error saving config: {e}", severity="error")

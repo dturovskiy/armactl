@@ -33,6 +33,11 @@ class ArmaCtlApp(App):
         padding: 1 2;
         background: $surface;
     }
+    #config-editor {
+        width: 100%;
+        height: 1fr;
+        padding: 1 2;
+    }
     #screen-title {
         content-align: center middle;
         width: 100%;
