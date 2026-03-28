@@ -5,6 +5,7 @@ from subprocess import CompletedProcess
 from unittest.mock import patch
 
 from armactl import paths
+from armactl.i18n import _
 from armactl.service_manager import (
     _build_systemctl_command,
     _run_systemctl,
@@ -211,4 +212,8 @@ def test_run_systemctl_rewrites_noninteractive_sudo_error() -> None:
         result = _run_systemctl("stop", "armareforger.service")
 
     assert result.success is False
-    assert "Secure privileged control" in result.message
+    assert _(
+        "Secure privileged control is not configured yet. "
+        "Install/update the bot service or re-run install/repair "
+        "from the TUI to install the secure sudo helper."
+    ) == result.message
