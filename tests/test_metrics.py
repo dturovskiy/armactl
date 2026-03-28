@@ -36,7 +36,10 @@ def test_query_process_metrics_reads_proc_files() -> None:
     }
 
     def fake_read_text(path: Path) -> str:
-        return contents[str(path)]
+        try:
+            return contents[str(path)]
+        except KeyError as error:
+            raise OSError("missing") from error
 
     with patch("armactl.metrics._read_text", side_effect=fake_read_text):
         metrics = query_process_metrics(1234)
