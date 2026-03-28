@@ -9,7 +9,7 @@ from armactl import paths as P
 
 def get_junk_stats(instance: str) -> dict[str, Any]:
     """Scan for old logs, crash dumps, and stale backups."""
-    profile_dir = P.profile_dir(instance)
+    profile_dir = P.config_dir(instance)
     logs_dir = profile_dir / "logs"
     backups_dir = P.backups_dir(instance)
     
