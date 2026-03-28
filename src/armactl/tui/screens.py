@@ -62,8 +62,8 @@ from armactl.mods_manager import (
     import_mods,
     preview_import_mods,
 )
-from armactl.redaction import redact_sensitive_text
 from armactl.rcon import query_player_roster
+from armactl.redaction import redact_sensitive_text
 from armactl.repair import run_repair
 from armactl.service_manager import (
     disable_service,

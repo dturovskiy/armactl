@@ -15,8 +15,8 @@ from armactl.a2s import query_player_status
 from armactl.bot_config import BotConfigError, load_bot_config
 from armactl.discovery import discover
 from armactl.i18n import tr_for_lang, translate_for_lang, using_lang
-from armactl.redaction import redact_sensitive_text
 from armactl.rcon import query_player_roster
+from armactl.redaction import redact_sensitive_text
 from armactl.service_manager import (
     disable_service,
     enable_service,
