@@ -108,15 +108,15 @@
 
 ## Phase 7 — Mod manager
 
-- [ ] Реалізувати `mods list`
-- [ ] Реалізувати `mods add`
-- [ ] Реалізувати `mods remove`
-- [ ] Реалізувати `mods dedupe`
-- [ ] Реалізувати `mods count`
-- [ ] Реалізувати batch import модів
-- [ ] Реалізувати batch export модів
-- [ ] Заборонити дублікати `modId`
-- [ ] Перевірити редагування модів у реальному `config.json`
+- [x] Реалізувати `mods list`
+- [x] Реалізувати `mods add`
+- [x] Реалізувати `mods remove`
+- [x] Реалізувати `mods dedupe`
+- [x] Реалізувати `mods count`
+- [x] Реалізувати batch import модів
+- [x] Реалізувати batch export модів
+- [x] Заборонити дублікати `modId`
+- [x] Перевірити редагування модів у реальному `config.json`
 
 ## Phase 8 — TUI foundation
 
