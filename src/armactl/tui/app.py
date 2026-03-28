@@ -98,7 +98,7 @@ class ArmaCtlApp(App):
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
-        from armactl.i18n import _, toggle_lang, _current_lang
+        from armactl.i18n import _, toggle_lang, get_current_lang_name
         yield Header(show_clock=True)
         with VerticalGroup(id="main-menu"):
             yield Label(f"Arma Reforger Manager [{self.instance}]", id="title")
@@ -112,7 +112,7 @@ class ArmaCtlApp(App):
                 yield Button(_("Install New Server"), id="btn_install", variant="success")
                 
             yield Button(_("Repair Installation"), id="btn_repair", variant="warning")
-            lang_label = "Switch Language (UA)" if _current_lang == "en" else "Змінити мову (EN)"
+            lang_label = _("Language:") + f" {get_current_lang_name()}"
             yield Button(lang_label, id="btn_lang", variant="default")
             yield Button(_("Exit"), id="btn_exit", variant="error")
             
