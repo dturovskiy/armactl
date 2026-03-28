@@ -19,22 +19,55 @@ class ArmaCtlApp(App):
         layout: vertical;
         align: center middle;
     }
-    #main-menu {
-        width: 40;
+    #main-menu, #manage-container, #info-container, #confirm-dialog {
+        width: 50;
         height: auto;
         border: solid green;
         padding: 1 2;
+        background: $surface;
     }
-    #title {
+    #screen-title {
         content-align: center middle;
         width: 100%;
         margin-bottom: 1;
         text-style: bold;
         color: white;
     }
+    #confirm-prompt {
+        content-align: center middle;
+        width: 100%;
+        margin-bottom: 2;
+        text-style: bold;
+        color: yellow;
+    }
+    #server-status {
+        content-align: center middle;
+        width: 100%;
+        margin-bottom: 1;
+    }
+    #control-buttons {
+        height: auto;
+        margin-bottom: 1;
+    }
+    #control-buttons Button {
+        width: 1fr;
+    }
+    HorizontalGroup Button {
+        width: 1fr;
+        margin: 0 1;
+    }
     Button {
         width: 100%;
         margin-bottom: 1;
+    }
+    RichLog {
+        height: 15;
+        border: solid green;
+        margin-bottom: 1;
+    }
+    #tail-log {
+        height: 1fr;
+        width: 100%;
     }
     """
 
