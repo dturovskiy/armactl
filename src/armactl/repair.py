@@ -79,22 +79,17 @@ def run_repair(instance: str, install_dir: Path | str, config_path: Path | str) 
 
     # 4. Regenerate Systemd files
     yield f"[{instance}] Step 4: Repairing systemd services..."
-    res = generate_services(
-        instance_name=instance,
-        install_dir=install_dir,
-        config_path=config_path,
-        schedule="*-*-* 06:00:00",  # Always restore default schedule on repair if we need to regenerate
-        auto_start=True
-    )
-    if res.success:
-        yield f"  ✓ Systemd files regenerated"
-    else:
-        raise RepairError(f"Failed to generate systemd units: {res.message}")
+    res = generate_services(instance=instance)
+    for r in res:
+        if r.success:
+            yield f"  ✓ {r.message}"
+        else:
+            raise RepairError(f"Failed to generate systemd units: {r.message}")
 
     # 5. Fix permissions (make script executable)
     yield f"[{instance}] Step 5: Fixing permissions..."
-    from armactl.paths import start_script_path
-    script_path = start_script_path(instance)
+    from armactl.paths import start_script
+    script_path = start_script(instance)
     if script_path.exists():
         script_path.chmod(0o755)
         yield "  ✓ Start script permissions fixed"
