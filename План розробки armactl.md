@@ -1,6 +1,8 @@
 Нижче — готовий, самодостатній план проєкту, розбитий на окремі ТЗ. Його можна копіювати частинами в інші чати.
 
 > **Примітка:** Номери ТЗ (ТЗ-1, ТЗ-2, …) — це **тематичні розділи специфікації**, а не порядок реалізації. Фактичний порядок робіт зафіксований у секції «Пріоритети розробки» нижче та в окремому файлі `Чекліст розробки armactl.md`.
+>
+> **Статус реалізації:** цей файл є специфікацією та архітектурним орієнтиром. Єдиний актуальний статус-трекер ведеться в окремому файлі `Чекліст розробки armactl.md`, щоб уникнути двох джерел правди.
 
 ---
 
@@ -167,23 +169,14 @@ Service посилається на root інстансу:
 }
 ```
 
-## Definition of Done
+## Цільові критерії готовності
 
-- [ ] discovery працює на чистій системі;
-- [ ] discovery працює на вже встановленому сервері;
-- [ ] discovery не падає, якщо частина файлів відсутня;
-- [ ] результати discovery можна показати в TUI.
+- discovery працює на чистій системі;
+- discovery працює на вже встановленому сервері;
+- discovery не падає, якщо частина файлів відсутня;
+- результати discovery можна показати в TUI.
 
-## Чекліст
-
-- [ ] є модуль `discovery.py`
-- [ ] є функція пошуку install dir
-- [ ] є функція пошуку config
-- [ ] є функція читання systemd unit
-- [ ] є функція перевірки `systemctl status`
-- [ ] є функція читання портів через `ss`
-- [ ] є збереження в `state.json`
-- [ ] є fallback на ручний режим
+Статус реалізації цього розділу ведеться в `Чекліст розробки armactl.md` і тут не дублюється.
 
 ---
 
@@ -239,30 +232,15 @@ Installer має питати:
 7. `enable --now`
 8. smoke check
 
-## Definition of Done
+## Цільові критерії готовності
 
-- [ ] install працює на чистій Ubuntu 24.04;
-- [ ] після install сервер реально запускається;
-- [ ] створені service і timer;
-- [ ] створений `state.json`;
-- [ ] повторний запуск installer не ламає систему.
+- install працює на чистій Ubuntu 24.04;
+- після install сервер реально запускається;
+- створені service і timer;
+- створений `state.json`;
+- повторний запуск installer не ламає систему.
 
-## Чекліст
-
-- [ ] перевірка ОС
-- [ ] перевірка `steamcmd`
-- [ ] створення install dir
-- [ ] створення config dir
-- [ ] завантаження сервера
-- [ ] перевірка `ArmaReforgerServer`
-- [ ] генерація `config.json`
-- [ ] генерація start script
-- [ ] генерація service
-- [ ] генерація timer
-- [ ] daemon-reload
-- [ ] enable service
-- [ ] smoke test
-- [ ] запис `state.json`
+Статус реалізації цього розділу ведеться в `Чекліст розробки armactl.md` і тут не дублюється.
 
 ---
 
@@ -309,23 +287,14 @@ Timer має:
 - set restart schedule
 - show next scheduled restart
 
-## Definition of Done
+## Цільові критерії готовності
 
-- [ ] service стартує після reboot;
-- [ ] timer спрацьовує за розкладом;
-- [ ] рестарт не вимагає ручної участі;
-- [ ] TUI може керувати цим.
+- service стартує після reboot;
+- timer спрацьовує за розкладом;
+- рестарт не вимагає ручної участі;
+- TUI може керувати цим.
 
-## Чекліст
-
-- [ ] шаблон `armareforger.service`
-- [ ] шаблон `armareforger-restart.service`
-- [ ] шаблон `armareforger-restart.timer`
-- [ ] команда встановлення service
-- [ ] команда встановлення timer
-- [ ] команда зміни `OnCalendar`
-- [ ] команда `list-timers`
-- [ ] команда перевірки `systemctl status`
+Статус реалізації цього розділу ведеться в `Чекліст розробки armactl.md` і тут не дублюється.
 
 ---
 
@@ -391,24 +360,14 @@ Timer має:
 - backup перед змінами;
 - dry-run для критичних дій.
 
-## Definition of Done
+## Цільові критерії готовності
 
-- [ ] усі дії працюють без TUI;
-- [ ] TUI може використовувати тільки CLI;
-- [ ] є стабільні exit codes;
-- [ ] є machine-readable output.
+- усі дії працюють без TUI;
+- TUI працює через backend-шар без бізнес-логіки в екранах;
+- є стабільні exit codes;
+- є machine-readable output.
 
-## Чекліст
-
-- [ ] базовий parser
-- [ ] підкоманди server
-- [ ] підкоманди config
-- [ ] підкоманди mods
-- [ ] підкоманди schedule
-- [ ] підкоманди detect/install/repair
-- [ ] JSON output mode
-- [ ] backup mode
-- [ ] dry-run mode
+Статус реалізації цього розділу ведеться в `Чекліст розробки armactl.md` і тут не дублюється.
 
 ---
 
@@ -451,23 +410,14 @@ Timer має:
 - вміти перевіряти кількість модів
 - мати імпорт зі списку
 
-## Definition of Done
+## Цільові критерії готовності
 
-- [ ] зміни не ламають JSON;
-- [ ] backup створюється завжди;
-- [ ] моди не дублюються;
-- [ ] можна відновити попередній конфіг.
+- зміни не ламають JSON;
+- backup створюється завжди;
+- моди не дублюються;
+- можна відновити попередній конфіг.
 
-## Чекліст
-
-- [ ] load/save JSON
-- [ ] validate before write
-- [ ] backup creation
-- [ ] atomic write
-- [ ] set nested fields
-- [ ] add/remove mod
-- [ ] dedupe mods
-- [ ] restore from backup
+Статус реалізації цього розділу ведеться в `Чекліст розробки armactl.md` і тут не дублюється.
 
 ---
 
@@ -508,22 +458,13 @@ Timer має:
   - попередження про дублікати;
   - підтвердження перед видаленням.
 
-## Definition of Done
+## Цільові критерії готовності
 
-- [ ] список модів редагується без ручного JSON;
-- [ ] дублікати не пролазять;
-- [ ] зміни відображаються в `config.json`.
+- список модів редагується без ручного JSON;
+- дублікати не пролазять;
+- зміни відображаються в `config.json`.
 
-## Чекліст
-
-- [ ] list mods
-- [ ] add mod
-- [ ] remove mod
-- [ ] dedupe
-- [ ] import batch
-- [ ] export batch
-- [ ] reorder
-- [ ] validate mod entries
+Статус реалізації цього розділу ведеться в `Чекліст розробки armactl.md` і тут не дублюється.
 
 ---
 
@@ -591,26 +532,16 @@ Timer має:
 - одна дія — один екран або одна форма;
 - підтвердження перед stop/restart;
 - повідомлення про успіх/помилку;
-- ніякого ручного редагування JSON у v1.
+- за замовчуванням — безпечні форми редагування конфігу;
+- для advanced cases може існувати окремий raw JSON screen.
 
-## Definition of Done
+## Цільові критерії готовності
 
-- [ ] повний базовий цикл керування можливий лише через TUI;
-- [ ] installer доступний із TUI;
-- [ ] manage existing server доступний із TUI.
+- повний базовий цикл керування можливий лише через TUI;
+- installer доступний із TUI;
+- manage existing server доступний із TUI.
 
-## Чекліст
-
-- [ ] home screen
-- [ ] detect flow
-- [ ] install flow
-- [ ] server controls
-- [ ] config forms
-- [ ] mods screen
-- [ ] schedule screen
-- [ ] logs screen
-- [ ] confirm dialogs
-- [ ] error dialogs
+Статус реалізації цього розділу ведеться в `Чекліст розробки armactl.md` і тут не дублюється.
 
 ---
 
@@ -641,21 +572,13 @@ Timer має:
 - install dir є, але файли биті
 - paths у service не збігаються з реальністю
 
-## Definition of Done
+## Цільові критерії готовності
 
-- [ ] repair не шкодить робочій системі;
-- [ ] repair відновлює типовий broken state;
-- [ ] repair вміє переприв’язати service до правильних шляхів.
+- repair не шкодить робочій системі;
+- repair відновлює типовий broken state;
+- repair вміє переприв’язати service до правильних шляхів.
 
-## Чекліст
-
-- [ ] detect broken state
-- [ ] rebuild start script
-- [ ] rebuild service
-- [ ] rebuild timer
-- [ ] steamcmd validate/update
-- [ ] config backup
-- [ ] state.json refresh
+Статус реалізації цього розділу ведеться в `Чекліст розробки armactl.md` і тут не дублюється.
 
 ---
 
@@ -674,19 +597,12 @@ Timer має:
 - показати server state
 - показати `scenarioId`, `maxPlayers`, mods count
 
-## Definition of Done
+## Цільові критерії готовності
 
-- [ ] основна діагностика доступна без ручного SSH-набору команд;
-- [ ] TUI показує зрозумілий стан.
+- основна діагностика доступна без ручного SSH-набору команд;
+- TUI показує зрозумілий стан.
 
-## Чекліст
-
-- [ ] status
-- [ ] logs
-- [ ] ports
-- [ ] process stats
-- [ ] config summary
-- [ ] service summary
+Статус реалізації цього розділу ведеться в `Чекліст розробки armactl.md` і тут не дублюється.
 
 ---
 
@@ -717,14 +633,14 @@ Timer має:
 Для v1 достатньо:
 
 - `git clone`
-- запуск `python -m ...` або `./run-tui`
+- запуск `./armactl`
 
 ## Бажаний UX релізу
 
 ```bash
 git clone ...
 cd armactl
-./run-tui
+./armactl
 ```
 
 або
@@ -733,22 +649,15 @@ cd armactl
 wget release.tar.gz
 tar -xzf ...
 cd ...
-./run-tui
+./armactl
 ```
 
-## Definition of Done
+## Цільові критерії готовності
 
-- [ ] користувач може поставити й запустити інструмент без ручного збирання;
-- [ ] документація відповідає реальності.
+- користувач може поставити й запустити інструмент без ручного збирання;
+- документація відповідає реальності.
 
-## Чекліст
-
-- [ ] README
-- [ ] install guide
-- [ ] run guide
-- [ ] release versioning
-- [ ] changelog
-- [ ] example screenshots
+Статус реалізації цього розділу ведеться в `Чекліст розробки armactl.md` і тут не дублюється.
 
 ---
 
@@ -762,13 +671,7 @@ cd ...
 - мінімізувати `sudo`;
 - бажано мати точкові sudo-rules для service operations.
 
-## Чекліст
-
-- [ ] passwords masked in UI
-- [ ] no secrets in logs
-- [ ] confirmations for dangerous actions
-- [ ] minimal sudo usage
-- [ ] documented sudoers strategy
+Статус реалізації цього розділу ведеться в `Чекліст розробки armactl.md` і тут не дублюється.
 
 ---
 
@@ -801,13 +704,7 @@ cd ...
 - change scenario
 - add/remove mod
 
-## Чекліст
-
-- [ ] unit tests for config manager
-- [ ] unit tests for discovery
-- [ ] integration tests for install flow
-- [ ] integration tests for service flow
-- [ ] smoke test checklist documented
+Статус реалізації цього розділу ведеться в `Чекліст розробки armactl.md` і тут не дублюється.
 
 ---
 
@@ -847,67 +744,9 @@ cd ...
 
 ---
 
-# Master checklist
+# Статус реалізації
 
-## Архітектура
-
-- [ ] є backend CLI
-- [ ] є TUI
-- [ ] є discovery
-- [ ] є state file
-- [ ] є config manager
-- [ ] є service manager
-- [ ] є timer manager
-
-## Installer
-
-- [ ] install from zero
-- [ ] repair existing server
-- [ ] detect existing install
-- [ ] smoke check after install
-
-## Управління сервером
-
-- [ ] start
-- [ ] stop
-- [ ] restart
-- [ ] status
-- [ ] logs
-- [ ] ports
-
-## Конфіг
-
-- [ ] set name
-- [ ] set scenario
-- [ ] set maxPlayers
-- [ ] set ports
-- [ ] set passwords
-- [ ] validate config
-- [ ] backup config
-
-## Моди
-
-- [ ] list
-- [ ] add
-- [ ] remove
-- [ ] dedupe
-- [ ] import
-- [ ] export
-
-## Автоматизація
-
-- [ ] service auto-start
-- [ ] restart on crash
-- [ ] scheduled restart
-- [ ] show next timer run
-
-## Реліз
-
-- [ ] README
-- [ ] install guide
-- [ ] run guide
-- [ ] changelog
-- [ ] tagged release
+Фактичний прогрес і пріоритети реалізації ведуться тільки в `Чекліст розробки armactl.md`. Master checklist з цього плану свідомо прибраний, щоб не дублювати той самий статус у двох місцях.
 
 ---
 
