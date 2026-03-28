@@ -47,7 +47,11 @@ from armactl.config_manager import load_config, save_config, validate_config
 from armactl.discovery import discover
 from armactl.i18n import _, tr
 from armactl.installer import run_install
-from armactl.metrics import format_bytes, format_cpu_percent, query_process_metrics
+from armactl.metrics import (
+    format_bytes,
+    format_cpu_percent,
+    query_service_runtime_metrics,
+)
 from armactl.mods import add_mod, dedupe_mods, remove_mod
 from armactl.mods_manager import (
     export_mods,
@@ -439,8 +443,8 @@ class ManageScreen(Screen):
         service_status = get_service_status(service_name)
         timer_status = get_timer_status(timer_name)
         player_status = query_player_status(self.instance, state=state)
-        main_pid = int(service_status.get("main_pid", 0) or 0)
-        metrics = query_process_metrics(main_pid)
+        metrics = query_service_runtime_metrics(service_status)
+        main_pid = metrics.pid
 
         lines = [
             _("[bold cyan]Service Status[/bold cyan]"),
@@ -471,7 +475,7 @@ class ManageScreen(Screen):
                 "Server CPU: {value}",
                 value=(
                     format_cpu_percent(metrics.cpu_percent)
-                    if metrics.available
+                    if metrics.cpu_percent is not None
                     else _("Unknown")
                 ),
             ),
@@ -479,7 +483,7 @@ class ManageScreen(Screen):
                 "Server RAM (RSS): {value}",
                 value=(
                     format_bytes(metrics.memory_rss_bytes)
-                    if metrics.available and metrics.memory_rss_bytes is not None
+                    if metrics.memory_rss_bytes is not None
                     else _("Unknown")
                 ),
             ),

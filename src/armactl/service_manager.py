@@ -544,11 +544,24 @@ def get_service_status(service_name: str = "armareforger.service") -> dict[str, 
     # Get uptime / status line from systemctl
     description = ""
     active_state = "unknown"
+    sub_state = "unknown"
     main_pid = 0
+    exec_main_pid = 0
+    control_pid = 0
+    memory_current_bytes: int | None = None
+    cpu_usage_nsec: int | None = None
+    exec_main_start_usec: int | None = None
+    active_enter_usec: int | None = None
     try:
         result = subprocess.run(
-            ["systemctl", "show", service_name,
-             "--property=ActiveState,SubState,Description,MainPID"],
+            [
+                "systemctl",
+                "show",
+                service_name,
+                "--property=ActiveState,SubState,Description,MainPID,"
+                "ExecMainPID,ControlPID,MemoryCurrent,CPUUsageNSec,"
+                "ExecMainStartTimestampMonotonic,ActiveEnterTimestampMonotonic",
+            ],
             capture_output=True,
             text=True,
             timeout=5,
@@ -561,21 +574,74 @@ def get_service_status(service_name: str = "armareforger.service") -> dict[str, 
                 description = val
             elif key == "ActiveState":
                 active_state = val
+            elif key == "SubState":
+                sub_state = val
             elif key == "MainPID":
                 try:
                     main_pid = int(val)
                 except ValueError:
                     pass
+            elif key == "ExecMainPID":
+                try:
+                    exec_main_pid = int(val)
+                except ValueError:
+                    pass
+            elif key == "ControlPID":
+                try:
+                    control_pid = int(val)
+                except ValueError:
+                    pass
+            elif key == "MemoryCurrent":
+                try:
+                    parsed = int(val)
+                    if 0 < parsed < 2**63:
+                        memory_current_bytes = parsed
+                except ValueError:
+                    pass
+            elif key == "CPUUsageNSec":
+                try:
+                    parsed = int(val)
+                    if parsed >= 0:
+                        cpu_usage_nsec = parsed
+                except ValueError:
+                    pass
+            elif key == "ExecMainStartTimestampMonotonic":
+                try:
+                    parsed = int(val)
+                    if parsed > 0:
+                        exec_main_start_usec = parsed
+                except ValueError:
+                    pass
+            elif key == "ActiveEnterTimestampMonotonic":
+                try:
+                    parsed = int(val)
+                    if parsed > 0:
+                        active_enter_usec = parsed
+                except ValueError:
+                    pass
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
+
+    resolved_pid = next(
+        (pid for pid in (main_pid, exec_main_pid, control_pid) if pid > 0),
+        0,
+    )
 
     return {
         "service_name": service_name,
         "active": active,
         "enabled": enabled,
         "active_state": active_state,
+        "sub_state": sub_state,
         "description": description,
-        "main_pid": main_pid,
+        "main_pid": resolved_pid,
+        "main_pid_raw": main_pid,
+        "exec_main_pid": exec_main_pid,
+        "control_pid": control_pid,
+        "memory_current_bytes": memory_current_bytes,
+        "cpu_usage_nsec": cpu_usage_nsec,
+        "exec_main_start_usec": exec_main_start_usec,
+        "active_enter_usec": active_enter_usec,
     }
 
 

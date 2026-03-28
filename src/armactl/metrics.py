@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 @dataclass
@@ -43,6 +44,31 @@ def format_cpu_percent(value: float | None) -> str:
 
 def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def estimate_service_cpu_percent(service_status: dict[str, Any]) -> float | None:
+    """Estimate CPU percent from systemd show data when /proc PID metrics are unavailable."""
+    cpu_usage_nsec = service_status.get("cpu_usage_nsec")
+    start_usec = (
+        service_status.get("exec_main_start_usec")
+        or service_status.get("active_enter_usec")
+    )
+    if (
+        not isinstance(cpu_usage_nsec, int)
+        or cpu_usage_nsec < 0
+        or not isinstance(start_usec, int)
+        or start_usec <= 0
+    ):
+        return None
+
+    try:
+        uptime_seconds = float(_read_text(Path("/proc/uptime")).split()[0])
+    except (IndexError, OSError, ValueError):
+        return None
+
+    elapsed_usec = max(int(uptime_seconds * 1_000_000) - start_usec, 1)
+    elapsed_nsec = elapsed_usec * 1_000
+    return (cpu_usage_nsec / elapsed_nsec) * 100.0
 
 
 def query_process_metrics(pid: int) -> ProcessMetrics:
@@ -87,4 +113,28 @@ def query_process_metrics(pid: int) -> ProcessMetrics:
         pid,
         cpu_percent=cpu_percent,
         memory_rss_bytes=memory_rss_bytes,
+    )
+
+
+def query_service_runtime_metrics(service_status: dict[str, Any]) -> ProcessMetrics:
+    """Return the best available runtime metrics using PID data and systemd fallbacks."""
+    pid = int(service_status.get("main_pid", 0) or 0)
+    proc_metrics = query_process_metrics(pid)
+
+    cpu_percent = proc_metrics.cpu_percent
+    if cpu_percent is None:
+        cpu_percent = estimate_service_cpu_percent(service_status)
+
+    memory_rss_bytes = proc_metrics.memory_rss_bytes
+    if memory_rss_bytes is None:
+        fallback_memory = service_status.get("memory_current_bytes")
+        if isinstance(fallback_memory, int) and fallback_memory >= 0:
+            memory_rss_bytes = fallback_memory
+
+    return ProcessMetrics(
+        available=(cpu_percent is not None or memory_rss_bytes is not None),
+        pid=pid,
+        cpu_percent=cpu_percent,
+        memory_rss_bytes=memory_rss_bytes,
+        error=proc_metrics.error,
     )

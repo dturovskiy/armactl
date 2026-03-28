@@ -10,6 +10,8 @@ WorkingDirectory={{ instance_root }}/server
 ExecStart={{ instance_root }}/start-armareforger.sh
 Restart=always
 RestartSec=15
+CPUAccounting=yes
+MemoryAccounting=yes
 StandardOutput=journal
 StandardError=journal
 

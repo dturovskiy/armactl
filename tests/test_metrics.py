@@ -5,7 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from armactl.metrics import format_bytes, format_cpu_percent, query_process_metrics
+from armactl.metrics import (
+    estimate_service_cpu_percent,
+    format_bytes,
+    format_cpu_percent,
+    query_process_metrics,
+    query_service_runtime_metrics,
+)
 
 
 def test_format_bytes_handles_small_and_large_values() -> None:
@@ -48,3 +54,32 @@ def test_query_process_metrics_handles_missing_proc_files() -> None:
 
     assert metrics.available is False
     assert metrics.error == "missing"
+
+
+def test_estimate_service_cpu_percent_uses_systemd_monotonic_timestamps() -> None:
+    service_status = {
+        "cpu_usage_nsec": 5_000_000_000,
+        "exec_main_start_usec": 5_000_000,
+    }
+
+    with patch("armactl.metrics._read_text", return_value="15.0 0.0\n"):
+        cpu_percent = estimate_service_cpu_percent(service_status)
+
+    assert cpu_percent == 50.0
+
+
+def test_query_service_runtime_metrics_falls_back_to_systemd_values() -> None:
+    service_status = {
+        "main_pid": 0,
+        "memory_current_bytes": 268435456,
+        "cpu_usage_nsec": 5_000_000_000,
+        "exec_main_start_usec": 5_000_000,
+    }
+
+    with patch("armactl.metrics._read_text", return_value="15.0 0.0\n"):
+        metrics = query_service_runtime_metrics(service_status)
+
+    assert metrics.available is True
+    assert metrics.pid == 0
+    assert metrics.cpu_percent == 50.0
+    assert metrics.memory_rss_bytes == 268435456

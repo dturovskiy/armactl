@@ -11,6 +11,7 @@ from armactl.service_manager import (
     _render_privileged_helper_script,
     _run_systemctl,
     format_schedule_for_input,
+    get_service_status,
     get_timer_status,
     has_privileged_systemctl_channel,
     normalize_on_calendar,
@@ -96,6 +97,44 @@ def test_get_timer_status_falls_back_to_timer_file_schedule(tmp_path: Path) -> N
     assert status["schedule_entries"] == ["*-*-* 05:30:00", "*-*-* 13:45:00"]
     assert status["schedule"] == "05:30, 13:45"
     assert status["next_run"] == "Mon 2026-03-30 05:30:00 UTC"
+
+
+def test_get_service_status_falls_back_to_exec_main_pid() -> None:
+    completed = CompletedProcess(
+        args=["systemctl", "show", "armareforger.service"],
+        returncode=0,
+        stdout=(
+            "ActiveState=active\n"
+            "SubState=running\n"
+            "Description=Arma Reforger Dedicated Server\n"
+            "MainPID=0\n"
+            "ExecMainPID=4321\n"
+            "ControlPID=0\n"
+            "MemoryCurrent=268435456\n"
+            "CPUUsageNSec=5000000000\n"
+            "ExecMainStartTimestampMonotonic=5000000\n"
+            "ActiveEnterTimestampMonotonic=4000000\n"
+        ),
+        stderr="",
+    )
+
+    with (
+        patch("armactl.service_manager.is_active", return_value=True),
+        patch("armactl.service_manager.is_enabled", return_value=True),
+        patch("armactl.service_manager.subprocess.run", return_value=completed),
+    ):
+        status = get_service_status("armareforger.service")
+
+    assert status["active"] is True
+    assert status["enabled"] is True
+    assert status["active_state"] == "active"
+    assert status["sub_state"] == "running"
+    assert status["main_pid"] == 4321
+    assert status["exec_main_pid"] == 4321
+    assert status["memory_current_bytes"] == 268435456
+    assert status["cpu_usage_nsec"] == 5000000000
+    assert status["exec_main_start_usec"] == 5000000
+    assert status["active_enter_usec"] == 4000000
 
 
 def test_has_privileged_systemctl_channel_requires_helper_and_sudoers(tmp_path: Path) -> None:

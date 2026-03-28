@@ -13,7 +13,11 @@ from armactl.a2s import query_player_status
 from armactl.bot_config import BotConfigError, load_bot_config
 from armactl.discovery import discover
 from armactl.i18n import tr_for_lang, translate_for_lang, using_lang
-from armactl.metrics import format_bytes, format_cpu_percent, query_process_metrics
+from armactl.metrics import (
+    format_bytes,
+    format_cpu_percent,
+    query_service_runtime_metrics,
+)
 from armactl.rcon import query_player_roster
 from armactl.service_manager import (
     disable_service,
@@ -249,8 +253,8 @@ def _build_status_snapshot(instance: str) -> BotStatusSnapshot:
     service_status = get_service_status(service_unit_name(instance))
     timer_status = get_timer_status(timer_unit_name(instance))
     player_status = query_player_status(instance, state=state)
-    main_pid = int(service_status.get("main_pid", 0) or 0)
-    metrics = query_process_metrics(main_pid)
+    metrics = query_service_runtime_metrics(service_status)
+    main_pid = metrics.pid
     roster_lines: list[str] = []
     roster_available = False
     if player_status.player_count and player_status.player_count > 0:
@@ -276,8 +280,8 @@ def _build_status_snapshot(instance: str) -> BotStatusSnapshot:
         player_count=player_status.player_count,
         max_players=player_status.max_players,
         main_pid=main_pid,
-        cpu_percent=metrics.cpu_percent if metrics.available else None,
-        memory_rss_bytes=metrics.memory_rss_bytes if metrics.available else None,
+        cpu_percent=metrics.cpu_percent,
+        memory_rss_bytes=metrics.memory_rss_bytes,
         player_lines=roster_lines,
         roster_available=roster_available,
     )
