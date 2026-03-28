@@ -208,36 +208,38 @@ class ManageScreen(Screen):
         self.action_refresh_state()
 
     def action_refresh_state(self) -> None:
+        from armactl.i18n import _
         state = discover(self.instance, save=False)
         lbl = self.query_one("#server-status", Label)
         btn_toggle = self.query_one("#btn_toggle", Button)
         
         if state.server_running:
             lbl.update("[bold green]🟢 SERVER IS RUNNING[/bold green]")
-            btn_toggle.label = "Stop"
+            btn_toggle.label = _("Stop")
             btn_toggle.variant = "error"
         else:
             lbl.update("[bold red]🔴 SERVER IS STOPPED[/bold red]")
-            btn_toggle.label = "Start"
+            btn_toggle.label = _("Start")
             btn_toggle.variant = "success"
 
     def compose(self) -> ComposeResult:
+        from armactl.i18n import _
         yield Header()
         with VerticalGroup(id="manage-container"):
             yield Label(f"Manage Server: {self.instance}", id="screen-title")
-            yield Label("Loading status...", id="server-status")
+            yield Label(_("Loading status..."), id="server-status")
             
             from textual.containers import HorizontalGroup
             with HorizontalGroup(id="control-buttons"):
                 yield Button("...", id="btn_toggle", variant="primary")
-                yield Button("Restart", id="btn_restart", variant="warning")
+                yield Button(_("Restart"), id="btn_restart", variant="warning")
                 
-            yield Button("Edit Configuration", id="btn_config", variant="success")
-            yield Button("Maintenance / Cleanup", id="btn_cleanup", variant="warning")
-            yield Button("View Live Logs", id="btn_logs", variant="primary")
-            yield Button("Status Details", id="btn_status", variant="default")
-            yield Button("Check Ports", id="btn_ports", variant="default")
-            yield Button("Back to Main Menu", id="btn_back", variant="default")
+            yield Button(_("Edit Configuration"), id="btn_config", variant="success")
+            yield Button(_("Maintenance / Cleanup"), id="btn_cleanup", variant="warning")
+            yield Button(_("View Live Logs"), id="btn_logs", variant="primary")
+            yield Button(_("Status Details"), id="btn_status", variant="default")
+            yield Button(_("Check Ports"), id="btn_ports", variant="default")
+            yield Button(_("Back to Main Menu"), id="btn_back", variant="default")
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -312,13 +314,14 @@ class CleanupScreen(Screen):
 
     def compose(self) -> ComposeResult:
         from textual.containers import VerticalGroup, HorizontalGroup
+        from armactl.i18n import _
         yield Header()
         with VerticalGroup(id="info-container"):
-            yield Label(f"Maintenance & Cleanup: {self.instance}", id="screen-title")
+            yield Label(_("Maintenance & Cleanup: ") + f"{self.instance}", id="screen-title")
             yield RichLog(id="info-log", markup=True)
             with HorizontalGroup(id="control-buttons"):
-                yield Button("Clean Junk Files", id="btn_clean_now", variant="warning")
-                yield Button("Back", id="btn_back", variant="default")
+                yield Button(_("Clean Junk Files"), id="btn_clean_now", variant="warning")
+                yield Button(_("Back"), id="btn_back", variant="default")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -386,37 +389,38 @@ class ConfigEditorScreen(Screen):
         self.config_data = {}
 
     def compose(self) -> ComposeResult:
+        from armactl.i18n import _
         yield Header()
         yield Label(f"Edit Config: {self.instance}", id="screen-title")
         
         from textual.containers import VerticalScroll, HorizontalGroup
         from textual.widgets import Input
         with VerticalScroll(id="config-editor"):
-            yield Label("Server Name:")
+            yield Label(_("Server Name:"))
             yield Input(id="inp_name")
-            yield Label("Scenario ID:")
+            yield Label(_("Scenario ID:"))
             yield Input(id="inp_scenario")
-            yield Label("Max Players:")
+            yield Label(_("Max Players:"))
             yield Input(id="inp_players", type="integer")
             
-            yield Label("Game Port (UDP):")
+            yield Label(_("Game Port (UDP):"))
             yield Input(id="inp_game_port", type="integer")
-            yield Label("A2S Port (UDP):")
+            yield Label(_("A2S Port (UDP):"))
             yield Input(id="inp_a2s_port", type="integer")
-            yield Label("RCON Port (TCP/UDP):")
+            yield Label(_("RCON Port (TCP/UDP):"))
             yield Input(id="inp_rcon_port", type="integer")
             
-            yield Label("Game Password (for players):")
-            yield Input(id="inp_game_pass", placeholder="Leave empty for open public server")
-            yield Label("Admin Password:")
+            yield Label(_("Game Password (for players):"))
+            yield Input(id="inp_game_pass", placeholder=_("Leave empty for open public server"))
+            yield Label(_("Admin Password:"))
             yield Input(id="inp_admin_pass")
-            yield Label("RCON Password:")
+            yield Label(_("RCON Password:"))
             yield Input(id="inp_rcon_pass")
             
             with HorizontalGroup(id="control-buttons"):
-                yield Button("Save Config", id="btn_save", variant="success")
-                yield Button("Save & Restart", id="btn_save_restart", variant="warning")
-                yield Button("Cancel", id="btn_cancel", variant="error")
+                yield Button(_("Save Config"), id="btn_save", variant="success")
+                yield Button(_("Save & Restart"), id="btn_save_restart", variant="warning")
+                yield Button(_("Cancel"), id="btn_cancel", variant="error")
                 
         yield Footer()
 

@@ -98,6 +98,7 @@ class ArmaCtlApp(App):
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
+        from armactl.i18n import _, toggle_lang, _current_lang
         yield Header(show_clock=True)
         with VerticalGroup(id="main-menu"):
             yield Label(f"Arma Reforger Manager [{self.instance}]", id="title")
@@ -106,12 +107,14 @@ class ArmaCtlApp(App):
             state = discover(instance=self.instance, save=False)
             
             if state.server_installed:
-                yield Button("Manage Existing Server >>", id="btn_manage", variant="primary")
+                yield Button(_("Manage Existing Server >>"), id="btn_manage", variant="primary")
             else:
-                yield Button("Install New Server", id="btn_install", variant="success")
+                yield Button(_("Install New Server"), id="btn_install", variant="success")
                 
-            yield Button("Repair Installation", id="btn_repair", variant="warning")
-            yield Button("Exit", id="btn_exit", variant="error")
+            yield Button(_("Repair Installation"), id="btn_repair", variant="warning")
+            lang_label = "Switch Language (UA)" if _current_lang == "en" else "Змінити мову (EN)"
+            yield Button(lang_label, id="btn_lang", variant="default")
+            yield Button(_("Exit"), id="btn_exit", variant="error")
             
         yield Footer()
 
@@ -119,6 +122,13 @@ class ArmaCtlApp(App):
         """Event handler called when a button is pressed."""
         if event.button.id == "btn_exit":
             self.exit(0)
+        elif event.button.id == "btn_lang":
+            from armactl.i18n import toggle_lang
+            toggle_lang()
+            self.notify("Language changed! Press App Refresh (hotkey or click) to apply everywhere, or restart.")
+            # Textual re-compose isn't supported automatically for the whole app
+            # But we can try pushing the menu again or just exiting
+            self.exit()
         elif event.button.id == "btn_manage":
             from armactl.tui.screens import ManageScreen
             self.push_screen(ManageScreen(instance=self.instance))
