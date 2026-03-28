@@ -2,8 +2,8 @@
 
 from armactl.status_summary import (
     ConfigSummary,
-    ModSummaryEntry,
     ModsSummary,
+    ModSummaryEntry,
 )
 from armactl.telegram_bot import (
     admin_chat_allowed,
