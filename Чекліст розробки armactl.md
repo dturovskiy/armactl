@@ -130,13 +130,13 @@
 
 ## Phase 9 — TUI server controls
 
-- [ ] Додати кнопку `Start`
-- [ ] Додати кнопку `Stop`
-- [ ] Додати кнопку `Restart`
-- [ ] Додати екран `Status`
-- [ ] Додати екран `Ports`
-- [ ] Додати екран `Logs`
-- [ ] Додати confirm dialog для stop/restart
+- [x] Додати кнопку `Start`
+- [x] Додати кнопку `Stop`
+- [x] Додати кнопку `Restart`
+- [x] Додати екран `Status`
+- [x] Додати екран `Ports`
+- [x] Додати екран `Logs`
+- [x] Додати confirm dialog для stop/restart
 
 ## Phase 10 — TUI config editor
 
