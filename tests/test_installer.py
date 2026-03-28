@@ -2,8 +2,8 @@
 
 from unittest.mock import patch
 
-import armactl.installer as installer
 import armactl.i18n as i18n
+import armactl.installer as installer
 import armactl.service_manager as service_manager
 
 

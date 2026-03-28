@@ -71,7 +71,9 @@ def test_generate_services_writes_expected_units_and_restarts_timer(tmp_path: Pa
     restart_timer_mock.assert_called_once_with("restart", "armareforger-restart@alpha.timer")
 
 
-def test_update_restart_timer_schedule_without_helper_installs_rendered_timer(tmp_path: Path) -> None:
+def test_update_restart_timer_schedule_without_helper_installs_rendered_timer(
+    tmp_path: Path,
+) -> None:
     systemd_dir = tmp_path / "systemd"
     systemd_dir.mkdir(parents=True)
     captured: dict[str, object] = {}
