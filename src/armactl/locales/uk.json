@@ -49,6 +49,7 @@
     "Are you sure you want to RESTART the server?": "Ви точно хочете ПЕРЕЗАПУСТИТИ сервер?",
     "Detailed Server Status": "Детальний статус сервера",
     "[bold cyan]Service Status[/bold cyan]": "[bold cyan]Стан сервісу[/bold cyan]",
+    "[bold cyan]Runtime Metrics[/bold cyan]": "[bold cyan]Метрики runtime[/bold cyan]",
     "Config missing. Cannot read ports.": "Конфіг відсутній. Неможливо прочитати порти.",
     "Ports Status": "Статус портів",
     "[green]OPEN listening[/green]": "[green]ВІДКРИТО, прослуховується[/green]",
