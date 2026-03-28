@@ -542,10 +542,9 @@ class ModManagerScreen(Screen):
         with VerticalGroup(id="info-container"):
             yield Label(_("Mods Manager: ") + f"{self.instance}", id="screen-title")
             
-            with HorizontalGroup(id="mod-add-container"):
-                yield Input(id="inp_mod_id", placeholder=_("Mod ID (e.g. 595F2BF2F44832F5)"))
-                yield Input(id="inp_mod_name", placeholder=_("Name (Optional)"))
-                yield Button(_("Add/Update"), id="btn_add_mod", variant="success")
+            yield Input(id="inp_mod_id", placeholder=_("Paste Mod ID or Workshop String here..."))
+            yield Input(id="inp_mod_name", placeholder=_("Name (Optional)"))
+            yield Button(_("Add/Update Mod"), id="btn_add_mod", variant="success")
                 
             yield Label(_("Installed Mods:"), id="mods-list-title")
             yield ListView(id="mods-list")
@@ -590,6 +589,8 @@ class ModManagerScreen(Screen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         from armactl.mods import add_mod, remove_mod, dedupe_mods
         from armactl import paths as P
+        import re
+        
         cfg = P.config_file(self.instance)
         
         if event.button.id == "btn_back":
@@ -599,12 +600,20 @@ class ModManagerScreen(Screen):
             from textual.widgets import Input
             inp_id = self.query_one("#inp_mod_id", Input)
             inp_name = self.query_one("#inp_mod_name", Input)
-            mod_id = inp_id.value.strip()
+            raw_id = inp_id.value.strip()
             name = inp_name.value.strip()
             
-            if not mod_id:
-                self.app.notify("Mod ID is required!", severity="error")
+            if not raw_id:
+                self.app.notify("Mod string is required!", severity="error")
                 return
+                
+            # Try to extract a valid 16+ hex characters ID
+            match = re.search(r"([0-9A-Fa-f]{10,24})", raw_id)
+            if not match:
+                self.app.notify("Could not find a valid Mod ID in the input!", severity="error")
+                return
+                
+            mod_id = match.group(1).upper()
                 
             is_new = add_mod(cfg, mod_id, name)
             if is_new:

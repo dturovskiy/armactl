@@ -112,6 +112,7 @@ class ArmaCtlApp(App):
                 yield Button(_("Install New Server"), id="btn_install", variant="success")
                 
             yield Button(_("Repair Installation"), id="btn_repair", variant="warning")
+            yield Button(_("Detect Existing Server"), id="btn_detect", variant="default")
             lang_label = _("Language:") + f" {get_current_lang_name()}"
             yield Button(lang_label, id="btn_lang", variant="default")
             yield Button(_("Exit"), id="btn_exit", variant="error")
@@ -122,6 +123,12 @@ class ArmaCtlApp(App):
         """Event handler called when a button is pressed."""
         if event.button.id == "btn_exit":
             self.exit(0)
+        elif event.button.id == "btn_detect":
+            state = discover(instance=self.instance, save=True)
+            if state.server_installed:
+                self.notify("Server files detected! Restart app to see Manage screen.", title="Success")
+            else:
+                self.notify("No server installation found at default paths.", severity="error")
         elif event.button.id == "btn_lang":
             from armactl.i18n import toggle_lang, _
             toggle_lang()
