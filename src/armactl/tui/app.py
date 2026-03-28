@@ -110,6 +110,20 @@ class ArmaCtlApp(App):
         margin-bottom: 1;
         color: $text-muted;
     }
+    #modpack-source-note {
+        width: 100%;
+        margin-bottom: 1;
+        color: $text-muted;
+    }
+    #modpack-suggestions {
+        height: 10;
+        border: solid green;
+        margin-bottom: 1;
+        padding: 0 1;
+    }
+    #modpack-suggestions Button {
+        width: 100%;
+    }
     """
 
     BINDINGS = [

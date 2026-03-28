@@ -8,6 +8,7 @@ from armactl.paths import (
     config_file,
     instance_root,
     logs_dir,
+    modpacks_dir,
     server_binary,
     server_dir,
     start_script,
@@ -48,6 +49,11 @@ def test_backups_dir():
 def test_logs_dir():
     path = logs_dir()
     assert path == instance_root() / "logs"
+
+
+def test_modpacks_dir():
+    path = modpacks_dir()
+    assert path == instance_root() / "modpacks"
 
 
 def test_state_file():

@@ -126,6 +126,20 @@ def _extract_import_mods(payload: Any) -> list[dict[str, str]]:
     return normalized
 
 
+def _load_import_mods(import_file: Path | str) -> list[dict[str, str]]:
+    """Read and validate mods from an import file."""
+    with open(import_file, encoding="utf-8") as f:
+        try:
+            return _extract_import_mods(json.load(f))
+        except json.JSONDecodeError as e:
+            raise ConfigError(f"Invalid JSON in import file: {e}") from e
+
+
+def preview_import_mods(import_file: Path | str) -> int:
+    """Return the number of importable mods in a JSON file."""
+    return len(_load_import_mods(import_file))
+
+
 def import_mods(
     config_path: Path | str,
     import_file: Path | str,
@@ -136,12 +150,7 @@ def import_mods(
     Returns `(added_count, skipped_count)`.
     If `append` is False, overwrites existing mods.
     """
-    with open(import_file, encoding="utf-8") as f:
-        try:
-            imported_mods = _extract_import_mods(json.load(f))
-        except json.JSONDecodeError as e:
-            raise ConfigError(f"Invalid JSON in import file: {e}") from e
-
+    imported_mods = _load_import_mods(import_file)
     current_mods = get_mods(config_path) if append else []
     seen_ids = {mod.get("modId") for mod in current_mods}
 

@@ -114,6 +114,7 @@ def create_install_dir(instance: str) -> None:
     paths.server_dir(instance).mkdir(parents=True, exist_ok=True)
     paths.config_dir(instance).mkdir(parents=True, exist_ok=True)
     paths.backups_dir(instance).mkdir(parents=True, exist_ok=True)
+    paths.modpacks_dir(instance).mkdir(parents=True, exist_ok=True)
 
 
 def download_server(instance: str) -> None:

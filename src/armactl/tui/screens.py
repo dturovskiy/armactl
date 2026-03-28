@@ -30,7 +30,12 @@ from armactl.discovery import discover
 from armactl.i18n import _
 from armactl.installer import run_install
 from armactl.mods import add_mod, dedupe_mods, remove_mod
-from armactl.mods_manager import export_mods, get_mods, import_mods
+from armactl.mods_manager import (
+    export_mods,
+    get_mods,
+    import_mods,
+    preview_import_mods,
+)
 from armactl.repair import run_repair
 from armactl.service_manager import restart_service, start_service, stop_service
 
@@ -714,11 +719,21 @@ class ModPackFileScreen(Screen):
         ("escape", "cancel", "Cancel"),
     ]
 
-    def __init__(self, title: str, mode: str, default_path: str = "", **kwargs):
+    def __init__(
+        self,
+        title: str,
+        mode: str,
+        default_path: str = "",
+        suggested_files: list[tuple[str, str]] | None = None,
+        directory_note: str = "",
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self._title = title
         self._mode = mode
         self._default_path = default_path
+        self._suggested_files = suggested_files or []
+        self._directory_note = directory_note
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -736,6 +751,22 @@ class ModPackFileScreen(Screen):
                 placeholder = "Path to save mod pack JSON"
 
             yield Label(help_text, id="modpack-help")
+            if self._mode == "import" and self._suggested_files:
+                yield Label(
+                    "Suggested files below come from templates and this instance's "
+                    "modpacks folder. Selecting one fills the path field.",
+                    id="modpack-source-note",
+                )
+                with VerticalScroll(id="modpack-suggestions"):
+                    for index, (label, _) in enumerate(self._suggested_files):
+                        yield Button(
+                            label,
+                            id=f"btn_modpack_suggestion_{index}",
+                            variant="default",
+                        )
+            elif self._directory_note:
+                yield Label(self._directory_note, id="modpack-source-note")
+
             yield Input(value=self._default_path, placeholder=placeholder, id="inp_modpack_path")
 
             with HorizontalGroup():
@@ -756,6 +787,14 @@ class ModPackFileScreen(Screen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn_cancel_modpack":
             self.dismiss(None)
+            return
+
+        if event.button.id.startswith("btn_modpack_suggestion_"):
+            index = int(event.button.id.rsplit("_", maxsplit=1)[1])
+            selected_path = self._suggested_files[index][1]
+            input_widget = self.query_one("#inp_modpack_path", Input)
+            input_widget.value = selected_path
+            input_widget.focus()
             return
 
         file_path = self.query_one("#inp_modpack_path", Input).value.strip()
@@ -809,8 +848,79 @@ class ModManagerScreen(Screen):
     def on_mount(self) -> None:
         self.action_refresh_mods()
 
+    @staticmethod
+    def _repo_root() -> Path:
+        return Path(__file__).resolve().parents[3]
+
+    def _import_directory_note(self) -> str:
+        modpacks_dir = paths.modpacks_dir(self.instance)
+        templates_dir = self._repo_root() / "templates"
+        return (
+            f"armactl checks {modpacks_dir} for saved mod packs and "
+            f"{templates_dir} for example JSON configs."
+        )
+
+    def _format_import_suggestion(self, path: Path) -> tuple[str, str]:
+        modpacks_dir = paths.modpacks_dir(self.instance)
+        templates_dir = self._repo_root() / "templates"
+        legacy_export = paths.instance_root(self.instance) / "mods-export.json"
+
+        if path.parent == modpacks_dir:
+            source = "Saved mod pack"
+        elif path.parent == templates_dir:
+            source = "Template example"
+        elif path == legacy_export:
+            source = "Legacy export"
+        else:
+            source = "JSON file"
+
+        try:
+            count_text = f" ({preview_import_mods(path)} mods)"
+        except Exception:
+            count_text = ""
+
+        return f"{source}: {path.name}{count_text}", str(path)
+
+    def _import_pack_suggestions(self) -> list[tuple[str, str]]:
+        suggestions: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        modpacks_dir = paths.modpacks_dir(self.instance)
+        templates_dir = self._repo_root() / "templates"
+        legacy_export = paths.instance_root(self.instance) / "mods-export.json"
+
+        def add_candidate(path: Path) -> None:
+            expanded = path.expanduser()
+            if not expanded.exists():
+                return
+
+            resolved = str(expanded.resolve())
+            if resolved in seen:
+                return
+
+            seen.add(resolved)
+            suggestions.append(self._format_import_suggestion(expanded))
+
+        if modpacks_dir.exists():
+            saved_files = sorted(
+                modpacks_dir.glob("*.json"),
+                key=lambda item: item.stat().st_mtime,
+                reverse=True,
+            )
+            for candidate in saved_files[:8]:
+                add_candidate(candidate)
+
+        add_candidate(legacy_export)
+
+        if templates_dir.exists():
+            for candidate in sorted(templates_dir.glob("*.json")):
+                add_candidate(candidate)
+
+        return suggestions
+
     def _default_export_path(self) -> str:
-        return str(paths.instance_root(self.instance) / "mods-export.json")
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        filename = f"mods-export-{timestamp}.json"
+        return str(paths.modpacks_dir(self.instance) / filename)
 
     def _handle_mod_pack_result(self, result: tuple[str, str] | None) -> None:
         if result is None:
@@ -823,7 +933,10 @@ class ModManagerScreen(Screen):
         try:
             if action == "export":
                 count = export_mods(cfg, file_path)
-                self.app.notify(f"Exported {count} mods to {file_path}.", title="Mod Pack Export")
+                self.app.notify(
+                    f"Exported {count} mods to {file_path}.",
+                    title="Mod Pack Export",
+                )
                 return
 
             added, skipped = import_mods(cfg, file_path, append=(action == "append"))
@@ -870,8 +983,16 @@ class ModManagerScreen(Screen):
             self.app.pop_screen()
 
         elif event.button.id == "btn_import_pack":
+            suggestions = self._import_pack_suggestions()
+            default_path = suggestions[0][1] if suggestions else ""
             self.app.push_screen(
-                ModPackFileScreen("Import Mod Pack", "import"),
+                ModPackFileScreen(
+                    "Import Mod Pack",
+                    "import",
+                    default_path=default_path,
+                    suggested_files=suggestions,
+                    directory_note=self._import_directory_note(),
+                ),
                 self._handle_mod_pack_result,
             )
 
@@ -881,6 +1002,10 @@ class ModManagerScreen(Screen):
                     "Export Mod Pack",
                     "export",
                     default_path=self._default_export_path(),
+                    directory_note=(
+                        "By default exports are saved in "
+                        f"{paths.modpacks_dir(self.instance)}."
+                    ),
                 ),
                 self._handle_mod_pack_result,
             )

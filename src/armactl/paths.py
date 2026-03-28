@@ -71,6 +71,14 @@ def logs_dir(
     return instance_root(instance, data_root) / "logs"
 
 
+def modpacks_dir(
+    instance: str = DEFAULT_INSTANCE_NAME,
+    data_root: Path = DEFAULT_DATA_ROOT,
+) -> Path:
+    """Directory for exported/import-ready JSON mod pack files."""
+    return instance_root(instance, data_root) / "modpacks"
+
+
 def state_file(
     instance: str = DEFAULT_INSTANCE_NAME,
     data_root: Path = DEFAULT_DATA_ROOT,

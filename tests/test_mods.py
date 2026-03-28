@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from armactl.mods_manager import export_mods, get_mods, import_mods
+from armactl.mods_manager import export_mods, get_mods, import_mods, preview_import_mods
 
 
 def _write_config(config_path: Path, mods: list[dict] | None = None) -> None:
@@ -60,6 +60,19 @@ def test_import_mods_accepts_full_config_file(tmp_path: Path):
     assert [mod["modId"] for mod in imported] == ["AAA111", "BBB222"]
     assert imported[0]["name"] == "Alpha"
     assert imported[0]["version"] == ""
+
+
+def test_preview_import_mods_counts_full_config_file(tmp_path: Path):
+    """Preview should count mods from a full config.json payload."""
+    source_config = tmp_path / "source" / "config.json"
+    source_mods = [
+        {"modId": "AAA111", "name": "Alpha"},
+        {"modId": "BBB222", "name": "Bravo"},
+        {"modId": "CCC333", "name": "Charlie"},
+    ]
+    _write_config(source_config, source_mods)
+
+    assert preview_import_mods(source_config) == 3
 
 
 def test_import_mods_append_skips_duplicates(tmp_path: Path):
