@@ -156,7 +156,7 @@ class ArmaCtlApp(App):
         border: solid green;
         margin-bottom: 1;
     }
-    #modpack-help, #schedule-help, #bot-config-help {
+    #modpack-help, #schedule-help, #bot-config-help, #bot-service-help {
         width: 100%;
         margin-bottom: 1;
         color: $text-muted;

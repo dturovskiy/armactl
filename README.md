@@ -160,10 +160,10 @@ Typical host flow:
 
 1. Open `Manage Existing Server -> Telegram Bot`
 2. Save bot token, admin Chat ID(s) and language
-3. Click `Install / Update Bot Service`
+3. Click `Apply Bot Service`
    This also installs the secure privileged control helper used for non-interactive
-   `start` / `stop` / `restart` actions and timer schedule updates from the bot.
-4. Click `Start Bot Service`
+   `start` / `stop` / `restart` actions and timer schedule updates from the bot,
+   then starts or restarts the bot service automatically.
 
 Current bot commands:
 

@@ -765,21 +765,22 @@ class BotConfigScreen(Screen):
                 yield Button(_("Reload From Disk"), id="btn_reload_bot", variant="default")
                 yield Button(_("Copy .env Path"), id="btn_copy_bot_path", variant="primary")
                 yield Button(_("Back"), id="btn_back_bot", variant="error")
+            yield Label(
+                _(
+                    "Apply Bot Service installs/updates the secure helper and "
+                    "systemd unit, then starts or restarts the bot automatically."
+                ),
+                id="bot-service-help",
+            )
             with HorizontalGroup(id="bot-service-buttons"):
                 yield Button(
-                    _("Install / Update Bot Service"),
+                    _("Apply Bot Service"),
                     id="btn_install_bot_service",
                     variant="primary",
                 )
-                yield Button(_("Start Bot Service"), id="btn_start_bot_service", variant="success")
-                yield Button(_("Stop Bot Service"), id="btn_stop_bot_service", variant="warning")
+                yield Button(_("Stop Bot"), id="btn_stop_bot_service", variant="warning")
                 yield Button(
-                    _("Restart Bot Service"),
-                    id="btn_restart_bot_service",
-                    variant="default",
-                )
-                yield Button(
-                    _("Refresh Bot Service"),
+                    _("Refresh Status"),
                     id="btn_refresh_bot_service",
                     variant="default",
                 )
@@ -967,6 +968,7 @@ class BotConfigScreen(Screen):
             )
             return
 
+        was_running = bool(get_bot_service_status().get("active"))
         results = install_bot_service(self.instance)
         failures = [result.message for result in results if not result.success]
         self._refresh_status_log(validation_errors=[])
@@ -974,8 +976,19 @@ class BotConfigScreen(Screen):
             self.app.notify(failures[0], title=_("Telegram Bot"), severity="error")
             return
 
+        runtime_result = restart_bot_service() if was_running else start_bot_service()
+        if not runtime_result.success:
+            self._refresh_status_log(validation_errors=[])
+            self.app.notify(
+                runtime_result.message,
+                title=_("Telegram Bot"),
+                severity="error",
+            )
+            return
+
+        self._refresh_status_log(validation_errors=[])
         self.app.notify(
-            _("Bot service and secure control channel installed/updated."),
+            _("Bot service applied and bot runtime is ready."),
             title=_("Telegram Bot"),
         )
 
@@ -1018,12 +1031,8 @@ class BotConfigScreen(Screen):
             self.action_copy_bot_env_path()
         elif event.button.id == "btn_install_bot_service":
             self.action_install_bot_service()
-        elif event.button.id == "btn_start_bot_service":
-            self._handle_bot_service_action(_("Start Bot Service"), start_bot_service())
         elif event.button.id == "btn_stop_bot_service":
-            self._handle_bot_service_action(_("Stop Bot Service"), stop_bot_service())
-        elif event.button.id == "btn_restart_bot_service":
-            self._handle_bot_service_action(_("Restart Bot Service"), restart_bot_service())
+            self._handle_bot_service_action(_("Stop Bot"), stop_bot_service())
         elif event.button.id == "btn_refresh_bot_service":
             self._refresh_status_log(validation_errors=[])
             self.app.notify(_("Refreshed bot service status."), title=_("Telegram Bot"))

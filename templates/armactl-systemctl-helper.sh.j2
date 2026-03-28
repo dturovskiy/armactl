@@ -1,0 +1,90 @@
+#!/bin/sh
+# Narrow root-owned helper for armactl systemctl actions.
+
+INSTALL_BIN="{{ install_bin }}"
+SYSTEMCTL_BIN="{{ systemctl_bin }}"
+
+fail() {
+    printf '%s\n' "$1" >&2
+    exit 1
+}
+
+allowed_unit() {
+    case "$1" in
+        armareforger.service|armareforger@*.service|armareforger-restart.service|\
+        armareforger-restart.timer|armareforger-restart@*.service|\
+        armareforger-restart@*.timer|armactl-bot.service)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+allowed_timer() {
+    case "$1" in
+        armareforger-restart.timer|armareforger-restart@*.timer)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+render_timer_file() {
+    timer_name="$1"
+    shift
+
+    [ "$#" -gt 0 ] || fail "Denied: at least one OnCalendar entry is required."
+
+    tmp_file="$(mktemp)" || fail "Failed to allocate temporary file."
+    {
+        printf '%s\n' "[Unit]"
+        printf '%s\n' "Description=Scheduled restart for Arma Reforger Dedicated Server"
+        printf '\n'
+        printf '%s\n' "[Timer]"
+        for entry in "$@"; do
+            [ -n "$entry" ] || fail "Denied: invalid OnCalendar entry."
+            printf 'OnCalendar=%s\n' "$entry"
+        done
+        printf '%s\n' "Persistent=true"
+        printf '\n'
+        printf '%s\n' "[Install]"
+        printf '%s\n' "WantedBy=timers.target"
+    } > "$tmp_file"
+
+    "$INSTALL_BIN" -D -o root -g root -m 0644 "$tmp_file" "/etc/systemd/system/$timer_name"
+    rc="$?"
+    rm -f "$tmp_file"
+    exit "$rc"
+}
+
+[ "$#" -gt 0 ] || fail "Usage: armactl-systemctl-helper ACTION [UNIT]"
+
+action="$1"
+shift
+
+case "$action" in
+    start|stop|restart|enable|disable)
+        [ "$#" -eq 1 ] || fail "Usage: armactl-systemctl-helper $action UNIT"
+        allowed_unit "$1" || fail "Denied: unsupported unit '$1'."
+        exec "$SYSTEMCTL_BIN" "$action" "$1"
+        ;;
+    daemon-reload)
+        [ "$#" -eq 0 ] || fail "Denied: daemon-reload does not accept a unit argument."
+        exec "$SYSTEMCTL_BIN" daemon-reload
+        ;;
+    update-timer)
+        [ "$#" -ge 2 ] || fail \
+            "Usage: armactl-systemctl-helper update-timer TIMER_NAME ONCALENDAR..."
+        timer_name="$1"
+        shift
+        allowed_timer "$timer_name" || fail "Denied: unsupported timer '$timer_name'."
+        render_timer_file "$timer_name" "$@"
+        ;;
+    *)
+        fail "Denied: unsupported action '$action'."
+        ;;
+esac

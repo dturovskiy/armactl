@@ -8,6 +8,7 @@ from armactl import paths
 from armactl.i18n import _
 from armactl.service_manager import (
     _build_systemctl_command,
+    _render_privileged_helper_script,
     _run_systemctl,
     format_schedule_for_input,
     get_timer_status,
@@ -110,6 +111,13 @@ def test_has_privileged_systemctl_channel_requires_helper_and_sudoers(tmp_path: 
         assert has_privileged_systemctl_channel() is False
         sudoers_path.write_text("sudoers", encoding="utf-8")
         assert has_privileged_systemctl_channel() is True
+
+
+def test_render_privileged_helper_script_uses_shell_and_lf_newlines() -> None:
+    rendered = _render_privileged_helper_script()
+
+    assert rendered.startswith("#!/bin/sh\n")
+    assert "\r" not in rendered
 
 
 def test_build_systemctl_command_prefers_secure_helper_channel() -> None:

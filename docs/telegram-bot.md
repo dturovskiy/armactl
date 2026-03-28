@@ -69,9 +69,9 @@ of the same `.env` file must produce the same final state that the TUI sees.
 1. Install server via the normal install flow
 2. Open `Manage Existing Server -> Telegram Bot`
 3. Save token and admin Chat ID(s) into the instance `.env`
-4. Use `Install / Update Bot Service`
-   This also installs/refreshes the secure privileged control channel.
-5. Start the service from the same screen
+4. Use `Apply Bot Service`
+   This also installs/refreshes the secure privileged control channel and then
+   starts or restarts the bot service automatically.
 
 ## Current bot surface
 

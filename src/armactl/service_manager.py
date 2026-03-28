@@ -198,22 +198,30 @@ def _template_environment() -> Environment:
     return Environment(loader=FileSystemLoader(str(_templates_dir())))
 
 
+def _normalize_generated_text(text: str) -> str:
+    """Normalize generated helper/unit text to Unix newlines."""
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    return normalized if normalized.endswith("\n") else f"{normalized}\n"
+
+
 def _render_privileged_helper_script() -> str:
     """Render the root-owned helper script text."""
     env = _template_environment()
-    return env.get_template("armactl-systemctl-helper.py.j2").render(
+    rendered = env.get_template("armactl-systemctl-helper.sh.j2").render(
         install_bin=_resolve_install_binary(),
         systemctl_bin=_resolve_systemctl_binary(),
     )
+    return _normalize_generated_text(rendered)
 
 
 def _render_privileged_sudoers(user: str) -> str:
     """Render the sudoers drop-in text for the current Linux user."""
     env = _template_environment()
-    return env.get_template("armactl-systemctl-helper.sudoers.j2").render(
+    rendered = env.get_template("armactl-systemctl-helper.sudoers.j2").render(
         user=user,
         helper_path=str(paths.privileged_helper_file()),
     )
+    return _normalize_generated_text(rendered)
 
 
 def install_privileged_systemctl_channel() -> list[ServiceResult]:
@@ -231,6 +239,27 @@ def install_privileged_systemctl_channel() -> list[ServiceResult]:
             sudoers_temp = temp_dir / paths.PRIVILEGED_SUDOERS_NAME
             helper_temp.write_text(helper_text, encoding="utf-8")
             sudoers_temp.write_text(sudoers_text, encoding="utf-8")
+
+            shell_bin = shutil.which("sh") or "/bin/sh"
+            if Path(shell_bin).exists():
+                validation = subprocess.run(
+                    [shell_bin, "-n", str(helper_temp)],
+                    capture_output=True,
+                    text=True,
+                )
+                if validation.returncode != 0:
+                    error_text = validation.stderr.strip() or validation.stdout.strip()
+                    return [
+                        ServiceResult(
+                            False,
+                            tr(
+                                "Failed to validate privileged helper {path}: {error}",
+                                path=helper_temp,
+                                error=error_text,
+                            ),
+                            validation.returncode,
+                        )
+                    ]
 
             visudo_bin = shutil.which("visudo") or "/usr/sbin/visudo"
             if Path(visudo_bin).exists():
