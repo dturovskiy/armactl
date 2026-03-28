@@ -78,8 +78,6 @@ class ArmaCtlApp(App):
         elif event.button.id == "btn_repair":
             from armactl.tui.screens import RepairScreen
             self.push_screen(RepairScreen(instance=self.instance, title=f"Repairing Server -> {self.instance}"))
-        else:
-            self.notify("Action unhandled", title="Error", timeout=3)
 
 def run_tui(instance: str) -> None:
     """Entry point for the TUI."""
