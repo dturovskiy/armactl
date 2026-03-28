@@ -1,24 +1,20 @@
 """Tests for Telegram bot runtime helpers."""
 
-from armactl.status_summary import ConfigSummary, ModSummaryEntry, ModsSummary
-from armactl.telegram_bot import (
-    BotStatusSnapshot,
-    admin_chat_allowed,
-    parse_friendly_schedule_input,
-    render_bot_schedule_text,
-    render_bot_status_text,
-    render_schedule_input_prompt,
-)
+import armactl.status_summary as status_summary
+import armactl.telegram_bot as telegram_bot
 
 
 def test_admin_chat_allowed():
-    assert admin_chat_allowed(123456789, ["123456789", "-1001234567890"]) is True
-    assert admin_chat_allowed("-1001234567890", ["123456789", "-1001234567890"]) is True
-    assert admin_chat_allowed(42, ["123456789"]) is False
+    assert telegram_bot.admin_chat_allowed(123456789, ["123456789", "-1001234567890"]) is True
+    assert (
+        telegram_bot.admin_chat_allowed("-1001234567890", ["123456789", "-1001234567890"])
+        is True
+    )
+    assert telegram_bot.admin_chat_allowed(42, ["123456789"]) is False
 
 
 def test_render_bot_status_text_uses_english_fallback():
-    snapshot = BotStatusSnapshot(
+    snapshot = telegram_bot.BotStatusSnapshot(
         instance="default",
         server_running=True,
         service_name="armareforger.service",
@@ -32,7 +28,7 @@ def test_render_bot_status_text_uses_english_fallback():
         main_pid=4321,
         cpu_percent=12.5,
         memory_rss_bytes=268435456,
-        config_summary=ConfigSummary(
+        config_summary=status_summary.ConfigSummary(
             available=True,
             server_name="Denis Reforger",
             scenario_id="{ECC61978EDCC2B5A}Missions/23_Campaign.conf",
@@ -43,12 +39,12 @@ def test_render_bot_status_text_uses_english_fallback():
             visible=True,
             battleye=True,
         ),
-        mods_summary=ModsSummary(
+        mods_summary=status_summary.ModsSummary(
             available=True,
             count=4,
             preview=[
-                ModSummaryEntry(mod_id="ABC123", name="Weapons Pack"),
-                ModSummaryEntry(mod_id="DEF456", name="Vehicles Pack"),
+                status_summary.ModSummaryEntry(mod_id="ABC123", name="Weapons Pack"),
+                status_summary.ModSummaryEntry(mod_id="DEF456", name="Vehicles Pack"),
             ],
             remaining_count=2,
         ),
@@ -56,7 +52,7 @@ def test_render_bot_status_text_uses_english_fallback():
         roster_available=True,
     )
 
-    text = render_bot_status_text(snapshot, "en")
+    text = telegram_bot.render_bot_status_text(snapshot, "en")
 
     assert "\U0001F916" in text
     assert "\U0001F7E2" in text
@@ -85,7 +81,7 @@ def test_render_bot_status_text_uses_english_fallback():
 
 
 def test_render_bot_schedule_text_uses_english_fallback():
-    text = render_bot_schedule_text(
+    text = telegram_bot.render_bot_schedule_text(
         "default",
         {
             "enabled": True,
@@ -105,7 +101,7 @@ def test_render_bot_schedule_text_uses_english_fallback():
 
 
 def test_render_schedule_input_prompt_uses_english_fallback():
-    text = render_schedule_input_prompt("08:00, 20:00", "en")
+    text = telegram_bot.render_schedule_input_prompt("08:00, 20:00", "en")
 
     assert "\u270D\uFE0F" in text
     assert "Send restart times in your next message." in text
@@ -114,7 +110,7 @@ def test_render_schedule_input_prompt_uses_english_fallback():
 
 
 def test_render_bot_status_text_handles_unavailable_player_query():
-    snapshot = BotStatusSnapshot(
+    snapshot = telegram_bot.BotStatusSnapshot(
         instance="default",
         server_running=True,
         service_name="armareforger.service",
@@ -128,13 +124,13 @@ def test_render_bot_status_text_handles_unavailable_player_query():
         main_pid=0,
         cpu_percent=None,
         memory_rss_bytes=None,
-        config_summary=ConfigSummary(available=False),
-        mods_summary=ModsSummary(available=False),
+        config_summary=status_summary.ConfigSummary(available=False),
+        mods_summary=status_summary.ModsSummary(available=False),
         player_lines=[],
         roster_available=False,
     )
 
-    text = render_bot_status_text(snapshot, "en")
+    text = telegram_bot.render_bot_status_text(snapshot, "en")
 
     assert "Players: unavailable" in text
     assert "Server CPU: Unknown" in text
@@ -144,7 +140,7 @@ def test_render_bot_status_text_handles_unavailable_player_query():
 
 
 def test_render_bot_status_text_warns_when_roster_is_unavailable():
-    snapshot = BotStatusSnapshot(
+    snapshot = telegram_bot.BotStatusSnapshot(
         instance="default",
         server_running=True,
         service_name="armareforger.service",
@@ -158,28 +154,28 @@ def test_render_bot_status_text_warns_when_roster_is_unavailable():
         main_pid=123,
         cpu_percent=4.0,
         memory_rss_bytes=134217728,
-        config_summary=ConfigSummary(available=True),
-        mods_summary=ModsSummary(available=True, count=0),
+        config_summary=status_summary.ConfigSummary(available=True),
+        mods_summary=status_summary.ModsSummary(available=True, count=0),
         player_lines=[],
         roster_available=False,
     )
 
-    text = render_bot_status_text(snapshot, "en")
+    text = telegram_bot.render_bot_status_text(snapshot, "en")
 
     assert "Players: 2/64" in text
     assert "Player roster unavailable via RCON." in text
 
 
 def test_parse_friendly_schedule_input_accepts_simple_times():
-    assert parse_friendly_schedule_input("08:00, 20:00") == [
+    assert telegram_bot.parse_friendly_schedule_input("08:00, 20:00") == [
         "*-*-* 08:00:00",
         "*-*-* 20:00:00",
     ]
-    assert parse_friendly_schedule_input("06:00 18:00") == [
+    assert telegram_bot.parse_friendly_schedule_input("06:00 18:00") == [
         "*-*-* 06:00:00",
         "*-*-* 18:00:00",
     ]
 
 
 def test_parse_friendly_schedule_input_rejects_non_time_text():
-    assert parse_friendly_schedule_input("tomorrow at six") == []
+    assert telegram_bot.parse_friendly_schedule_input("tomorrow at six") == []
