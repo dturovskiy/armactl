@@ -104,6 +104,3 @@ Use:
 
 - `Detect Existing Server`
 - `Repair Installation`
-
-If you are migrating from an older layout, also read [migration.md](migration.md).
-

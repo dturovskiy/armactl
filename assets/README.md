@@ -1,4 +1,4 @@
-# Assets
+﻿# Assets
 
 This directory is reserved for repository visuals such as:
 
@@ -8,5 +8,6 @@ This directory is reserved for repository visuals such as:
 
 Recommended first additions:
 
-- `tui-home.png`
+- `tui-main-menu.png`
 - `demo.gif`
+
