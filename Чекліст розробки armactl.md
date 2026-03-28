@@ -209,8 +209,8 @@
 - [x] Unit tests для discovery
 - [x] Unit tests для config manager
 - [x] Unit tests для mod manager
-- [ ] Integration tests для install
-- [ ] Integration tests для service/timer
+- [x] Integration tests для install
+- [x] Integration tests для service/timer
 - [ ] Manual smoke test на чистій VM
 - [ ] Manual smoke test на existing server
 - [ ] Manual smoke test після reboot
