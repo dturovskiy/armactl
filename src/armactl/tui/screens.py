@@ -6,7 +6,7 @@ from pathlib import Path
 
 from textual import work
 from textual.app import ComposeResult
-from textual.containers import VerticalGroup
+from textual.containers import HorizontalGroup, VerticalGroup
 from textual.screen import Screen
 from textual.widgets import Header, Footer, RichLog, Button, Label
 
@@ -20,23 +20,34 @@ class LogWorkerScreen(Screen):
     
     BINDINGS = [
         ("b", "go_back", "Back to Menu"),
+        ("c", "copy_output", "Copy Output"),
     ]
 
     def __init__(self, instance: str, title: str, **kwargs):
         super().__init__(**kwargs)
         self.instance = instance
         self.worker_title = title
+        self._output_lines: list[str] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
         with VerticalGroup():
             yield Label(self.worker_title, id="screen-title")
             yield RichLog(id="task-log", highlight=True, markup=True)
-            yield Button("Close Task (Running...)", id="btn_close", variant="default", disabled=True)
+            with HorizontalGroup(id="task-actions"):
+                yield Button("Copy Output", id="btn_copy_output", variant="primary")
+                yield Button(
+                    "Close Task (Running...)",
+                    id="btn_close",
+                    variant="default",
+                    disabled=True,
+                )
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn_close":
+        if event.button.id == "btn_copy_output":
+            self.action_copy_output()
+        elif event.button.id == "btn_close":
             self.app.pop_screen()
 
     def action_go_back(self) -> None:
@@ -44,6 +55,20 @@ class LogWorkerScreen(Screen):
         btn = self.query_one("#btn_close", Button)
         if not btn.disabled:
              self.app.pop_screen()
+
+    def action_copy_output(self) -> None:
+        text = "\n".join(line for line in self._output_lines if line)
+        if not text:
+            self.app.notify("There is no output to copy yet.", severity="warning")
+            return
+
+        self.app.copy_to_clipboard(text)
+        self.app.notify("Copied full output to clipboard.", title="Clipboard")
+
+    def append_output(self, rendered: str, plain: str | None = None) -> None:
+        """Append a line to the visible log and the copy buffer."""
+        self._output_lines.append((plain if plain is not None else rendered).rstrip())
+        self.query_one("#task-log", RichLog).write(rendered)
 
     def complete_task(self, *, label: str = "Return to Menu", variant: str = "success") -> None:
         """Enable task closing once the background action is finished."""
@@ -61,13 +86,20 @@ class InstallScreen(LogWorkerScreen):
 
     @work(exclusive=True, thread=True)
     def run_installation_task(self) -> None:
-        log_widget = self.query_one("#task-log", RichLog)
         try:
             for message in run_install(self.instance):
-                self.app.call_from_thread(log_widget.write, message)
-            self.app.call_from_thread(log_widget.write, "[green]Installation completely finished![/green]")
+                self.app.call_from_thread(self.append_output, message)
+            self.app.call_from_thread(
+                self.append_output,
+                "[green]Installation completely finished![/green]",
+                "Installation completely finished!",
+            )
         except Exception as e:
-            self.app.call_from_thread(log_widget.write, f"[red]Installation failed: {e}[/red]")
+            self.app.call_from_thread(
+                self.append_output,
+                f"[red]Installation failed: {e}[/red]",
+                f"Installation failed: {e}",
+            )
 
         self.app.call_from_thread(self.complete_task)
 
@@ -80,15 +112,22 @@ class RepairScreen(LogWorkerScreen):
 
     @work(exclusive=True, thread=True)
     def run_repair_task(self) -> None:
-        log_widget = self.query_one("#task-log", RichLog)
         state = discover(self.instance, save=False)
         try:
             # We call run_repair from backend
             for message in run_repair(self.instance, state.install_dir, state.config_path):
-                self.app.call_from_thread(log_widget.write, message)
-            self.app.call_from_thread(log_widget.write, "[green]Repair completed successfully![/green]")
+                self.app.call_from_thread(self.append_output, message)
+            self.app.call_from_thread(
+                self.append_output,
+                "[green]Repair completed successfully![/green]",
+                "Repair completed successfully!",
+            )
         except Exception as e:
-            self.app.call_from_thread(log_widget.write, f"[red]Repair failed: {e}[/red]")
+            self.app.call_from_thread(
+                self.append_output,
+                f"[red]Repair failed: {e}[/red]",
+                f"Repair failed: {e}",
+            )
 
         self.app.call_from_thread(self.complete_task)
 
@@ -103,21 +142,29 @@ class HostTestsScreen(LogWorkerScreen):
     def run_host_tests_task(self) -> None:
         import subprocess
 
-        log_widget = self.query_one("#task-log", RichLog)
         project_root = Path(__file__).resolve().parents[3]
         script_path = project_root / "scripts" / "run-host-tests"
 
         if not script_path.exists():
             self.app.call_from_thread(
-                log_widget.write,
+                self.append_output,
                 f"[red]Host test script not found: {script_path}[/red]",
+                f"Host test script not found: {script_path}",
             )
             self.app.call_from_thread(self.complete_task, label="Close", variant="error")
             return
 
         cmd = ["/bin/sh", str(script_path)]
-        self.app.call_from_thread(log_widget.write, f"[cyan]Running:[/cyan] {' '.join(cmd)}")
-        self.app.call_from_thread(log_widget.write, f"[cyan]Working directory:[/cyan] {project_root}")
+        self.app.call_from_thread(
+            self.append_output,
+            f"[cyan]Running:[/cyan] {' '.join(cmd)}",
+            f"Running: {' '.join(cmd)}",
+        )
+        self.app.call_from_thread(
+            self.append_output,
+            f"[cyan]Working directory:[/cyan] {project_root}",
+            f"Working directory: {project_root}",
+        )
 
         try:
             proc = subprocess.Popen(
@@ -128,22 +175,32 @@ class HostTestsScreen(LogWorkerScreen):
                 text=True,
             )
         except Exception as e:
-            self.app.call_from_thread(log_widget.write, f"[red]Failed to start host tests: {e}[/red]")
+            self.app.call_from_thread(
+                self.append_output,
+                f"[red]Failed to start host tests: {e}[/red]",
+                f"Failed to start host tests: {e}",
+            )
             self.app.call_from_thread(self.complete_task, label="Close", variant="error")
             return
 
         assert proc.stdout is not None
         for line in proc.stdout:
-            self.app.call_from_thread(log_widget.write, line.rstrip())
+            text = line.rstrip()
+            self.app.call_from_thread(self.append_output, text)
 
         return_code = proc.wait()
         if return_code == 0:
-            self.app.call_from_thread(log_widget.write, "[green]Host tests finished successfully.[/green]")
+            self.app.call_from_thread(
+                self.append_output,
+                "[green]Host tests finished successfully.[/green]",
+                "Host tests finished successfully.",
+            )
             self.app.call_from_thread(self.complete_task)
         else:
             self.app.call_from_thread(
-                log_widget.write,
+                self.append_output,
                 f"[red]Host tests failed with exit code {return_code}.[/red]",
+                f"Host tests failed with exit code {return_code}.",
             )
             self.app.call_from_thread(self.complete_task, label="Close", variant="error")
 

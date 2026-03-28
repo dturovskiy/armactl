@@ -148,27 +148,48 @@ class ArmaCtlApp(App):
         elif event.button.id == "btn_detect":
             state = discover(instance=self.instance, save=True)
             if state.server_installed:
-                self.notify("Server files detected! Restart app to see Manage screen.", title="Success")
+                self.notify(
+                    "Server files detected! Restart app to see Manage screen.",
+                    title="Success",
+                )
             else:
                 self.notify("No server installation found at default paths.", severity="error")
         elif event.button.id == "btn_lang":
             from armactl.i18n import toggle_lang, _
             toggle_lang()
-            lbl = self.query_one("#btn_lang", Button)
-            self.notify("Language changed! Please exit and run armactl again to apply changes.", title="Language Swapped", timeout=5)
+            self.notify(
+                _("Language changed! Please exit and run armactl again to apply changes."),
+                title=_("Language Swapped"),
+                timeout=5,
+            )
         elif event.button.id == "btn_manage":
             from armactl.tui.screens import ManageScreen
             self.push_screen(ManageScreen(instance=self.instance))
         elif event.button.id == "btn_install":
             from armactl.tui.screens import InstallScreen
-            self.push_screen(InstallScreen(instance=self.instance, title=f"Installing Server -> {self.instance}"))
+            self.push_screen(
+                InstallScreen(
+                    instance=self.instance,
+                    title=f"Installing Server -> {self.instance}",
+                )
+            )
         elif event.button.id == "btn_repair":
             from armactl.tui.screens import RepairScreen
-            self.push_screen(RepairScreen(instance=self.instance, title=f"Repairing Server -> {self.instance}"))
+            self.push_screen(
+                RepairScreen(
+                    instance=self.instance,
+                    title=f"Repairing Server -> {self.instance}",
+                )
+            )
         elif event.button.id == "btn_host_tests":
             from armactl.i18n import _
             from armactl.tui.screens import HostTestsScreen
-            self.push_screen(HostTestsScreen(instance=self.instance, title=_("Running Host Tests")))
+            self.push_screen(
+                HostTestsScreen(
+                    instance=self.instance,
+                    title=_("Running Host Tests"),
+                )
+            )
 
 def run_tui(instance: str) -> None:
     """Entry point for the TUI."""
