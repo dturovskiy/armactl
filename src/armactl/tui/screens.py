@@ -929,7 +929,7 @@ class ModPackFileScreen(Screen):
                     id="modpack-source-note",
                 )
                 with VerticalScroll(id="modpack-suggestions"):
-                    for index, (label, _) in enumerate(self._suggested_files):
+                    for index, (label, path_value) in enumerate(self._suggested_files):
                         yield Button(
                             label,
                             id=f"btn_modpack_suggestion_{index}",

@@ -1,7 +1,5 @@
 """Tests for locale metadata and translation coverage."""
 
-from __future__ import annotations
-
 import ast
 import json
 from pathlib import Path
