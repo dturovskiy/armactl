@@ -58,12 +58,14 @@ def run_repair(instance: str, install_dir: Path | str, config_path: Path | str) 
     yield f"[{instance}] Step 3: Checking configuration..."
     if not config_path.exists():
         yield "  ! Config missing! Regenerating default config..."
-        from armactl.installer import P
         from jinja2 import Environment, FileSystemLoader
         import secrets
         
+        project_root = Path(__file__).resolve().parent.parent.parent
+        templates_dir = project_root / "templates"
+        
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        env = Environment(loader=FileSystemLoader(str(P.templates_dir)))
+        env = Environment(loader=FileSystemLoader(str(templates_dir)))
         template = env.get_template("config.json.j2")
         config_render = template.render(
             rcon_password=secrets.token_urlsafe(8),
