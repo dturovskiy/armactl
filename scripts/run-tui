@@ -6,11 +6,4 @@ PROJECT_ROOT=$(dirname -- "$SCRIPT_DIR")
 
 cd "$PROJECT_ROOT"
 
-if [ ! -x "$PROJECT_ROOT/.venv/bin/python" ]; then
-    echo "armactl is not bootstrapped yet." >&2
-    echo "Run: ./scripts/bootstrap.sh" >&2
-    exit 1
-fi
-
-echo "armactl TUI is not yet implemented."
-echo "Use './armactl --help' for available CLI commands."
+exec "$PROJECT_ROOT/armactl" "$@"

@@ -97,14 +97,19 @@ fi
 
 chmod +x "$PROJECT_ROOT/armactl" 2>/dev/null || true
 chmod +x "$PROJECT_ROOT/scripts/run-tui" 2>/dev/null || true
+chmod +x "$PROJECT_ROOT/scripts/run-host-tests" 2>/dev/null || true
 
 log ""
 log "Done."
 log ""
 log "Use repo-local launcher:"
+log "  ./armactl         # launch TUI"
 log "  ./armactl --help"
 log "  ./armactl detect"
 log "  ./armactl install"
 log ""
 log "Or run TUI:"
 log "  ./scripts/run-tui"
+log ""
+log "Run host checks:"
+log "  ./scripts/run-host-tests"

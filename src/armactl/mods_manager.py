@@ -2,8 +2,9 @@
 
 import json
 from pathlib import Path
+from typing import Any
 
-from armactl.config_manager import load_config, save_config, ConfigError
+from armactl.config_manager import ConfigError, load_config, save_config
 
 
 def get_mods(config_path: Path | str) -> list[dict]:
@@ -82,10 +83,42 @@ def dedupe_mods(config_path: Path | str) -> int:
 
 def export_mods(config_path: Path | str, export_file: Path | str) -> int:
     """Export currently configured mods to a JSON file."""
+    export_file = Path(export_file)
+    export_file.parent.mkdir(parents=True, exist_ok=True)
     mods = get_mods(config_path)
     with open(export_file, "w", encoding="utf-8") as f:
         json.dump(mods, f, indent=4)
     return len(mods)
+
+
+def _extract_import_mods(payload: Any) -> list[dict]:
+    """Normalize imported payload to a list of mod objects."""
+    if isinstance(payload, dict):
+        payload = payload.get("game", {}).get("mods")
+
+    if not isinstance(payload, list):
+        raise ConfigError(
+            "Import file must contain either a JSON array of mod objects or a full config object with game.mods."
+        )
+
+    normalized: list[dict] = []
+    for mod in payload:
+        if not isinstance(mod, dict) or "modId" not in mod:
+            raise ConfigError("Each imported mod must be an object containing a 'modId' key.")
+
+        mod_id = str(mod.get("modId", "")).strip()
+        if not mod_id:
+            raise ConfigError("Imported mod 'modId' cannot be empty.")
+
+        normalized.append(
+            {
+                "modId": mod_id,
+                "name": str(mod.get("name", "")),
+                "version": str(mod.get("version", "")),
+            }
+        )
+
+    return normalized
 
 
 def import_mods(config_path: Path | str, import_file: Path | str, append: bool = False) -> tuple[int, int]:
@@ -96,16 +129,9 @@ def import_mods(config_path: Path | str, import_file: Path | str, append: bool =
     """
     with open(import_file, "r", encoding="utf-8") as f:
         try:
-            imported_mods = json.load(f)
+            imported_mods = _extract_import_mods(json.load(f))
         except json.JSONDecodeError as e:
             raise ConfigError(f"Invalid JSON in import file: {e}")
-
-    if not isinstance(imported_mods, list):
-        raise ConfigError("Import file must contain a JSON array of mod objects.")
-        
-    for m in imported_mods:
-        if not isinstance(m, dict) or "modId" not in m:
-            raise ConfigError("Each imported mod must be an object containing a 'modId' key.")
 
     current_mods = get_mods(config_path) if append else []
     seen_ids = {m.get("modId") for m in current_mods}

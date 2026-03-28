@@ -24,13 +24,19 @@ Open-source installer, manager and TUI for **Arma Reforger Dedicated Server** on
 ```bash
 git clone https://github.com/dturovskiy/armactl.git
 cd armactl
-./scripts/bootstrap.sh
-./armactl --help
+./armactl
 ```
 
-The bootstrap script installs system dependencies (Python 3.10+, venv, pip),
-creates a `.venv` inside the repo, and installs armactl. After that, use the
-repo-local `./armactl` launcher — no PATH changes, no venv activation needed.
+On first run, `./armactl` bootstraps the repo-local environment automatically
+(system packages, `.venv`, Python dependencies) and then opens the TUI. After
+that, keep using the same repo-local launcher — no PATH changes, no venv
+activation needed.
+
+If you want the dev toolchain from the first launch too, use:
+
+```bash
+ARMACTL_BOOTSTRAP_MODE=--dev ./armactl
+```
 
 ## Architecture
 
@@ -78,6 +84,8 @@ armactl mods list           # List installed mods
 armactl mods add            # Add a mod
 armactl mods remove         # Remove a mod
 armactl mods dedupe         # Remove duplicate mods
+armactl mods export FILE    # Export mods to standalone JSON mod pack
+armactl mods import FILE    # Import from mod pack JSON or full config.json
 
 armactl schedule show       # Show restart schedule
 armactl schedule set        # Set restart schedule
@@ -88,9 +96,18 @@ armactl schedule disable    # Disable scheduled restarts
 ## Development
 
 ```bash
-./scripts/bootstrap.sh --dev
+./scripts/run-host-tests
 .venv/bin/pytest
 .venv/bin/ruff check src/
+```
+
+`./scripts/run-host-tests` will auto-install the dev dependencies if the repo
+was only bootstrapped in prod mode before.
+
+For a repo-local smoke run on the Linux host, use:
+
+```bash
+./scripts/run-host-tests
 ```
 
 ## License

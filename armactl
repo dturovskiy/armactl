@@ -3,11 +3,16 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 VENV_PY="$SCRIPT_DIR/.venv/bin/python"
+BOOTSTRAP_SCRIPT="$SCRIPT_DIR/scripts/bootstrap.sh"
+BOOTSTRAP_MODE="${ARMACTL_BOOTSTRAP_MODE:---prod}"
 
 if [ ! -x "$VENV_PY" ]; then
-    echo "armactl is not bootstrapped yet." >&2
-    echo "Run: ./scripts/bootstrap.sh" >&2
-    exit 1
+    echo "armactl first-run setup: preparing local environment..." >&2
+    if [ ! -x "$BOOTSTRAP_SCRIPT" ]; then
+        echo "Missing bootstrap script: $BOOTSTRAP_SCRIPT" >&2
+        exit 1
+    fi
+    "$BOOTSTRAP_SCRIPT" "$BOOTSTRAP_MODE"
 fi
 
 exec "$VENV_PY" -m armactl "$@"

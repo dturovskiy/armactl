@@ -155,10 +155,10 @@
 - [x] Додати екран списку модів
 - [x] Додати форму `Add mod`
 - [x] Додати `Remove mod`
-- [ ] Додати `Import mod pack`
-- [ ] Додати `Export mod pack`
+- [x] Додати `Import mod pack`
+- [x] Додати `Export mod pack`
 - [x] Додати `Dedupe mods`
-- [ ] Перевірити роботу з великим списком модів
+- [x] Перевірити роботу з великим списком модів
 
 ## Phase ??? — Miscellaneous additions
 - [x] Додати i18n Локалізацію (en/uk)

@@ -1,0 +1,271 @@
+{
+  "bindAddress": "0.0.0.0",
+  "bindPort": 2001,
+  "publicAddress": "",
+  "publicPort": 2001,
+  "a2s": {
+    "address": "0.0.0.0",
+    "port": 17777
+  },
+  "rcon": {
+    "address": "0.0.0.0",
+    "port": 19999,
+    "password": "TempRcon123!",
+    "permission": "admin",
+    "blacklist": [],
+    "whitelist": []
+  },
+  "game": {
+    "name": "[UA/EU] DEFENDERS OF EUROPE [UA/RU]",
+    "password": "",
+    "passwordAdmin": "TempAdmin123!",
+    "admins": [],
+    "scenarioId": "{36CA24F4F666B15D}Missions/WCS_Everon_Conflict_AAS_Layout1.conf",
+    "maxPlayers": 128,
+    "visible": true,
+    "gameProperties": {
+      "serverMaxViewDistance": 2500,
+      "serverMinGrassDistance": 100,
+      "networkViewDistance": 1500,
+      "disableThirdPerson": false,
+      "fastValidation": true,
+      "battlEye": true,
+      "VONDisableUI": false,
+      "VONDisableDirectSpeechUI": false,
+      "VONCanTransmitCrossFaction": false
+    },
+    "mods": [
+      {
+        "modId": "5E389BB9F58B79A6",
+        "name": "SpaceCore"
+      },
+      {
+        "modId": "65AD7D0D9941A380",
+        "name": "ACE Core Dev"
+      },
+      {
+        "modId": "6586079789278413",
+        "name": "ACE Medical Core Dev"
+      },
+      {
+        "modId": "65B343F799FB521B",
+        "name": "ACE Medical Hitzones Dev"
+      },
+      {
+        "modId": "65AD7CE59E8DB349",
+        "name": "ACE Trenches Dev"
+      },
+      {
+        "modId": "65AD7D2E9866FA6E",
+        "name": "ACE Finger Dev"
+      },
+      {
+        "modId": "65AD7BCC9F6B3B4E",
+        "name": "ACE Chopping Dev"
+      },
+      {
+        "modId": "65AD7CF69FAF1FDD",
+        "name": "ACE Compass Dev"
+      },
+      {
+        "modId": "65AD7C75826B46C6",
+        "name": "ACE Radio Dev"
+      },
+      {
+        "modId": "65AD7D4099944EBD",
+        "name": "ACE Magazine Repack Dev"
+      },
+      {
+        "modId": "65AD7D1E9EEAFA53",
+        "name": "ACE Explosives Dev"
+      },
+      {
+        "modId": "65AD7CD09CAEC4E2",
+        "name": "ACE Tactical Periscope Dev"
+      },
+      {
+        "modId": "65AD7CB89F219E38",
+        "name": "ACE Tactical Ladder Dev"
+      },
+      {
+        "modId": "667B230F9505C8BA",
+        "name": "ACE Weather Dev"
+      },
+      {
+        "modId": "1337C0DE5DABBEEF",
+        "name": "RHS - Content Pack 01"
+      },
+      {
+        "modId": "BADC0DEDABBEDA5E",
+        "name": "RHS - Content Pack 02"
+      },
+      {
+        "modId": "595F2BF2F44836FB",
+        "name": "RHS - Status Quo"
+      },
+      {
+        "modId": "64610AFB74AA9842",
+        "name": "WCS_Core"
+      },
+      {
+        "modId": "648B595F6C72B4CB",
+        "name": "WCS_Settings"
+      },
+      {
+        "modId": "615806DC6C57AF02",
+        "name": "WCS_NATO"
+      },
+      {
+        "modId": "615818DA7C0343FD",
+        "name": "WCS_RU"
+      },
+      {
+        "modId": "6152CB0BD0684837",
+        "name": "WCS_Clothing"
+      },
+      {
+        "modId": "6602C1EC7E5A4A87",
+        "name": "WCS_Clothing_Assets"
+      },
+      {
+        "modId": "61C74A8B647617DA",
+        "name": "WCS_Attachments"
+      },
+      {
+        "modId": "65CF7AE8574E06D2",
+        "name": "WCS_Weapons"
+      },
+      {
+        "modId": "65F929DF622BAD50",
+        "name": "WCS_RHS_Weapons"
+      },
+      {
+        "modId": "629B2BA37EFFD577",
+        "name": "WCS_Armaments"
+      },
+      {
+        "modId": "615CC2D870A39838",
+        "name": "WCS_Arsenal"
+      },
+      {
+        "modId": "615A80027C5C9170",
+        "name": "WCS_Vehicles"
+      },
+      {
+        "modId": "6146FAED5AAD7C55",
+        "name": "WCS_Helicopters"
+      },
+      {
+        "modId": "64CB39E57377C861",
+        "name": "WCS_AH-1S"
+      },
+      {
+        "modId": "6303360DA719E832",
+        "name": "WCS_AH-64D"
+      },
+      {
+        "modId": "6326F0C7E748AB8A",
+        "name": "WCS_AH-64D_Upgrade"
+      },
+      {
+        "modId": "64CB35D07BAEE60F",
+        "name": "WCS_KA-52"
+      },
+      {
+        "modId": "6508EDDEF93B2B29",
+        "name": "WCS_KA-52_Upgrade"
+      },
+      {
+        "modId": "628933A0D3A0D700",
+        "name": "WCS_Mi-24V"
+      },
+      {
+        "modId": "6608EB45061AFC69",
+        "name": "WCS_Mi-24V_Upgrade"
+      },
+      {
+        "modId": "62AE96D92179F7A0",
+        "name": "WCS_AH-6M_Upgrade"
+      },
+      {
+        "modId": "6528B3CE24C85120",
+        "name": "WCS_JLTV_Upgrade"
+      },
+      {
+        "modId": "61BA4EB5C886D396",
+        "name": "WCS_VehicleLock"
+      },
+      {
+        "modId": "66EF22AE6A5D431A",
+        "name": "WCS_Persistence"
+      },
+      {
+        "modId": "614C00DA7F8765F6",
+        "name": "WCS_SpawnProtection"
+      },
+      {
+        "modId": "61A25BD1C99515B5",
+        "name": "WCS_Commands"
+      },
+      {
+        "modId": "614D1A3874A23AD9",
+        "name": "WCS_Interface"
+      },
+      {
+        "modId": "61C4B48772550E0F",
+        "name": "WCS_TempFixes"
+      },
+      {
+        "modId": "631C3C1AEE9C90BC",
+        "name": "WCS_Sounds"
+      },
+      {
+        "modId": "61D57616CAFBB23D",
+        "name": "WCS_LoadoutEditor"
+      },
+      {
+        "modId": "66A513FA8DEEB7C0",
+        "name": "WCS_Squads"
+      },
+      {
+        "modId": "685EDA5A6ACD53C5",
+        "name": "WCS_Suppression"
+      },
+      {
+        "modId": "612F512CD4CB21D5",
+        "name": "WCS_Earplugs"
+      },
+      {
+        "modId": "64F57AB37D531246",
+        "name": "WCS_TankMarkers"
+      },
+      {
+        "modId": "672D432E181E6807",
+        "name": "WCS_HoldBreath"
+      },
+      {
+        "modId": "6122DD5CCF5C59E6",
+        "name": "WCS_AFKKick"
+      },
+      {
+        "modId": "65DD60A16AE0FF73",
+        "name": "WCS_Rules"
+      },
+      {
+        "modId": "6148289172F86E7A",
+        "name": "WCS_Everon"
+      },
+      {
+        "modId": "5964E0B3BB7410CE",
+        "name": "Game Master Enhanced"
+      },
+      {
+        "modId": "64F10E068D5880A6",
+        "name": "GM Tools"
+      }
+    ]
+  },
+  "operating": {
+    "lobbyPlayerSynchronise": true
+  }
+}

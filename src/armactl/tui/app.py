@@ -26,6 +26,13 @@ class ArmaCtlApp(App):
         padding: 1 2;
         background: $surface;
     }
+    #modpack-dialog {
+        width: 80;
+        height: auto;
+        border: solid green;
+        padding: 1 2;
+        background: $surface;
+    }
     #info-container {
         width: 80%;
         height: 80%;
@@ -86,6 +93,20 @@ class ArmaCtlApp(App):
         height: 1fr;
         width: 100%;
     }
+    #mods-summary {
+        margin-bottom: 1;
+        color: $text-muted;
+    }
+    #mods-list {
+        height: 1fr;
+        border: solid green;
+        margin-bottom: 1;
+    }
+    #modpack-help {
+        width: 100%;
+        margin-bottom: 1;
+        color: $text-muted;
+    }
     """
 
     BINDINGS = [
@@ -113,6 +134,7 @@ class ArmaCtlApp(App):
                 
             yield Button(_("Repair Installation"), id="btn_repair", variant="warning")
             yield Button(_("Detect Existing Server"), id="btn_detect", variant="default")
+            yield Button(_("Run Host Tests"), id="btn_host_tests", variant="primary")
             lang_label = _("Language:") + f" {get_current_lang_name()}"
             yield Button(lang_label, id="btn_lang", variant="default")
             yield Button(_("Exit"), id="btn_exit", variant="error")
@@ -143,6 +165,10 @@ class ArmaCtlApp(App):
         elif event.button.id == "btn_repair":
             from armactl.tui.screens import RepairScreen
             self.push_screen(RepairScreen(instance=self.instance, title=f"Repairing Server -> {self.instance}"))
+        elif event.button.id == "btn_host_tests":
+            from armactl.i18n import _
+            from armactl.tui.screens import HostTestsScreen
+            self.push_screen(HostTestsScreen(instance=self.instance, title=_("Running Host Tests")))
 
 def run_tui(instance: str) -> None:
     """Entry point for the TUI."""

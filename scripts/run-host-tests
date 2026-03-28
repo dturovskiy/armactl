@@ -1,0 +1,53 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PROJECT_ROOT=$(dirname -- "$SCRIPT_DIR")
+VENV_PY="$PROJECT_ROOT/.venv/bin/python"
+RUFF_BIN="$PROJECT_ROOT/.venv/bin/ruff"
+BOOTSTRAP_SCRIPT="$PROJECT_ROOT/scripts/bootstrap.sh"
+
+log() {
+    printf '%s\n' "$*"
+}
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+if [ ! -f "$PROJECT_ROOT/pyproject.toml" ]; then
+    fail "pyproject.toml not found; run this script from the armactl repo."
+fi
+
+if [ ! -x "$VENV_PY" ]; then
+    log "==> Dev environment missing. Bootstrapping with --dev..."
+    "$BOOTSTRAP_SCRIPT" --dev
+fi
+
+cd "$PROJECT_ROOT"
+
+if ! "$VENV_PY" -c "import pytest" >/dev/null 2>&1; then
+    log "==> pytest not found in .venv. Refreshing dev dependencies..."
+    "$BOOTSTRAP_SCRIPT" --dev
+fi
+
+if [ ! -x "$RUFF_BIN" ]; then
+    log "==> ruff not found in .venv. Refreshing dev dependencies..."
+    "$BOOTSTRAP_SCRIPT" --dev
+fi
+
+log "==> Running pytest..."
+"$VENV_PY" -m pytest tests "$@"
+
+if [ -x "$RUFF_BIN" ]; then
+    log ""
+    log "==> Running ruff..."
+    "$RUFF_BIN" check src tests
+else
+    log ""
+    log "==> Skipping ruff (not installed). Run ./scripts/bootstrap.sh --dev to enable lint checks."
+fi
+
+log ""
+log "Host checks completed successfully."

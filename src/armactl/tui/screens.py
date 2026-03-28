@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import VerticalGroup
@@ -43,6 +45,13 @@ class LogWorkerScreen(Screen):
         if not btn.disabled:
              self.app.pop_screen()
 
+    def complete_task(self, *, label: str = "Return to Menu", variant: str = "success") -> None:
+        """Enable task closing once the background action is finished."""
+        btn = self.query_one("#btn_close", Button)
+        btn.disabled = False
+        btn.label = label
+        btn.variant = variant
+
 
 class InstallScreen(LogWorkerScreen):
     """Screen for running the server installation."""
@@ -59,14 +68,8 @@ class InstallScreen(LogWorkerScreen):
             self.app.call_from_thread(log_widget.write, "[green]Installation completely finished![/green]")
         except Exception as e:
             self.app.call_from_thread(log_widget.write, f"[red]Installation failed: {e}[/red]")
-        
-        def enable_close():
-            btn = self.query_one("#btn_close", Button)
-            btn.disabled = False
-            btn.label = "Return to Menu"
-            btn.variant = "success"
-            
-        self.app.call_from_thread(enable_close)
+
+        self.app.call_from_thread(self.complete_task)
 
 
 class RepairScreen(LogWorkerScreen):
@@ -86,14 +89,63 @@ class RepairScreen(LogWorkerScreen):
             self.app.call_from_thread(log_widget.write, "[green]Repair completed successfully![/green]")
         except Exception as e:
             self.app.call_from_thread(log_widget.write, f"[red]Repair failed: {e}[/red]")
-            
-        def enable_close():
-            btn = self.query_one("#btn_close", Button)
-            btn.disabled = False
-            btn.label = "Return to Menu"
-            btn.variant = "success"
-            
-        self.app.call_from_thread(enable_close)
+
+        self.app.call_from_thread(self.complete_task)
+
+
+class HostTestsScreen(LogWorkerScreen):
+    """Screen for running repo-local host checks."""
+
+    def on_mount(self) -> None:
+        self.run_host_tests_task()
+
+    @work(exclusive=True, thread=True)
+    def run_host_tests_task(self) -> None:
+        import subprocess
+
+        log_widget = self.query_one("#task-log", RichLog)
+        project_root = Path(__file__).resolve().parents[3]
+        script_path = project_root / "scripts" / "run-host-tests"
+
+        if not script_path.exists():
+            self.app.call_from_thread(
+                log_widget.write,
+                f"[red]Host test script not found: {script_path}[/red]",
+            )
+            self.app.call_from_thread(self.complete_task, label="Close", variant="error")
+            return
+
+        cmd = ["/bin/sh", str(script_path)]
+        self.app.call_from_thread(log_widget.write, f"[cyan]Running:[/cyan] {' '.join(cmd)}")
+        self.app.call_from_thread(log_widget.write, f"[cyan]Working directory:[/cyan] {project_root}")
+
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=project_root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        except Exception as e:
+            self.app.call_from_thread(log_widget.write, f"[red]Failed to start host tests: {e}[/red]")
+            self.app.call_from_thread(self.complete_task, label="Close", variant="error")
+            return
+
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            self.app.call_from_thread(log_widget.write, line.rstrip())
+
+        return_code = proc.wait()
+        if return_code == 0:
+            self.app.call_from_thread(log_widget.write, "[green]Host tests finished successfully.[/green]")
+            self.app.call_from_thread(self.complete_task)
+        else:
+            self.app.call_from_thread(
+                log_widget.write,
+                f"[red]Host tests failed with exit code {return_code}.[/red]",
+            )
+            self.app.call_from_thread(self.complete_task, label="Close", variant="error")
 
 
 class ConfirmScreen(Screen):
@@ -521,9 +573,78 @@ class ConfigEditorScreen(Screen):
             self.app.notify(f"Error saving config: {e}", severity="error")
 
 
+class ModPackFileScreen(Screen):
+    """Prompt screen for mod pack import/export file paths."""
+
+    BINDINGS = [
+        ("b", "cancel", "Back"),
+        ("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, title: str, mode: str, default_path: str = "", **kwargs):
+        super().__init__(**kwargs)
+        self._title = title
+        self._mode = mode
+        self._default_path = default_path
+
+    def compose(self) -> ComposeResult:
+        from textual.containers import HorizontalGroup
+        from textual.widgets import Input
+
+        yield Header()
+        with VerticalGroup(id="modpack-dialog"):
+            yield Label(self._title, id="screen-title")
+
+            if self._mode == "import":
+                help_text = "Import accepts either an exported mod pack JSON or a full config.json with game.mods."
+                placeholder = "Path to mod pack JSON or config.json"
+            else:
+                help_text = "Export writes the current mod list as a standalone JSON mod pack."
+                placeholder = "Path to save mod pack JSON"
+
+            yield Label(help_text, id="modpack-help")
+            yield Input(value=self._default_path, placeholder=placeholder, id="inp_modpack_path")
+
+            with HorizontalGroup():
+                if self._mode == "import":
+                    yield Button("Import (Append)", id="btn_import_append", variant="success")
+                    yield Button("Import (Replace)", id="btn_import_replace", variant="warning")
+                else:
+                    yield Button("Export", id="btn_export_modpack", variant="success")
+                yield Button("Cancel", id="btn_cancel_modpack", variant="error")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        from textual.widgets import Input
+
+        self.query_one("#inp_modpack_path", Input).focus()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        from textual.widgets import Input
+
+        if event.button.id == "btn_cancel_modpack":
+            self.dismiss(None)
+            return
+
+        file_path = self.query_one("#inp_modpack_path", Input).value.strip()
+        if not file_path:
+            self.app.notify("File path is required.", severity="error")
+            return
+
+        if event.button.id == "btn_export_modpack":
+            self.dismiss(("export", file_path))
+        elif event.button.id == "btn_import_append":
+            self.dismiss(("append", file_path))
+        elif event.button.id == "btn_import_replace":
+            self.dismiss(("replace", file_path))
+
+
 class ModManagerScreen(Screen):
     """Screen for managing Arma Reforger mods in config.json."""
-    
+
     BINDINGS = [
         ("b", "pop_screen", "Back to Menu"),
         ("ctrl+r", "action_refresh_mods", "Refresh List"),
@@ -535,105 +656,166 @@ class ModManagerScreen(Screen):
 
     def compose(self) -> ComposeResult:
         from armactl.i18n import _
-        from textual.containers import VerticalGroup, HorizontalGroup
-        from textual.widgets import Input, ListView, ListItem
-        
+        from textual.containers import HorizontalGroup
+        from textual.widgets import Input, ListView
+
         yield Header()
         with VerticalGroup(id="info-container"):
             yield Label(_("Mods Manager: ") + f"{self.instance}", id="screen-title")
-            
+
             yield Input(id="inp_mod_id", placeholder=_("Paste Mod ID or Workshop String here..."))
             yield Input(id="inp_mod_name", placeholder=_("Name (Optional)"))
             yield Button(_("Add/Update Mod"), id="btn_add_mod", variant="success")
-                
+
             yield Label(_("Installed Mods:"), id="mods-list-title")
+            yield Label("Installed Mods: 0", id="mods-summary")
             yield ListView(id="mods-list")
-            
-            with HorizontalGroup(id="control-buttons"):
+
+            with HorizontalGroup():
                 yield Button(_("Remove Selected"), id="btn_remove_mod", variant="error")
                 yield Button(_("Deduplicate"), id="btn_dedupe_mods", variant="warning")
+
+            with HorizontalGroup():
+                yield Button(_("Import Mod Pack"), id="btn_import_pack", variant="primary")
+                yield Button(_("Export Mod Pack"), id="btn_export_pack", variant="success")
                 yield Button(_("Back"), id="btn_back", variant="default")
         yield Footer()
 
     def on_mount(self) -> None:
         self.action_refresh_mods()
 
-    def action_refresh_mods(self) -> None:
-        from armactl.mods import list_mods
+    def _default_export_path(self) -> str:
         from armactl import paths as P
-        from textual.widgets import ListView, ListItem
-        
+
+        return str(P.instance_root(self.instance) / "mods-export.json")
+
+    def _handle_mod_pack_result(self, result: tuple[str, str] | None) -> None:
+        from pathlib import Path
+
+        from armactl import paths as P
+        from armactl.mods_manager import export_mods, import_mods
+
+        if result is None:
+            return
+
+        action, raw_path = result
+        cfg = P.config_file(self.instance)
+        file_path = Path(raw_path).expanduser()
+
+        try:
+            if action == "export":
+                count = export_mods(cfg, file_path)
+                self.app.notify(f"Exported {count} mods to {file_path}.", title="Mod Pack Export")
+                return
+
+            added, skipped = import_mods(cfg, file_path, append=(action == "append"))
+            mode_label = "appended" if action == "append" else "replaced"
+            self.app.notify(
+                f"Mod pack {mode_label}: added {added}, skipped {skipped} duplicate(s).",
+                title="Mod Pack Import",
+            )
+            self.action_refresh_mods()
+        except Exception as e:
+            self.app.notify(f"Mod pack operation failed: {e}", severity="error")
+
+    def action_refresh_mods(self) -> None:
+        from armactl import paths as P
+        from armactl.mods_manager import get_mods
+        from textual.widgets import ListItem, ListView
+
         cfg = P.config_file(self.instance)
         try:
-            mods = list_mods(cfg)
+            mods = get_mods(cfg)
         except Exception as e:
             self.app.notify(f"Error loading mods: {e}", severity="error")
             return
-            
+
+        self.query_one("#mods-summary", Label).update(f"Installed Mods: {len(mods)}")
+
         list_view = self.query_one("#mods-list", ListView)
         list_view.clear()
-        
+
         if not mods:
             list_view.append(ListItem(Label("No mods installed.")))
-        else:
-            for idx, m in enumerate(mods):
-                mod_id = m.get("modId", "Unknown")
-                name = m.get("name", "")
-                display = f"[{idx+1}] {mod_id}"
-                if name:
-                    display += f" - {name}"
-                item = ListItem(Label(display), id=f"mod_item_{mod_id}")
-                item.mod_id = mod_id # type: ignore
-                list_view.append(item)
+            return
+
+        for idx, mod in enumerate(mods, 1):
+            mod_id = mod.get("modId", "Unknown")
+            name = mod.get("name", "")
+            display = f"[{idx}] {mod_id}"
+            if name:
+                display += f" - {name}"
+            item = ListItem(Label(display), id=f"mod_item_{mod_id}")
+            item.mod_id = mod_id  # type: ignore[attr-defined]
+            list_view.append(item)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        from armactl.mods import add_mod, remove_mod, dedupe_mods
-        from armactl import paths as P
         import re
-        
+
+        from armactl import paths as P
+        from armactl.mods import add_mod, dedupe_mods, remove_mod
+
         cfg = P.config_file(self.instance)
-        
+
         if event.button.id == "btn_back":
             self.app.pop_screen()
-            
+
+        elif event.button.id == "btn_import_pack":
+            self.app.push_screen(
+                ModPackFileScreen("Import Mod Pack", "import"),
+                self._handle_mod_pack_result,
+            )
+
+        elif event.button.id == "btn_export_pack":
+            self.app.push_screen(
+                ModPackFileScreen(
+                    "Export Mod Pack",
+                    "export",
+                    default_path=self._default_export_path(),
+                ),
+                self._handle_mod_pack_result,
+            )
+
         elif event.button.id == "btn_add_mod":
             from textual.widgets import Input
+
             inp_id = self.query_one("#inp_mod_id", Input)
             inp_name = self.query_one("#inp_mod_name", Input)
             raw_id = inp_id.value.strip()
             name = inp_name.value.strip()
-            
+
             if not raw_id:
                 self.app.notify("Mod string is required!", severity="error")
                 return
-                
-            # Try to extract a valid 16+ hex characters ID
+
             match = re.search(r"([0-9A-Fa-f]{10,24})", raw_id)
             if not match:
                 self.app.notify("Could not find a valid Mod ID in the input!", severity="error")
                 return
-                
+
             mod_id = match.group(1).upper()
-                
+
             is_new = add_mod(cfg, mod_id, name)
             if is_new:
                 self.app.notify(f"Mod {mod_id} added successfully.")
             else:
                 self.app.notify(f"Mod {mod_id} updated successfully.")
-            
+
             inp_id.value = ""
             inp_name.value = ""
             self.action_refresh_mods()
-            
+
         elif event.button.id == "btn_remove_mod":
             from textual.widgets import ListView
+
             list_view = self.query_one("#mods-list", ListView)
             if list_view.highlighted_child is None:
                 self.app.notify("Select a mod to remove first.", severity="warning")
                 return
-                
+
             mod_id = getattr(list_view.highlighted_child, "mod_id", None)
             if mod_id:
+
                 def confirm_remove(confirm: bool):
                     if confirm:
                         success = remove_mod(cfg, mod_id)
@@ -642,8 +824,12 @@ class ModManagerScreen(Screen):
                             self.action_refresh_mods()
                         else:
                             self.app.notify(f"Mod {mod_id} not found.", severity="error")
-                self.app.push_screen(ConfirmScreen(f"Are you sure you want to remove Mod '{mod_id}'?"), confirm_remove)
-                
+
+                self.app.push_screen(
+                    ConfirmScreen(f"Are you sure you want to remove Mod '{mod_id}'?"),
+                    confirm_remove,
+                )
+
         elif event.button.id == "btn_dedupe_mods":
             count = dedupe_mods(cfg)
             self.app.notify(f"Deduped mods. Reclaimed {count} duplicates.")
