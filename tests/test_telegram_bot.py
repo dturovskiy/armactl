@@ -30,6 +30,11 @@ def test_render_bot_status_text_uses_english_fallback():
         next_run="2026-03-29 08:00:00 UTC",
         player_count=3,
         max_players=64,
+        main_pid=4321,
+        cpu_percent=12.5,
+        memory_rss_bytes=268435456,
+        player_lines=["Denis (#17)", "Vova (#18)"],
+        roster_available=True,
     )
 
     text = render_bot_status_text(snapshot, "en")
@@ -42,7 +47,13 @@ def test_render_bot_status_text_uses_english_fallback():
     assert "Service enabled: Yes" in text
     assert "Timer: armareforger-restart.timer" in text
     assert "Current schedule: 08:00, 20:00" in text
+    assert "Runtime Metrics" in text
+    assert "Main PID: 4321" in text
+    assert "Server CPU: 12.5%" in text
+    assert "Server RAM (RSS): 256.0 MiB" in text
     assert "Players: 3/64" in text
+    assert "Denis (#17)" in text
+    assert "Vova (#18)" in text
 
 
 def test_render_bot_schedule_text_uses_english_fallback():
@@ -86,11 +97,43 @@ def test_render_bot_status_text_handles_unavailable_player_query():
         next_run="2026-03-29 08:00:00 UTC",
         player_count=None,
         max_players=64,
+        main_pid=0,
+        cpu_percent=None,
+        memory_rss_bytes=None,
+        player_lines=[],
+        roster_available=False,
     )
 
     text = render_bot_status_text(snapshot, "en")
 
     assert "Players: unavailable" in text
+    assert "Server CPU: Unknown" in text
+    assert "Server RAM (RSS): Unknown" in text
+
+
+def test_render_bot_status_text_warns_when_roster_is_unavailable():
+    snapshot = BotStatusSnapshot(
+        instance="default",
+        server_running=True,
+        service_name="armareforger.service",
+        service_active_state="active",
+        service_enabled=True,
+        timer_name="armareforger-restart.timer",
+        schedule="08:00, 20:00",
+        next_run="2026-03-29 08:00:00 UTC",
+        player_count=2,
+        max_players=64,
+        main_pid=123,
+        cpu_percent=4.0,
+        memory_rss_bytes=134217728,
+        player_lines=[],
+        roster_available=False,
+    )
+
+    text = render_bot_status_text(snapshot, "en")
+
+    assert "Players: 2/64" in text
+    assert "Player roster unavailable via RCON." in text
 
 
 def test_parse_friendly_schedule_input_accepts_simple_times():

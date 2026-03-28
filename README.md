@@ -173,8 +173,9 @@ Current bot commands:
 - `/restart`
 - `/schedule 05:00, 20:00`
 
-`/status` shows server/service/timer state and best-effort player counts via
-the configured local A2S query port.
+`/status` shows server/service/timer state, server CPU/RAM, best-effort player
+counts via the local A2S query port, and player roster details via local RCON
+when RCON is configured.
 
 `./scripts/run-host-tests` will auto-install the dev dependencies if the repo
 was only bootstrapped in prod mode before, and both `./armactl` and

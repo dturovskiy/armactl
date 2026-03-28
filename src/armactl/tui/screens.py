@@ -25,6 +25,7 @@ from textual.widgets import (
 )
 
 from armactl import paths, ports
+from armactl.a2s import query_player_status
 from armactl.bot_config import (
     BotConfig,
     BotConfigError,
@@ -46,6 +47,7 @@ from armactl.config_manager import load_config, save_config, validate_config
 from armactl.discovery import discover
 from armactl.i18n import _, tr
 from armactl.installer import run_install
+from armactl.metrics import format_bytes, format_cpu_percent, query_process_metrics
 from armactl.mods import add_mod, dedupe_mods, remove_mod
 from armactl.mods_manager import (
     export_mods,
@@ -54,10 +56,12 @@ from armactl.mods_manager import (
     preview_import_mods,
 )
 from armactl.repair import run_repair
+from armactl.rcon import query_player_roster
 from armactl.service_manager import (
     disable_service,
     enable_service,
     format_schedule_for_input,
+    get_service_status,
     get_timer_status,
     normalize_on_calendar_entries,
     restart_service,
@@ -428,6 +432,107 @@ class ManageScreen(Screen):
             btn_toggle.label = _("Start")
             btn_toggle.variant = "success"
 
+    def _build_status_details_text(self) -> str:
+        state = discover(self.instance, save=False)
+        service_name = service_unit_name(self.instance)
+        timer_name = timer_unit_name(self.instance)
+        service_status = get_service_status(service_name)
+        timer_status = get_timer_status(timer_name)
+        player_status = query_player_status(self.instance, state=state)
+        main_pid = int(service_status.get("main_pid", 0) or 0)
+        metrics = query_process_metrics(main_pid)
+
+        lines = [
+            _("[bold cyan]Service Status[/bold cyan]"),
+            tr("Service: {value}", value=service_name),
+            tr(
+                "Service active state: {value}",
+                value=service_status.get("active_state", _("Unknown")),
+            ),
+            tr(
+                "Service enabled: {value}",
+                value=_("Yes") if service_status.get("enabled") else _("No"),
+            ),
+            tr("Main PID: {value}", value=main_pid or _("Unknown")),
+            "",
+            _("[bold cyan]Timer Status[/bold cyan]"),
+            tr("Timer: {value}", value=timer_name),
+            tr(
+                "Current schedule: {value}",
+                value=timer_status.get("schedule", "").strip() or _("Unknown"),
+            ),
+            tr(
+                "Next run: {value}",
+                value=timer_status.get("next_run", "").strip() or _("Unknown"),
+            ),
+            "",
+            _("[bold cyan]Runtime Metrics[/bold cyan]"),
+            tr(
+                "Server CPU: {value}",
+                value=(
+                    format_cpu_percent(metrics.cpu_percent)
+                    if metrics.available
+                    else _("Unknown")
+                ),
+            ),
+            tr(
+                "Server RAM (RSS): {value}",
+                value=(
+                    format_bytes(metrics.memory_rss_bytes)
+                    if metrics.available and metrics.memory_rss_bytes is not None
+                    else _("Unknown")
+                ),
+            ),
+            "",
+            _("[bold cyan]Players[/bold cyan]"),
+        ]
+
+        if player_status.player_count is None:
+            lines.append(_("Players: unavailable"))
+        elif player_status.max_players is None:
+            lines.append(
+                tr(
+                    "Players: {current}",
+                    current=player_status.player_count,
+                )
+            )
+        else:
+            lines.append(
+                tr(
+                    "Players: {current}/{max}",
+                    current=player_status.player_count,
+                    max=player_status.max_players,
+                )
+            )
+
+        if player_status.player_count and player_status.player_count > 0:
+            roster = query_player_roster(self.instance)
+            if roster.available and roster.entries:
+                for entry in roster.entries:
+                    if entry.player_id:
+                        lines.append(
+                            tr(
+                                "- {name} (#{player_id})",
+                                name=entry.name,
+                                player_id=entry.player_id,
+                            )
+                        )
+                    else:
+                        lines.append(tr("- {name}", name=entry.name))
+            elif roster.configured:
+                lines.append(
+                    tr(
+                        "Player roster unavailable: {value}",
+                        value=roster.error or _("Unknown"),
+                    )
+                )
+            else:
+                lines.append(_("RCON player roster is not configured."))
+        elif player_status.player_count == 0:
+            lines.append(_("No players online."))
+
+        return "\n".join(lines)
+
     def compose(self) -> ComposeResult:
         yield Header()
         with VerticalGroup(id="manage-container"):
@@ -496,9 +601,9 @@ class ManageScreen(Screen):
             self.app.push_screen(TailLogScreen(self.instance))
 
         elif event.button.id == "btn_status":
-            state = discover(self.instance, save=False)
-            text = json.dumps(state.to_dict(), indent=2)
-            self.app.push_screen(InfoViewerScreen(_("Detailed Server Status"), text))
+            self.app.push_screen(
+                InfoViewerScreen(_("Detailed Server Status"), self._build_status_details_text())
+            )
 
         elif event.button.id == "btn_ports":
             state = discover(self.instance, save=False)

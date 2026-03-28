@@ -6,13 +6,15 @@ import argparse
 import logging
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from armactl.a2s import query_player_status
 from armactl.bot_config import BotConfigError, load_bot_config
 from armactl.discovery import discover
 from armactl.i18n import tr_for_lang, translate_for_lang, using_lang
+from armactl.metrics import format_bytes, format_cpu_percent, query_process_metrics
+from armactl.rcon import query_player_roster
 from armactl.service_manager import (
     disable_service,
     enable_service,
@@ -81,6 +83,11 @@ class BotStatusSnapshot:
     next_run: str
     player_count: int | None
     max_players: int | None
+    main_pid: int = 0
+    cpu_percent: float | None = None
+    memory_rss_bytes: int | None = None
+    player_lines: list[str] = field(default_factory=list)
+    roster_available: bool = False
 
 
 def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
@@ -113,6 +120,21 @@ def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
             current=snapshot.player_count,
             max=snapshot.max_players,
         )
+    pid_text = (
+        str(snapshot.main_pid)
+        if snapshot.main_pid > 0
+        else translate_for_lang(lang, "Unknown")
+    )
+    cpu_text = (
+        format_cpu_percent(snapshot.cpu_percent)
+        if snapshot.cpu_percent is not None
+        else translate_for_lang(lang, "Unknown")
+    )
+    memory_text = (
+        format_bytes(snapshot.memory_rss_bytes)
+        if snapshot.memory_rss_bytes is not None
+        else translate_for_lang(lang, "Unknown")
+    )
 
     lines = [
         _icon_line(
@@ -136,8 +158,21 @@ def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
         _bullet_line(tr_for_lang(lang, "Current schedule: {value}", value=schedule_text)),
         _bullet_line(tr_for_lang(lang, "Next run: {value}", value=next_run_text)),
         "",
+        _icon_line(CHART, translate_for_lang(lang, "Runtime Metrics")),
+        _bullet_line(tr_for_lang(lang, "Main PID: {value}", value=pid_text)),
+        _bullet_line(tr_for_lang(lang, "Server CPU: {value}", value=cpu_text)),
+        _bullet_line(tr_for_lang(lang, "Server RAM (RSS): {value}", value=memory_text)),
+        "",
         _icon_line(PEOPLE, players_text),
     ]
+    if snapshot.player_lines:
+        lines.extend(_bullet_line(player_line) for player_line in snapshot.player_lines)
+    elif snapshot.player_count and snapshot.player_count > 0 and not snapshot.roster_available:
+        lines.append(
+            _bullet_line(
+                translate_for_lang(lang, "Player roster unavailable via RCON.")
+            )
+        )
     return "\n".join(lines)
 
 
@@ -214,6 +249,21 @@ def _build_status_snapshot(instance: str) -> BotStatusSnapshot:
     service_status = get_service_status(service_unit_name(instance))
     timer_status = get_timer_status(timer_unit_name(instance))
     player_status = query_player_status(instance, state=state)
+    main_pid = int(service_status.get("main_pid", 0) or 0)
+    metrics = query_process_metrics(main_pid)
+    roster_lines: list[str] = []
+    roster_available = False
+    if player_status.player_count and player_status.player_count > 0:
+        roster = query_player_roster(instance)
+        roster_available = roster.available
+        roster_lines = [
+            (
+                f"{entry.name} (#{entry.player_id})"
+                if entry.player_id
+                else entry.name
+            )
+            for entry in roster.entries
+        ]
     return BotStatusSnapshot(
         instance=instance,
         server_running=state.server_running,
@@ -225,6 +275,11 @@ def _build_status_snapshot(instance: str) -> BotStatusSnapshot:
         next_run=timer_status.get("next_run", ""),
         player_count=player_status.player_count,
         max_players=player_status.max_players,
+        main_pid=main_pid,
+        cpu_percent=metrics.cpu_percent if metrics.available else None,
+        memory_rss_bytes=metrics.memory_rss_bytes if metrics.available else None,
+        player_lines=roster_lines,
+        roster_available=roster_available,
     )
 
 
