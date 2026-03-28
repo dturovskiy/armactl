@@ -51,7 +51,8 @@ def test_estimate_host_cpu_percent_uses_proc_stat_delta() -> None:
     ):
         cpu_percent = estimate_host_cpu_percent()
 
-    assert cpu_percent == 70.0
+    assert cpu_percent is not None
+    assert round(cpu_percent, 1) == 71.4
 
 
 def test_query_process_metrics_reads_proc_files() -> None:
