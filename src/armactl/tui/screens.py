@@ -55,8 +55,8 @@ from armactl.mods_manager import (
     import_mods,
     preview_import_mods,
 )
-from armactl.repair import run_repair
 from armactl.rcon import query_player_roster
+from armactl.repair import run_repair
 from armactl.service_manager import (
     disable_service,
     enable_service,
