@@ -153,7 +153,7 @@ class ArmaCtlApp(App):
         border: solid green;
         margin-bottom: 1;
     }
-    #modpack-help {
+    #modpack-help, #schedule-help {
         width: 100%;
         margin-bottom: 1;
         color: $text-muted;

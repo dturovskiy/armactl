@@ -167,12 +167,12 @@
 
 ## Phase 12 — TUI schedule
 
-- [ ] Додати екран `Timer status`
-- [ ] Додати поле `Restart schedule`
-- [ ] Додати `Enable timer`
-- [ ] Додати `Disable timer`
-- [ ] Додати `Restart now`
-- [ ] Додати показ наступного запуску таймера
+- [x] Додати екран `Timer status`
+- [x] Додати поле `Restart schedule`
+- [x] Додати `Enable timer`
+- [x] Додати `Disable timer`
+- [x] Додати `Restart now`
+- [x] Додати показ наступного запуску таймера
 
 ## Phase 13 — Telegram Bot Integration
 

@@ -7,6 +7,7 @@ All systemctl calls go through subprocess with proper error handling.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -214,6 +215,112 @@ def daemon_reload() -> ServiceResult:
     return _run_systemctl("daemon-reload", "", use_sudo=True)
 
 
+def service_unit_name(instance: str = paths.DEFAULT_INSTANCE_NAME) -> str:
+    """Return the main service unit name for an instance."""
+    if instance != paths.DEFAULT_INSTANCE_NAME:
+        return f"armareforger@{instance}.service"
+    return paths.SERVICE_NAME
+
+
+def restart_service_unit_name(instance: str = paths.DEFAULT_INSTANCE_NAME) -> str:
+    """Return the helper restart service unit name for an instance."""
+    if instance != paths.DEFAULT_INSTANCE_NAME:
+        return f"armareforger-restart@{instance}.service"
+    return paths.RESTART_SERVICE_NAME
+
+
+def timer_unit_name(instance: str = paths.DEFAULT_INSTANCE_NAME) -> str:
+    """Return the timer unit name for an instance."""
+    if instance != paths.DEFAULT_INSTANCE_NAME:
+        return f"armareforger-restart@{instance}.timer"
+    return paths.TIMER_NAME
+
+
+def normalize_on_calendar(on_calendar: str) -> str:
+    """Normalize friendly time-only input into a full systemd OnCalendar value."""
+    value = on_calendar.strip()
+    if re.match(r"^\d{1,2}:\d{2}(:\d{2})?$", value):
+        if value.count(":") == 1:
+            value += ":00"
+        return f"*-*-* {value}"
+    return value
+
+
+def _parse_systemctl_show(output: str) -> dict[str, str]:
+    """Parse `systemctl show` KEY=VALUE output into a dictionary."""
+    parsed: dict[str, str] = {}
+    for line in output.strip().splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        parsed[key] = value.strip()
+    return parsed
+
+
+def _read_timer_schedule(timer_path: Path) -> str:
+    """Read OnCalendar from a timer unit file when systemctl data is unavailable."""
+    try:
+        for line in timer_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("OnCalendar="):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        return ""
+    return ""
+
+
+def get_timer_status(timer_name: str = paths.TIMER_NAME) -> dict[str, Any]:
+    """Return structured timer state suitable for CLI and TUI display."""
+    timer_path = paths.SYSTEMD_DIR / timer_name
+    status: dict[str, Any] = {
+        "timer_name": timer_name,
+        "exists": timer_path.is_file(),
+        "active": False,
+        "enabled": False,
+        "active_state": "unknown",
+        "sub_state": "unknown",
+        "unit_file_state": "unknown",
+        "description": "",
+        "schedule": "",
+        "next_run": "",
+        "last_trigger": "",
+    }
+    try:
+        result = subprocess.run(
+            [
+                "systemctl",
+                "show",
+                timer_name,
+                "--property=ActiveState,SubState,Description,UnitFileState,"
+                "NextElapseUSecRealtime,LastTriggerUSec,TimersCalendar",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return status
+
+    if result.returncode != 0:
+        return status
+
+    parsed = _parse_systemctl_show(result.stdout)
+    active_state = parsed.get("ActiveState", "unknown")
+    unit_file_state = parsed.get("UnitFileState", "unknown")
+    schedule = parsed.get("TimersCalendar", "") or _read_timer_schedule(timer_path)
+    status.update(
+        active=active_state == "active",
+        enabled=unit_file_state.startswith("enabled"),
+        active_state=active_state,
+        sub_state=parsed.get("SubState", "unknown"),
+        unit_file_state=unit_file_state,
+        description=parsed.get("Description", ""),
+        schedule=schedule,
+        next_run=parsed.get("NextElapseUSecRealtime", ""),
+        last_trigger=parsed.get("LastTriggerUSec", ""),
+    )
+    return status
+
+
 def generate_services(
     instance: str = paths.DEFAULT_INSTANCE_NAME,
     on_calendar: str = "*-*-* 06:00:00",
@@ -237,21 +344,10 @@ def generate_services(
 
     start_sh = paths.start_script(instance)
 
-    service_name = (
-        f"armareforger@{instance}.service"
-        if instance != "default"
-        else paths.SERVICE_NAME
-    )
-    restart_service_name = (
-        f"armareforger-restart@{instance}.service"
-        if instance != "default"
-        else paths.RESTART_SERVICE_NAME
-    )
-    timer_name = (
-        f"armareforger-restart@{instance}.timer"
-        if instance != "default"
-        else paths.TIMER_NAME
-    )
+    service_name = service_unit_name(instance)
+    restart_service_name = restart_service_unit_name(instance)
+    timer_name = timer_unit_name(instance)
+    on_calendar = normalize_on_calendar(on_calendar)
 
     service_path = paths.SYSTEMD_DIR / service_name
     restart_service_path = paths.SYSTEMD_DIR / restart_service_name

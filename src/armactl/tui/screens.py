@@ -38,7 +38,18 @@ from armactl.mods_manager import (
     preview_import_mods,
 )
 from armactl.repair import run_repair
-from armactl.service_manager import restart_service, start_service, stop_service
+from armactl.service_manager import (
+    disable_service,
+    enable_service,
+    generate_services,
+    get_timer_status,
+    normalize_on_calendar,
+    restart_service,
+    service_unit_name,
+    start_service,
+    stop_service,
+    timer_unit_name,
+)
 
 
 class LogWorkerScreen(Screen):
@@ -412,6 +423,7 @@ class ManageScreen(Screen):
 
             yield Button(_("Edit Configuration"), id="btn_config", variant="success")
             yield Button(_("Raw Config JSON"), id="btn_config_raw", variant="default")
+            yield Button(_("Restart Schedule"), id="btn_schedule", variant="primary")
             yield Button(_("Mods Manager"), id="btn_mods", variant="primary")
             yield Button(_("Maintenance / Cleanup"), id="btn_cleanup", variant="warning")
             yield Button(_("View Live Logs"), id="btn_logs", variant="primary")
@@ -500,11 +512,178 @@ class ManageScreen(Screen):
         elif event.button.id == "btn_config_raw":
             self.app.push_screen(RawConfigScreen(self.instance))
 
+        elif event.button.id == "btn_schedule":
+            self.app.push_screen(ScheduleScreen(self.instance))
+
         elif event.button.id == "btn_mods":
             self.app.push_screen(ModManagerScreen(self.instance))
 
         elif event.button.id == "btn_cleanup":
             self.app.push_screen(CleanupScreen(self.instance))
+
+
+class ScheduleScreen(Screen):
+    """Screen for managing the systemd restart timer."""
+
+    BINDINGS = [
+        ("b", "pop_screen", _("Back")),
+        ("r", "refresh_schedule", _("Refresh Status")),
+        ("ctrl+s", "apply_schedule", _("Apply Schedule")),
+    ]
+
+    def __init__(self, instance: str, **kwargs):
+        super().__init__(**kwargs)
+        self.instance = instance
+        self._loaded_schedule = ""
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with VerticalGroup(id="info-container"):
+            yield Label(
+                tr("Restart Schedule: {instance}", instance=self.instance),
+                id="screen-title",
+            )
+            yield Label(
+                _("Manage the systemd timer used for scheduled server restarts."),
+                id="schedule-help",
+            )
+            yield Label(_("Restart Schedule (OnCalendar or HH:MM[:SS]):"))
+            yield Input(
+                id="inp_restart_schedule",
+                placeholder=_("*-*-* 06:00:00 or 05:30"),
+            )
+            yield RichLog(id="timer-status-log", markup=True)
+            with HorizontalGroup(id="control-buttons"):
+                yield Button(_("Apply Schedule"), id="btn_apply_schedule", variant="success")
+                yield Button(_("Enable Timer"), id="btn_enable_timer", variant="primary")
+                yield Button(_("Disable Timer"), id="btn_disable_timer", variant="warning")
+            with HorizontalGroup(id="control-buttons"):
+                yield Button(_("Restart Now"), id="btn_restart_now", variant="error")
+                yield Button(_("Refresh Status"), id="btn_refresh_schedule", variant="default")
+                yield Button(_("Back"), id="btn_back", variant="default")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.action_refresh_schedule()
+        self.query_one("#inp_restart_schedule", Input).focus()
+
+    def _server_service_name(self) -> str:
+        return service_unit_name(self.instance)
+
+    def _timer_name(self) -> str:
+        return timer_unit_name(self.instance)
+
+    def _display_timer_value(self, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned or cleaned.lower() == "n/a":
+            return _("Unknown")
+        return cleaned
+
+    def _update_schedule_input(self, schedule: str) -> None:
+        if not schedule:
+            return
+
+        input_widget = self.query_one("#inp_restart_schedule", Input)
+        current_value = input_widget.value.strip()
+        if not current_value or current_value == self._loaded_schedule:
+            input_widget.value = schedule
+        self._loaded_schedule = schedule
+
+    def action_refresh_schedule(self) -> None:
+        state = discover(self.instance, save=False)
+        timer_status = get_timer_status(self._timer_name())
+        timer_log = self.query_one("#timer-status-log", RichLog)
+
+        schedule_value = self._display_timer_value(timer_status.get("schedule", ""))
+        next_run = self._display_timer_value(timer_status.get("next_run", ""))
+        last_trigger = self._display_timer_value(timer_status.get("last_trigger", ""))
+        active_state = self._display_timer_value(timer_status.get("active_state", ""))
+
+        self._update_schedule_input(timer_status.get("schedule", ""))
+
+        installed_value = _("Yes") if state.timer_exists else _("No")
+        enabled_value = _("Yes") if timer_status.get("enabled") else _("No")
+
+        lines = [
+            _("[bold cyan]Timer Status[/bold cyan]"),
+            tr("Timer unit: {timer_name}", timer_name=self._timer_name()),
+            tr("Installed: {value}", value=installed_value),
+            tr("Enabled: {value}", value=enabled_value),
+            tr("Active state: {value}", value=active_state),
+            tr("Current schedule: {value}", value=schedule_value),
+            tr("Next run: {value}", value=next_run),
+            tr("Last trigger: {value}", value=last_trigger),
+        ]
+
+        description = timer_status.get("description", "").strip()
+        if description:
+            lines.append(tr("Description: {value}", value=description))
+
+        timer_log.clear()
+        timer_log.write("\n".join(lines))
+
+    def action_apply_schedule(self) -> None:
+        schedule_value = self.query_one("#inp_restart_schedule", Input).value.strip()
+        if not schedule_value:
+            self.app.notify(
+                _("Restart schedule is required."),
+                title=_("Restart Schedule"),
+                severity="error",
+            )
+            return
+
+        normalized_schedule = normalize_on_calendar(schedule_value)
+        results = generate_services(self.instance, on_calendar=normalized_schedule)
+        failures = [result.message for result in results if not result.success]
+        if failures:
+            self.app.notify(
+                failures[0],
+                title=_("Restart Schedule"),
+                severity="error",
+            )
+            return
+
+        self.query_one("#inp_restart_schedule", Input).value = normalized_schedule
+        self._loaded_schedule = normalized_schedule
+        self.app.notify(
+            tr("Restart schedule updated to {schedule}.", schedule=normalized_schedule),
+            title=_("Restart Schedule"),
+        )
+        self.action_refresh_schedule()
+
+    def _toggle_timer(self, enable: bool) -> None:
+        action = enable_service if enable else disable_service
+        title = _("Enable Timer") if enable else _("Disable Timer")
+        result = action(self._timer_name())
+        self.app.notify(
+            result.message,
+            title=title,
+            severity="error" if not result.success else "information",
+        )
+        self.action_refresh_schedule()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn_back":
+            self.app.pop_screen()
+        elif event.button.id == "btn_refresh_schedule":
+            self.action_refresh_schedule()
+        elif event.button.id == "btn_apply_schedule":
+            self.action_apply_schedule()
+        elif event.button.id == "btn_enable_timer":
+            self._toggle_timer(enable=True)
+        elif event.button.id == "btn_disable_timer":
+            self._toggle_timer(enable=False)
+        elif event.button.id == "btn_restart_now":
+
+            def check_restart(confirm: bool) -> None:
+                if confirm:
+                    result = restart_service(self._server_service_name())
+                    self.app.notify(result.message, title=_("Restart Now"))
+
+            self.app.push_screen(
+                ConfirmScreen(_("Are you sure you want to RESTART the server now?")),
+                check_restart,
+            )
 
 
 class CleanupScreen(Screen):
