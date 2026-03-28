@@ -1,23 +1,18 @@
 # armactl
 
-Open-source installer, manager and TUI for **Arma Reforger Dedicated Server** on Linux.
+Installer, manager, and TUI for **Arma Reforger Dedicated Server** on Ubuntu.
 
-## What it does
+`armactl` is built for operators who want one tool that can install a server
+from scratch, detect an existing installation, repair broken state, manage
+`systemd`, edit `config.json`, work with mods, and optionally expose a Telegram
+admin bot.
 
-- **Install** a server from scratch via SteamCMD
-- **Detect** an already existing server installation
-- **Manage** server: start, stop, restart, status, logs, ports
-- **Edit** `config.json` safely, with an optional raw JSON screen for advanced cases
-- **Manage mods** — add, remove, dedupe, import/export
-- **Automate** via systemd service and scheduled restart timer
-- **Repair** broken or incomplete installations
-- All through a beautiful **TUI** or directly from CLI
+## Who this is for
 
-## Target platform
-
-- Ubuntu 24.04
-- Single dedicated server instance
-- Single Linux user
+- Ubuntu 24.04 hosts
+- single dedicated server instance
+- single Linux user
+- operators who prefer a repo-local launcher over global package setup
 
 ## Quick start
 
@@ -28,41 +23,58 @@ cd armactl
 ```
 
 On first run, `./armactl` bootstraps the repo-local environment automatically
-(system packages, `.venv`, Python dependencies) and then opens the TUI. After
-that, keep using the same repo-local launcher — no PATH changes, no venv
-activation needed.
+and then opens the TUI. After that, keep using the same launcher: no PATH
+changes, no manual venv activation.
 
-If you want the dev toolchain from the first launch too, use:
+If you want the development toolchain from the first launch too, use:
 
 ```bash
 ARMACTL_BOOTSTRAP_MODE=--dev ./armactl
 ```
 
-## Existing server
+## Core scenarios
 
-If the server already exists on the host, launch `./armactl` and choose
-`Detect Existing Server` or `Manage Existing Server`. armactl will look for the
-runtime root, `config.json`, systemd service, timer and current ports, then
-switch into management mode without reinstalling the server.
+### Fresh host
+
+Use `./armactl` on a clean Ubuntu host and choose `Install New Server`.
+`armactl` will bootstrap the environment, install SteamCMD if needed, download
+the server, create config and runtime directories, generate `systemd` units,
+and start the service.
+
+### Existing server
+
+Use `Detect Existing Server` or `Manage Existing Server`. `armactl` will look
+for the runtime root, `config.json`, `systemd` service, timer, and current
+ports, then switch into management mode without reinstalling the server.
 
 For older scattered installs, see [docs/migration.md](docs/migration.md).
 
-## Repair mode
+### Broken install / repair
 
-If the installation is partial or broken, run `./armactl` and choose
-`Repair Installation`, or use:
+Use `Repair Installation` in the TUI or:
 
 ```bash
 armactl repair
 ```
 
 Repair re-checks the installation, validates or regenerates missing pieces,
-rebuilds service/timer files and refreshes `state.json`.
+rebuilds service and timer files, reinstalls the secure helper when needed, and
+refreshes `state.json`.
+
+## What armactl does
+
+- install a server from scratch via SteamCMD
+- detect and manage an existing installation
+- start, stop, restart, and inspect the server
+- safely edit `config.json`, with an optional raw JSON screen
+- manage mods: add, remove, dedupe, import, export
+- manage scheduled restarts through `systemd`
+- expose optional Telegram bot controls
+- keep runtime data separated from repo code
 
 ## Scheduled restarts
 
-In TUI, `Restart Schedule` accepts exact times instead of raw systemd syntax.
-Examples:
+In TUI, `Restart Schedule` accepts exact times instead of raw `systemd` syntax:
 
 ```text
 08:00
@@ -70,80 +82,35 @@ Examples:
 08:00 20:00
 ```
 
-armactl converts those values into the correct `OnCalendar=` entries in the
+`armactl` converts those values into the correct `OnCalendar=` entries in the
 timer unit automatically.
 
-## Architecture
+## Runtime layout
 
-armactl separates three layers:
+`armactl` separates three layers:
 
 | Layer | Location | Purpose |
 |-------|----------|---------|
-| Source code | This repo | CLI + TUI + modules |
-| Runtime data | `~/armactl-data/default/` | Server files, config, backups, state |
-| System services | `/etc/systemd/system/` | Auto-start and scheduled restarts |
+| Source code | this repository | CLI + TUI + backend modules |
+| Runtime data | `~/armactl-data/default/` | server files, config, backups, state |
+| System services | `/etc/systemd/system/` | auto-start and scheduled restarts |
 
-See [docs/architecture.md](docs/architecture.md) for full details.
-See [docs/localization.md](docs/localization.md) for adding and maintaining UI languages.
-See [docs/telegram-bot.md](docs/telegram-bot.md) for the Telegram bot design and runtime flow.
-
-## File layout on server
+Typical runtime structure:
 
 ```text
 ~/armactl-data/default/
-├── server/                 # Arma Reforger Dedicated Server (SteamCMD)
-├── config/config.json      # Server configuration
-├── backups/                # Automatic backups before changes
-├── state.json              # Instance state for discovery
-└── start-armareforger.sh   # Launch script for systemd
-```
-
-## CLI commands
-
-```text
-armactl detect              # Find existing server
-armactl install             # Install server from scratch
-armactl repair              # Fix broken installation
-
-armactl start               # Start server
-armactl stop                # Stop server
-armactl restart             # Restart server
-armactl status              # Show server status
-armactl logs                # Tail server logs
-armactl ports               # Show listening ports
-
-armactl config show         # Show current config
-armactl config set-name     # Set server name
-armactl config set-scenario # Set scenario ID
-armactl config validate     # Validate config
-
-armactl mods list           # List installed mods
-armactl mods add            # Add a mod
-armactl mods remove         # Remove a mod
-armactl mods dedupe         # Remove duplicate mods
-armactl mods export FILE    # Export mods to standalone JSON mod pack
-armactl mods import FILE    # Import from mod pack JSON or full config.json
-
-armactl schedule show       # Show restart schedule
-armactl schedule set        # Set restart schedule
-armactl schedule enable     # Enable scheduled restarts
-armactl schedule disable    # Disable scheduled restarts
-```
-
-## Development
-
-```bash
-./scripts/run-host-tests
-.venv/bin/pytest
-.venv/bin/ruff check src/
+├── server/
+├── config/config.json
+├── backups/
+├── state.json
+└── start-armareforger.sh
 ```
 
 ## Telegram bot
 
-Telegram bot management is an optional component, not part of the base server
-process. The runtime model is:
+Telegram bot management is optional and runs as a separate `systemd` unit:
 
-- separate systemd unit: `armactl-bot.service`
+- `armactl-bot.service`
 - TUI settings screen: `Manage Existing Server -> Telegram Bot`
 - instance-scoped `.env` as the single source of truth for bot settings
 
@@ -153,46 +120,81 @@ Runtime config path:
 ~/armactl-data/<instance>/bot/.env
 ```
 
-The repository ships `.env.example` as a template, while real `.env` files are
-ignored by git.
+The repository ships [.env.example](.env.example) as a template, while real
+runtime `.env` files stay out of git.
 
-Typical host flow:
+Current bot capabilities include:
 
-1. Open `Manage Existing Server -> Telegram Bot`
-2. Save bot token, admin Chat ID(s) and language
-3. Click `Apply Bot Service`
-   This also installs the secure privileged control helper used for non-interactive
-   `start` / `stop` / `restart` actions and timer schedule updates from the bot,
-   then starts or restarts the bot service automatically.
+- status
+- metrics
+- details
+- start / stop / restart
+- scheduled restart management
+- player visibility through A2S and local RCON
 
-Current bot commands:
+See [docs/telegram-bot.md](docs/telegram-bot.md) for the full flow.
 
-- `/start`
-- `/status`
-- `/stop`
-- `/restart`
-- `/schedule 05:00, 20:00`
+## Documentation
 
-`/status` shows server/service/timer state, server CPU/RAM, best-effort player
-counts via the local A2S query port, and player roster details via local RCON
-when RCON is configured.
+- [Architecture](docs/architecture.md)
+- [Migration](docs/migration.md)
+- [Localization](docs/localization.md)
+- [Telegram Bot](docs/telegram-bot.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Development](docs/development.md)
+- [Release Process](docs/release-process.md)
+- [Roadmap](docs/roadmap.md)
+- [Checklist](docs/checklist.md)
 
-`./scripts/run-host-tests` will auto-install the dev dependencies if the repo
-was only bootstrapped in prod mode before, and both `./armactl` and
-`./scripts/run-host-tests` will refresh the repo-local `.venv` automatically
-after `pyproject.toml` dependency changes.
+## CLI commands
 
-For a repo-local smoke run on the Linux host, use:
+```text
+armactl detect
+armactl install
+armactl repair
+
+armactl start
+armactl stop
+armactl restart
+armactl status
+armactl logs
+armactl ports
+
+armactl config show
+armactl config validate
+
+armactl mods list
+armactl mods add
+armactl mods remove
+armactl mods dedupe
+armactl mods export FILE
+armactl mods import FILE
+
+armactl schedule show
+armactl schedule set
+armactl schedule enable
+armactl schedule disable
+```
+
+## Development
 
 ```bash
 ./scripts/run-host-tests
+.venv/bin/pytest
+.venv/bin/ruff check src tests
 ```
 
-When launched from the TUI, host test runs are also saved to:
+If the repo was only bootstrapped in prod mode before, both `./armactl` and
+`./scripts/run-host-tests` will refresh the repo-local `.venv` automatically
+after `pyproject.toml` dependency changes.
 
-```text
-~/armactl-data/<instance>/logs/host-tests-YYYYMMDD-HHMMSS.log
-```
+## Project health
+
+- [Contributing](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security Policy](SECURITY.md)
+- [Support](SUPPORT.md)
+- [Changelog](CHANGELOG.md)
 
 ## License
 

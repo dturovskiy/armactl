@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Support and troubleshooting
+    url: https://github.com/dturovskiy/armactl/blob/main/SUPPORT.md
+    about: Read support and troubleshooting guidance before opening an issue.
+  - name: Security reporting
+    url: https://github.com/dturovskiy/armactl/blob/main/SECURITY.md
+    about: Please do not file sensitive security issues publicly.
+

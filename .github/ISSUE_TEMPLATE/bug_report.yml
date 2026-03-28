@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a reproducible problem in install, runtime, TUI, or docs
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of armactl is affected?
+      options:
+        - Bootstrap / first launch
+        - Install / SteamCMD
+        - Existing server detection
+        - Repair mode
+        - TUI
+        - Systemd / timer
+        - Ports / networking
+        - Telegram bot
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+      placeholder: A short description of the bug
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the exact flow, commands, or TUI path
+      placeholder: |
+        1. Run ./armactl
+        2. Choose Install New Server
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        OS: Ubuntu 24.04
+        Python: 3.12
+        armactl version/commit:
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Please redact passwords, tokens, and private secrets first
+

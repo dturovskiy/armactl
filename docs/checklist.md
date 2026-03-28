@@ -211,9 +211,9 @@
 - [x] Unit tests для mod manager
 - [x] Integration tests для install
 - [x] Integration tests для service/timer
-- [ ] Manual smoke test на чистій VM
-- [ ] Manual smoke test на existing server
-- [ ] Manual smoke test після reboot
+- [x] Manual smoke test на чистій VM
+- [x] Manual smoke test на existing server
+- [x] Manual smoke test після reboot
 
 ## Phase 15 — Release readiness
 
@@ -221,7 +221,7 @@
 - [x] Описати запуск TUI в README
 - [x] Описати режим existing server
 - [x] Описати repair mode
-- [ ] Додати changelog
+- [x] Додати changelog
 - [ ] Підготувати перший GitHub release
 - [ ] Перевірити встановлення з релізного архіву
 - [ ] Перевірити запуск на іншій машині

@@ -48,6 +48,8 @@ armactl = "armactl.cli:main"
 Homepage = "https://github.com/dturovskiy/armactl"
 Repository = "https://github.com/dturovskiy/armactl"
 Issues = "https://github.com/dturovskiy/armactl/issues"
+Documentation = "https://github.com/dturovskiy/armactl/tree/main/docs"
+Changelog = "https://github.com/dturovskiy/armactl/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/armactl"]
