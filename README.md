@@ -1,4 +1,10 @@
-# armactl
+﻿# armactl
+
+[![CI](https://github.com/dturovskiy/armactl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dturovskiy/armactl/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/dturovskiy/armactl)](https://github.com/dturovskiy/armactl/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+[![Ubuntu 24.04](https://img.shields.io/badge/ubuntu-24.04-E95420.svg)](README.md)
 
 Installer, manager, and TUI for **Arma Reforger Dedicated Server** on Ubuntu.
 
@@ -6,6 +12,10 @@ Installer, manager, and TUI for **Arma Reforger Dedicated Server** on Ubuntu.
 from scratch, detect an existing installation, repair broken state, manage
 `systemd`, edit `config.json`, work with mods, and optionally expose a Telegram
 admin bot.
+
+## Screenshot
+
+![armactl TUI main menu](assets/tui-main-menu.png)
 
 ## Who this is for
 
@@ -46,8 +56,6 @@ and start the service.
 Use `Detect Existing Server` or `Manage Existing Server`. `armactl` will look
 for the runtime root, `config.json`, `systemd` service, timer, and current
 ports, then switch into management mode without reinstalling the server.
-
-For older scattered installs, see [docs/migration.md](docs/migration.md).
 
 ### Broken install / repair
 
@@ -137,7 +145,6 @@ See [docs/telegram-bot.md](docs/telegram-bot.md) for the full flow.
 ## Documentation
 
 - [Architecture](docs/architecture.md)
-- [Migration](docs/migration.md)
 - [Localization](docs/localization.md)
 - [Telegram Bot](docs/telegram-bot.md)
 - [Troubleshooting](docs/troubleshooting.md)
@@ -199,3 +206,4 @@ after `pyproject.toml` dependency changes.
 ## License
 
 MIT
+

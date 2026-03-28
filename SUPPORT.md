@@ -12,7 +12,6 @@ Before opening an issue, check:
 
 - [README.md](README.md)
 - [docs/troubleshooting.md](docs/troubleshooting.md)
-- [docs/migration.md](docs/migration.md)
 - [docs/telegram-bot.md](docs/telegram-bot.md)
 
 ## What to include
@@ -29,4 +28,3 @@ When asking for help, include:
 
 For vulnerabilities or leaked-secret reports, use the private path described in
 [SECURITY.md](SECURITY.md), not a public issue.
-

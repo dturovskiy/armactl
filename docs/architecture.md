@@ -26,7 +26,6 @@ armactl/
 ├── docs/
 │   ├── architecture.md
 │   ├── localization.md
-│   ├── migration.md
 │   ├── telegram-bot.md
 │   └── ...
 ├── scripts/
