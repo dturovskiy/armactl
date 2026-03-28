@@ -335,6 +335,10 @@ def discover(
     state.server_running = _is_service_active(state.service_name)
     state.service_exists = _service_exists(state.service_name)
     state.timer_exists = _timer_exists(state.timer_name)
+    
+    # Always re-read ports from config in case user manually edited config.json
+    if state.config_exists and state.config_path:
+        state.ports = _read_ports_from_config(Path(state.config_path))
 
     # Refresh port listening status
     if state.ports and any([state.ports.game, state.ports.a2s, state.ports.rcon]):
