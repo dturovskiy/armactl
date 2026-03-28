@@ -137,6 +137,7 @@
     "Players: not implemented yet.": "Гравці: ще не реалізовано.",
     "Schedule controls:": "Керування розкладом:",
     "Update the schedule with: /schedule 05:00, 20:00": "Оновіть розклад командою: /schedule 05:00, 20:00",
+    "To change the schedule, send:": "Щоб змінити розклад, надішліть:",
     "Telegram bot is disabled in the config.": "Telegram-бот вимкнений у конфігурації.",
     "Bot token is missing in the config.": "У конфігурації відсутній токен бота.",
     "Admin Chat IDs are not configured.": "Chat ID адміністраторів не налаштовано.",

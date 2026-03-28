@@ -118,6 +118,7 @@ def test_render_privileged_helper_script_uses_shell_and_lf_newlines() -> None:
 
     assert rendered.startswith("#!/bin/sh\n")
     assert "\r" not in rendered
+    assert "(" not in rendered
 
 
 def test_build_systemctl_command_prefers_secure_helper_channel() -> None:

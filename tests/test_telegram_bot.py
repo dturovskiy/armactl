@@ -30,11 +30,13 @@ def test_render_bot_status_text_uses_english_fallback():
 
     text = render_bot_status_text(snapshot, "en")
 
-    assert "🤖" in text
-    assert "🟢" in text
+    assert "\U0001F916" in text
+    assert "\U0001F7E2" in text
     assert "ArmaCtl Telegram Bot [default]" in text
     assert "Server: Running" in text
+    assert "Service: armareforger.service" in text
     assert "Service enabled: Yes" in text
+    assert "Timer: armareforger-restart.timer" in text
     assert "Current schedule: 08:00, 20:00" in text
     assert "Players: not implemented yet." in text
 
@@ -50,9 +52,10 @@ def test_render_bot_schedule_text_uses_english_fallback():
         "en",
     )
 
-    assert "⏰" in text
-    assert "🛠️" in text
+    assert "\u23F0" in text
+    assert "\u270D\uFE0F" in text
     assert "Restart Schedule: default" in text
     assert "Enabled: Yes" in text
     assert "Current schedule: 08:00, 20:00" in text
-    assert "Update the schedule with: /schedule 05:00, 20:00" in text
+    assert "To change the schedule, send:" in text
+    assert "/schedule 05:00, 20:00" in text
