@@ -120,13 +120,13 @@
 
 ## Phase 8 — TUI foundation
 
-- [ ] Створити базовий TUI app
-- [ ] Додати home screen
-- [ ] Додати режим `Install server`
-- [ ] Додати режим `Manage existing server`
-- [ ] Додати режим `Repair installation`
-- [ ] Підв'язати TUI до backend CLI
-- [ ] Перевірити, що TUI не містить бізнес-логіки
+- [x] Створити базовий TUI app
+- [x] Додати home screen
+- [x] Додати режим `Install server`
+- [x] Додати режим `Manage existing server`
+- [x] Додати режим `Repair installation`
+- [x] Підв'язати TUI до backend CLI
+- [x] Перевірити, що TUI не містить бізнес-логіки
 
 ## Phase 9 — TUI server controls
 
