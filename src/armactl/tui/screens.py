@@ -235,6 +235,7 @@ class ManageScreen(Screen):
                 yield Button(_("Restart"), id="btn_restart", variant="warning")
                 
             yield Button(_("Edit Configuration"), id="btn_config", variant="success")
+            yield Button(_("Mods Manager"), id="btn_mods", variant="primary")
             yield Button(_("Maintenance / Cleanup"), id="btn_cleanup", variant="warning")
             yield Button(_("View Live Logs"), id="btn_logs", variant="primary")
             yield Button(_("Status Details"), id="btn_status", variant="default")
@@ -295,6 +296,9 @@ class ManageScreen(Screen):
             
         elif event.button.id == "btn_config":
             self.app.push_screen(ConfigEditorScreen(self.instance))
+
+        elif event.button.id == "btn_mods":
+            self.app.push_screen(ModManagerScreen(self.instance))
             
         elif event.button.id == "btn_cleanup":
             self.app.push_screen(CleanupScreen(self.instance))
@@ -515,3 +519,124 @@ class ConfigEditorScreen(Screen):
             self.app.pop_screen()
         except Exception as e:
             self.app.notify(f"Error saving config: {e}", severity="error")
+
+
+class ModManagerScreen(Screen):
+    """Screen for managing Arma Reforger mods in config.json."""
+    
+    BINDINGS = [
+        ("b", "pop_screen", "Back to Menu"),
+        ("ctrl+r", "action_refresh_mods", "Refresh List"),
+    ]
+
+    def __init__(self, instance: str, **kwargs):
+        super().__init__(**kwargs)
+        self.instance = instance
+
+    def compose(self) -> ComposeResult:
+        from armactl.i18n import _
+        from textual.containers import VerticalGroup, HorizontalGroup
+        from textual.widgets import Input, ListView, ListItem
+        
+        yield Header()
+        with VerticalGroup(id="info-container"):
+            yield Label(_("Mods Manager: ") + f"{self.instance}", id="screen-title")
+            
+            with HorizontalGroup(id="mod-add-container"):
+                yield Input(id="inp_mod_id", placeholder=_("Mod ID (e.g. 595F2BF2F44832F5)"))
+                yield Input(id="inp_mod_name", placeholder=_("Name (Optional)"))
+                yield Button(_("Add/Update"), id="btn_add_mod", variant="success")
+                
+            yield Label(_("Installed Mods:"), id="mods-list-title")
+            yield ListView(id="mods-list")
+            
+            with HorizontalGroup(id="control-buttons"):
+                yield Button(_("Remove Selected"), id="btn_remove_mod", variant="error")
+                yield Button(_("Deduplicate"), id="btn_dedupe_mods", variant="warning")
+                yield Button(_("Back"), id="btn_back", variant="default")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.action_refresh_mods()
+
+    def action_refresh_mods(self) -> None:
+        from armactl.mods import list_mods
+        from armactl import paths as P
+        from textual.widgets import ListView, ListItem
+        
+        cfg = P.config_file(self.instance)
+        try:
+            mods = list_mods(cfg)
+        except Exception as e:
+            self.app.notify(f"Error loading mods: {e}", severity="error")
+            return
+            
+        list_view = self.query_one("#mods-list", ListView)
+        list_view.clear()
+        
+        if not mods:
+            list_view.append(ListItem(Label("No mods installed.")))
+        else:
+            for idx, m in enumerate(mods):
+                mod_id = m.get("modId", "Unknown")
+                name = m.get("name", "")
+                display = f"[{idx+1}] {mod_id}"
+                if name:
+                    display += f" - {name}"
+                item = ListItem(Label(display), id=f"mod_item_{mod_id}")
+                item.mod_id = mod_id # type: ignore
+                list_view.append(item)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        from armactl.mods import add_mod, remove_mod, dedupe_mods
+        from armactl import paths as P
+        cfg = P.config_file(self.instance)
+        
+        if event.button.id == "btn_back":
+            self.app.pop_screen()
+            
+        elif event.button.id == "btn_add_mod":
+            from textual.widgets import Input
+            inp_id = self.query_one("#inp_mod_id", Input)
+            inp_name = self.query_one("#inp_mod_name", Input)
+            mod_id = inp_id.value.strip()
+            name = inp_name.value.strip()
+            
+            if not mod_id:
+                self.app.notify("Mod ID is required!", severity="error")
+                return
+                
+            is_new = add_mod(cfg, mod_id, name)
+            if is_new:
+                self.app.notify(f"Mod {mod_id} added successfully.")
+            else:
+                self.app.notify(f"Mod {mod_id} updated successfully.")
+            
+            inp_id.value = ""
+            inp_name.value = ""
+            self.action_refresh_mods()
+            
+        elif event.button.id == "btn_remove_mod":
+            from textual.widgets import ListView
+            list_view = self.query_one("#mods-list", ListView)
+            if list_view.highlighted_child is None:
+                self.app.notify("Select a mod to remove first.", severity="warning")
+                return
+                
+            mod_id = getattr(list_view.highlighted_child, "mod_id", None)
+            if mod_id:
+                def confirm_remove(confirm: bool):
+                    if confirm:
+                        success = remove_mod(cfg, mod_id)
+                        if success:
+                            self.app.notify(f"Removed mod {mod_id}.")
+                            self.action_refresh_mods()
+                        else:
+                            self.app.notify(f"Mod {mod_id} not found.", severity="error")
+                self.app.push_screen(ConfirmScreen(f"Are you sure you want to remove Mod '{mod_id}'?"), confirm_remove)
+                
+        elif event.button.id == "btn_dedupe_mods":
+            count = dedupe_mods(cfg)
+            self.app.notify(f"Deduped mods. Reclaimed {count} duplicates.")
+            if count > 0:
+                self.action_refresh_mods()
