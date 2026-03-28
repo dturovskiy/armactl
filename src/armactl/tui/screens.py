@@ -206,10 +206,16 @@ class ManageScreen(Screen):
     def action_refresh_state(self) -> None:
         state = discover(self.instance, save=False)
         lbl = self.query_one("#server-status", Label)
+        btn_toggle = self.query_one("#btn_toggle", Button)
+        
         if state.server_running:
             lbl.update("[bold green]🟢 SERVER IS RUNNING[/bold green]")
+            btn_toggle.label = "Stop"
+            btn_toggle.variant = "error"
         else:
             lbl.update("[bold red]🔴 SERVER IS STOPPED[/bold red]")
+            btn_toggle.label = "Start"
+            btn_toggle.variant = "success"
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -219,8 +225,7 @@ class ManageScreen(Screen):
             
             from textual.containers import HorizontalGroup
             with HorizontalGroup(id="control-buttons"):
-                yield Button("Start", id="btn_start", variant="success")
-                yield Button("Stop", id="btn_stop", variant="error")
+                yield Button("...", id="btn_toggle", variant="primary")
                 yield Button("Restart", id="btn_restart", variant="warning")
                 
             yield Button("View Live Logs", id="btn_logs", variant="primary")
@@ -236,18 +241,19 @@ class ManageScreen(Screen):
         if event.button.id == "btn_back":
             self.app.pop_screen()
             
-        elif event.button.id == "btn_start":
-            res = start_service(service_name)
-            self.app.notify(res.message, title="Start")
-            self.action_refresh_state()
-            
-        elif event.button.id == "btn_stop":
-            def check_stop(confirm: bool):
-                if confirm:
-                    res = stop_service(service_name)
-                    self.app.notify(res.message, title="Stop")
-                    self.action_refresh_state()
-            self.app.push_screen(ConfirmScreen("Are you sure you want to STOP the server?"), check_stop)
+        elif event.button.id == "btn_toggle":
+            state = discover(self.instance, save=False)
+            if state.server_running:
+                def check_stop(confirm: bool):
+                    if confirm:
+                        res = stop_service(service_name)
+                        self.app.notify(res.message, title="Stop")
+                        self.action_refresh_state()
+                self.app.push_screen(ConfirmScreen("Are you sure you want to STOP the server?"), check_stop)
+            else:
+                res = start_service(service_name)
+                self.app.notify(res.message, title="Start")
+                self.action_refresh_state()
             
         elif event.button.id == "btn_restart":
             def check_restart(confirm: bool):
@@ -272,9 +278,9 @@ class ManageScreen(Screen):
                 self.app.notify("Config missing. Cannot read ports.", title="Error", severity="error")
                 return
             from armactl import ports
-            arr = ports.check_all_ports(state.config_path, state.server_running)
+            arr = ports.check_server_ports(state.ports.game, state.ports.a2s, state.ports.rcon)
             text_lines = []
-            for p in arr:
-                status = "[green]✓ listening[/green]" if p["listening"] else "[red]✗ closed[/red]"
-                text_lines.append(f"{p['name']:<10} | {p['port']:<6} | {status}")
+            for name, info in arr.items():
+                status = "[green]✓ listening[/green]" if info["listening"] else "[red]✗ closed[/red]"
+                text_lines.append(f"{name:<10} | {info['port']:<6} | {status}")
             self.app.push_screen(InfoViewerScreen("Ports Status", "\n".join(text_lines)))
