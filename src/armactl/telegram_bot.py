@@ -355,8 +355,20 @@ def render_bot_details_text(snapshot: BotStatusSnapshot, lang: str) -> str:
     else:
         lines.append(_bullet_line(translate_for_lang(lang, "Mods summary unavailable.")))
 
-    lines.extend(["", _icon_line(PEOPLE, translate_for_lang(lang, "Player Roster"))])
-    lines.append(_bullet_line(_player_count_text(snapshot, lang)))
+    return "\n".join(lines)
+
+
+def render_bot_players_text(snapshot: BotStatusSnapshot, lang: str) -> str:
+    """Render a dedicated player-roster page for Telegram."""
+    unknown_text = translate_for_lang(lang, "Unknown")
+    lines = [
+        _icon_line(
+            PEOPLE,
+            tr_for_lang(lang, "Players: {instance}", instance=snapshot.instance),
+        ),
+        "",
+        _bullet_line(_player_count_text(snapshot, lang)),
+    ]
 
     if snapshot.player_count and snapshot.player_count > 0:
         if snapshot.player_lines:
@@ -608,15 +620,21 @@ class ArmaCtlTelegramBot:
                     callback_data="details",
                 ),
                 InlineKeyboardButton(
-                    self.button_label(CLOCK, "Schedule"),
-                    callback_data="schedule",
+                    self.button_label(PEOPLE, "Players"),
+                    callback_data="players",
                 ),
             ],
             [
                 InlineKeyboardButton(
+                    self.button_label(CLOCK, "Schedule"),
+                    callback_data="schedule",
+                ),
+                InlineKeyboardButton(
                     self.button_label(RESTART, "Control"),
                     callback_data="control",
                 ),
+            ],
+            [
                 InlineKeyboardButton(
                     self.button_label(REFRESH, "Refresh Status"),
                     callback_data="refresh",
@@ -717,6 +735,12 @@ class ArmaCtlTelegramBot:
             self.lang,
         )
 
+    def _players_text(self, *, force_refresh: bool = False) -> str:
+        return render_bot_players_text(
+            self._snapshot_for_view("players", force_refresh=force_refresh),
+            self.lang,
+        )
+
     def _control_text(self, *, force_refresh: bool = False) -> str:
         return render_bot_control_text(
             self._snapshot_for_view("control", force_refresh=force_refresh),
@@ -780,6 +804,10 @@ class ArmaCtlTelegramBot:
             snapshot = _build_status_snapshot(
                 self.instance,
                 include_summaries=True,
+            )
+        elif view == "players":
+            snapshot = _build_status_snapshot(
+                self.instance,
                 include_roster=True,
             )
         else:
@@ -998,6 +1026,10 @@ class ArmaCtlTelegramBot:
 
         if data == "details":
             await self._reply_with_menu(update, self._details_text())
+            return
+
+        if data == "players":
+            await self._reply_with_menu(update, self._players_text())
             return
 
         if data == "control":

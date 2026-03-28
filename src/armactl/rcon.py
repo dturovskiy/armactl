@@ -93,6 +93,11 @@ def _parse_packet(data: bytes) -> bytes:
     payload = data[7:]
     actual_checksum = zlib.crc32(payload) & 0xFFFFFFFF
     if actual_checksum != expected_checksum:
+        trimmed_payload = payload.rstrip(b"\x00")
+        if trimmed_payload != payload:
+            trimmed_checksum = zlib.crc32(trimmed_payload) & 0xFFFFFFFF
+            if trimmed_checksum == expected_checksum:
+                return trimmed_payload
         raise RconError("Invalid BattlEye packet checksum.")
     return payload
 
