@@ -6,9 +6,9 @@ from armactl.telegram_bot import (
     BotStatusSnapshot,
     admin_chat_allowed,
     parse_friendly_schedule_input,
-    render_schedule_input_prompt,
     render_bot_schedule_text,
     render_bot_status_text,
+    render_schedule_input_prompt,
 )
 
 
