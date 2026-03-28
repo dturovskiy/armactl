@@ -123,12 +123,10 @@ class ArmaCtlApp(App):
         if event.button.id == "btn_exit":
             self.exit(0)
         elif event.button.id == "btn_lang":
-            from armactl.i18n import toggle_lang
+            from armactl.i18n import toggle_lang, _
             toggle_lang()
-            self.notify("Language changed! Press App Refresh (hotkey or click) to apply everywhere, or restart.")
-            # Textual re-compose isn't supported automatically for the whole app
-            # But we can try pushing the menu again or just exiting
-            self.exit()
+            lbl = self.query_one("#btn_lang", Button)
+            self.notify("Language changed! Please exit and run armactl again to apply changes.", title="Language Swapped", timeout=5)
         elif event.button.id == "btn_manage":
             from armactl.tui.screens import ManageScreen
             self.push_screen(ManageScreen(instance=self.instance))
