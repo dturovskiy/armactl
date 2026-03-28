@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ from armactl.bot_config import (
     save_bot_config,
     validate_bot_config,
 )
+from armactl.i18n import _
 
 
 def test_load_bot_config_returns_defaults_when_file_is_missing(tmp_path: Path):
@@ -59,8 +61,8 @@ def test_validate_bot_config_requires_token_and_chat_id_when_enabled():
 
     errors = validate_bot_config(config)
 
-    assert "Bot token is required when Telegram bot is enabled." in errors
-    assert "At least one admin Chat ID is required when Telegram bot is enabled." in errors
+    assert _("Bot token is required when Telegram bot is enabled.") in errors
+    assert _("At least one admin Chat ID is required when Telegram bot is enabled.") in errors
 
 
 def test_save_bot_config_rejects_invalid_chat_ids(tmp_path: Path):
@@ -74,7 +76,8 @@ def test_save_bot_config_rejects_invalid_chat_ids(tmp_path: Path):
         env_path=env_path,
     )
 
-    with pytest.raises(BotConfigError, match="Admin Chat IDs"):
+    expected_message = _("Admin Chat IDs must contain only numeric Telegram chat IDs.")
+    with pytest.raises(BotConfigError, match=re.escape(expected_message)):
         save_bot_config(config)
 
 
