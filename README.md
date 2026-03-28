@@ -173,8 +173,8 @@ Current bot commands:
 - `/restart`
 - `/schedule 05:00, 20:00`
 
-`/status` currently shows server/service/timer state. Player querying is still
-pending.
+`/status` shows server/service/timer state and best-effort player counts via
+the configured local A2S query port.
 
 `./scripts/run-host-tests` will auto-install the dev dependencies if the repo
 was only bootstrapped in prod mode before, and both `./armactl` and

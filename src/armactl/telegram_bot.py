@@ -9,6 +9,7 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
+from armactl.a2s import query_player_status
 from armactl.bot_config import BotConfigError, load_bot_config
 from armactl.discovery import discover
 from armactl.i18n import tr_for_lang, translate_for_lang, using_lang
@@ -78,6 +79,8 @@ class BotStatusSnapshot:
     timer_name: str
     schedule: str
     next_run: str
+    player_count: int | None
+    max_players: int | None
 
 
 def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
@@ -95,6 +98,21 @@ def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
         else translate_for_lang(lang, "No")
     )
     server_icon = GREEN if snapshot.server_running else RED
+    if snapshot.player_count is None:
+        players_text = translate_for_lang(lang, "Players: unavailable")
+    elif snapshot.max_players is None:
+        players_text = tr_for_lang(
+            lang,
+            "Players: {current}",
+            current=snapshot.player_count,
+        )
+    else:
+        players_text = tr_for_lang(
+            lang,
+            "Players: {current}/{max}",
+            current=snapshot.player_count,
+            max=snapshot.max_players,
+        )
 
     lines = [
         _icon_line(
@@ -118,7 +136,7 @@ def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
         _bullet_line(tr_for_lang(lang, "Current schedule: {value}", value=schedule_text)),
         _bullet_line(tr_for_lang(lang, "Next run: {value}", value=next_run_text)),
         "",
-        _icon_line(PEOPLE, translate_for_lang(lang, "Players: not implemented yet.")),
+        _icon_line(PEOPLE, players_text),
     ]
     return "\n".join(lines)
 
@@ -195,6 +213,7 @@ def _build_status_snapshot(instance: str) -> BotStatusSnapshot:
     state = discover(instance, save=False)
     service_status = get_service_status(service_unit_name(instance))
     timer_status = get_timer_status(timer_unit_name(instance))
+    player_status = query_player_status(instance, state=state)
     return BotStatusSnapshot(
         instance=instance,
         server_running=state.server_running,
@@ -204,6 +223,8 @@ def _build_status_snapshot(instance: str) -> BotStatusSnapshot:
         timer_name=timer_unit_name(instance),
         schedule=timer_status.get("schedule", ""),
         next_run=timer_status.get("next_run", ""),
+        player_count=player_status.player_count,
+        max_players=player_status.max_players,
     )
 
 

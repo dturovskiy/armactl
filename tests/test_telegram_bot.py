@@ -28,6 +28,8 @@ def test_render_bot_status_text_uses_english_fallback():
         timer_name="armareforger-restart.timer",
         schedule="08:00, 20:00",
         next_run="2026-03-29 08:00:00 UTC",
+        player_count=3,
+        max_players=64,
     )
 
     text = render_bot_status_text(snapshot, "en")
@@ -40,7 +42,7 @@ def test_render_bot_status_text_uses_english_fallback():
     assert "Service enabled: Yes" in text
     assert "Timer: armareforger-restart.timer" in text
     assert "Current schedule: 08:00, 20:00" in text
-    assert "Players: not implemented yet." in text
+    assert "Players: 3/64" in text
 
 
 def test_render_bot_schedule_text_uses_english_fallback():
@@ -70,6 +72,25 @@ def test_render_schedule_input_prompt_uses_english_fallback():
     assert "Send restart times in your next message." in text
     assert "Current schedule: 08:00, 20:00" in text
     assert "Example: 08:00, 20:00 or 06:00 18:00." in text
+
+
+def test_render_bot_status_text_handles_unavailable_player_query():
+    snapshot = BotStatusSnapshot(
+        instance="default",
+        server_running=True,
+        service_name="armareforger.service",
+        service_active_state="active",
+        service_enabled=True,
+        timer_name="armareforger-restart.timer",
+        schedule="08:00, 20:00",
+        next_run="2026-03-29 08:00:00 UTC",
+        player_count=None,
+        max_players=64,
+    )
+
+    text = render_bot_status_text(snapshot, "en")
+
+    assert "Players: unavailable" in text
 
 
 def test_parse_friendly_schedule_input_accepts_simple_times():
