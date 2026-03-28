@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,22 @@ class ProcessMetrics:
     pid: int
     cpu_percent: float | None = None
     memory_rss_bytes: int | None = None
+    error: str = ""
+
+
+@dataclass
+class HostMetrics:
+    """Best-effort host/VM metrics for diagnostics views."""
+
+    available: bool
+    memory_used_bytes: int | None = None
+    memory_total_bytes: int | None = None
+    disk_used_bytes: int | None = None
+    disk_total_bytes: int | None = None
+    load_average_1m: float | None = None
+    load_average_5m: float | None = None
+    load_average_15m: float | None = None
+    uptime_seconds: float | None = None
     error: str = ""
 
 
@@ -42,6 +59,43 @@ def format_cpu_percent(value: float | None) -> str:
     return f"{value:.1f}%"
 
 
+def format_load_average(
+    one_minute: float | None,
+    five_minutes: float | None,
+    fifteen_minutes: float | None,
+) -> str:
+    """Format a host load-average triple."""
+    if (
+        one_minute is None
+        or five_minutes is None
+        or fifteen_minutes is None
+    ):
+        return "Unknown"
+    return f"{one_minute:.2f} / {five_minutes:.2f} / {fifteen_minutes:.2f}"
+
+
+def format_duration(seconds: float | None) -> str:
+    """Format a duration in a compact human-readable style."""
+    if seconds is None:
+        return "Unknown"
+
+    remaining = max(int(seconds), 0)
+    days, remaining = divmod(remaining, 86400)
+    hours, remaining = divmod(remaining, 3600)
+    minutes, seconds_part = divmod(remaining, 60)
+
+    parts: list[str] = []
+    if days:
+        parts.append(f"{days}d")
+    if hours or parts:
+        parts.append(f"{hours}h")
+    if minutes or parts:
+        parts.append(f"{minutes}m")
+    if not parts:
+        parts.append(f"{seconds_part}s")
+    return " ".join(parts[:3])
+
+
 def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
@@ -54,6 +108,28 @@ def _cpu_count() -> int:
 def _page_size() -> int:
     """Return a sane Linux page size for statm RSS fallback parsing."""
     return max(int(os.sysconf("SC_PAGE_SIZE")), 1)
+
+
+def _parse_meminfo() -> tuple[int | None, int | None]:
+    """Return host RAM used/total bytes from /proc/meminfo."""
+    meminfo: dict[str, int] = {}
+    for line in _read_text(Path("/proc/meminfo")).splitlines():
+        if ":" not in line:
+            continue
+        key, raw_value = line.split(":", 1)
+        parts = raw_value.strip().split()
+        if not parts:
+            continue
+        try:
+            meminfo[key] = int(parts[0]) * 1024
+        except ValueError:
+            continue
+
+    total = meminfo.get("MemTotal")
+    available = meminfo.get("MemAvailable")
+    if total is None or available is None:
+        return None, None
+    return max(total - available, 0), total
 
 
 def estimate_service_cpu_percent(service_status: dict[str, Any]) -> float | None:
@@ -145,6 +221,15 @@ def query_process_metrics(pid: int) -> ProcessMetrics:
 
 def query_service_runtime_metrics(service_status: dict[str, Any]) -> ProcessMetrics:
     """Return the best available runtime metrics using PID data and systemd fallbacks."""
+    service_is_active = bool(service_status.get("active"))
+    active_state = str(service_status.get("active_state", "") or "").strip().lower()
+    if not service_is_active and active_state and active_state != "active":
+        return ProcessMetrics(
+            False,
+            int(service_status.get("main_pid", 0) or 0),
+            error="service is not active",
+        )
+
     pid = int(service_status.get("main_pid", 0) or 0)
     proc_metrics = query_process_metrics(pid)
 
@@ -165,4 +250,65 @@ def query_service_runtime_metrics(service_status: dict[str, Any]) -> ProcessMetr
         cpu_percent=cpu_percent,
         memory_rss_bytes=memory_rss_bytes,
         error=proc_metrics.error,
+    )
+
+
+def query_host_metrics(path: str | Path = "/") -> HostMetrics:
+    """Return best-effort host/VM metrics for diagnostics views."""
+    memory_used_bytes: int | None = None
+    memory_total_bytes: int | None = None
+    disk_used_bytes: int | None = None
+    disk_total_bytes: int | None = None
+    load_average_1m: float | None = None
+    load_average_5m: float | None = None
+    load_average_15m: float | None = None
+    uptime_seconds: float | None = None
+    errors: list[str] = []
+
+    try:
+        memory_used_bytes, memory_total_bytes = _parse_meminfo()
+    except OSError as error:
+        errors.append(str(error))
+
+    try:
+        disk_usage = shutil.disk_usage(path)
+        disk_used_bytes = disk_usage.used
+        disk_total_bytes = disk_usage.total
+    except OSError as error:
+        errors.append(str(error))
+
+    try:
+        (
+            load_average_1m,
+            load_average_5m,
+            load_average_15m,
+        ) = os.getloadavg()
+    except OSError as error:
+        errors.append(str(error))
+
+    try:
+        uptime_seconds = float(_read_text(Path("/proc/uptime")).split()[0])
+    except (IndexError, OSError, ValueError) as error:
+        errors.append(str(error))
+
+    available = any(
+        value is not None
+        for value in (
+            memory_total_bytes,
+            disk_total_bytes,
+            load_average_1m,
+            uptime_seconds,
+        )
+    )
+    return HostMetrics(
+        available=available,
+        memory_used_bytes=memory_used_bytes,
+        memory_total_bytes=memory_total_bytes,
+        disk_used_bytes=disk_used_bytes,
+        disk_total_bytes=disk_total_bytes,
+        load_average_1m=load_average_1m,
+        load_average_5m=load_average_5m,
+        load_average_15m=load_average_15m,
+        uptime_seconds=uptime_seconds,
+        error="; ".join(error for error in errors if error),
     )

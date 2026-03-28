@@ -50,6 +50,9 @@ from armactl.installer import run_install
 from armactl.metrics import (
     format_bytes,
     format_cpu_percent,
+    format_duration,
+    format_load_average,
+    query_host_metrics,
     query_service_runtime_metrics,
 )
 from armactl.mods import add_mod, dedupe_mods, remove_mod
@@ -445,6 +448,7 @@ class ManageScreen(Screen):
         timer_status = get_timer_status(timer_name)
         player_status = query_player_status(self.instance, state=state)
         metrics = query_service_runtime_metrics(service_status)
+        host_metrics = query_host_metrics()
         main_pid = metrics.pid
         if state.config_exists and state.config_path:
             config_summary, mods_summary = load_status_summaries(state.config_path)
@@ -499,6 +503,44 @@ class ManageScreen(Screen):
                     if metrics.memory_rss_bytes is not None
                     else unknown_text
                 ),
+            ),
+            "",
+            _("[bold cyan]Host / VM Metrics[/bold cyan]"),
+            tr(
+                "Host RAM: {value}",
+                value=(
+                    f"{format_bytes(host_metrics.memory_used_bytes)} / "
+                    f"{format_bytes(host_metrics.memory_total_bytes)}"
+                    if (
+                        host_metrics.memory_used_bytes is not None
+                        and host_metrics.memory_total_bytes is not None
+                    )
+                    else unknown_text
+                ),
+            ),
+            tr(
+                "Host Disk: {value}",
+                value=(
+                    f"{format_bytes(host_metrics.disk_used_bytes)} / "
+                    f"{format_bytes(host_metrics.disk_total_bytes)}"
+                    if (
+                        host_metrics.disk_used_bytes is not None
+                        and host_metrics.disk_total_bytes is not None
+                    )
+                    else unknown_text
+                ),
+            ),
+            tr(
+                "Host Load Avg: {value}",
+                value=format_load_average(
+                    host_metrics.load_average_1m,
+                    host_metrics.load_average_5m,
+                    host_metrics.load_average_15m,
+                ),
+            ),
+            tr(
+                "Host uptime: {value}",
+                value=format_duration(host_metrics.uptime_seconds),
             ),
             "",
             _("[bold cyan]Config Summary[/bold cyan]"),

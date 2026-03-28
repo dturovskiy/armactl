@@ -16,6 +16,10 @@ from armactl.i18n import tr_for_lang, translate_for_lang, using_lang
 from armactl.metrics import (
     format_bytes,
     format_cpu_percent,
+    format_duration,
+    format_load_average,
+    HostMetrics,
+    query_host_metrics,
     query_service_runtime_metrics,
 )
 from armactl.rcon import query_player_roster
@@ -45,6 +49,7 @@ CLOCK = "\u23F0"
 PEOPLE = "\U0001F465"
 PENCIL = "\u270D\uFE0F"
 CHART = "\U0001F4CA"
+COMPUTER = "\U0001F5A5\uFE0F"
 GEAR = "\u2699\uFE0F"
 PUZZLE = "\U0001F9E9"
 PLAY = "\u25B6\uFE0F"
@@ -58,6 +63,7 @@ BACK = "\u21A9\uFE0F"
 DENY = "\u26D4"
 ID_BADGE = "\U0001F194"
 BULLET = "\u2022"
+DETAILS = "\U0001F4CB"
 TIME_INPUT_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 
 
@@ -99,6 +105,9 @@ class BotStatusSnapshot:
     mods_summary: ModsSummary = field(
         default_factory=lambda: ModsSummary(False)
     )
+    host_metrics: HostMetrics = field(
+        default_factory=lambda: HostMetrics(False)
+    )
     player_lines: list[str] = field(default_factory=list)
     roster_available: bool = False
 
@@ -134,30 +143,6 @@ def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
             current=snapshot.player_count,
             max=snapshot.max_players,
         )
-    pid_text = (
-        str(snapshot.main_pid)
-        if snapshot.main_pid > 0
-        else unknown_text
-    )
-    cpu_text = (
-        format_cpu_percent(snapshot.cpu_percent)
-        if snapshot.cpu_percent is not None
-        else unknown_text
-    )
-    memory_text = (
-        format_bytes(snapshot.memory_rss_bytes)
-        if snapshot.memory_rss_bytes is not None
-        else unknown_text
-    )
-    yes_text = translate_for_lang(lang, "Yes")
-    no_text = translate_for_lang(lang, "No")
-
-    def bool_text(value: bool | None) -> str:
-        if value is True:
-            return yes_text
-        if value is False:
-            return no_text
-        return unknown_text
 
     lines = [
         _icon_line(
@@ -181,10 +166,91 @@ def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
         _bullet_line(tr_for_lang(lang, "Current schedule: {value}", value=schedule_text)),
         _bullet_line(tr_for_lang(lang, "Next run: {value}", value=next_run_text)),
         "",
-        _icon_line(CHART, translate_for_lang(lang, "Runtime Metrics")),
-        _bullet_line(tr_for_lang(lang, "Main PID: {value}", value=pid_text)),
-        _bullet_line(tr_for_lang(lang, "Server CPU: {value}", value=cpu_text)),
-        _bullet_line(tr_for_lang(lang, "Server RAM: {value}", value=memory_text)),
+        _icon_line(PEOPLE, players_text),
+    ]
+
+    if snapshot.player_lines:
+        lines.extend(_bullet_line(player_line) for player_line in snapshot.player_lines)
+    elif snapshot.player_count and snapshot.player_count > 0 and not snapshot.roster_available:
+        lines.append(
+            _bullet_line(
+                translate_for_lang(lang, "Player roster unavailable via RCON.")
+            )
+        )
+    return "\n".join(lines)
+
+
+def render_bot_metrics_text(snapshot: BotStatusSnapshot, lang: str) -> str:
+    """Render runtime server metrics plus host/VM metrics for Telegram."""
+    unknown_text = translate_for_lang(lang, "Unknown")
+    pid_text = str(snapshot.main_pid) if snapshot.main_pid > 0 else unknown_text
+    server_cpu_text = (
+        format_cpu_percent(snapshot.cpu_percent)
+        if snapshot.cpu_percent is not None
+        else unknown_text
+    )
+    server_ram_text = (
+        format_bytes(snapshot.memory_rss_bytes)
+        if snapshot.memory_rss_bytes is not None
+        else unknown_text
+    )
+    host = snapshot.host_metrics
+    host_ram_text = (
+        f"{format_bytes(host.memory_used_bytes)} / {format_bytes(host.memory_total_bytes)}"
+        if host.memory_used_bytes is not None and host.memory_total_bytes is not None
+        else unknown_text
+    )
+    host_disk_text = (
+        f"{format_bytes(host.disk_used_bytes)} / {format_bytes(host.disk_total_bytes)}"
+        if host.disk_used_bytes is not None and host.disk_total_bytes is not None
+        else unknown_text
+    )
+    host_load_text = format_load_average(
+        host.load_average_1m,
+        host.load_average_5m,
+        host.load_average_15m,
+    )
+    host_uptime_text = format_duration(host.uptime_seconds)
+
+    return "\n".join(
+        [
+            _icon_line(
+                CHART,
+                tr_for_lang(lang, "Metrics: {instance}", instance=snapshot.instance),
+            ),
+            "",
+            _icon_line(CHART, translate_for_lang(lang, "Runtime Metrics")),
+            _bullet_line(tr_for_lang(lang, "Main PID: {value}", value=pid_text)),
+            _bullet_line(tr_for_lang(lang, "Server CPU: {value}", value=server_cpu_text)),
+            _bullet_line(tr_for_lang(lang, "Server RAM: {value}", value=server_ram_text)),
+            "",
+            _icon_line(COMPUTER, translate_for_lang(lang, "Host / VM Metrics")),
+            _bullet_line(tr_for_lang(lang, "Host RAM: {value}", value=host_ram_text)),
+            _bullet_line(tr_for_lang(lang, "Host Disk: {value}", value=host_disk_text)),
+            _bullet_line(tr_for_lang(lang, "Host Load Avg: {value}", value=host_load_text)),
+            _bullet_line(tr_for_lang(lang, "Host uptime: {value}", value=host_uptime_text)),
+        ]
+    )
+
+
+def render_bot_details_text(snapshot: BotStatusSnapshot, lang: str) -> str:
+    """Render config and mods details for Telegram."""
+    unknown_text = translate_for_lang(lang, "Unknown")
+    yes_text = translate_for_lang(lang, "Yes")
+    no_text = translate_for_lang(lang, "No")
+
+    def bool_text(value: bool | None) -> str:
+        if value is True:
+            return yes_text
+        if value is False:
+            return no_text
+        return unknown_text
+
+    lines = [
+        _icon_line(
+            DETAILS,
+            tr_for_lang(lang, "Server Details: {instance}", instance=snapshot.instance),
+        ),
         "",
         _icon_line(GEAR, translate_for_lang(lang, "Config Summary")),
     ]
@@ -258,12 +324,7 @@ def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
     else:
         lines.append(_bullet_line(translate_for_lang(lang, "Config summary unavailable.")))
 
-    lines.extend(
-        [
-            "",
-            _icon_line(PUZZLE, translate_for_lang(lang, "Mods Summary")),
-        ]
-    )
+    lines.extend(["", _icon_line(PUZZLE, translate_for_lang(lang, "Mods Summary"))])
 
     if snapshot.mods_summary.available:
         mods = snapshot.mods_summary
@@ -292,22 +353,29 @@ def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
             )
     else:
         lines.append(_bullet_line(translate_for_lang(lang, "Mods summary unavailable.")))
+    return "\n".join(lines)
 
-    lines.extend(
+
+def render_bot_control_text(snapshot: BotStatusSnapshot, lang: str) -> str:
+    """Render a compact control page header for Telegram."""
+    running_text = (
+        translate_for_lang(lang, "Running")
+        if snapshot.server_running
+        else translate_for_lang(lang, "Stopped")
+    )
+    schedule_text = snapshot.schedule.strip() or translate_for_lang(lang, "Unknown")
+    return "\n".join(
         [
+            _icon_line(
+                RESTART,
+                tr_for_lang(lang, "Server Control: {instance}", instance=snapshot.instance),
+            ),
             "",
-        _icon_line(PEOPLE, players_text),
+            _bullet_line(tr_for_lang(lang, "Server: {value}", value=running_text)),
+            _bullet_line(tr_for_lang(lang, "Service: {value}", value=snapshot.service_name)),
+            _bullet_line(tr_for_lang(lang, "Current schedule: {value}", value=schedule_text)),
         ]
     )
-    if snapshot.player_lines:
-        lines.extend(_bullet_line(player_line) for player_line in snapshot.player_lines)
-    elif snapshot.player_count and snapshot.player_count > 0 and not snapshot.roster_available:
-        lines.append(
-            _bullet_line(
-                translate_for_lang(lang, "Player roster unavailable via RCON.")
-            )
-        )
-    return "\n".join(lines)
 
 
 def render_bot_schedule_text(instance: str, timer_status: dict[str, Any], lang: str) -> str:
@@ -418,6 +486,7 @@ def _build_status_snapshot(instance: str) -> BotStatusSnapshot:
         memory_rss_bytes=metrics.memory_rss_bytes,
         config_summary=config_summary,
         mods_summary=mods_summary,
+        host_metrics=query_host_metrics(),
         player_lines=roster_lines,
         roster_available=roster_available,
     )
@@ -469,10 +538,70 @@ class ArmaCtlTelegramBot:
             [
                 InlineKeyboardButton(self.button_label(CHART, "Status"), callback_data="status"),
                 InlineKeyboardButton(
+                    self.button_label(COMPUTER, "Metrics"),
+                    callback_data="metrics",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    self.button_label(DETAILS, "Details"),
+                    callback_data="details",
+                ),
+                InlineKeyboardButton(
                     self.button_label(CLOCK, "Schedule"),
                     callback_data="schedule",
                 ),
             ],
+            [
+                InlineKeyboardButton(
+                    self.button_label(RESTART, "Control"),
+                    callback_data="control",
+                ),
+                InlineKeyboardButton(
+                    self.button_label(REFRESH, "Refresh Status"),
+                    callback_data="menu",
+                ),
+            ],
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    def _schedule_keyboard(self):
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    self.button_label(CHECK, "Enable Timer"),
+                    callback_data="schedule:enable",
+                ),
+                InlineKeyboardButton(
+                    self.button_label(PAUSE, "Disable Timer"),
+                    callback_data="schedule:disable",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    self.button_label(PENCIL, "Change Time"),
+                    callback_data="schedule:edit",
+                ),
+                InlineKeyboardButton(
+                    self.button_label(ALERT, "Restart Now"),
+                    callback_data="schedule:restart-now",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    self.button_label(BACK, "Back to Menu"),
+                    callback_data="menu",
+                ),
+            ],
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    def _control_keyboard(self):
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        keyboard = [
             [
                 InlineKeyboardButton(
                     self.button_label(PLAY, "Start Server"),
@@ -489,29 +618,7 @@ class ArmaCtlTelegramBot:
                     callback_data="restart:confirm",
                 ),
                 InlineKeyboardButton(
-                    self.button_label(ALERT, "Restart Now"),
-                    callback_data="schedule:restart-now",
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    self.button_label(CHECK, "Enable Timer"),
-                    callback_data="schedule:enable",
-                ),
-                InlineKeyboardButton(
-                    self.button_label(PAUSE, "Disable Timer"),
-                    callback_data="schedule:disable",
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    self.button_label(PENCIL, "Change Time"),
-                    callback_data="schedule:edit",
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    self.button_label(REFRESH, "Refresh Status"),
+                    self.button_label(BACK, "Back to Menu"),
                     callback_data="menu",
                 ),
             ],
@@ -534,6 +641,15 @@ class ArmaCtlTelegramBot:
 
     def _status_text(self) -> str:
         return render_bot_status_text(_build_status_snapshot(self.instance), self.lang)
+
+    def _metrics_text(self) -> str:
+        return render_bot_metrics_text(_build_status_snapshot(self.instance), self.lang)
+
+    def _details_text(self) -> str:
+        return render_bot_details_text(_build_status_snapshot(self.instance), self.lang)
+
+    def _control_text(self) -> str:
+        return render_bot_control_text(_build_status_snapshot(self.instance), self.lang)
 
     def _schedule_text(self) -> str:
         return render_bot_schedule_text(
@@ -596,8 +712,8 @@ class ArmaCtlTelegramBot:
             return False
         return True
 
-    async def _reply_with_menu(self, update, text: str) -> None:
-        markup = self._main_keyboard()
+    async def _reply_with_menu(self, update, text: str, markup=None) -> None:
+        markup = markup or self._main_keyboard()
         if getattr(update, "callback_query", None) is not None:
             await update.callback_query.edit_message_text(text=text, reply_markup=markup)
         else:
@@ -609,6 +725,7 @@ class ArmaCtlTelegramBot:
             await self._reply_with_menu(
                 update,
                 self.t("Could not parse restart times. Send something like 08:00, 20:00."),
+                self._schedule_keyboard(),
             )
             return
 
@@ -619,7 +736,7 @@ class ArmaCtlTelegramBot:
         )
         failures = [result.message for result in results if not result.success]
         if failures:
-            await self._reply_with_menu(update, failures[0])
+            await self._reply_with_menu(update, failures[0], self._schedule_keyboard())
             return
 
         self._clear_pending_schedule_input(update)
@@ -636,7 +753,7 @@ class ArmaCtlTelegramBot:
                 self._schedule_text(),
             ]
         )
-        await self._reply_with_menu(update, text)
+        await self._reply_with_menu(update, text, self._schedule_keyboard())
 
     async def _edit_message(self, query, text: str, markup) -> None:
         """Edit an existing callback message with an explicit keyboard."""
@@ -688,7 +805,7 @@ class ArmaCtlTelegramBot:
             schedule_entries = normalize_on_calendar_entries(raw_schedule)
             if not schedule_entries:
                 text = self.t("At least one restart time is required.")
-                await self._reply_with_menu(update, text)
+                await self._reply_with_menu(update, text, self._schedule_keyboard())
                 return
 
             results = self._call_backend(
@@ -698,7 +815,11 @@ class ArmaCtlTelegramBot:
             )
             failures = [result.message for result in results if not result.success]
             if failures:
-                await self._reply_with_menu(update, failures[0])
+                await self._reply_with_menu(
+                    update,
+                    failures[0],
+                    self._schedule_keyboard(),
+                )
                 return
 
             pretty_schedule = format_schedule_for_input(schedule_entries)
@@ -714,11 +835,15 @@ class ArmaCtlTelegramBot:
                     self._schedule_text(),
                 ]
             )
-            await self._reply_with_menu(update, text)
+            await self._reply_with_menu(update, text, self._schedule_keyboard())
             return
 
         self._clear_pending_schedule_input(update)
-        await self._reply_with_menu(update, self._schedule_text())
+        await self._reply_with_menu(
+            update,
+            self._schedule_text(),
+            self._schedule_keyboard(),
+        )
 
     async def text_message_handler(self, update, context) -> None:
         if not await self._ensure_allowed(update):
@@ -748,15 +873,36 @@ class ArmaCtlTelegramBot:
             await self._reply_with_menu(update, self._status_text())
             return
 
+        if data == "metrics":
+            await self._reply_with_menu(update, self._metrics_text())
+            return
+
+        if data == "details":
+            await self._reply_with_menu(update, self._details_text())
+            return
+
+        if data == "control":
+            await self._reply_with_menu(
+                update,
+                self._control_text(),
+                self._control_keyboard(),
+            )
+            return
+
         if data == "schedule":
-            await self._reply_with_menu(update, self._schedule_text())
+            await self._reply_with_menu(
+                update,
+                self._schedule_text(),
+                self._schedule_keyboard(),
+            )
             return
 
         if data == "start":
             result = self._call_backend(start_service, service_unit_name(self.instance))
             await self._reply_with_menu(
                 update,
-                self.action_result_text(result, self._status_text()),
+                self.action_result_text(result, self._control_text()),
+                self._control_keyboard(),
             )
             return
 
@@ -772,7 +918,8 @@ class ArmaCtlTelegramBot:
             result = self._call_backend(stop_service, service_unit_name(self.instance))
             await self._reply_with_menu(
                 update,
-                self.action_result_text(result, self._status_text()),
+                self.action_result_text(result, self._control_text()),
+                self._control_keyboard(),
             )
             return
 
@@ -788,7 +935,8 @@ class ArmaCtlTelegramBot:
             result = self._call_backend(restart_service, service_unit_name(self.instance))
             await self._reply_with_menu(
                 update,
-                self.action_result_text(result, self._status_text()),
+                self.action_result_text(result, self._control_text()),
+                self._control_keyboard(),
             )
             return
 
@@ -797,6 +945,7 @@ class ArmaCtlTelegramBot:
             await self._reply_with_menu(
                 update,
                 self.action_result_text(result, self._schedule_text()),
+                self._schedule_keyboard(),
             )
             return
 
@@ -805,6 +954,7 @@ class ArmaCtlTelegramBot:
             await self._reply_with_menu(
                 update,
                 self.action_result_text(result, self._schedule_text()),
+                self._schedule_keyboard(),
             )
             return
 
@@ -816,6 +966,7 @@ class ArmaCtlTelegramBot:
                     get_timer_status(timer_unit_name(self.instance)).get("schedule", ""),
                     self.lang,
                 ),
+                self._schedule_keyboard(),
             )
             return
 
@@ -826,7 +977,8 @@ class ArmaCtlTelegramBot:
             )
             await self._reply_with_menu(
                 update,
-                self.action_result_text(result, self._status_text()),
+                self.action_result_text(result, self._schedule_text()),
+                self._schedule_keyboard(),
             )
 
     def build_application(self):
