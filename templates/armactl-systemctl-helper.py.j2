@@ -1,0 +1,117 @@
+#!/usr/bin/python3
+"""Narrow root-owned helper for armactl systemctl actions."""
+
+from __future__ import annotations
+
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+INSTALL_BIN = "{{ install_bin }}"
+SYSTEMCTL_BIN = "{{ systemctl_bin }}"
+ALLOWED_ACTIONS = {
+    "start",
+    "stop",
+    "restart",
+    "enable",
+    "disable",
+    "daemon-reload",
+    "update-timer",
+}
+ALLOWED_UNIT_PATTERNS = (
+    re.compile(r"^armareforger(?:@[A-Za-z0-9_.-]+)?\.service$"),
+    re.compile(r"^armareforger-restart(?:@[A-Za-z0-9_.-]+)?\.(service|timer)$"),
+    re.compile(r"^armactl-bot\.service$"),
+)
+ALLOWED_TIMER_PATTERNS = (
+    re.compile(r"^armareforger-restart(?:@[A-Za-z0-9_.-]+)?\.timer$"),
+)
+
+
+def _fail(message: str) -> int:
+    print(message, file=sys.stderr)
+    return 1
+
+
+def _allowed_unit(unit_name: str) -> bool:
+    return any(pattern.fullmatch(unit_name) for pattern in ALLOWED_UNIT_PATTERNS)
+
+
+def _allowed_timer(timer_name: str) -> bool:
+    return any(pattern.fullmatch(timer_name) for pattern in ALLOWED_TIMER_PATTERNS)
+
+
+def _valid_schedule_entry(entry: str) -> bool:
+    return bool(entry) and "\n" not in entry and "\r" not in entry and "\x00" not in entry
+
+
+def _render_timer_text(entries: list[str]) -> str:
+    lines = [
+        "[Unit]",
+        "Description=Scheduled restart for Arma Reforger Dedicated Server",
+        "",
+        "[Timer]",
+    ]
+    lines.extend(f"OnCalendar={entry}" for entry in entries)
+    lines.extend(["Persistent=true", "", "[Install]", "WantedBy=timers.target", ""])
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    if not args:
+        return _fail("Usage: armactl-systemctl-helper ACTION [UNIT]")
+
+    action = args[0]
+    if action not in ALLOWED_ACTIONS:
+        return _fail(f"Denied: unsupported action '{action}'.")
+
+    if action == "update-timer":
+        if len(args) < 3:
+            return _fail(
+                "Usage: armactl-systemctl-helper update-timer TIMER_NAME ONCALENDAR..."
+            )
+        timer_name, entries = args[1], args[2:]
+        if not _allowed_timer(timer_name):
+            return _fail(f"Denied: unsupported timer '{timer_name}'.")
+        if not all(_valid_schedule_entry(entry) for entry in entries):
+            return _fail("Denied: invalid OnCalendar entry.")
+
+        destination = str(Path("/etc/systemd/system") / timer_name)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / timer_name
+            source.write_text(_render_timer_text(entries), encoding="utf-8")
+            command = [
+                INSTALL_BIN,
+                "-D",
+                "-o",
+                "root",
+                "-g",
+                "root",
+                "-m",
+                "0644",
+                str(source),
+                destination,
+            ]
+            result = subprocess.run(command)
+            return result.returncode
+    elif action == "daemon-reload":
+        if len(args) != 1:
+            return _fail("Denied: daemon-reload does not accept a unit argument.")
+        command = [SYSTEMCTL_BIN, "daemon-reload"]
+    else:
+        if len(args) != 2:
+            return _fail(f"Usage: armactl-systemctl-helper {action} UNIT")
+        unit_name = args[1]
+        if not _allowed_unit(unit_name):
+            return _fail(f"Denied: unsupported unit '{unit_name}'.")
+        command = [SYSTEMCTL_BIN, action, unit_name]
+
+    result = subprocess.run(command)
+    return result.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

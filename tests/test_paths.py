@@ -6,11 +6,14 @@ from armactl.paths import (
     backups_dir,
     bot_dir,
     bot_env_file,
+    bot_service_file,
     config_dir,
     config_file,
     instance_root,
     logs_dir,
     modpacks_dir,
+    privileged_helper_file,
+    privileged_sudoers_file,
     server_binary,
     server_dir,
     start_script,
@@ -81,3 +84,18 @@ def test_start_script():
 def test_server_binary():
     path = server_binary()
     assert path == server_dir() / "ArmaReforgerServer"
+
+
+def test_bot_service_file():
+    path = bot_service_file()
+    assert path == Path("/etc/systemd/system") / "armactl-bot.service"
+
+
+def test_privileged_helper_file():
+    path = privileged_helper_file()
+    assert path == Path("/usr/local/libexec") / "armactl-systemctl-helper"
+
+
+def test_privileged_sudoers_file():
+    path = privileged_sudoers_file()
+    assert path == Path("/etc/sudoers.d") / "armactl-systemctl-helper"

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +23,10 @@ from armactl.i18n import _, tr
 
 TIME_ONLY_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 DAILY_TIME_RE = re.compile(r"^\*-\*-\* (\d{1,2}:\d{2}:\d{2})$")
+SUDO_AUTH_ERROR_MARKERS = (
+    "a terminal is required to read the password",
+    "a password is required",
+)
 
 
 @dataclass
@@ -41,12 +47,6 @@ def _run_systemctl(
     use_sudo: bool = True,
 ) -> ServiceResult:
     """Run a systemctl command and return the result."""
-    cmd = []
-    if use_sudo:
-        cmd.append("sudo")
-    cmd.extend(["systemctl", action])
-    if service_name:
-        cmd.append(service_name)
     action_label = {
         "start": _("Systemctl action: start"),
         "stop": _("Systemctl action: stop"),
@@ -55,6 +55,7 @@ def _run_systemctl(
         "disable": _("Systemctl action: disable"),
         "daemon-reload": _("Systemctl action: daemon-reload"),
     }.get(action, action)
+    cmd = _build_systemctl_command(action, service_name=service_name, use_sudo=use_sudo)
 
     try:
         result = subprocess.run(
@@ -75,6 +76,16 @@ def _run_systemctl(
             )
         else:
             stderr = result.stderr.strip()
+            if use_sudo and _looks_like_sudo_auth_error(stderr):
+                return ServiceResult(
+                    success=False,
+                    message=_(
+                        "Secure privileged control is not configured yet. "
+                        "Install/update the bot service or re-run install/repair "
+                        "from the TUI to install the secure sudo helper."
+                    ),
+                    exit_code=result.returncode,
+                )
             return ServiceResult(
                 success=False,
                 message=tr(
@@ -112,6 +123,337 @@ def _run_systemctl(
             ),
             exit_code=1,
         )
+
+
+def _resolve_systemctl_binary() -> str:
+    """Return the systemctl binary path used by the privileged helper."""
+    return shutil.which("systemctl") or "/usr/bin/systemctl"
+
+
+def _resolve_install_binary() -> str:
+    """Return the install binary path used for root-owned file placement."""
+    return shutil.which("install") or "/usr/bin/install"
+
+
+def has_privileged_systemctl_channel() -> bool:
+    """Return whether the narrow passwordless helper channel is installed."""
+    return (
+        paths.privileged_helper_file().is_file()
+        and paths.privileged_sudoers_file().is_file()
+    )
+
+
+def _looks_like_sudo_auth_error(stderr: str) -> bool:
+    """Detect sudo failures caused by non-interactive password prompts."""
+    lowered = stderr.lower()
+    return any(marker in lowered for marker in SUDO_AUTH_ERROR_MARKERS)
+
+
+def _build_systemctl_command(
+    action: str,
+    service_name: str | None = None,
+    *,
+    use_sudo: bool = True,
+) -> list[str]:
+    """Build the safest available systemctl invocation for the current context."""
+    if not use_sudo:
+        cmd = [_resolve_systemctl_binary(), action]
+        if service_name:
+            cmd.append(service_name)
+        return cmd
+
+    if has_privileged_systemctl_channel():
+        cmd = ["sudo", "-n", str(paths.privileged_helper_file()), action]
+        if service_name:
+            cmd.append(service_name)
+        return cmd
+
+    cmd = ["sudo"]
+    if not sys.stdin.isatty():
+        cmd.append("-n")
+    cmd.extend([_resolve_systemctl_binary(), action])
+    if service_name:
+        cmd.append(service_name)
+    return cmd
+
+
+def _systemctl_helper_user() -> str:
+    """Best-effort current Linux username for helper/sudoers installation."""
+    user = os.getenv("USER", "root")
+    try:
+        if user == "root" and os.getlogin():
+            user = os.getlogin()
+    except OSError:
+        pass
+    return user
+
+
+def _templates_dir() -> Path:
+    """Return the repo templates directory used for systemd/helper files."""
+    return Path(__file__).resolve().parents[2] / "templates"
+
+
+def _template_environment() -> Environment:
+    """Build the Jinja environment for armactl templates."""
+    return Environment(loader=FileSystemLoader(str(_templates_dir())))
+
+
+def _render_privileged_helper_script() -> str:
+    """Render the root-owned helper script text."""
+    env = _template_environment()
+    return env.get_template("armactl-systemctl-helper.py.j2").render(
+        install_bin=_resolve_install_binary(),
+        systemctl_bin=_resolve_systemctl_binary(),
+    )
+
+
+def _render_privileged_sudoers(user: str) -> str:
+    """Render the sudoers drop-in text for the current Linux user."""
+    env = _template_environment()
+    return env.get_template("armactl-systemctl-helper.sudoers.j2").render(
+        user=user,
+        helper_path=str(paths.privileged_helper_file()),
+    )
+
+
+def install_privileged_systemctl_channel() -> list[ServiceResult]:
+    """Install the narrow helper + sudoers rule used for bot/TUI service actions."""
+    results: list[ServiceResult] = []
+    user = _systemctl_helper_user()
+
+    try:
+        helper_text = _render_privileged_helper_script()
+        sudoers_text = _render_privileged_sudoers(user)
+
+        with tempfile.TemporaryDirectory() as tempd:
+            temp_dir = Path(tempd)
+            helper_temp = temp_dir / paths.PRIVILEGED_HELPER_NAME
+            sudoers_temp = temp_dir / paths.PRIVILEGED_SUDOERS_NAME
+            helper_temp.write_text(helper_text, encoding="utf-8")
+            sudoers_temp.write_text(sudoers_text, encoding="utf-8")
+
+            visudo_bin = shutil.which("visudo") or "/usr/sbin/visudo"
+            if Path(visudo_bin).exists():
+                validation = subprocess.run(
+                    [visudo_bin, "-cf", str(sudoers_temp)],
+                    capture_output=True,
+                    text=True,
+                )
+                if validation.returncode != 0:
+                    error_text = validation.stderr.strip() or validation.stdout.strip()
+                    return [
+                        ServiceResult(
+                            False,
+                            tr(
+                                "Failed to validate sudoers file {path}: {error}",
+                                path=sudoers_temp,
+                                error=error_text,
+                            ),
+                            validation.returncode,
+                        )
+                    ]
+
+            install_steps = [
+                (
+                    helper_temp,
+                    paths.privileged_helper_file(),
+                    "0755",
+                ),
+                (
+                    sudoers_temp,
+                    paths.privileged_sudoers_file(),
+                    "0440",
+                ),
+            ]
+            for source, dest, mode in install_steps:
+                install_result = subprocess.run(
+                    [
+                        "sudo",
+                        _resolve_install_binary(),
+                        "-D",
+                        "-o",
+                        "root",
+                        "-g",
+                        "root",
+                        "-m",
+                        mode,
+                        str(source),
+                        str(dest),
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                if install_result.returncode != 0:
+                    return [
+                        ServiceResult(
+                            False,
+                            tr(
+                                "Failed to install {name}: {error}",
+                                name=dest.name,
+                                error=install_result.stderr.strip(),
+                            ),
+                            install_result.returncode,
+                        )
+                    ]
+                results.append(
+                    ServiceResult(
+                        True,
+                        tr("Installed {name} to {path}", name=dest.name, path=dest.parent),
+                    )
+                )
+    except Exception as e:
+        return [
+            ServiceResult(
+                False,
+                tr("Secure privileged control install failed: {error}", error=e),
+                1,
+            )
+        ]
+
+    return results
+
+
+def install_systemd_unit_file(source: Path, destination: Path) -> ServiceResult:
+    """Install a rendered systemd unit file with standard interactive sudo."""
+    command = [
+        "sudo",
+        _resolve_install_binary(),
+        "-D",
+        "-o",
+        "root",
+        "-g",
+        "root",
+        "-m",
+        "0644",
+        str(source),
+        str(destination),
+    ]
+
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode == 0:
+        return ServiceResult(
+            True,
+            tr("Installed {name} to {path}", name=destination.name, path=destination.parent),
+        )
+
+    stderr = result.stderr.strip()
+    if _looks_like_sudo_auth_error(stderr):
+        return ServiceResult(
+            False,
+            _(
+                "Secure privileged control is not configured yet. "
+                "Install/update the bot service or re-run install/repair "
+                "from the TUI to install the secure sudo helper."
+            ),
+            result.returncode,
+        )
+
+    return ServiceResult(
+        False,
+        tr("Failed to install {name}: {error}", name=destination.name, error=stderr),
+        result.returncode,
+    )
+
+
+def render_restart_timer_unit(on_calendar: str | list[str]) -> str:
+    """Render the restart timer unit with one or more OnCalendar entries."""
+    on_calendar_entries = normalize_on_calendar_entries(on_calendar)
+    if not on_calendar_entries:
+        on_calendar_entries = [normalize_on_calendar("*-*-* 06:00:00")]
+
+    env = _template_environment()
+    return env.get_template("armareforger-restart.timer.j2").render(
+        on_calendar_entries=on_calendar_entries,
+    )
+
+
+def update_restart_timer_schedule(
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    on_calendar: str | list[str] = "*-*-* 06:00:00",
+) -> list[ServiceResult]:
+    """Update only the restart timer schedule for an existing instance."""
+    results: list[ServiceResult] = []
+    timer_name = timer_unit_name(instance)
+    timer_path = paths.SYSTEMD_DIR / timer_name
+    schedule_entries = normalize_on_calendar_entries(on_calendar)
+    if not schedule_entries:
+        return [ServiceResult(False, _("At least one restart time is required."), 1)]
+
+    try:
+        if has_privileged_systemctl_channel():
+            command = [
+                "sudo",
+                "-n",
+                str(paths.privileged_helper_file()),
+                "update-timer",
+                timer_name,
+                *schedule_entries,
+            ]
+            update_result = subprocess.run(command, capture_output=True, text=True)
+            if update_result.returncode != 0:
+                stderr = update_result.stderr.strip() or update_result.stdout.strip()
+                if _looks_like_sudo_auth_error(stderr):
+                    return [
+                        ServiceResult(
+                            False,
+                            _(
+                                "Secure privileged control is not configured yet. "
+                                "Install/update the bot service or re-run install/repair "
+                                "from the TUI to install the secure sudo helper."
+                            ),
+                            update_result.returncode,
+                        )
+                    ]
+                return [
+                    ServiceResult(
+                        False,
+                        tr("Failed to install {name}: {error}", name=timer_name, error=stderr),
+                        update_result.returncode,
+                    )
+                ]
+            results.append(
+                ServiceResult(
+                    True,
+                    tr("Installed {name} to {path}", name=timer_name, path=timer_path.parent),
+                )
+            )
+        else:
+            with tempfile.TemporaryDirectory() as tempd:
+                temp_timer = Path(tempd) / timer_name
+                temp_timer.write_text(
+                    render_restart_timer_unit(schedule_entries),
+                    encoding="utf-8",
+                )
+                install_result = install_systemd_unit_file(temp_timer, timer_path)
+                if not install_result.success:
+                    return [install_result]
+                results.append(install_result)
+
+        reload_result = daemon_reload()
+        results.append(
+            ServiceResult(
+                reload_result.success,
+                (
+                    _("Systemd daemon reloaded")
+                    if reload_result.success
+                    else tr("Daemon reload failed: {message}", message=reload_result.message)
+                ),
+                reload_result.exit_code,
+            )
+        )
+
+        timer_restart = _run_systemctl("restart", timer_name)
+        results.append(timer_restart)
+    except Exception as e:
+        return [
+            ServiceResult(
+                False,
+                tr("Restart timer schedule update failed: {error}", error=e),
+                1,
+            )
+        ]
+
+    return results
 
 
 def start_service(service_name: str = "armareforger.service") -> ServiceResult:
@@ -461,9 +803,7 @@ def generate_services(
             f"ExecStart=/usr/bin/systemctl restart {service_name}\n"
         )
 
-        timer_render = env.get_template("armareforger-restart.timer.j2").render(
-            on_calendar_entries=on_calendar_entries,
-        )
+        timer_render = render_restart_timer_unit(on_calendar_entries)
 
         # 3. Write start script (no sudo needed, it's in user's home)
         with open(start_sh, "w") as f:
@@ -491,43 +831,7 @@ def generate_services(
                 (trestart, restart_service_path),
                 (ttimer, timer_path),
             ]:
-                cmd = ["sudo", "mv", str(tmp_file), str(dest_file)]
-                ans = subprocess.run(cmd, capture_output=True, text=True)
-                if ans.returncode != 0:
-                    results.append(
-                        ServiceResult(
-                            False,
-                            tr(
-                                "Failed to install {name}: {error}",
-                                name=dest_file.name,
-                                error=ans.stderr.strip(),
-                            ),
-                            ans.returncode,
-                        )
-                    )
-                else:
-                    results.append(
-                        ServiceResult(
-                            True,
-                            tr(
-                                "Installed {name} to {path}",
-                                name=dest_file.name,
-                                path=dest_file.parent,
-                            ),
-                        )
-                    )
-
-        # Sudo chown
-            subprocess.run(
-                [
-                    "sudo",
-                    "chown",
-                    "root:root",
-                    str(service_path),
-                    str(restart_service_path),
-                    str(timer_path),
-                ]
-            )
+                results.append(install_systemd_unit_file(tmp_file, dest_file))
 
         dr_res = daemon_reload()
         results.append(

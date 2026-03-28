@@ -6,12 +6,16 @@ from unittest.mock import patch
 
 from armactl import paths
 from armactl.service_manager import (
+    _build_systemctl_command,
+    _run_systemctl,
     format_schedule_for_input,
     get_timer_status,
+    has_privileged_systemctl_channel,
     normalize_on_calendar,
     normalize_on_calendar_entries,
     service_unit_name,
     timer_unit_name,
+    update_restart_timer_schedule,
 )
 
 
@@ -90,3 +94,121 @@ def test_get_timer_status_falls_back_to_timer_file_schedule(tmp_path: Path) -> N
     assert status["schedule_entries"] == ["*-*-* 05:30:00", "*-*-* 13:45:00"]
     assert status["schedule"] == "05:30, 13:45"
     assert status["next_run"] == "Mon 2026-03-30 05:30:00 UTC"
+
+
+def test_has_privileged_systemctl_channel_requires_helper_and_sudoers(tmp_path: Path) -> None:
+    helper_path = tmp_path / "armactl-systemctl-helper"
+    sudoers_path = tmp_path / "armactl-systemctl-helper.sudoers"
+
+    with (
+        patch("armactl.service_manager.paths.privileged_helper_file", return_value=helper_path),
+        patch("armactl.service_manager.paths.privileged_sudoers_file", return_value=sudoers_path),
+    ):
+        assert has_privileged_systemctl_channel() is False
+        helper_path.write_text("helper", encoding="utf-8")
+        assert has_privileged_systemctl_channel() is False
+        sudoers_path.write_text("sudoers", encoding="utf-8")
+        assert has_privileged_systemctl_channel() is True
+
+
+def test_build_systemctl_command_prefers_secure_helper_channel() -> None:
+    helper_path = Path("/usr/local/libexec/armactl-systemctl-helper")
+
+    with (
+        patch("armactl.service_manager.has_privileged_systemctl_channel", return_value=True),
+        patch("armactl.service_manager.paths.privileged_helper_file", return_value=helper_path),
+    ):
+        command = _build_systemctl_command("restart", "armareforger.service")
+
+    assert command == [
+        "sudo",
+        "-n",
+        str(helper_path),
+        "restart",
+        "armareforger.service",
+    ]
+
+
+def test_build_systemctl_command_uses_noninteractive_sudo_without_tty() -> None:
+    with (
+        patch("armactl.service_manager.has_privileged_systemctl_channel", return_value=False),
+        patch("armactl.service_manager.sys.stdin.isatty", return_value=False),
+        patch(
+            "armactl.service_manager._resolve_systemctl_binary",
+            return_value="/usr/bin/systemctl",
+        ),
+    ):
+        command = _build_systemctl_command("stop", "armareforger.service")
+
+    assert command == [
+        "sudo",
+        "-n",
+        "/usr/bin/systemctl",
+        "stop",
+        "armareforger.service",
+    ]
+
+
+def test_update_restart_timer_schedule_uses_secure_helper_channel() -> None:
+    helper_path = Path("/usr/local/libexec/armactl-systemctl-helper")
+    update_completed = CompletedProcess(
+        args=["sudo", "-n", str(helper_path), "update-timer"],
+        returncode=0,
+        stdout="",
+        stderr="",
+    )
+    reload_completed = CompletedProcess(
+        args=["sudo", "-n", str(helper_path), "daemon-reload"],
+        returncode=0,
+        stdout="",
+        stderr="",
+    )
+    restart_completed = CompletedProcess(
+        args=["sudo", "-n", str(helper_path), "restart", paths.TIMER_NAME],
+        returncode=0,
+        stdout="",
+        stderr="",
+    )
+
+    with (
+        patch("armactl.service_manager.has_privileged_systemctl_channel", return_value=True),
+        patch("armactl.service_manager.paths.privileged_helper_file", return_value=helper_path),
+        patch(
+            "armactl.service_manager.subprocess.run",
+            side_effect=[update_completed, reload_completed, restart_completed],
+        ) as run_mock,
+    ):
+        results = update_restart_timer_schedule("default", ["*-*-* 08:00:00"])
+
+    assert [result.success for result in results] == [True, True, True]
+    run_mock.assert_any_call(
+        [
+            "sudo",
+            "-n",
+            str(helper_path),
+            "update-timer",
+            paths.TIMER_NAME,
+            "*-*-* 08:00:00",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_run_systemctl_rewrites_noninteractive_sudo_error() -> None:
+    completed = CompletedProcess(
+        args=["sudo", "-n", "/usr/bin/systemctl", "stop", "armareforger.service"],
+        returncode=1,
+        stdout="",
+        stderr=(
+            "sudo: a terminal is required to read the password; "
+            "either use the -S option to read from standard input or configure an askpass helper\n"
+            "sudo: a password is required"
+        ),
+    )
+
+    with patch("armactl.service_manager.subprocess.run", return_value=completed):
+        result = _run_systemctl("stop", "armareforger.service")
+
+    assert result.success is False
+    assert "Secure privileged control" in result.message

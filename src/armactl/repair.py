@@ -12,7 +12,11 @@ from jinja2 import Environment, FileSystemLoader
 from armactl.discovery import discover_manual
 from armactl.i18n import _, tr
 from armactl.paths import start_script
-from armactl.service_manager import generate_services, stop_service
+from armactl.service_manager import (
+    generate_services,
+    install_privileged_systemctl_channel,
+    stop_service,
+)
 
 
 class RepairError(Exception):
@@ -98,7 +102,20 @@ def run_repair(
                 tr("Failed to generate systemd units: {message}", message=result.message)
             )
 
-    yield tr("[{instance}] Step 5: Fixing permissions...", instance=instance)
+    yield tr("[{instance}] Step 5: Installing secure privileged control...", instance=instance)
+    privileged_results = install_privileged_systemctl_channel()
+    for result in privileged_results:
+        if result.success:
+            yield tr("  OK {message}", message=result.message)
+        else:
+            raise RepairError(
+                tr(
+                    "Failed to install secure privileged control: {message}",
+                    message=result.message,
+                )
+            )
+
+    yield tr("[{instance}] Step 6: Fixing permissions...", instance=instance)
     script_path = start_script(instance)
     if script_path.exists():
         script_path.chmod(0o755)
@@ -106,7 +123,7 @@ def run_repair(
     else:
         yield _("  ! Start script still missing?")
 
-    yield tr("[{instance}] Step 6: Updating server state...", instance=instance)
+    yield tr("[{instance}] Step 7: Updating server state...", instance=instance)
     discover_manual(install_dir, config_path, instance=instance, save=True)
     yield _("  OK Server state synchronized")
 

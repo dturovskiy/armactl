@@ -15,7 +15,6 @@ from armactl.service_manager import (
     disable_service,
     enable_service,
     format_schedule_for_input,
-    generate_services,
     get_service_status,
     get_timer_status,
     normalize_on_calendar_entries,
@@ -25,6 +24,7 @@ from armactl.service_manager import (
     start_service,
     stop_service,
     timer_unit_name,
+    update_restart_timer_schedule,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -369,7 +369,11 @@ class ArmaCtlTelegramBot:
                 await self._reply_with_menu(update, text, schedule=True)
                 return
 
-            results = self._call_backend(generate_services, self.instance, schedule_entries)
+            results = self._call_backend(
+                update_restart_timer_schedule,
+                self.instance,
+                schedule_entries,
+            )
             failures = [result.message for result in results if not result.success]
             if failures:
                 await self._reply_with_menu(update, failures[0], schedule=True)

@@ -11,6 +11,8 @@ Current status:
 - the TUI already has a `Telegram Bot` settings screen that reads and writes it
 - the bot runtime is implemented via `python -m armactl.telegram_bot --instance <name>`
 - `armactl-bot.service` can now be installed and managed from the TUI
+- bot actions use a narrow root-owned helper plus a sudoers drop-in instead of
+  storing a password or attempting interactive sudo from the bot process
 - current gap: `/status` still reports server state only; player querying is not
   implemented yet
 
@@ -29,6 +31,12 @@ Current status:
 - It should remain available even when the game server is stopped
 - It should be able to trigger `start`, `stop`, `restart`, `status`, and
   schedule actions through the existing armactl backend
+- Privileged service control is performed through a narrowly-scoped helper
+  installed to `/usr/local/libexec/armactl-systemctl-helper` and authorized via
+  `/etc/sudoers.d/armactl-systemctl-helper`
+- Timer schedule updates use the same helper, but only through a dedicated
+  narrow path that rewrites the allowed restart timer file instead of allowing
+  arbitrary unit installation
 
 ## Source of truth
 
@@ -62,6 +70,7 @@ of the same `.env` file must produce the same final state that the TUI sees.
 2. Open `Manage Existing Server -> Telegram Bot`
 3. Save token and admin Chat ID(s) into the instance `.env`
 4. Use `Install / Update Bot Service`
+   This also installs/refreshes the secure privileged control channel.
 5. Start the service from the same screen
 
 ## Current bot surface

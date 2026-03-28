@@ -20,7 +20,12 @@ from armactl import paths
 from armactl.bot_config import ensure_bot_config
 from armactl.discovery import discover
 from armactl.i18n import _, tr
-from armactl.service_manager import enable_service, generate_services, restart_service
+from armactl.service_manager import (
+    enable_service,
+    generate_services,
+    install_privileged_systemctl_channel,
+    restart_service,
+)
 
 
 class InstallError(Exception):
@@ -217,6 +222,11 @@ def run_install(instance: str) -> Iterator[str]:
     yield _("Generating systemd services and timers...")
     results = generate_services(instance=instance)
     for result in results:
+        yield tr("  - {message}", message=result.message)
+
+    yield _("Installing secure privileged control channel...")
+    privileged_results = install_privileged_systemctl_channel()
+    for result in privileged_results:
         yield tr("  - {message}", message=result.message)
 
     yield _("Setting permissions and starting the server...")

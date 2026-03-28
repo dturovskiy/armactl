@@ -751,8 +751,8 @@ def schedule_set(ctx: click.Context, cron_expr: str) -> None:
     """Set restart schedule (OnCalendar expression)."""
     from armactl.service_manager import (
         format_schedule_for_input,
-        generate_services,
         normalize_on_calendar_entries,
+        update_restart_timer_schedule,
     )
 
     instance = ctx.obj["instance"]
@@ -763,7 +763,7 @@ def schedule_set(ctx: click.Context, cron_expr: str) -> None:
 
     display_value = format_schedule_for_input(schedule_entries)
     click.echo(f"[{instance}] Updating schedule to '{display_value}'...")
-    results = generate_services(instance=instance, on_calendar=schedule_entries)
+    results = update_restart_timer_schedule(instance=instance, on_calendar=schedule_entries)
     for r in results:
         if "timer" in r.message.lower() or "daemon" in r.message.lower():
             click.echo(f"  {'✓' if r.success else '✗'} {r.message}")

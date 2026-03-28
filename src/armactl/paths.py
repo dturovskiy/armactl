@@ -19,10 +19,14 @@ DEFAULT_INSTANCE_NAME = "default"
 
 # systemd
 SYSTEMD_DIR = Path("/etc/systemd/system")
+SUDOERS_DIR = Path("/etc/sudoers.d")
+LOCAL_LIBEXEC_DIR = Path("/usr/local/libexec")
 SERVICE_NAME = "armareforger.service"
 RESTART_SERVICE_NAME = "armareforger-restart.service"
 TIMER_NAME = "armareforger-restart.timer"
 BOT_SERVICE_NAME = "armactl-bot.service"
+PRIVILEGED_HELPER_NAME = "armactl-systemctl-helper"
+PRIVILEGED_SUDOERS_NAME = "armactl-systemctl-helper"
 
 
 # ---------------------------------------------------------------------------
@@ -143,3 +147,13 @@ def timer_file() -> Path:
 def bot_service_file() -> Path:
     """Path to the optional Telegram bot systemd service unit."""
     return SYSTEMD_DIR / BOT_SERVICE_NAME
+
+
+def privileged_helper_file() -> Path:
+    """Path to the root-owned helper used for narrow privileged control."""
+    return LOCAL_LIBEXEC_DIR / PRIVILEGED_HELPER_NAME
+
+
+def privileged_sudoers_file() -> Path:
+    """Path to the sudoers drop-in granting passwordless access to the helper."""
+    return SUDOERS_DIR / PRIVILEGED_SUDOERS_NAME

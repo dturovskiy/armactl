@@ -58,7 +58,6 @@ from armactl.service_manager import (
     disable_service,
     enable_service,
     format_schedule_for_input,
-    generate_services,
     get_timer_status,
     normalize_on_calendar_entries,
     restart_service,
@@ -66,6 +65,7 @@ from armactl.service_manager import (
     start_service,
     stop_service,
     timer_unit_name,
+    update_restart_timer_schedule,
 )
 
 
@@ -665,7 +665,7 @@ class ScheduleScreen(Screen):
             )
             return
 
-        results = generate_services(self.instance, on_calendar=schedule_entries)
+        results = update_restart_timer_schedule(self.instance, schedule_entries)
         failures = [result.message for result in results if not result.success]
         if failures:
             self.app.notify(
@@ -847,6 +847,9 @@ class BotConfigScreen(Screen):
             service_enabled = _("Yes") if bot_service.get("enabled") else _("No")
             runtime_status = bot_service.get("runtime", {})
             runtime_ready = _("Yes") if runtime_status.get("success") else _("No")
+            privileged_channel = (
+                _("Yes") if bot_service.get("privileged_channel_installed") else _("No")
+            )
 
             lines.extend(
                 [
@@ -860,6 +863,10 @@ class BotConfigScreen(Screen):
                     ),
                     tr("Bot service installed: {value}", value=service_installed),
                     tr("Bot service enabled on boot: {value}", value=service_enabled),
+                    tr(
+                        "Secure control channel installed: {value}",
+                        value=privileged_channel,
+                    ),
                     tr(
                         "Bot service active state: {value}",
                         value=bot_service.get("active_state", _("Unknown")),
@@ -968,7 +975,7 @@ class BotConfigScreen(Screen):
             return
 
         self.app.notify(
-            _("Bot service installed/updated and enabled on boot."),
+            _("Bot service and secure control channel installed/updated."),
             title=_("Telegram Bot"),
         )
 

@@ -19,6 +19,9 @@ from armactl.service_manager import (
     disable_service,
     enable_service,
     get_service_status,
+    has_privileged_systemctl_channel,
+    install_privileged_systemctl_channel,
+    install_systemd_unit_file,
     restart_service,
     start_service,
     stop_service,
@@ -120,6 +123,12 @@ def install_bot_service(instance: str) -> list[ServiceResult]:
         if not runtime_result.success:
             return [runtime_result]
 
+        privileged_results = install_privileged_systemctl_channel()
+        privileged_failures = [result for result in privileged_results if not result.success]
+        if privileged_failures:
+            return privileged_results
+        results.extend(privileged_results)
+
         service_path = paths.bot_service_file()
         service_render = render_bot_service_unit(instance)
 
@@ -128,31 +137,10 @@ def install_bot_service(instance: str) -> list[ServiceResult]:
             temp_service = temp_dir / bot_service_name()
             temp_service.write_text(service_render, encoding="utf-8")
 
-            move_result = subprocess.run(
-                ["sudo", "mv", str(temp_service), str(service_path)],
-                capture_output=True,
-                text=True,
-            )
-            if move_result.returncode != 0:
-                return [
-                    ServiceResult(
-                        False,
-                        tr(
-                            "Failed to install {name}: {error}",
-                            name=service_path.name,
-                            error=move_result.stderr.strip(),
-                        ),
-                        move_result.returncode,
-                    )
-                ]
-
-        subprocess.run(["sudo", "chown", "root:root", str(service_path)], capture_output=True)
-        results.append(
-            ServiceResult(
-                True,
-                tr("Installed {name} to {path}", name=service_path.name, path=service_path.parent),
-            )
-        )
+            install_result = install_systemd_unit_file(temp_service, service_path)
+            if not install_result.success:
+                return [install_result]
+            results.append(install_result)
 
         reload_result = daemon_reload()
         results.append(
@@ -182,6 +170,7 @@ def get_bot_service_status() -> dict[str, Any]:
         service_file=str(paths.bot_service_file()),
         installed=paths.bot_service_file().exists(),
         runtime=check_bot_runtime().to_dict(),
+        privileged_channel_installed=has_privileged_systemctl_channel(),
     )
     return status
 
