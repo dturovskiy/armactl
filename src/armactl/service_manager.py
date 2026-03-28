@@ -267,6 +267,12 @@ def normalize_on_calendar_entries(on_calendar: str | list[str]) -> list[str]:
                 raw_entries = comma_entries
             else:
                 raw_entries = [value]
+        elif " " in value:
+            space_entries = [entry.strip() for entry in value.split() if entry.strip()]
+            if len(space_entries) > 1 and all(TIME_ONLY_RE.match(entry) for entry in space_entries):
+                raw_entries = space_entries
+            else:
+                raw_entries = [value]
         else:
             raw_entries = [value]
 

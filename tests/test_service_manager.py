@@ -30,6 +30,14 @@ def test_normalize_on_calendar_entries_accepts_multiple_times() -> None:
     ]
 
 
+def test_normalize_on_calendar_entries_accepts_space_separated_times() -> None:
+    """Space-separated times should also become multiple OnCalendar entries."""
+    assert normalize_on_calendar_entries("06:00 18:00") == [
+        "*-*-* 06:00:00",
+        "*-*-* 18:00:00",
+    ]
+
+
 def test_format_schedule_for_input_compacts_daily_times() -> None:
     """Stored daily schedules should render back to user-friendly times."""
     assert format_schedule_for_input(

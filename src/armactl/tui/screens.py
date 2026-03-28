@@ -546,8 +546,8 @@ class ScheduleScreen(Screen):
             )
             yield Label(
                 _(
-                    "Enter one or more exact restart times separated by commas. "
-                    "Example: 05:00, 13:30, 22:00."
+                    "Enter one or more exact restart times separated by commas "
+                    "or spaces. Example: 05:00, 13:30, 22:00."
                 ),
                 id="schedule-help",
             )
