@@ -553,11 +553,11 @@ class ScheduleScreen(Screen):
                 placeholder=_("*-*-* 06:00:00 or 05:30"),
             )
             yield RichLog(id="timer-status-log", markup=True)
-            with HorizontalGroup(id="control-buttons"):
+            with HorizontalGroup(id="schedule-buttons-primary"):
                 yield Button(_("Apply Schedule"), id="btn_apply_schedule", variant="success")
                 yield Button(_("Enable Timer"), id="btn_enable_timer", variant="primary")
                 yield Button(_("Disable Timer"), id="btn_disable_timer", variant="warning")
-            with HorizontalGroup(id="control-buttons"):
+            with HorizontalGroup(id="schedule-buttons-secondary"):
                 yield Button(_("Restart Now"), id="btn_restart_now", variant="error")
                 yield Button(_("Refresh Status"), id="btn_refresh_schedule", variant="default")
                 yield Button(_("Back"), id="btn_back", variant="default")

@@ -115,11 +115,11 @@ class ArmaCtlApp(App):
         width: 100%;
         margin-bottom: 1;
     }
-    #control-buttons {
+    #control-buttons, #schedule-buttons-primary, #schedule-buttons-secondary {
         height: auto;
         margin-bottom: 1;
     }
-    #control-buttons Button {
+    #control-buttons Button, #schedule-buttons-primary Button, #schedule-buttons-secondary Button {
         width: 1fr;
     }
     HorizontalGroup Button {
