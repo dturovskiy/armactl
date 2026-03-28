@@ -353,7 +353,21 @@ def install(ctx: click.Context) -> None:
 @click.pass_context
 def repair(ctx: click.Context) -> None:
     """Repair broken installation."""
-    click.echo(f"[{ctx.obj['instance']}] repair — not implemented yet")
+    from armactl.repair import run_repair, RepairError
+    
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+
+    if not state.install_dir:
+        click.echo(f"[{instance}] Cannot determine install dir to repair.", err=True)
+        sys.exit(1)
+
+    try:
+        for output in run_repair(instance, state.install_dir, state.config_path):
+            click.echo(output)
+    except RepairError as e:
+        click.echo(f"[{instance}] Repair failed: {e}", err=True)
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------

@@ -93,17 +93,17 @@
 - [x] Реалізувати генерацію service/timer під час install
 - [x] Реалізувати запуск сервера після install
 - [x] Реалізувати запис `state.json`
-- [ ] Перевірити install на чистій VM
+- [x] Перевірити install на чистій VM
 
 ## Phase 6 — Repair mode
 
-- [ ] Реалізувати `repair`
-- [ ] Додати перевірку неповної інсталяції
-- [ ] Додати перевстановлення `start script`
-- [ ] Додати перевстановлення `service`
-- [ ] Додати перевстановлення `timer`
-- [ ] Додати `steamcmd validate/update` у repair
-- [ ] Додати оновлення `state.json` після repair
+- [x] Реалізувати `repair`
+- [x] Додати перевірку неповної інсталяції
+- [x] Додати перевстановлення `start script`
+- [x] Додати перевстановлення `service`
+- [x] Додати перевстановлення `timer`
+- [x] Додати `steamcmd validate/update` у repair
+- [x] Додати оновлення `state.json` після repair
 - [ ] Перевірити repair на навмисно зламаному стані
 
 ## Phase 7 — Mod manager
