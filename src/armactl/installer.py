@@ -17,6 +17,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 from armactl import paths
+from armactl.bot_config import ensure_bot_config
 from armactl.discovery import discover
 from armactl.i18n import _, tr
 from armactl.service_manager import enable_service, generate_services, restart_service
@@ -126,6 +127,8 @@ def create_install_dir(instance: str) -> None:
     paths.config_dir(instance).mkdir(parents=True, exist_ok=True)
     paths.backups_dir(instance).mkdir(parents=True, exist_ok=True)
     paths.modpacks_dir(instance).mkdir(parents=True, exist_ok=True)
+    paths.bot_dir(instance).mkdir(parents=True, exist_ok=True)
+    ensure_bot_config(instance)
 
 
 def download_server(instance: str) -> None:

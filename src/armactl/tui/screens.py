@@ -25,6 +25,15 @@ from textual.widgets import (
 )
 
 from armactl import paths, ports
+from armactl.bot_config import (
+    BotConfig,
+    BotConfigError,
+    ensure_bot_config,
+    load_bot_config,
+    parse_admin_chat_ids,
+    save_bot_config,
+    validate_bot_config,
+)
 from armactl.cleaner import clean_junk, format_size, get_junk_stats
 from armactl.config_manager import load_config, save_config, validate_config
 from armactl.discovery import discover
@@ -425,6 +434,7 @@ class ManageScreen(Screen):
             yield Button(_("Edit Configuration"), id="btn_config", variant="success")
             yield Button(_("Raw Config JSON"), id="btn_config_raw", variant="default")
             yield Button(_("Restart Schedule"), id="btn_schedule", variant="primary")
+            yield Button(_("Telegram Bot"), id="btn_bot", variant="primary")
             yield Button(_("Mods Manager"), id="btn_mods", variant="primary")
             yield Button(_("Maintenance / Cleanup"), id="btn_cleanup", variant="warning")
             yield Button(_("View Live Logs"), id="btn_logs", variant="primary")
@@ -515,6 +525,9 @@ class ManageScreen(Screen):
 
         elif event.button.id == "btn_schedule":
             self.app.push_screen(ScheduleScreen(self.instance))
+
+        elif event.button.id == "btn_bot":
+            self.app.push_screen(BotConfigScreen(self.instance))
 
         elif event.button.id == "btn_mods":
             self.app.push_screen(ModManagerScreen(self.instance))
@@ -697,6 +710,207 @@ class ScheduleScreen(Screen):
                 ConfirmScreen(_("Are you sure you want to RESTART the server now?")),
                 check_restart,
             )
+
+
+class BotConfigScreen(Screen):
+    """Screen for editing the optional Telegram bot `.env` settings."""
+
+    BINDINGS = [
+        ("b", "pop_screen", _("Back")),
+        ("ctrl+s", "save_bot_settings", _("Save Bot Settings")),
+        ("ctrl+r", "reload_bot_settings", _("Reload From Disk")),
+        ("c", "copy_bot_env_path", _("Copy .env Path")),
+    ]
+
+    def __init__(self, instance: str, **kwargs):
+        super().__init__(**kwargs)
+        self.instance = instance
+        self._enabled = False
+        self._env_path = paths.bot_env_file(instance)
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with VerticalGroup(id="bot-config-container"):
+            yield Label(tr("Telegram Bot: {instance}", instance=self.instance), id="screen-title")
+            yield Label(
+                tr(
+                    "Optional Telegram bot settings. armactl reads and writes "
+                    "{path} as the single source of truth.",
+                    path=self._env_path,
+                ),
+                id="bot-config-help",
+            )
+            yield RichLog(id="bot-status-log", markup=True)
+            yield Label(_("Bot Token:"))
+            yield Input(id="inp_bot_token", placeholder="123456789:ABCDEF...")
+            yield Label(_("Admin Chat IDs:"))
+            yield Input(
+                id="inp_bot_chat_ids",
+                placeholder="123456789, -1001234567890",
+            )
+            yield Label(_("Bot Language:"))
+            yield Input(id="inp_bot_language", placeholder="uk")
+            with HorizontalGroup(id="bot-enable-buttons"):
+                yield Button(_("Enable Bot"), id="btn_bot_enable", variant="success")
+                yield Button(_("Disable Bot"), id="btn_bot_disable", variant="warning")
+            with HorizontalGroup(id="bot-config-buttons"):
+                yield Button(_("Save Bot Settings"), id="btn_save_bot", variant="success")
+                yield Button(_("Reload From Disk"), id="btn_reload_bot", variant="default")
+                yield Button(_("Copy .env Path"), id="btn_copy_bot_path", variant="primary")
+                yield Button(_("Back"), id="btn_back_bot", variant="error")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.reload_bot_settings(notify=False)
+        self.query_one("#inp_bot_token", Input).focus()
+
+    def _build_draft_config(self) -> tuple[BotConfig, list[str]]:
+        token = self.query_one("#inp_bot_token", Input).value.strip()
+        raw_chat_ids = self.query_one("#inp_bot_chat_ids", Input).value.strip()
+        language = self.query_one("#inp_bot_language", Input).value.strip() or "uk"
+
+        validation_errors: list[str] = []
+        try:
+            admin_chat_ids = parse_admin_chat_ids(raw_chat_ids)
+        except BotConfigError as e:
+            admin_chat_ids = []
+            validation_errors.append(str(e))
+
+        config = BotConfig(
+            instance=self.instance,
+            enabled=self._enabled,
+            token=token,
+            admin_chat_ids=admin_chat_ids,
+            language=language,
+            env_path=self._env_path,
+        )
+        validation_errors.extend(validate_bot_config(config))
+        return config, validation_errors
+
+    def _update_enable_buttons(self) -> None:
+        enable_button = self.query_one("#btn_bot_enable", Button)
+        disable_button = self.query_one("#btn_bot_disable", Button)
+        enable_button.disabled = self._enabled
+        disable_button.disabled = not self._enabled
+
+    def _refresh_status_log(self, validation_errors: list[str] | None = None) -> None:
+        config, draft_errors = self._build_draft_config()
+        if validation_errors is None:
+            validation_errors = draft_errors
+
+        log = self.query_one("#bot-status-log", RichLog)
+        enabled_value = _("Yes") if config.enabled else _("No")
+        admins_value = config.admin_chat_ids_text() or _("Missing")
+
+        lines = [
+            _("[bold cyan]Telegram Bot Status[/bold cyan]"),
+            tr("Bot config file: {path}", path=self._env_path),
+            tr("Bot enabled: {value}", value=enabled_value),
+            tr("Bot token status: {value}", value=config.masked_token()),
+            tr("Admin Chat IDs: {value}", value=admins_value),
+            tr("Bot language: {value}", value=config.language),
+        ]
+
+        if validation_errors:
+            lines.append(_("[bold yellow]Validation warnings[/bold yellow]"))
+            for error in validation_errors:
+                lines.append(tr("- {error}", error=error))
+
+        log.clear()
+        log.write("\n".join(lines))
+
+    def reload_bot_settings(self, notify: bool = True) -> None:
+        try:
+            ensure_bot_config(self.instance)
+            config = load_bot_config(self.instance)
+        except Exception as e:
+            self.app.notify(
+                tr("Failed to load Telegram bot settings: {error}", error=e),
+                title=_("Telegram Bot"),
+                severity="error",
+            )
+            return
+
+        self._enabled = config.enabled
+        self.query_one("#inp_bot_token", Input).value = config.token
+        self.query_one("#inp_bot_chat_ids", Input).value = config.admin_chat_ids_text()
+        self.query_one("#inp_bot_language", Input).value = config.language
+        self._update_enable_buttons()
+        self._refresh_status_log(validation_errors=[])
+
+        if notify:
+            self.app.notify(
+                _("Reloaded Telegram bot settings from disk."),
+                title=_("Telegram Bot"),
+            )
+
+    def action_reload_bot_settings(self) -> None:
+        self.reload_bot_settings(notify=True)
+
+    def action_copy_bot_env_path(self) -> None:
+        self.app.copy_to_clipboard(str(self._env_path))
+        self.app.notify(
+            tr("Copied Telegram bot config path: {path}", path=self._env_path),
+            title=_("Clipboard"),
+        )
+
+    def action_save_bot_settings(self) -> None:
+        config, validation_errors = self._build_draft_config()
+        if validation_errors:
+            self.app.notify(
+                validation_errors[0],
+                title=_("Telegram Bot"),
+                severity="error",
+            )
+            self._refresh_status_log(validation_errors)
+            return
+
+        try:
+            saved_path = save_bot_config(config)
+        except Exception as e:
+            self.app.notify(
+                tr("Failed to save Telegram bot settings: {error}", error=e),
+                title=_("Telegram Bot"),
+                severity="error",
+            )
+            return
+
+        self._env_path = saved_path
+        self._refresh_status_log(validation_errors=[])
+        self.app.notify(
+            tr("Saved Telegram bot settings to {path}.", path=saved_path),
+            title=_("Telegram Bot"),
+        )
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id in {"inp_bot_token", "inp_bot_chat_ids", "inp_bot_language"}:
+            self._refresh_status_log()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn_back_bot":
+            self.app.pop_screen()
+        elif event.button.id == "btn_bot_enable":
+            self._enabled = True
+            self._update_enable_buttons()
+            self._refresh_status_log()
+            self.app.notify(
+                _("Telegram bot marked as enabled. Save settings to persist."),
+                title=_("Telegram Bot"),
+            )
+        elif event.button.id == "btn_bot_disable":
+            self._enabled = False
+            self._update_enable_buttons()
+            self._refresh_status_log()
+            self.app.notify(
+                _("Telegram bot marked as disabled. Save settings to persist."),
+                title=_("Telegram Bot"),
+            )
+        elif event.button.id == "btn_save_bot":
+            self.action_save_bot_settings()
+        elif event.button.id == "btn_reload_bot":
+            self.action_reload_bot_settings()
+        elif event.button.id == "btn_copy_bot_path":
+            self.action_copy_bot_env_path()
 
 
 class CleanupScreen(Screen):

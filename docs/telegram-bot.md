@@ -3,7 +3,13 @@
 ## Status
 
 This document describes the agreed design for the optional Telegram bot
-component in Phase 13. It is not fully implemented yet.
+component in Phase 13.
+
+Current status:
+
+- instance-scoped `bot/.env` is implemented as the source of truth
+- the TUI already has a `Telegram Bot` settings screen that reads and writes it
+- the bot runtime and `armactl-bot.service` are still pending
 
 ## Goals
 
@@ -30,9 +36,8 @@ environment file:
 ~/armactl-data/<instance>/bot/.env
 ```
 
-The future TUI bot settings screen must read and write this file directly.
-Manual editing of the same `.env` file must produce the same final state that
-the TUI sees.
+The TUI bot settings screen reads and writes this file directly. Manual editing
+of the same `.env` file must produce the same final state that the TUI sees.
 
 ## Repository files
 
@@ -51,10 +56,9 @@ the TUI sees.
 ## Planned UX
 
 1. Install server via the normal install flow
-2. Open a future TUI action such as `Telegram Bot`
-3. Choose `Install / Configure Bot`
-4. Save token and admin Chat ID(s) into the instance `.env`
-5. Generate and enable `armactl-bot.service`
+2. Open `Manage Existing Server -> Telegram Bot`
+3. Save token and admin Chat ID(s) into the instance `.env`
+4. Later generate and enable `armactl-bot.service`
 
 ## Library choice
 

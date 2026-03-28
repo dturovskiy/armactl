@@ -140,11 +140,11 @@ armactl schedule disable    # Disable scheduled restarts
 
 ## Telegram bot design
 
-Telegram bot management is planned as an optional component, not part of the
-base server process. The agreed runtime model is:
+Telegram bot management is an optional component, not part of the base server
+process. The current/runtime model is:
 
 - separate systemd unit: `armactl-bot.service`
-- optional install/configure flow from TUI after the server is installed
+- TUI settings screen: `Manage Existing Server -> Telegram Bot`
 - instance-scoped `.env` as the single source of truth for bot settings
 
 Runtime config path:

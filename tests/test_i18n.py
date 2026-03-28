@@ -9,6 +9,7 @@ LOCALES_DIR = REPO_ROOT / "src" / "armactl" / "locales"
 LOCALIZED_MODULES = [
     REPO_ROOT / "src" / "armactl" / "tui" / "app.py",
     REPO_ROOT / "src" / "armactl" / "tui" / "screens.py",
+    REPO_ROOT / "src" / "armactl" / "bot_config.py",
     REPO_ROOT / "src" / "armactl" / "config_manager.py",
     REPO_ROOT / "src" / "armactl" / "mods_manager.py",
     REPO_ROOT / "src" / "armactl" / "service_manager.py",

@@ -89,7 +89,7 @@ class ArmaCtlApp(App):
         height: 1fr;
         padding: 1 2;
     }
-    #raw-config-container {
+    #raw-config-container, #bot-config-container {
         width: 90%;
         height: 90%;
         border: solid green;
@@ -115,11 +115,14 @@ class ArmaCtlApp(App):
         width: 100%;
         margin-bottom: 1;
     }
-    #control-buttons, #schedule-buttons-primary, #schedule-buttons-secondary {
+    #control-buttons, #schedule-buttons-primary, #schedule-buttons-secondary,
+    #bot-enable-buttons, #bot-config-buttons {
         height: auto;
         margin-bottom: 1;
     }
-    #control-buttons Button, #schedule-buttons-primary Button, #schedule-buttons-secondary Button {
+    #control-buttons Button, #schedule-buttons-primary Button,
+    #schedule-buttons-secondary Button, #bot-enable-buttons Button,
+    #bot-config-buttons Button {
         width: 1fr;
     }
     HorizontalGroup Button {
@@ -153,7 +156,7 @@ class ArmaCtlApp(App):
         border: solid green;
         margin-bottom: 1;
     }
-    #modpack-help, #schedule-help {
+    #modpack-help, #schedule-help, #bot-config-help {
         width: 100%;
         margin-bottom: 1;
         color: $text-muted;
@@ -166,6 +169,11 @@ class ArmaCtlApp(App):
     #raw-config-editor {
         width: 100%;
         height: 1fr;
+        border: solid green;
+        margin-bottom: 1;
+    }
+    #bot-status-log {
+        height: 10;
         border: solid green;
         margin-bottom: 1;
     }
