@@ -46,6 +46,11 @@ def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _cpu_count() -> int:
+    """Return a sane CPU count for percentage normalization."""
+    return max(os.cpu_count() or 1, 1)
+
+
 def estimate_service_cpu_percent(service_status: dict[str, Any]) -> float | None:
     """Estimate CPU percent from systemd show data when /proc PID metrics are unavailable."""
     cpu_usage_nsec = service_status.get("cpu_usage_nsec")
@@ -68,7 +73,7 @@ def estimate_service_cpu_percent(service_status: dict[str, Any]) -> float | None
 
     elapsed_usec = max(int(uptime_seconds * 1_000_000) - start_usec, 1)
     elapsed_nsec = elapsed_usec * 1_000
-    return (cpu_usage_nsec / elapsed_nsec) * 100.0
+    return (cpu_usage_nsec / elapsed_nsec) * 100.0 / _cpu_count()
 
 
 def query_process_metrics(pid: int) -> ProcessMetrics:
@@ -95,7 +100,7 @@ def query_process_metrics(pid: int) -> ProcessMetrics:
         clock_ticks = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
         uptime_seconds = float(uptime_text.split()[0])
         elapsed_seconds = max(uptime_seconds - (start_ticks / clock_ticks), 0.001)
-        cpu_percent = (total_ticks / clock_ticks) / elapsed_seconds * 100.0
+        cpu_percent = (total_ticks / clock_ticks) / elapsed_seconds * 100.0 / _cpu_count()
     except (IndexError, KeyError, ValueError, OSError) as error:
         return ProcessMetrics(False, pid, error=str(error))
 
@@ -125,11 +130,12 @@ def query_service_runtime_metrics(service_status: dict[str, Any]) -> ProcessMetr
     if cpu_percent is None:
         cpu_percent = estimate_service_cpu_percent(service_status)
 
-    memory_rss_bytes = proc_metrics.memory_rss_bytes
-    if memory_rss_bytes is None:
-        fallback_memory = service_status.get("memory_current_bytes")
-        if isinstance(fallback_memory, int) and fallback_memory >= 0:
-            memory_rss_bytes = fallback_memory
+    memory_rss_bytes = None
+    fallback_memory = service_status.get("memory_current_bytes")
+    if isinstance(fallback_memory, int) and fallback_memory >= 0:
+        memory_rss_bytes = fallback_memory
+    elif proc_metrics.memory_rss_bytes is not None:
+        memory_rss_bytes = proc_metrics.memory_rss_bytes
 
     return ProcessMetrics(
         available=(cpu_percent is not None or memory_rss_bytes is not None),

@@ -62,7 +62,10 @@ def test_estimate_service_cpu_percent_uses_systemd_monotonic_timestamps() -> Non
         "exec_main_start_usec": 5_000_000,
     }
 
-    with patch("armactl.metrics._read_text", return_value="15.0 0.0\n"):
+    with (
+        patch("armactl.metrics._read_text", return_value="15.0 0.0\n"),
+        patch("armactl.metrics._cpu_count", return_value=1),
+    ):
         cpu_percent = estimate_service_cpu_percent(service_status)
 
     assert cpu_percent == 50.0
@@ -76,7 +79,10 @@ def test_query_service_runtime_metrics_falls_back_to_systemd_values() -> None:
         "exec_main_start_usec": 5_000_000,
     }
 
-    with patch("armactl.metrics._read_text", return_value="15.0 0.0\n"):
+    with (
+        patch("armactl.metrics._read_text", return_value="15.0 0.0\n"),
+        patch("armactl.metrics._cpu_count", return_value=1),
+    ):
         metrics = query_service_runtime_metrics(service_status)
 
     assert metrics.available is True

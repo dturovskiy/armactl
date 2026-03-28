@@ -50,7 +50,7 @@ def test_render_bot_status_text_uses_english_fallback():
     assert "Runtime Metrics" in text
     assert "Main PID: 4321" in text
     assert "Server CPU: 12.5%" in text
-    assert "Server RAM (RSS): 256.0 MiB" in text
+    assert "Server RAM: 256.0 MiB" in text
     assert "Players: 3/64" in text
     assert "Denis (#17)" in text
     assert "Vova (#18)" in text
@@ -108,7 +108,7 @@ def test_render_bot_status_text_handles_unavailable_player_query():
 
     assert "Players: unavailable" in text
     assert "Server CPU: Unknown" in text
-    assert "Server RAM (RSS): Unknown" in text
+    assert "Server RAM: Unknown" in text
 
 
 def test_render_bot_status_text_warns_when_roster_is_unavailable():

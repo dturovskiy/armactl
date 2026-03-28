@@ -480,7 +480,7 @@ class ManageScreen(Screen):
                 ),
             ),
             tr(
-                "Server RAM (RSS): {value}",
+                "Server RAM: {value}",
                 value=(
                     format_bytes(metrics.memory_rss_bytes)
                     if metrics.memory_rss_bytes is not None

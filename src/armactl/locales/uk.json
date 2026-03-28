@@ -138,7 +138,7 @@
     "Service enabled: {value}": "Автозапуск сервісу: {value}",
     "Main PID: {value}": "Main PID: {value}",
     "Server CPU: {value}": "CPU сервера: {value}",
-    "Server RAM (RSS): {value}": "RAM сервера (RSS): {value}",
+    "Server RAM: {value}": "RAM сервера: {value}",
     "Timer: {value}": "Таймер: {value}",
     "Players: {current}/{max}": "Гравці: {current}/{max}",
     "Players: {current}": "Гравці: {current}",

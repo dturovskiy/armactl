@@ -165,7 +165,7 @@ def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
         _icon_line(CHART, translate_for_lang(lang, "Runtime Metrics")),
         _bullet_line(tr_for_lang(lang, "Main PID: {value}", value=pid_text)),
         _bullet_line(tr_for_lang(lang, "Server CPU: {value}", value=cpu_text)),
-        _bullet_line(tr_for_lang(lang, "Server RAM (RSS): {value}", value=memory_text)),
+        _bullet_line(tr_for_lang(lang, "Server RAM: {value}", value=memory_text)),
         "",
         _icon_line(PEOPLE, players_text),
     ]
