@@ -85,6 +85,7 @@ armactl separates three layers:
 
 See [docs/architecture.md](docs/architecture.md) for full details.
 See [docs/localization.md](docs/localization.md) for adding and maintaining UI languages.
+See [docs/telegram-bot.md](docs/telegram-bot.md) for the planned Telegram bot design.
 
 ## File layout on server
 
@@ -136,6 +137,24 @@ armactl schedule disable    # Disable scheduled restarts
 .venv/bin/pytest
 .venv/bin/ruff check src/
 ```
+
+## Telegram bot design
+
+Telegram bot management is planned as an optional component, not part of the
+base server process. The agreed runtime model is:
+
+- separate systemd unit: `armactl-bot.service`
+- optional install/configure flow from TUI after the server is installed
+- instance-scoped `.env` as the single source of truth for bot settings
+
+Runtime config path:
+
+```text
+~/armactl-data/<instance>/bot/.env
+```
+
+The repository ships `.env.example` as a template, while real `.env` files are
+ignored by git.
 
 `./scripts/run-host-tests` will auto-install the dev dependencies if the repo
 was only bootstrapped in prod mode before.

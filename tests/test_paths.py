@@ -4,6 +4,8 @@ from pathlib import Path
 
 from armactl.paths import (
     backups_dir,
+    bot_dir,
+    bot_env_file,
     config_dir,
     config_file,
     instance_root,
@@ -54,6 +56,16 @@ def test_logs_dir():
 def test_modpacks_dir():
     path = modpacks_dir()
     assert path == instance_root() / "modpacks"
+
+
+def test_bot_dir():
+    path = bot_dir()
+    assert path == instance_root() / "bot"
+
+
+def test_bot_env_file():
+    path = bot_env_file()
+    assert path == instance_root() / "bot" / ".env"
 
 
 def test_state_file():

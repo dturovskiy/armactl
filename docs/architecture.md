@@ -27,6 +27,7 @@ armactl/
 │   ├── architecture.md
 │   ├── localization.md
 │   ├── migration.md
+│   ├── telegram-bot.md
 │   └── ...
 ├── scripts/
 │   ├── bootstrap.sh
@@ -120,6 +121,8 @@ armactl/
 │   ├── addons/
 │   ├── battleye/
 │   └── steamapps/
+├── bot/
+│   └── .env                         # optional Telegram bot config source of truth
 ├── config/
 │   └── config.json                  # конфіг сервера
 ├── backups/                         # автоматичні backup-и перед змінами
@@ -133,6 +136,7 @@ armactl/
 |------|-------------|
 | `server/` | SteamCMD install dir — сам Arma Reforger Dedicated Server |
 | `config/config.json` | Конфіг сервера (редагується через `armactl config`) |
+| `bot/.env` | Optional Telegram bot config; те саме джерело правди для TUI і ручного редагування |
 | `backups/` | Резервні копії конфігу перед кожною зміною |
 | `state.json` | Discovery/state файл armactl |
 | `start-armareforger.sh` | Стартовий скрипт, на який посилається systemd service |

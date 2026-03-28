@@ -180,7 +180,10 @@
 
 ## Phase 13 — Telegram Bot Integration
 
-- [ ] Вибрати бібліотеку (aiogram / python-telegram-bot)
+- [x] Вибрати бібліотеку: `python-telegram-bot`
+- [ ] Додати optional install/configure бота через TUI
+- [ ] Використовувати `~/armactl-data/<instance>/bot/.env` як source of truth
+- [x] Додати `.env.example` у репо та ігнорити реальний `.env` у git
 - [ ] Додати команду `/status` (стан сервера, гравці)
 - [ ] Додати команду `/start` та `/stop`
 - [ ] Додати команду `/restart`

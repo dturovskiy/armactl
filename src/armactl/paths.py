@@ -22,6 +22,7 @@ SYSTEMD_DIR = Path("/etc/systemd/system")
 SERVICE_NAME = "armareforger.service"
 RESTART_SERVICE_NAME = "armareforger-restart.service"
 TIMER_NAME = "armareforger-restart.timer"
+BOT_SERVICE_NAME = "armactl-bot.service"
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +80,22 @@ def modpacks_dir(
     return instance_root(instance, data_root) / "modpacks"
 
 
+def bot_dir(
+    instance: str = DEFAULT_INSTANCE_NAME,
+    data_root: Path = DEFAULT_DATA_ROOT,
+) -> Path:
+    """Directory for optional Telegram bot runtime files."""
+    return instance_root(instance, data_root) / "bot"
+
+
+def bot_env_file(
+    instance: str = DEFAULT_INSTANCE_NAME,
+    data_root: Path = DEFAULT_DATA_ROOT,
+) -> Path:
+    """Path to the bot `.env` file used as the single source of truth."""
+    return bot_dir(instance, data_root) / ".env"
+
+
 def state_file(
     instance: str = DEFAULT_INSTANCE_NAME,
     data_root: Path = DEFAULT_DATA_ROOT,
@@ -121,3 +138,8 @@ def restart_service_file() -> Path:
 def timer_file() -> Path:
     """Path to the systemd restart timer unit."""
     return SYSTEMD_DIR / TIMER_NAME
+
+
+def bot_service_file() -> Path:
+    """Path to the optional Telegram bot systemd service unit."""
+    return SYSTEMD_DIR / BOT_SERVICE_NAME
