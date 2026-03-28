@@ -20,6 +20,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from armactl import paths
 from armactl.i18n import _, tr
+from armactl.redaction import redact_sensitive_text, safe_subprocess_error
 
 TIME_ONLY_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 DAILY_TIME_RE = re.compile(r"^\*-\*-\* (\d{1,2}:\d{2}:\d{2})$")
@@ -75,7 +76,7 @@ def _run_systemctl(
                 exit_code=0,
             )
         else:
-            stderr = result.stderr.strip()
+            stderr = safe_subprocess_error(result.stderr, result.stdout)
             if use_sudo and _looks_like_sudo_auth_error(stderr):
                 return ServiceResult(
                     success=False,
@@ -119,7 +120,7 @@ def _run_systemctl(
                 "{action} {service_name}: {error}",
                 action=action_label,
                 service_name=service_name,
-                error=e,
+                error=redact_sensitive_text(e),
             ),
             exit_code=1,
         )
@@ -253,7 +254,7 @@ def install_privileged_systemctl_channel() -> list[ServiceResult]:
                     text=True,
                 )
                 if validation.returncode != 0:
-                    error_text = validation.stderr.strip() or validation.stdout.strip()
+                    error_text = safe_subprocess_error(validation.stderr, validation.stdout)
                     return [
                         ServiceResult(
                             False,
@@ -274,7 +275,7 @@ def install_privileged_systemctl_channel() -> list[ServiceResult]:
                     text=True,
                 )
                 if validation.returncode != 0:
-                    error_text = validation.stderr.strip() or validation.stdout.strip()
+                    error_text = safe_subprocess_error(validation.stderr, validation.stdout)
                     return [
                         ServiceResult(
                             False,
@@ -324,7 +325,10 @@ def install_privileged_systemctl_channel() -> list[ServiceResult]:
                             tr(
                                 "Failed to install {name}: {error}",
                                 name=dest.name,
-                                error=install_result.stderr.strip(),
+                                error=safe_subprocess_error(
+                                    install_result.stderr,
+                                    install_result.stdout,
+                                ),
                             ),
                             install_result.returncode,
                         )
@@ -339,7 +343,10 @@ def install_privileged_systemctl_channel() -> list[ServiceResult]:
         return [
             ServiceResult(
                 False,
-                tr("Secure privileged control install failed: {error}", error=e),
+                tr(
+                    "Secure privileged control install failed: {error}",
+                    error=redact_sensitive_text(e),
+                ),
                 1,
             )
         ]
@@ -370,7 +377,7 @@ def install_systemd_unit_file(source: Path, destination: Path) -> ServiceResult:
             tr("Installed {name} to {path}", name=destination.name, path=destination.parent),
         )
 
-    stderr = result.stderr.strip()
+    stderr = safe_subprocess_error(result.stderr, result.stdout)
     if _looks_like_sudo_auth_error(stderr):
         return ServiceResult(
             False,
@@ -425,7 +432,7 @@ def update_restart_timer_schedule(
             ]
             update_result = subprocess.run(command, capture_output=True, text=True)
             if update_result.returncode != 0:
-                stderr = update_result.stderr.strip() or update_result.stdout.strip()
+                stderr = safe_subprocess_error(update_result.stderr, update_result.stdout)
                 if _looks_like_sudo_auth_error(stderr):
                     return [
                         ServiceResult(
@@ -482,7 +489,10 @@ def update_restart_timer_schedule(
         return [
             ServiceResult(
                 False,
-                tr("Restart timer schedule update failed: {error}", error=e),
+                tr(
+                    "Restart timer schedule update failed: {error}",
+                    error=redact_sensitive_text(e),
+                ),
                 1,
             )
         ]

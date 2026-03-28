@@ -20,6 +20,7 @@ from armactl import paths
 from armactl.bot_config import ensure_bot_config
 from armactl.discovery import discover
 from armactl.i18n import _, tr
+from armactl.redaction import redact_sensitive_text, safe_subprocess_error
 from armactl.service_manager import (
     enable_service,
     generate_services,
@@ -47,11 +48,17 @@ def _run_cmd(cmd: list[str], err_msg: str, env: dict[str, str] | None = None) ->
             tr(
                 "{message}:\n{details}",
                 message=_(err_msg),
-                details=e.stderr.strip() or e.stdout.strip(),
+                details=safe_subprocess_error(e.stderr, e.stdout),
             )
         ) from e
     except OSError as e:
-        raise InstallError(tr("{message}: {error}", message=_(err_msg), error=e)) from e
+        raise InstallError(
+            tr(
+                "{message}: {error}",
+                message=_(err_msg),
+                error=redact_sensitive_text(e),
+            )
+        ) from e
 
 
 def check_os() -> None:
@@ -105,7 +112,10 @@ def install_steamcmd() -> None:
             subprocess.run(cmd, shell=True, check=True)
         except subprocess.CalledProcessError as e:
             raise InstallError(
-                tr("Failed to auto-accept Steamcmd EULA: {error}", error=e)
+                tr(
+                    "Failed to auto-accept Steamcmd EULA: {error}",
+                    error=redact_sensitive_text(e),
+                )
             ) from e
 
     _run_cmd(
@@ -181,7 +191,9 @@ def generate_default_config(instance: str) -> None:
         with open(config_path, "w", encoding="utf-8") as f:
             f.write(config_render)
     except Exception as e:
-        raise InstallError(tr("Failed to generate default config: {error}", error=e)) from e
+        raise InstallError(
+            tr("Failed to generate default config: {error}", error=redact_sensitive_text(e))
+        ) from e
 
 
 def smoke_check(instance: str) -> None:

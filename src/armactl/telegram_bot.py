@@ -15,6 +15,7 @@ from armactl.a2s import query_player_status
 from armactl.bot_config import BotConfigError, load_bot_config
 from armactl.discovery import discover
 from armactl.i18n import tr_for_lang, translate_for_lang, using_lang
+from armactl.redaction import redact_sensitive_text
 from armactl.rcon import query_player_roster
 from armactl.service_manager import (
     disable_service,
@@ -1033,8 +1034,9 @@ def main(argv: list[str] | None = None) -> int:
         bot.ensure_runtime_config()
         bot.build_application()
     except Exception as e:
-        LOGGER.error("Telegram bot failed to start: %s", e)
-        print(str(e), file=sys.stderr)
+        safe_error = redact_sensitive_text(e)
+        LOGGER.error("Telegram bot failed to start: %s", safe_error)
+        print(safe_error, file=sys.stderr)
         return 1
     return 0
 

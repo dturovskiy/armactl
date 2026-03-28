@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from subprocess import CompletedProcess
 from unittest.mock import patch
 
 from armactl.bot_config import BotConfig
@@ -74,3 +75,25 @@ def test_get_bot_service_status_reports_privileged_channel(tmp_path: Path):
 
     assert status["installed"] is True
     assert status["privileged_channel_installed"] is True
+
+
+def test_check_bot_runtime_redacts_secrets_in_errors(tmp_path: Path) -> None:
+    python_bin = tmp_path / ".venv" / "bin" / "python"
+    python_bin.parent.mkdir(parents=True, exist_ok=True)
+    python_bin.write_text("", encoding="utf-8")
+    result = CompletedProcess(
+        args=[str(python_bin), "-c", "import telegram"],
+        returncode=1,
+        stdout="",
+        stderr="ARMACTL_BOT_TOKEN=123456789:ABCDEF_secret_token",
+    )
+
+    with (
+        patch("armactl.bot_manager.bot_python_path", return_value=python_bin),
+        patch("armactl.bot_manager.subprocess.run", return_value=result),
+    ):
+        runtime = check_bot_runtime()
+
+    assert runtime.success is False
+    assert "123456789:ABCDEF_secret_token" not in runtime.message
+    assert "ARMACTL_BOT_TOKEN=***" in runtime.message

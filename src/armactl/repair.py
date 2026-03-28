@@ -12,6 +12,7 @@ from jinja2 import Environment, FileSystemLoader
 from armactl.discovery import discover_manual
 from armactl.i18n import _, tr
 from armactl.paths import start_script
+from armactl.redaction import safe_subprocess_error
 from armactl.service_manager import (
     generate_services,
     install_privileged_systemctl_channel,
@@ -68,7 +69,10 @@ def run_repair(
         yield _("  OK Server files validated and updated")
     except subprocess.CalledProcessError as e:
         raise RepairError(
-            tr("SteamCMD failed:\n{details}", details=e.stderr.strip() or e.stdout.strip())
+            tr(
+                "SteamCMD failed:\n{details}",
+                details=safe_subprocess_error(e.stderr, e.stdout),
+            )
         ) from e
     except FileNotFoundError:
         raise RepairError(_("SteamCMD not found in PATH. Make sure it is installed."))

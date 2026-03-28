@@ -13,6 +13,7 @@ from jinja2 import Environment, FileSystemLoader
 from armactl import paths
 from armactl.bot_config import ensure_bot_config, load_bot_config, validate_bot_config
 from armactl.i18n import _, tr
+from armactl.redaction import redact_sensitive_text, safe_subprocess_error
 from armactl.service_manager import (
     ServiceResult,
     daemon_reload,
@@ -70,7 +71,7 @@ def check_bot_runtime() -> ServiceResult:
     if result.returncode == 0:
         return ServiceResult(True, _("Bot runtime is ready."))
 
-    error_text = result.stderr.strip() or result.stdout.strip()
+    error_text = safe_subprocess_error(result.stderr, result.stdout)
     if "No module named 'telegram'" in error_text:
         return ServiceResult(
             False,
@@ -158,7 +159,13 @@ def install_bot_service(instance: str) -> list[ServiceResult]:
         enable_result = enable_service(bot_service_name())
         results.append(enable_result)
     except Exception as e:
-        results.append(ServiceResult(False, tr("Bot service install failed: {error}", error=e), 1))
+        results.append(
+            ServiceResult(
+                False,
+                tr("Bot service install failed: {error}", error=redact_sensitive_text(e)),
+                1,
+            )
+        )
 
     return results
 

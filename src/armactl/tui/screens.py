@@ -62,6 +62,7 @@ from armactl.mods_manager import (
     import_mods,
     preview_import_mods,
 )
+from armactl.redaction import redact_sensitive_text
 from armactl.rcon import query_player_roster
 from armactl.repair import run_repair
 from armactl.service_manager import (
@@ -133,14 +134,16 @@ class LogWorkerScreen(Screen):
 
     def append_output(self, rendered: str, plain: str | None = None) -> None:
         """Append a line to the visible log and the copy buffer."""
-        self._output_lines.append((plain if plain is not None else rendered).rstrip())
-        self.query_one("#task-log", RichLog).write(rendered)
+        safe_rendered = redact_sensitive_text(rendered)
+        safe_plain = redact_sensitive_text(plain if plain is not None else rendered).rstrip()
+        self._output_lines.append(safe_plain)
+        self.query_one("#task-log", RichLog).write(safe_rendered)
 
     def save_output_to_file(self, output_path: Path, lines: list[str] | None = None) -> None:
         """Persist the current buffered output to a text file."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
         source_lines = self._output_lines if lines is None else lines
-        text = "\n".join(line for line in source_lines).rstrip()
+        text = "\n".join(redact_sensitive_text(line) for line in source_lines).rstrip()
         if text:
             text += "\n"
         output_path.write_text(text, encoding="utf-8")
@@ -177,8 +180,8 @@ class InstallScreen(LogWorkerScreen):
         except Exception as e:
             self.app.call_from_thread(
                 self.append_output,
-                tr("[red]Installation failed: {error}[/red]", error=e),
-                tr("Installation failed: {error}", error=e),
+                tr("[red]Installation failed: {error}[/red]", error=redact_sensitive_text(e)),
+                tr("Installation failed: {error}", error=redact_sensitive_text(e)),
             )
 
         self.app.call_from_thread(self.complete_task)
@@ -205,8 +208,8 @@ class RepairScreen(LogWorkerScreen):
         except Exception as e:
             self.app.call_from_thread(
                 self.append_output,
-                tr("[red]Repair failed: {error}[/red]", error=e),
-                tr("Repair failed: {error}", error=e),
+                tr("[red]Repair failed: {error}[/red]", error=redact_sensitive_text(e)),
+                tr("Repair failed: {error}", error=redact_sensitive_text(e)),
             )
 
         self.app.call_from_thread(self.complete_task)
@@ -266,8 +269,11 @@ class HostTestsScreen(LogWorkerScreen):
         except Exception as e:
             self.app.call_from_thread(
                 self.append_output,
-                tr("[red]Failed to start host tests: {error}[/red]", error=e),
-                tr("Failed to start host tests: {error}", error=e),
+                tr(
+                    "[red]Failed to start host tests: {error}[/red]",
+                    error=redact_sensitive_text(e),
+                ),
+                tr("Failed to start host tests: {error}", error=redact_sensitive_text(e)),
             )
             self.app.call_from_thread(self.complete_task, label=_("Close"), variant="error")
             return
@@ -1003,7 +1009,11 @@ class BotConfigScreen(Screen):
             )
             yield RichLog(id="bot-status-log", markup=True)
             yield Label(_("Bot Token:"))
-            yield Input(id="inp_bot_token", placeholder="123456789:ABCDEF...")
+            yield Input(
+                id="inp_bot_token",
+                placeholder="123456789:ABCDEF...",
+                password=True,
+            )
             yield Label(_("Admin Chat IDs:"))
             yield Input(
                 id="inp_bot_chat_ids",
@@ -1152,7 +1162,10 @@ class BotConfigScreen(Screen):
             config = load_bot_config(self.instance)
         except Exception as e:
             self.app.notify(
-                tr("Failed to load Telegram bot settings: {error}", error=e),
+                tr(
+                    "Failed to load Telegram bot settings: {error}",
+                    error=redact_sensitive_text(e),
+                ),
                 title=_("Telegram Bot"),
                 severity="error",
             )
@@ -1198,7 +1211,10 @@ class BotConfigScreen(Screen):
         except Exception as e:
             if notify:
                 self.app.notify(
-                    tr("Failed to save Telegram bot settings: {error}", error=e),
+                    tr(
+                        "Failed to save Telegram bot settings: {error}",
+                        error=redact_sensitive_text(e),
+                    ),
                     title=_("Telegram Bot"),
                     severity="error",
                 )
@@ -1421,11 +1437,15 @@ class ConfigEditorScreen(Screen):
             yield Input(id="inp_rcon_port", type="integer")
 
             yield Label(_("Game Password (for players):"))
-            yield Input(id="inp_game_pass", placeholder=_("Leave empty for open public server"))
+            yield Input(
+                id="inp_game_pass",
+                placeholder=_("Leave empty for open public server"),
+                password=True,
+            )
             yield Label(_("Admin Password:"))
-            yield Input(id="inp_admin_pass")
+            yield Input(id="inp_admin_pass", password=True)
             yield Label(_("RCON Password:"))
-            yield Input(id="inp_rcon_pass")
+            yield Input(id="inp_rcon_pass", password=True)
 
             with HorizontalGroup(id="control-buttons"):
                 yield Button(_("Save Config"), id="btn_save", variant="success")
@@ -1445,7 +1465,10 @@ class ConfigEditorScreen(Screen):
         try:
             self.config_data = load_config(self.config_path)
         except Exception as e:
-            self.app.notify(tr("Cannot parse config: {error}", error=e), severity="error")
+            self.app.notify(
+                tr("Cannot parse config: {error}", error=redact_sensitive_text(e)),
+                severity="error",
+            )
             self.app.pop_screen()
             return
 
@@ -1524,7 +1547,10 @@ class ConfigEditorScreen(Screen):
 
             self.app.pop_screen()
         except Exception as e:
-            self.app.notify(tr("Error saving config: {error}", error=e), severity="error")
+            self.app.notify(
+                tr("Error saving config: {error}", error=redact_sensitive_text(e)),
+                severity="error",
+            )
 
 
 class RawConfigScreen(Screen):

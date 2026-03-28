@@ -291,3 +291,19 @@ def test_run_systemctl_rewrites_noninteractive_sudo_error() -> None:
         "Install/update the bot service or re-run install/repair "
         "from the TUI to install the secure sudo helper."
     ) == result.message
+
+
+def test_run_systemctl_redacts_secret_values_in_stderr() -> None:
+    completed = CompletedProcess(
+        args=["sudo", "-n", "/usr/bin/systemctl", "restart", "armareforger.service"],
+        returncode=1,
+        stdout="",
+        stderr="passwordAdmin=super-secret",
+    )
+
+    with patch("armactl.service_manager.subprocess.run", return_value=completed):
+        result = _run_systemctl("restart", "armareforger.service")
+
+    assert result.success is False
+    assert "super-secret" not in result.message
+    assert "passwordAdmin=***" in result.message
