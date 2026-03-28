@@ -4,32 +4,26 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from armactl.rcon import (
-    PlayerEntry,
-    _build_packet,
-    _parse_packet,
-    _parse_player_lines,
-    query_player_roster,
-)
+import armactl.rcon as rcon
 from armactl.state import PortInfo, ServerState
 
 
 def test_build_and_parse_packet_roundtrip() -> None:
     payload = b"\x01\x00#players"
-    packet = _build_packet(payload)
+    packet = rcon._build_packet(payload)
 
-    assert _parse_packet(packet) == payload
+    assert rcon._parse_packet(packet) == payload
 
 
 def test_parse_player_lines_extracts_ids_when_possible() -> None:
     response = "Players on server:\n17 Denis\n18 Vova\nObserver"
 
-    entries = _parse_player_lines(response)
+    entries = rcon._parse_player_lines(response)
 
     assert entries == [
-        PlayerEntry(name="Denis", player_id="17", raw="17 Denis"),
-        PlayerEntry(name="Vova", player_id="18", raw="18 Vova"),
-        PlayerEntry(name="Observer", player_id=None, raw="Observer"),
+        rcon.PlayerEntry(name="Denis", player_id="17", raw="17 Denis"),
+        rcon.PlayerEntry(name="Vova", player_id="18", raw="18 Vova"),
+        rcon.PlayerEntry(name="Observer", player_id=None, raw="Observer"),
     ]
 
 
@@ -41,11 +35,33 @@ def test_query_player_roster_reports_missing_password() -> None:
     )
 
     with patch("armactl.rcon.discover", return_value=state):
-        roster = query_player_roster("default")
+        roster = rcon.query_player_roster("default")
 
     assert roster.available is False
     assert roster.configured is False
     assert roster.error == "RCON password is not configured."
+
+
+def test_extract_rcon_host_prefers_local_bind_over_public_address() -> None:
+    assert (
+        rcon._extract_rcon_host(
+            {
+                "bindAddress": "10.0.0.25",
+                "publicAddress": "203.0.113.55",
+                "rcon": {"port": 19999},
+            }
+        )
+        == "10.0.0.25"
+    )
+    assert (
+        rcon._extract_rcon_host(
+            {
+                "publicAddress": "203.0.113.55",
+                "rcon": {"port": 19999},
+            }
+        )
+        == "127.0.0.1"
+    )
 
 
 def test_query_player_roster_returns_empty_entries_when_server_is_stopped() -> None:
@@ -61,7 +77,7 @@ def test_query_player_roster_returns_empty_entries_when_server_is_stopped() -> N
         patch("armactl.rcon.discover", return_value=state),
         patch("armactl.rcon.load_config", return_value=config),
     ):
-        roster = query_player_roster("default")
+        roster = rcon.query_player_roster("default")
 
     assert roster.available is True
     assert roster.configured is True

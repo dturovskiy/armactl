@@ -50,10 +50,9 @@ def _extract_rcon_host(config: dict[str, Any]) -> str:
         if address and address not in {"0.0.0.0", "::"}:
             return address
 
-    for key in ("bindAddress", "publicAddress"):
-        value = str(config.get(key, "")).strip()
-        if value and value not in {"0.0.0.0", "::", "local"}:
-            return value
+    bind_address = str(config.get("bindAddress", "")).strip()
+    if bind_address and bind_address not in {"0.0.0.0", "::", "local"}:
+        return bind_address
 
     return "127.0.0.1"
 

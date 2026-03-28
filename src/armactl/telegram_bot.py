@@ -6,6 +6,7 @@ import argparse
 import logging
 import re
 import sys
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -58,6 +59,7 @@ ID_BADGE = "\U0001F194"
 BULLET = "\u2022"
 DETAILS = "\U0001F4CB"
 TIME_INPUT_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
+SNAPSHOT_CACHE_TTL_SECONDS = 3.0
 
 
 def admin_chat_allowed(chat_id: int | str, admin_chat_ids: list[str]) -> bool:
@@ -103,6 +105,26 @@ class BotStatusSnapshot:
     )
     player_lines: list[str] = field(default_factory=list)
     roster_available: bool = False
+    roster_configured: bool = False
+    roster_error: str = ""
+
+
+def _player_count_text(snapshot: BotStatusSnapshot, lang: str) -> str:
+    """Render a localized player-count string shared by bot pages."""
+    if snapshot.player_count is None:
+        return translate_for_lang(lang, "Players: unavailable")
+    if snapshot.max_players is None:
+        return tr_for_lang(
+            lang,
+            "Players: {current}",
+            current=snapshot.player_count,
+        )
+    return tr_for_lang(
+        lang,
+        "Players: {current}/{max}",
+        current=snapshot.player_count,
+        max=snapshot.max_players,
+    )
 
 
 def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
@@ -121,21 +143,7 @@ def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
         else translate_for_lang(lang, "No")
     )
     server_icon = GREEN if snapshot.server_running else RED
-    if snapshot.player_count is None:
-        players_text = translate_for_lang(lang, "Players: unavailable")
-    elif snapshot.max_players is None:
-        players_text = tr_for_lang(
-            lang,
-            "Players: {current}",
-            current=snapshot.player_count,
-        )
-    else:
-        players_text = tr_for_lang(
-            lang,
-            "Players: {current}/{max}",
-            current=snapshot.player_count,
-            max=snapshot.max_players,
-        )
+    players_text = _player_count_text(snapshot, lang)
 
     lines = [
         _icon_line(
@@ -162,14 +170,6 @@ def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
         _icon_line(PEOPLE, players_text),
     ]
 
-    if snapshot.player_lines:
-        lines.extend(_bullet_line(player_line) for player_line in snapshot.player_lines)
-    elif snapshot.player_count and snapshot.player_count > 0 and not snapshot.roster_available:
-        lines.append(
-            _bullet_line(
-                translate_for_lang(lang, "Player roster unavailable via RCON.")
-            )
-        )
     return "\n".join(lines)
 
 
@@ -354,6 +354,40 @@ def render_bot_details_text(snapshot: BotStatusSnapshot, lang: str) -> str:
             )
     else:
         lines.append(_bullet_line(translate_for_lang(lang, "Mods summary unavailable.")))
+
+    lines.extend(["", _icon_line(PEOPLE, translate_for_lang(lang, "Player Roster"))])
+    lines.append(_bullet_line(_player_count_text(snapshot, lang)))
+
+    if snapshot.player_count and snapshot.player_count > 0:
+        if snapshot.player_lines:
+            lines.extend(_bullet_line(player_line) for player_line in snapshot.player_lines)
+        elif not snapshot.roster_configured:
+            lines.append(
+                _bullet_line(
+                    translate_for_lang(lang, "RCON player roster is not configured.")
+                )
+            )
+        else:
+            lines.append(
+                _bullet_line(
+                    tr_for_lang(
+                        lang,
+                        "Player roster unavailable: {value}",
+                        value=snapshot.roster_error or unknown_text,
+                    )
+                )
+            )
+            lines.append(
+                _bullet_line(
+                    translate_for_lang(
+                        lang,
+                        "Check local RCON address, port, and password.",
+                    )
+                )
+            )
+    elif snapshot.player_count == 0:
+        lines.append(_bullet_line(translate_for_lang(lang, "No players online.")))
+
     return "\n".join(lines)
 
 
@@ -446,15 +480,26 @@ def parse_friendly_schedule_input(value: str) -> list[str]:
     return normalize_on_calendar_entries(tokens)
 
 
-def _build_status_snapshot(instance: str) -> BotStatusSnapshot:
+def _build_status_snapshot(
+    instance: str,
+    *,
+    include_runtime_metrics: bool = False,
+    include_summaries: bool = False,
+    include_host_metrics: bool = False,
+    include_roster: bool = False,
+) -> BotStatusSnapshot:
     """Collect service/timer state into a test-friendly snapshot."""
     state = discover(instance, save=False)
     service_status = get_service_status(service_unit_name(instance))
     timer_status = get_timer_status(timer_unit_name(instance))
     player_status = query_player_status(instance, state=state)
-    runtime_metrics = metrics.query_service_runtime_metrics(service_status)
+    runtime_metrics = (
+        metrics.query_service_runtime_metrics(service_status)
+        if include_runtime_metrics
+        else metrics.ProcessMetrics(False, int(service_status.get("main_pid", 0) or 0))
+    )
     main_pid = runtime_metrics.pid
-    if state.config_exists and state.config_path:
+    if include_summaries and state.config_exists and state.config_path:
         config_summary, mods_summary = status_summary.load_status_summaries(
             state.config_path
         )
@@ -463,9 +508,13 @@ def _build_status_snapshot(instance: str) -> BotStatusSnapshot:
         mods_summary = status_summary.ModsSummary(False)
     roster_lines: list[str] = []
     roster_available = False
-    if player_status.player_count and player_status.player_count > 0:
+    roster_configured = False
+    roster_error = ""
+    if include_roster and player_status.player_count and player_status.player_count > 0:
         roster = query_player_roster(instance)
         roster_available = roster.available
+        roster_configured = roster.configured
+        roster_error = roster.error
         roster_lines = [
             (
                 f"{entry.name} (#{entry.player_id})"
@@ -490,9 +539,15 @@ def _build_status_snapshot(instance: str) -> BotStatusSnapshot:
         memory_rss_bytes=runtime_metrics.memory_rss_bytes,
         config_summary=config_summary,
         mods_summary=mods_summary,
-        host_metrics=metrics.query_host_metrics(),
+        host_metrics=(
+            metrics.query_host_metrics()
+            if include_host_metrics
+            else metrics.HostMetrics(False)
+        ),
         player_lines=roster_lines,
         roster_available=roster_available,
+        roster_configured=roster_configured,
+        roster_error=roster_error,
     )
 
 
@@ -504,6 +559,7 @@ class ArmaCtlTelegramBot:
         self.instance = self.config.instance
         self.lang = self.config.language
         self._pending_schedule_chats: set[str] = set()
+        self._snapshot_cache: dict[str, tuple[float, BotStatusSnapshot]] = {}
 
     def t(self, text: str) -> str:
         """Translate a literal for the configured bot language."""
@@ -563,7 +619,7 @@ class ArmaCtlTelegramBot:
                 ),
                 InlineKeyboardButton(
                     self.button_label(REFRESH, "Refresh Status"),
-                    callback_data="menu",
+                    callback_data="refresh",
                 ),
             ],
         ]
@@ -643,17 +699,29 @@ class ArmaCtlTelegramBot:
         ]
         return InlineKeyboardMarkup(keyboard)
 
-    def _status_text(self) -> str:
-        return render_bot_status_text(_build_status_snapshot(self.instance), self.lang)
+    def _status_text(self, *, force_refresh: bool = False) -> str:
+        return render_bot_status_text(
+            self._snapshot_for_view("status", force_refresh=force_refresh),
+            self.lang,
+        )
 
-    def _metrics_text(self) -> str:
-        return render_bot_metrics_text(_build_status_snapshot(self.instance), self.lang)
+    def _metrics_text(self, *, force_refresh: bool = False) -> str:
+        return render_bot_metrics_text(
+            self._snapshot_for_view("metrics", force_refresh=force_refresh),
+            self.lang,
+        )
 
-    def _details_text(self) -> str:
-        return render_bot_details_text(_build_status_snapshot(self.instance), self.lang)
+    def _details_text(self, *, force_refresh: bool = False) -> str:
+        return render_bot_details_text(
+            self._snapshot_for_view("details", force_refresh=force_refresh),
+            self.lang,
+        )
 
-    def _control_text(self) -> str:
-        return render_bot_control_text(_build_status_snapshot(self.instance), self.lang)
+    def _control_text(self, *, force_refresh: bool = False) -> str:
+        return render_bot_control_text(
+            self._snapshot_for_view("control", force_refresh=force_refresh),
+            self.lang,
+        )
 
     def _schedule_text(self) -> str:
         return render_bot_schedule_text(
@@ -681,6 +749,44 @@ class ArmaCtlTelegramBot:
     def _has_pending_schedule_input(self, update) -> bool:
         chat_key = self._chat_key(update)
         return chat_key in self._pending_schedule_chats if chat_key is not None else False
+
+    def _invalidate_snapshot_cache(self) -> None:
+        """Drop cached view snapshots after a state-changing action."""
+        self._snapshot_cache.clear()
+
+    def _snapshot_for_view(
+        self,
+        view: str,
+        *,
+        force_refresh: bool = False,
+    ) -> BotStatusSnapshot:
+        """Return a short-lived cached snapshot for the requested bot view."""
+        now = time.monotonic()
+        cached = self._snapshot_cache.get(view)
+        if (
+            not force_refresh
+            and cached is not None
+            and now - cached[0] <= SNAPSHOT_CACHE_TTL_SECONDS
+        ):
+            return cached[1]
+
+        if view == "metrics":
+            snapshot = _build_status_snapshot(
+                self.instance,
+                include_runtime_metrics=True,
+                include_host_metrics=True,
+            )
+        elif view == "details":
+            snapshot = _build_status_snapshot(
+                self.instance,
+                include_summaries=True,
+                include_roster=True,
+            )
+        else:
+            snapshot = _build_status_snapshot(self.instance)
+
+        self._snapshot_cache[view] = (now, snapshot)
+        return snapshot
 
     async def _deny_access(self, update) -> None:
         chat_id = getattr(update.effective_chat, "id", "unknown")
@@ -743,6 +849,7 @@ class ArmaCtlTelegramBot:
             await self._reply_with_menu(update, failures[0], self._schedule_keyboard())
             return
 
+        self._invalidate_snapshot_cache()
         self._clear_pending_schedule_input(update)
         pretty_schedule = format_schedule_for_input(schedule_entries)
         text = "\n\n".join(
@@ -771,22 +878,23 @@ class ArmaCtlTelegramBot:
         if not await self._ensure_allowed(update):
             return
         self._clear_pending_schedule_input(update)
-        await self._reply_with_menu(update, self.menu_text())
+        await self._reply_with_menu(update, self._status_text(force_refresh=True))
 
     async def status_command(self, update, context) -> None:
         if not await self._ensure_allowed(update):
             return
         self._clear_pending_schedule_input(update)
-        await self._reply_with_menu(update, self._status_text())
+        await self._reply_with_menu(update, self._status_text(force_refresh=True))
 
     async def stop_command(self, update, context) -> None:
         if not await self._ensure_allowed(update):
             return
         self._clear_pending_schedule_input(update)
         result = self._call_backend(stop_service, service_unit_name(self.instance))
+        self._invalidate_snapshot_cache()
         await self._reply_with_menu(
             update,
-            self.action_result_text(result, self._status_text()),
+            self.action_result_text(result, self._status_text(force_refresh=True)),
         )
 
     async def restart_command(self, update, context) -> None:
@@ -794,9 +902,10 @@ class ArmaCtlTelegramBot:
             return
         self._clear_pending_schedule_input(update)
         result = self._call_backend(restart_service, service_unit_name(self.instance))
+        self._invalidate_snapshot_cache()
         await self._reply_with_menu(
             update,
-            self.action_result_text(result, self._status_text()),
+            self.action_result_text(result, self._status_text(force_refresh=True)),
         )
 
     async def schedule_command(self, update, context) -> None:
@@ -826,6 +935,7 @@ class ArmaCtlTelegramBot:
                 )
                 return
 
+            self._invalidate_snapshot_cache()
             pretty_schedule = format_schedule_for_input(schedule_entries)
             text = "\n\n".join(
                 [
@@ -873,6 +983,11 @@ class ArmaCtlTelegramBot:
             await self._reply_with_menu(update, self.menu_text())
             return
 
+        if data == "refresh":
+            self._invalidate_snapshot_cache()
+            await self._reply_with_menu(update, self._status_text(force_refresh=True))
+            return
+
         if data == "status":
             await self._reply_with_menu(update, self._status_text())
             return
@@ -903,9 +1018,10 @@ class ArmaCtlTelegramBot:
 
         if data == "start":
             result = self._call_backend(start_service, service_unit_name(self.instance))
+            self._invalidate_snapshot_cache()
             await self._reply_with_menu(
                 update,
-                self.action_result_text(result, self._control_text()),
+                self.action_result_text(result, self._control_text(force_refresh=True)),
                 self._control_keyboard(),
             )
             return
@@ -920,9 +1036,10 @@ class ArmaCtlTelegramBot:
 
         if data == "stop:run":
             result = self._call_backend(stop_service, service_unit_name(self.instance))
+            self._invalidate_snapshot_cache()
             await self._reply_with_menu(
                 update,
-                self.action_result_text(result, self._control_text()),
+                self.action_result_text(result, self._control_text(force_refresh=True)),
                 self._control_keyboard(),
             )
             return
@@ -937,15 +1054,17 @@ class ArmaCtlTelegramBot:
 
         if data == "restart:run":
             result = self._call_backend(restart_service, service_unit_name(self.instance))
+            self._invalidate_snapshot_cache()
             await self._reply_with_menu(
                 update,
-                self.action_result_text(result, self._control_text()),
+                self.action_result_text(result, self._control_text(force_refresh=True)),
                 self._control_keyboard(),
             )
             return
 
         if data == "schedule:enable":
             result = self._call_backend(enable_service, timer_unit_name(self.instance))
+            self._invalidate_snapshot_cache()
             await self._reply_with_menu(
                 update,
                 self.action_result_text(result, self._schedule_text()),
@@ -955,6 +1074,7 @@ class ArmaCtlTelegramBot:
 
         if data == "schedule:disable":
             result = self._call_backend(disable_service, timer_unit_name(self.instance))
+            self._invalidate_snapshot_cache()
             await self._reply_with_menu(
                 update,
                 self.action_result_text(result, self._schedule_text()),
@@ -979,6 +1099,7 @@ class ArmaCtlTelegramBot:
                 start_service,
                 restart_service_unit_name(self.instance),
             )
+            self._invalidate_snapshot_cache()
             await self._reply_with_menu(
                 update,
                 self.action_result_text(result, self._schedule_text()),
