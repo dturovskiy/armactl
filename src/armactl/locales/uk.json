@@ -410,8 +410,6 @@
     "Verifying steamcmd...": "Перевірка steamcmd...",
     "Creating installation directories...": "Створення директорій встановлення...",
     "Downloading Arma Reforger via steamcmd... (This may take a while)": "Завантаження Arma Reforger через steamcmd... (це може зайняти деякий час)",
-    "Step {current}/{total}: {message}": "Крок {current}/{total}: {message}",
-    "Progress: [{bar}] Step {current}/{total}": "Прогрес: [{bar}] Крок {current}/{total}",
     "Running smoke check...": "Запуск smoke check...",
     "Generating default configuration...": "Генерація типової конфігурації...",
     "Generating systemd services and timers...": "Генерація systemd-сервісів і таймерів...",

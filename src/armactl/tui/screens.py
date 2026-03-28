@@ -164,64 +164,20 @@ class LogWorkerScreen(Screen):
 class InstallScreen(LogWorkerScreen):
     """Screen for running the server installation."""
 
-    def __init__(self, instance: str, title: str, **kwargs):
-        super().__init__(instance=instance, title=title, **kwargs)
-        self._install_steps: list[str] = []
-        self._current_install_step = 0
-        self._install_progress_tick = 0
-        self._install_progress_running = False
-
-    def compose(self) -> ComposeResult:
-        yield Header()
-        with VerticalGroup():
-            yield Label(self.worker_title, id="screen-title")
-            yield Label("", id="task-status")
-            yield Label("", id="task-progress")
-            yield RichLog(id="task-log", highlight=True, markup=True)
-            with HorizontalGroup(id="task-actions"):
-                yield Button(_("Copy Output"), id="btn_copy_output", variant="primary")
-                yield Button(
-                    _("Close Task (Running...)"),
-                    id="btn_close",
-                    variant="default",
-                    disabled=True,
-                )
-        yield Footer()
-
     def on_mount(self) -> None:
-        self._install_steps = [
-            _("Verifying OS requirements..."),
-            _("Verifying sudo permissions..."),
-            _("Verifying steamcmd..."),
-            _("Creating installation directories..."),
-            _("Downloading Arma Reforger via steamcmd... (This may take a while)"),
-            _("Running smoke check..."),
-            _("Generating default configuration..."),
-            _("Generating systemd services and timers..."),
-            _("Installing secure privileged control channel..."),
-            _("Setting permissions and starting the server..."),
-            _("Saving state.json..."),
-            _("Installation complete!"),
-        ]
-        self._install_progress_running = True
-        self._render_install_progress()
-        self.set_interval(0.15, self._tick_install_progress)
         self.run_installation_task()
 
     @work(exclusive=True, thread=True)
     def run_installation_task(self) -> None:
         try:
             for message in run_install(self.instance):
-                self.app.call_from_thread(self._handle_install_message, message)
                 self.app.call_from_thread(self.append_output, message)
-            self.app.call_from_thread(self._mark_install_complete)
             self.app.call_from_thread(
                 self.append_output,
                 _("[green]Installation completely finished![/green]"),
                 _("Installation completely finished!"),
             )
         except Exception as e:
-            self.app.call_from_thread(self._stop_install_progress)
             self.app.call_from_thread(
                 self.append_output,
                 tr("[red]Installation failed: {error}[/red]", error=redact_sensitive_text(e)),
@@ -229,80 +185,6 @@ class InstallScreen(LogWorkerScreen):
             )
 
         self.app.call_from_thread(self.complete_task)
-
-    def _handle_install_message(self, message: str) -> None:
-        """Update install progress widgets when a phase message is received."""
-        if message not in self._install_steps:
-            return
-
-        self._current_install_step = self._install_steps.index(message) + 1
-        self.query_one("#task-status", Label).update(
-            tr(
-                "Step {current}/{total}: {message}",
-                current=self._current_install_step,
-                total=len(self._install_steps),
-                message=message,
-            )
-        )
-        self._render_install_progress()
-
-    def _tick_install_progress(self) -> None:
-        """Animate the current install step so long-running downloads feel alive."""
-        if not self._install_progress_running:
-            return
-        self._install_progress_tick += 1
-        self._render_install_progress()
-
-    def _render_install_progress(self) -> None:
-        """Render a step-based progress bar with a moving current-step cursor."""
-        total_steps = len(self._install_steps)
-        if total_steps <= 0:
-            return
-
-        width = 30
-        current_step = min(self._current_install_step, total_steps)
-        completed_steps = max(0, current_step - 1)
-        completed_width = int(width * completed_steps / total_steps)
-        current_width = max(1, int(width * current_step / total_steps) - completed_width)
-
-        chars = ["-"] * width
-        for index in range(completed_width):
-            chars[index] = "="
-
-        if self._install_progress_running and current_step > 0:
-            cursor = completed_width + (self._install_progress_tick % current_width)
-            if cursor < width:
-                chars[cursor] = ">"
-        elif current_step >= total_steps:
-            chars = ["="] * width
-
-        self.query_one("#task-progress", Label).update(
-            tr(
-                "Progress: [{bar}] Step {current}/{total}",
-                bar="".join(chars),
-                current=current_step,
-                total=total_steps,
-            )
-        )
-
-    def _mark_install_complete(self) -> None:
-        """Lock the progress bar to full once install has finished successfully."""
-        self._current_install_step = len(self._install_steps)
-        self._install_progress_running = False
-        self.query_one("#task-status", Label).update(
-            tr(
-                "Step {current}/{total}: {message}",
-                current=self._current_install_step,
-                total=len(self._install_steps),
-                message=_("Installation complete!"),
-            )
-        )
-        self._render_install_progress()
-
-    def _stop_install_progress(self) -> None:
-        """Stop the animation when install fails."""
-        self._install_progress_running = False
-        self._render_install_progress()
 
 
 class RepairScreen(LogWorkerScreen):

@@ -143,16 +143,6 @@ class ArmaCtlApp(App):
         border: solid green;
         margin-bottom: 1;
     }
-    #task-status, #task-progress {
-        width: 100%;
-        margin-bottom: 1;
-    }
-    #task-status {
-        color: $text;
-    }
-    #task-progress {
-        color: $text-muted;
-    }
     #tail-log {
         height: 1fr;
         width: 100%;
