@@ -8,7 +8,7 @@ from pathlib import Path
 from armactl import paths as P
 
 # A centralized file to store global settings like language
-SETTINGS_FILE = P.base_dir / "user_settings.json"
+SETTINGS_FILE = P.DEFAULT_DATA_ROOT / "user_settings.json"
 
 _current_lang = "en"
 
