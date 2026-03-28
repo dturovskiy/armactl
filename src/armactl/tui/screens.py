@@ -346,9 +346,9 @@ class ConfigEditorScreen(Screen):
             self.app.pop_screen()
             return
             
-        from armactl.config_manager import parse_config_file
+        from armactl.config_manager import load_config
         try:
-            self.config_data = parse_config_file(self.config_path)
+            self.config_data = load_config(self.config_path)
         except Exception as e:
             self.app.notify(f"Cannot parse config: {e}", severity="error")
             self.app.pop_screen()
@@ -414,20 +414,11 @@ class ConfigEditorScreen(Screen):
         self.config_data["game"] = game
         self.config_data["rcon"] = rcon
 
-        from armactl.config_manager import save_config_file
-        import shutil
-        import datetime
-        import os
-        
-        backup_name = f"config.{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.bak"
-        backup_path = os.path.join(os.path.dirname(self.config_path), backup_name)
+        from armactl.config_manager import save_config
         
         try:
-            if os.path.exists(self.config_path):
-                shutil.copy2(self.config_path, backup_path)
-            
-            save_config_file(self.config_path, self.config_data)
-            self.app.notify(f"Config saved! Backup created: {backup_name}", title="Success", timeout=5)
+            save_config(self.config_path, self.config_data, backup=True)
+            self.app.notify("Config saved successfully (backup created automatically)", title="Success")
             
             if restart:
                 from armactl.service_manager import restart_service
