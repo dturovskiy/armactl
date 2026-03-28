@@ -75,6 +75,7 @@ from armactl.service_manager import (
     timer_unit_name,
     update_restart_timer_schedule,
 )
+from armactl.status_summary import ConfigSummary, ModsSummary, load_status_summaries
 
 
 class LogWorkerScreen(Screen):
@@ -445,29 +446,41 @@ class ManageScreen(Screen):
         player_status = query_player_status(self.instance, state=state)
         metrics = query_service_runtime_metrics(service_status)
         main_pid = metrics.pid
+        if state.config_exists and state.config_path:
+            config_summary, mods_summary = load_status_summaries(state.config_path)
+        else:
+            config_summary, mods_summary = ConfigSummary(False), ModsSummary(False)
+        unknown_text = _("Unknown")
+
+        def bool_text(value: bool | None) -> str:
+            if value is True:
+                return _("Yes")
+            if value is False:
+                return _("No")
+            return unknown_text
 
         lines = [
             _("[bold cyan]Service Status[/bold cyan]"),
             tr("Service: {value}", value=service_name),
             tr(
                 "Service active state: {value}",
-                value=service_status.get("active_state", _("Unknown")),
+                value=service_status.get("active_state", unknown_text),
             ),
             tr(
                 "Service enabled: {value}",
                 value=_("Yes") if service_status.get("enabled") else _("No"),
             ),
-            tr("Main PID: {value}", value=main_pid or _("Unknown")),
+            tr("Main PID: {value}", value=main_pid or unknown_text),
             "",
             _("[bold cyan]Timer Status[/bold cyan]"),
             tr("Timer: {value}", value=timer_name),
             tr(
                 "Current schedule: {value}",
-                value=timer_status.get("schedule", "").strip() or _("Unknown"),
+                value=timer_status.get("schedule", "").strip() or unknown_text,
             ),
             tr(
                 "Next run: {value}",
-                value=timer_status.get("next_run", "").strip() or _("Unknown"),
+                value=timer_status.get("next_run", "").strip() or unknown_text,
             ),
             "",
             _("[bold cyan]Runtime Metrics[/bold cyan]"),
@@ -476,7 +489,7 @@ class ManageScreen(Screen):
                 value=(
                     format_cpu_percent(metrics.cpu_percent)
                     if metrics.cpu_percent is not None
-                    else _("Unknown")
+                    else unknown_text
                 ),
             ),
             tr(
@@ -484,12 +497,94 @@ class ManageScreen(Screen):
                 value=(
                     format_bytes(metrics.memory_rss_bytes)
                     if metrics.memory_rss_bytes is not None
-                    else _("Unknown")
+                    else unknown_text
                 ),
             ),
             "",
-            _("[bold cyan]Players[/bold cyan]"),
+            _("[bold cyan]Config Summary[/bold cyan]"),
         ]
+
+        if config_summary.available:
+            lines.extend(
+                [
+                    tr(
+                        "Server name: {value}",
+                        value=config_summary.server_name or unknown_text,
+                    ),
+                    tr(
+                        "Scenario: {value}",
+                        value=config_summary.scenario_id or unknown_text,
+                    ),
+                    tr(
+                        "Max players: {value}",
+                        value=(
+                            config_summary.max_players
+                            if config_summary.max_players is not None
+                            else unknown_text
+                        ),
+                    ),
+                    tr(
+                        "Ports: game {game} / A2S {a2s} / RCON {rcon}",
+                        game=(
+                            config_summary.bind_port
+                            if config_summary.bind_port is not None
+                            else unknown_text
+                        ),
+                        a2s=(
+                            config_summary.a2s_port
+                            if config_summary.a2s_port is not None
+                            else unknown_text
+                        ),
+                        rcon=(
+                            config_summary.rcon_port
+                            if config_summary.rcon_port is not None
+                            else unknown_text
+                        ),
+                    ),
+                    tr(
+                        "Visible: {value}",
+                        value=bool_text(config_summary.visible),
+                    ),
+                    tr(
+                        "BattlEye: {value}",
+                        value=bool_text(config_summary.battleye),
+                    ),
+                ]
+            )
+        else:
+            lines.append(_("Config summary unavailable."))
+
+        lines.extend(
+            [
+                "",
+                _("[bold cyan]Mods Summary[/bold cyan]"),
+            ]
+        )
+
+        if mods_summary.available:
+            lines.append(
+                tr(
+                    "Installed mods: {count}",
+                    count=mods_summary.count if mods_summary.count is not None else 0,
+                )
+            )
+            if mods_summary.preview:
+                lines.extend(f"- {entry.label}" for entry in mods_summary.preview)
+            elif mods_summary.count == 0:
+                lines.append(_("No mods configured."))
+            if mods_summary.remaining_count > 0:
+                lines.append(
+                    tr("+ {count} more mod(s)", count=mods_summary.remaining_count)
+                )
+        else:
+            lines.append(_("Mods summary unavailable."))
+
+        lines.extend(
+            [
+                "",
+            _("[bold cyan]Players[/bold cyan]"),
+            ]
+        )
 
         if player_status.player_count is None:
             lines.append(_("Players: unavailable"))

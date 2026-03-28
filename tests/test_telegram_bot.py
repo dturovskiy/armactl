@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from armactl.status_summary import ConfigSummary, ModSummaryEntry, ModsSummary
 from armactl.telegram_bot import (
     BotStatusSnapshot,
     admin_chat_allowed,
@@ -33,6 +34,26 @@ def test_render_bot_status_text_uses_english_fallback():
         main_pid=4321,
         cpu_percent=12.5,
         memory_rss_bytes=268435456,
+        config_summary=ConfigSummary(
+            available=True,
+            server_name="Denis Reforger",
+            scenario_id="{ECC61978EDCC2B5A}Missions/23_Campaign.conf",
+            max_players=64,
+            bind_port=2001,
+            a2s_port=17777,
+            rcon_port=19999,
+            visible=True,
+            battleye=True,
+        ),
+        mods_summary=ModsSummary(
+            available=True,
+            count=4,
+            preview=[
+                ModSummaryEntry(mod_id="ABC123", name="Weapons Pack"),
+                ModSummaryEntry(mod_id="DEF456", name="Vehicles Pack"),
+            ],
+            remaining_count=2,
+        ),
         player_lines=["Denis (#17)", "Vova (#18)"],
         roster_available=True,
     )
@@ -51,6 +72,15 @@ def test_render_bot_status_text_uses_english_fallback():
     assert "Main PID: 4321" in text
     assert "Server CPU: 12.5%" in text
     assert "Server RAM: 256.0 MiB" in text
+    assert "Config Summary" in text
+    assert "Server name: Denis Reforger" in text
+    assert "Scenario: {ECC61978EDCC2B5A}Missions/23_Campaign.conf" in text
+    assert "Ports: game 2001 / A2S 17777 / RCON 19999" in text
+    assert "BattlEye: Yes" in text
+    assert "Mods Summary" in text
+    assert "Installed mods: 4" in text
+    assert "Weapons Pack (ABC123)" in text
+    assert "+ 2 more mod(s)" in text
     assert "Players: 3/64" in text
     assert "Denis (#17)" in text
     assert "Vova (#18)" in text
@@ -100,6 +130,8 @@ def test_render_bot_status_text_handles_unavailable_player_query():
         main_pid=0,
         cpu_percent=None,
         memory_rss_bytes=None,
+        config_summary=ConfigSummary(available=False),
+        mods_summary=ModsSummary(available=False),
         player_lines=[],
         roster_available=False,
     )
@@ -109,6 +141,8 @@ def test_render_bot_status_text_handles_unavailable_player_query():
     assert "Players: unavailable" in text
     assert "Server CPU: Unknown" in text
     assert "Server RAM: Unknown" in text
+    assert "Config summary unavailable." in text
+    assert "Mods summary unavailable." in text
 
 
 def test_render_bot_status_text_warns_when_roster_is_unavailable():
@@ -126,6 +160,8 @@ def test_render_bot_status_text_warns_when_roster_is_unavailable():
         main_pid=123,
         cpu_percent=4.0,
         memory_rss_bytes=134217728,
+        config_summary=ConfigSummary(available=True),
+        mods_summary=ModsSummary(available=True, count=0),
         player_lines=[],
         roster_available=False,
     )

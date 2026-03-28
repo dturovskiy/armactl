@@ -34,6 +34,7 @@ from armactl.service_manager import (
     timer_unit_name,
     update_restart_timer_schedule,
 )
+from armactl.status_summary import ConfigSummary, ModsSummary, load_status_summaries
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +45,8 @@ CLOCK = "\u23F0"
 PEOPLE = "\U0001F465"
 PENCIL = "\u270D\uFE0F"
 CHART = "\U0001F4CA"
+GEAR = "\u2699\uFE0F"
+PUZZLE = "\U0001F9E9"
 PLAY = "\u25B6\uFE0F"
 STOP_ICON = "\u23F9\uFE0F"
 RESTART = "\U0001F504"
@@ -90,19 +93,26 @@ class BotStatusSnapshot:
     main_pid: int = 0
     cpu_percent: float | None = None
     memory_rss_bytes: int | None = None
+    config_summary: ConfigSummary = field(
+        default_factory=lambda: ConfigSummary(False)
+    )
+    mods_summary: ModsSummary = field(
+        default_factory=lambda: ModsSummary(False)
+    )
     player_lines: list[str] = field(default_factory=list)
     roster_available: bool = False
 
 
 def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
     """Render a localized status response for Telegram."""
+    unknown_text = translate_for_lang(lang, "Unknown")
     running_text = (
         translate_for_lang(lang, "Running")
         if snapshot.server_running
         else translate_for_lang(lang, "Stopped")
     )
-    schedule_text = snapshot.schedule.strip() or translate_for_lang(lang, "Unknown")
-    next_run_text = snapshot.next_run.strip() or translate_for_lang(lang, "Unknown")
+    schedule_text = snapshot.schedule.strip() or unknown_text
+    next_run_text = snapshot.next_run.strip() or unknown_text
     enabled_text = (
         translate_for_lang(lang, "Yes")
         if snapshot.service_enabled
@@ -127,18 +137,27 @@ def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
     pid_text = (
         str(snapshot.main_pid)
         if snapshot.main_pid > 0
-        else translate_for_lang(lang, "Unknown")
+        else unknown_text
     )
     cpu_text = (
         format_cpu_percent(snapshot.cpu_percent)
         if snapshot.cpu_percent is not None
-        else translate_for_lang(lang, "Unknown")
+        else unknown_text
     )
     memory_text = (
         format_bytes(snapshot.memory_rss_bytes)
         if snapshot.memory_rss_bytes is not None
-        else translate_for_lang(lang, "Unknown")
+        else unknown_text
     )
+    yes_text = translate_for_lang(lang, "Yes")
+    no_text = translate_for_lang(lang, "No")
+
+    def bool_text(value: bool | None) -> str:
+        if value is True:
+            return yes_text
+        if value is False:
+            return no_text
+        return unknown_text
 
     lines = [
         _icon_line(
@@ -167,8 +186,119 @@ def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
         _bullet_line(tr_for_lang(lang, "Server CPU: {value}", value=cpu_text)),
         _bullet_line(tr_for_lang(lang, "Server RAM: {value}", value=memory_text)),
         "",
-        _icon_line(PEOPLE, players_text),
+        _icon_line(GEAR, translate_for_lang(lang, "Config Summary")),
     ]
+
+    if snapshot.config_summary.available:
+        config = snapshot.config_summary
+        lines.extend(
+            [
+                _bullet_line(
+                    tr_for_lang(
+                        lang,
+                        "Server name: {value}",
+                        value=config.server_name or unknown_text,
+                    )
+                ),
+                _bullet_line(
+                    tr_for_lang(
+                        lang,
+                        "Scenario: {value}",
+                        value=config.scenario_id or unknown_text,
+                    )
+                ),
+                _bullet_line(
+                    tr_for_lang(
+                        lang,
+                        "Max players: {value}",
+                        value=(
+                            config.max_players
+                            if config.max_players is not None
+                            else unknown_text
+                        ),
+                    )
+                ),
+                _bullet_line(
+                    tr_for_lang(
+                        lang,
+                        "Ports: game {game} / A2S {a2s} / RCON {rcon}",
+                        game=(
+                            config.bind_port
+                            if config.bind_port is not None
+                            else unknown_text
+                        ),
+                        a2s=(
+                            config.a2s_port
+                            if config.a2s_port is not None
+                            else unknown_text
+                        ),
+                        rcon=(
+                            config.rcon_port
+                            if config.rcon_port is not None
+                            else unknown_text
+                        ),
+                    )
+                ),
+                _bullet_line(
+                    tr_for_lang(
+                        lang,
+                        "Visible: {value}",
+                        value=bool_text(config.visible),
+                    )
+                ),
+                _bullet_line(
+                    tr_for_lang(
+                        lang,
+                        "BattlEye: {value}",
+                        value=bool_text(config.battleye),
+                    )
+                ),
+            ]
+        )
+    else:
+        lines.append(_bullet_line(translate_for_lang(lang, "Config summary unavailable.")))
+
+    lines.extend(
+        [
+            "",
+            _icon_line(PUZZLE, translate_for_lang(lang, "Mods Summary")),
+        ]
+    )
+
+    if snapshot.mods_summary.available:
+        mods = snapshot.mods_summary
+        lines.append(
+            _bullet_line(
+                tr_for_lang(
+                    lang,
+                    "Installed mods: {count}",
+                    count=mods.count if mods.count is not None else 0,
+                )
+            )
+        )
+        if mods.preview:
+            lines.extend(_bullet_line(entry.label) for entry in mods.preview)
+        elif mods.count == 0:
+            lines.append(_bullet_line(translate_for_lang(lang, "No mods configured.")))
+        if mods.remaining_count > 0:
+            lines.append(
+                _bullet_line(
+                    tr_for_lang(
+                        lang,
+                        "+ {count} more mod(s)",
+                        count=mods.remaining_count,
+                    )
+                )
+            )
+    else:
+        lines.append(_bullet_line(translate_for_lang(lang, "Mods summary unavailable.")))
+
+    lines.extend(
+        [
+            "",
+        _icon_line(PEOPLE, players_text),
+        ]
+    )
     if snapshot.player_lines:
         lines.extend(_bullet_line(player_line) for player_line in snapshot.player_lines)
     elif snapshot.player_count and snapshot.player_count > 0 and not snapshot.roster_available:
@@ -255,6 +385,10 @@ def _build_status_snapshot(instance: str) -> BotStatusSnapshot:
     player_status = query_player_status(instance, state=state)
     metrics = query_service_runtime_metrics(service_status)
     main_pid = metrics.pid
+    if state.config_exists and state.config_path:
+        config_summary, mods_summary = load_status_summaries(state.config_path)
+    else:
+        config_summary, mods_summary = ConfigSummary(False), ModsSummary(False)
     roster_lines: list[str] = []
     roster_available = False
     if player_status.player_count and player_status.player_count > 0:
@@ -282,6 +416,8 @@ def _build_status_snapshot(instance: str) -> BotStatusSnapshot:
         main_pid=main_pid,
         cpu_percent=metrics.cpu_percent,
         memory_rss_bytes=metrics.memory_rss_bytes,
+        config_summary=config_summary,
+        mods_summary=mods_summary,
         player_lines=roster_lines,
         roster_available=roster_available,
     )
