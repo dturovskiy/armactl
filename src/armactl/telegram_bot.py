@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import sys
 from dataclasses import dataclass
 from typing import Any
@@ -47,6 +48,7 @@ BACK = "\u21A9\uFE0F"
 DENY = "\u26D4"
 ID_BADGE = "\U0001F194"
 BULLET = "\u2022"
+TIME_INPUT_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 
 
 def admin_chat_allowed(chat_id: int | str, admin_chat_ids: list[str]) -> bool:
@@ -148,10 +150,44 @@ def render_bot_schedule_text(instance: str, timer_status: dict[str, Any], lang: 
         _bullet_line(tr_for_lang(lang, "Current schedule: {value}", value=schedule_text)),
         _bullet_line(tr_for_lang(lang, "Next run: {value}", value=next_run_text)),
         "",
-        _icon_line(PENCIL, translate_for_lang(lang, "To change the schedule, send:")),
-        _bullet_line("/schedule 05:00, 20:00"),
+        _icon_line(PENCIL, translate_for_lang(lang, "To change the schedule:")),
+        _bullet_line(
+            translate_for_lang(
+                lang,
+                "Press Change Time, then send something like 08:00, 20:00.",
+            )
+        ),
     ]
     return "\n".join(lines)
+
+
+def render_schedule_input_prompt(current_schedule: str, lang: str) -> str:
+    """Render the prompt shown before the bot waits for a time list message."""
+    schedule_text = current_schedule.strip() or translate_for_lang(lang, "Unknown")
+    lines = [
+        _icon_line(PENCIL, translate_for_lang(lang, "Send restart times in your next message.")),
+        _bullet_line(tr_for_lang(lang, "Current schedule: {value}", value=schedule_text)),
+        _bullet_line(
+            translate_for_lang(
+                lang,
+                "Example: 08:00, 20:00 or 06:00 18:00.",
+            )
+        ),
+    ]
+    return "\n".join(lines)
+
+
+def parse_friendly_schedule_input(value: str) -> list[str]:
+    """Parse simple HH:MM[:SS] user input into normalized schedule entries."""
+    raw_value = value.strip()
+    if not raw_value:
+        return []
+
+    separators_normalized = re.sub(r"[\n,;]+", " ", raw_value)
+    tokens = [token.strip() for token in separators_normalized.split() if token.strip()]
+    if not tokens or not all(TIME_INPUT_RE.match(token) for token in tokens):
+        return []
+    return normalize_on_calendar_entries(tokens)
 
 
 def _build_status_snapshot(instance: str) -> BotStatusSnapshot:
@@ -178,6 +214,7 @@ class ArmaCtlTelegramBot:
         self.config = load_bot_config(instance)
         self.instance = self.config.instance
         self.lang = self.config.language
+        self._pending_schedule_chats: set[str] = set()
 
     def t(self, text: str) -> str:
         """Translate a literal for the configured bot language."""
@@ -192,17 +229,8 @@ class ArmaCtlTelegramBot:
         return _icon_line(icon, self.t(text))
 
     def menu_text(self) -> str:
-        """Render the main bot menu text."""
-        return "\n".join(
-            [
-                _icon_line(
-                    ROBOT,
-                    self.tr("ArmaCtl Telegram Bot [{instance}]", instance=self.instance),
-                ),
-                "",
-                self.t("Choose an action:"),
-            ]
-        )
+        """Render the default bot screen."""
+        return self._status_text()
 
     def action_result_text(self, result, details: str) -> str:
         """Render a backend action result followed by a refreshed detail block."""
@@ -245,17 +273,10 @@ class ArmaCtlTelegramBot:
                     callback_data="restart:confirm",
                 ),
                 InlineKeyboardButton(
-                    self.button_label(REFRESH, "Refresh Menu"),
-                    callback_data="menu",
+                    self.button_label(ALERT, "Restart Now"),
+                    callback_data="schedule:restart-now",
                 ),
             ],
-        ]
-        return InlineKeyboardMarkup(keyboard)
-
-    def _schedule_keyboard(self):
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
-        keyboard = [
             [
                 InlineKeyboardButton(
                     self.button_label(CHECK, "Enable Timer"),
@@ -268,10 +289,15 @@ class ArmaCtlTelegramBot:
             ],
             [
                 InlineKeyboardButton(
-                    self.button_label(ALERT, "Restart Now"),
-                    callback_data="schedule:restart-now",
+                    self.button_label(PENCIL, "Change Time"),
+                    callback_data="schedule:edit",
                 ),
-                InlineKeyboardButton(self.button_label(BACK, "Back"), callback_data="menu"),
+            ],
+            [
+                InlineKeyboardButton(
+                    self.button_label(REFRESH, "Refresh Status"),
+                    callback_data="menu",
+                ),
             ],
         ]
         return InlineKeyboardMarkup(keyboard)
@@ -299,6 +325,26 @@ class ArmaCtlTelegramBot:
             get_timer_status(timer_unit_name(self.instance)),
             self.lang,
         )
+
+    def _chat_key(self, update) -> str | None:
+        chat = getattr(update, "effective_chat", None)
+        if chat is None:
+            return None
+        return str(chat.id)
+
+    def _clear_pending_schedule_input(self, update) -> None:
+        chat_key = self._chat_key(update)
+        if chat_key is not None:
+            self._pending_schedule_chats.discard(chat_key)
+
+    def _set_pending_schedule_input(self, update) -> None:
+        chat_key = self._chat_key(update)
+        if chat_key is not None:
+            self._pending_schedule_chats.add(chat_key)
+
+    def _has_pending_schedule_input(self, update) -> bool:
+        chat_key = self._chat_key(update)
+        return chat_key in self._pending_schedule_chats if chat_key is not None else False
 
     async def _deny_access(self, update) -> None:
         chat_id = getattr(update.effective_chat, "id", "unknown")
@@ -334,12 +380,47 @@ class ArmaCtlTelegramBot:
             return False
         return True
 
-    async def _reply_with_menu(self, update, text: str, *, schedule: bool = False) -> None:
-        markup = self._schedule_keyboard() if schedule else self._main_keyboard()
+    async def _reply_with_menu(self, update, text: str) -> None:
+        markup = self._main_keyboard()
         if getattr(update, "callback_query", None) is not None:
             await update.callback_query.edit_message_text(text=text, reply_markup=markup)
         else:
             await update.effective_message.reply_text(text, reply_markup=markup)
+
+    async def _apply_schedule_input(self, update, raw_value: str) -> None:
+        schedule_entries = parse_friendly_schedule_input(raw_value)
+        if not schedule_entries:
+            await self._reply_with_menu(
+                update,
+                self.t("Could not parse restart times. Send something like 08:00, 20:00."),
+            )
+            return
+
+        results = self._call_backend(
+            update_restart_timer_schedule,
+            self.instance,
+            schedule_entries,
+        )
+        failures = [result.message for result in results if not result.success]
+        if failures:
+            await self._reply_with_menu(update, failures[0])
+            return
+
+        self._clear_pending_schedule_input(update)
+        pretty_schedule = format_schedule_for_input(schedule_entries)
+        text = "\n\n".join(
+            [
+                _icon_line(
+                    CHECK,
+                    self.tr(
+                        "Restart schedule updated to {schedule}.",
+                        schedule=pretty_schedule,
+                    ),
+                ),
+                self._schedule_text(),
+            ]
+        )
+        await self._reply_with_menu(update, text)
 
     async def _edit_message(self, query, text: str, markup) -> None:
         """Edit an existing callback message with an explicit keyboard."""
@@ -352,16 +433,19 @@ class ArmaCtlTelegramBot:
     async def start_command(self, update, context) -> None:
         if not await self._ensure_allowed(update):
             return
+        self._clear_pending_schedule_input(update)
         await self._reply_with_menu(update, self.menu_text())
 
     async def status_command(self, update, context) -> None:
         if not await self._ensure_allowed(update):
             return
+        self._clear_pending_schedule_input(update)
         await self._reply_with_menu(update, self._status_text())
 
     async def stop_command(self, update, context) -> None:
         if not await self._ensure_allowed(update):
             return
+        self._clear_pending_schedule_input(update)
         result = self._call_backend(stop_service, service_unit_name(self.instance))
         await self._reply_with_menu(
             update,
@@ -371,6 +455,7 @@ class ArmaCtlTelegramBot:
     async def restart_command(self, update, context) -> None:
         if not await self._ensure_allowed(update):
             return
+        self._clear_pending_schedule_input(update)
         result = self._call_backend(restart_service, service_unit_name(self.instance))
         await self._reply_with_menu(
             update,
@@ -382,11 +467,12 @@ class ArmaCtlTelegramBot:
             return
 
         if getattr(context, "args", None):
+            self._clear_pending_schedule_input(update)
             raw_schedule = " ".join(context.args).strip()
             schedule_entries = normalize_on_calendar_entries(raw_schedule)
             if not schedule_entries:
                 text = self.t("At least one restart time is required.")
-                await self._reply_with_menu(update, text, schedule=True)
+                await self._reply_with_menu(update, text)
                 return
 
             results = self._call_backend(
@@ -396,7 +482,7 @@ class ArmaCtlTelegramBot:
             )
             failures = [result.message for result in results if not result.success]
             if failures:
-                await self._reply_with_menu(update, failures[0], schedule=True)
+                await self._reply_with_menu(update, failures[0])
                 return
 
             pretty_schedule = format_schedule_for_input(schedule_entries)
@@ -412,10 +498,21 @@ class ArmaCtlTelegramBot:
                     self._schedule_text(),
                 ]
             )
-            await self._reply_with_menu(update, text, schedule=True)
+            await self._reply_with_menu(update, text)
             return
 
-        await self._reply_with_menu(update, self._schedule_text(), schedule=True)
+        self._clear_pending_schedule_input(update)
+        await self._reply_with_menu(update, self._schedule_text())
+
+    async def text_message_handler(self, update, context) -> None:
+        if not await self._ensure_allowed(update):
+            return
+        if not self._has_pending_schedule_input(update):
+            return
+
+        message = getattr(update, "effective_message", None)
+        text = "" if message is None else str(getattr(message, "text", "")).strip()
+        await self._apply_schedule_input(update, text)
 
     async def callback_handler(self, update, context) -> None:
         if not await self._ensure_allowed(update):
@@ -424,6 +521,8 @@ class ArmaCtlTelegramBot:
         query = update.callback_query
         await query.answer()
         data = query.data or ""
+        if data != "schedule:edit":
+            self._clear_pending_schedule_input(update)
 
         if data == "menu":
             await self._reply_with_menu(update, self.menu_text())
@@ -434,7 +533,7 @@ class ArmaCtlTelegramBot:
             return
 
         if data == "schedule":
-            await self._reply_with_menu(update, self._schedule_text(), schedule=True)
+            await self._reply_with_menu(update, self._schedule_text())
             return
 
         if data == "start":
@@ -482,7 +581,6 @@ class ArmaCtlTelegramBot:
             await self._reply_with_menu(
                 update,
                 self.action_result_text(result, self._schedule_text()),
-                schedule=True,
             )
             return
 
@@ -491,7 +589,17 @@ class ArmaCtlTelegramBot:
             await self._reply_with_menu(
                 update,
                 self.action_result_text(result, self._schedule_text()),
-                schedule=True,
+            )
+            return
+
+        if data == "schedule:edit":
+            self._set_pending_schedule_input(update)
+            await self._reply_with_menu(
+                update,
+                render_schedule_input_prompt(
+                    get_timer_status(timer_unit_name(self.instance)).get("schedule", ""),
+                    self.lang,
+                ),
             )
             return
 
@@ -503,14 +611,19 @@ class ArmaCtlTelegramBot:
             await self._reply_with_menu(
                 update,
                 self.action_result_text(result, self._status_text()),
-                schedule=True,
             )
 
     def build_application(self):
         """Create and configure the PTB Application."""
         try:
             from telegram import Update
-            from telegram.ext import Application, CallbackQueryHandler, CommandHandler
+            from telegram.ext import (
+                Application,
+                CallbackQueryHandler,
+                CommandHandler,
+                MessageHandler,
+                filters,
+            )
         except ImportError as e:
             raise RuntimeError(
                 self.t(
@@ -531,6 +644,9 @@ class ArmaCtlTelegramBot:
         application.add_handler(CommandHandler("stop", self.stop_command))
         application.add_handler(CommandHandler("restart", self.restart_command))
         application.add_handler(CommandHandler("schedule", self.schedule_command))
+        application.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND, self.text_message_handler)
+        )
         application.add_handler(CallbackQueryHandler(self.callback_handler))
         application.run_polling(allowed_updates=Update.ALL_TYPES)
 

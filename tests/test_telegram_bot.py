@@ -5,6 +5,8 @@ from __future__ import annotations
 from armactl.telegram_bot import (
     BotStatusSnapshot,
     admin_chat_allowed,
+    parse_friendly_schedule_input,
+    render_schedule_input_prompt,
     render_bot_schedule_text,
     render_bot_status_text,
 )
@@ -57,5 +59,29 @@ def test_render_bot_schedule_text_uses_english_fallback():
     assert "Restart Schedule: default" in text
     assert "Enabled: Yes" in text
     assert "Current schedule: 08:00, 20:00" in text
-    assert "To change the schedule, send:" in text
-    assert "/schedule 05:00, 20:00" in text
+    assert "To change the schedule:" in text
+    assert "Press Change Time, then send something like 08:00, 20:00." in text
+
+
+def test_render_schedule_input_prompt_uses_english_fallback():
+    text = render_schedule_input_prompt("08:00, 20:00", "en")
+
+    assert "\u270D\uFE0F" in text
+    assert "Send restart times in your next message." in text
+    assert "Current schedule: 08:00, 20:00" in text
+    assert "Example: 08:00, 20:00 or 06:00 18:00." in text
+
+
+def test_parse_friendly_schedule_input_accepts_simple_times():
+    assert parse_friendly_schedule_input("08:00, 20:00") == [
+        "*-*-* 08:00:00",
+        "*-*-* 20:00:00",
+    ]
+    assert parse_friendly_schedule_input("06:00 18:00") == [
+        "*-*-* 06:00:00",
+        "*-*-* 18:00:00",
+    ]
+
+
+def test_parse_friendly_schedule_input_rejects_non_time_text():
+    assert parse_friendly_schedule_input("tomorrow at six") == []
