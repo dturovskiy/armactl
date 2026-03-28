@@ -19,9 +19,16 @@ class ArmaCtlApp(App):
         layout: vertical;
         align: center middle;
     }
-    #main-menu, #manage-container, #info-container, #confirm-dialog {
+    #main-menu, #manage-container, #confirm-dialog {
         width: 50;
         height: auto;
+        border: solid green;
+        padding: 1 2;
+        background: $surface;
+    }
+    #info-container {
+        width: 80%;
+        height: 80%;
         border: solid green;
         padding: 1 2;
         background: $surface;
@@ -60,7 +67,12 @@ class ArmaCtlApp(App):
         width: 100%;
         margin-bottom: 1;
     }
-    RichLog {
+    #info-container RichLog {
+        height: 1fr;
+        border: solid green;
+        margin-bottom: 1;
+    }
+    #task-log {
         height: 15;
         border: solid green;
         margin-bottom: 1;
