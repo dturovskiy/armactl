@@ -164,7 +164,28 @@ def test_render_bot_details_text_uses_english_fallback():
     assert "Installed mods: 4" in text
     assert "Weapons Pack (ABC123)" in text
     assert "+ 2 more mod(s)" in text
-    assert "Player Roster" in text
+
+
+def test_render_bot_players_text_uses_english_fallback():
+    snapshot = telegram_bot.BotStatusSnapshot(
+        instance="default",
+        server_running=True,
+        service_name="armareforger.service",
+        service_active_state="active",
+        service_enabled=True,
+        timer_name="armareforger-restart.timer",
+        schedule="08:00, 20:00",
+        next_run="2026-03-29 08:00:00 UTC",
+        player_count=3,
+        max_players=64,
+        player_lines=["Denis (#17)", "Vova (#18)"],
+        roster_available=True,
+        roster_configured=True,
+    )
+
+    text = telegram_bot.render_bot_players_text(snapshot, "en")
+
+    assert "Players: default" in text
     assert "Players: 3/64" in text
     assert "Denis (#17)" in text
     assert "Vova (#18)" in text
@@ -254,7 +275,7 @@ def test_render_bot_status_text_keeps_rcon_roster_errors_out_of_main_status():
     assert "Player roster unavailable" not in text
 
 
-def test_render_bot_details_text_explains_roster_failures():
+def test_render_bot_players_text_explains_roster_failures():
     snapshot = telegram_bot.BotStatusSnapshot(
         instance="default",
         server_running=True,
@@ -274,7 +295,7 @@ def test_render_bot_details_text_explains_roster_failures():
         roster_error="RCON command timed out.",
     )
 
-    text = telegram_bot.render_bot_details_text(snapshot, "en")
+    text = telegram_bot.render_bot_players_text(snapshot, "en")
 
     assert "Player Roster" in text
     assert "Players: 2/64" in text
@@ -313,9 +334,11 @@ def test_bot_snapshot_cache_reuses_view_data_until_refresh():
         bot._metrics_text()
         bot._details_text()
         bot._details_text()
+        bot._players_text()
+        bot._players_text()
         bot._status_text(force_refresh=True)
 
-    assert build.call_count == 4
+    assert build.call_count == 5
     assert build.call_args_list[0] == mock.call("default")
     assert build.call_args_list[1] == mock.call(
         "default",
@@ -325,9 +348,12 @@ def test_bot_snapshot_cache_reuses_view_data_until_refresh():
     assert build.call_args_list[2] == mock.call(
         "default",
         include_summaries=True,
+    )
+    assert build.call_args_list[3] == mock.call(
+        "default",
         include_roster=True,
     )
-    assert build.call_args_list[3] == mock.call("default")
+    assert build.call_args_list[4] == mock.call("default")
 
 
 def test_parse_friendly_schedule_input_accepts_simple_times():
