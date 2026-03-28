@@ -9,7 +9,7 @@
     "Install New Server": "Встановити новий сервер",
     "Repair Installation": "Відновлення (Repair)",
     "Manage Existing Server >>": "Керувати встановленим сервером >>",
-    
+
     "Restart": "Рестарт",
     "Start": "Запустити",
     "Stop": "Зупинити",
@@ -21,7 +21,7 @@
     "Back to Main Menu": "У головне меню",
     "Back": "Назад",
     "Loading status...": "Завантаження статусу...",
-    
+
     "Server Name:": "Назва сервера:",
     "Scenario ID:": "ID сценарію (Scenario):",
     "Max Players:": "Макс. гравців:",
@@ -35,13 +35,13 @@
     "Save Config": "Зберегти",
     "Save & Restart": "Зберегти і Перезапуск",
     "Cancel": "Скасувати",
-    
+
     "Maintenance & Cleanup: ": "Очищення та обслуговування: ",
     "Clean Junk Files": "Очистити сміття",
     "Clean Now": "Очистити зараз",
     "Language changed! Please exit and run armactl again to apply changes.": "Мову змінено! Перезапустіть armactl для застосування змін.",
     "Language Swapped": "Мову Змінено",
-    
+
     "Language:": "Мова:"
   }
 }

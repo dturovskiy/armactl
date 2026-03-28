@@ -6,11 +6,8 @@ All systemctl calls go through subprocess with proper error handling.
 
 from __future__ import annotations
 
-import json
 import os
-import shutil
 import subprocess
-import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path

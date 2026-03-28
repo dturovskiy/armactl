@@ -1,4 +1,4 @@
-"""Logs module — read and tail server logs from journalctl.
+"""Logs module - read and tail server logs from journalctl.
 
 Uses service_name from state.json to target the correct unit.
 """
@@ -8,7 +8,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from typing import Any
 
 
 def show_logs(
@@ -29,19 +28,17 @@ def show_logs(
         cmd.extend(["-n", str(lines)])
 
     try:
-        # Use os.execvp for follow mode so Ctrl+C works naturally
         if follow:
             os.execvp("journalctl", cmd)
-            return 0  # unreachable, but satisfies type checker
+            return 0
 
         result = subprocess.run(cmd, timeout=15)
         return result.returncode
-
     except subprocess.TimeoutExpired:
         print("journalctl timed out", file=sys.stderr)
         return 1
     except FileNotFoundError:
-        print("journalctl not found — is systemd installed?", file=sys.stderr)
+        print("journalctl not found - is systemd installed?", file=sys.stderr)
         return 1
     except OSError as e:
         print(f"Failed to read logs: {e}", file=sys.stderr)

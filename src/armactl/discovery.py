@@ -15,7 +15,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from armactl import paths as P
+from armactl import paths
 from armactl.state import PortInfo, ServerState, load_state, save_state
 
 log = logging.getLogger(__name__)
@@ -47,17 +47,17 @@ def _config_exists(config_path: Path) -> bool:
     return config_path.is_file()
 
 
-def _service_exists(service_name: str = P.SERVICE_NAME) -> bool:
+def _service_exists(service_name: str = paths.SERVICE_NAME) -> bool:
     """Check if the systemd service unit file exists."""
-    return (P.SYSTEMD_DIR / service_name).is_file()
+    return (paths.SYSTEMD_DIR / service_name).is_file()
 
 
-def _timer_exists(timer_name: str = P.TIMER_NAME) -> bool:
+def _timer_exists(timer_name: str = paths.TIMER_NAME) -> bool:
     """Check if the systemd timer unit file exists."""
-    return (P.SYSTEMD_DIR / timer_name).is_file()
+    return (paths.SYSTEMD_DIR / timer_name).is_file()
 
 
-def _is_service_active(service_name: str = P.SERVICE_NAME) -> bool:
+def _is_service_active(service_name: str = paths.SERVICE_NAME) -> bool:
     """Check if the systemd service is currently active (running)."""
     try:
         result = subprocess.run(
@@ -71,12 +71,12 @@ def _is_service_active(service_name: str = P.SERVICE_NAME) -> bool:
         return False
 
 
-def _parse_systemd_unit(service_name: str = P.SERVICE_NAME) -> dict[str, str]:
+def _parse_systemd_unit(service_name: str = paths.SERVICE_NAME) -> dict[str, str]:
     """Parse WorkingDirectory and ExecStart from a systemd unit file.
 
     Returns a dict with keys 'working_directory' and 'exec_start' (if found).
     """
-    unit_path = P.SYSTEMD_DIR / service_name
+    unit_path = paths.SYSTEMD_DIR / service_name
     result: dict[str, str] = {}
 
     if not unit_path.is_file():
@@ -159,7 +159,7 @@ def _discover_from_state(
     data_root: Path,
 ) -> ServerState | None:
     """Strategy 1: Load existing state.json."""
-    sf = P.state_file(instance, data_root)
+    sf = paths.state_file(instance, data_root)
     state = load_state(sf)
     if state is not None:
         log.info("Loaded existing state from %s", sf)
@@ -171,9 +171,9 @@ def _discover_from_standard_paths(
     data_root: Path,
 ) -> ServerState | None:
     """Strategy 2: Check standard armactl-data paths."""
-    root = P.instance_root(instance, data_root)
-    s_dir = P.server_dir(instance, data_root)
-    c_file = P.config_file(instance, data_root)
+    root = paths.instance_root(instance, data_root)
+    s_dir = paths.server_dir(instance, data_root)
+    c_file = paths.config_file(instance, data_root)
 
     if not root.is_dir():
         return None
@@ -296,8 +296,8 @@ def _discover_from_legacy_paths() -> ServerState | None:
 
 
 def discover(
-    instance: str = P.DEFAULT_INSTANCE_NAME,
-    data_root: Path = P.DEFAULT_DATA_ROOT,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    data_root: Path = paths.DEFAULT_DATA_ROOT,
     save: bool = True,
 ) -> ServerState:
     """Run full discovery and return the detected state.
@@ -335,7 +335,7 @@ def discover(
     state.server_running = _is_service_active(state.service_name)
     state.service_exists = _service_exists(state.service_name)
     state.timer_exists = _timer_exists(state.timer_name)
-    
+
     # Always re-read ports from config in case user manually edited config.json
     if state.config_exists and state.config_path:
         state.ports = _read_ports_from_config(Path(state.config_path))
@@ -348,7 +348,7 @@ def discover(
         state.listening = _check_listening_ports(port_list)
 
     if save and state.server_installed:
-        sf = P.state_file(instance, data_root)
+        sf = paths.state_file(instance, data_root)
         save_state(state, sf)
         log.info("Saved state to %s", sf)
 
@@ -358,8 +358,8 @@ def discover(
 def discover_manual(
     install_dir: Path,
     config_path: Path,
-    instance: str = P.DEFAULT_INSTANCE_NAME,
-    data_root: Path = P.DEFAULT_DATA_ROOT,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    data_root: Path = paths.DEFAULT_DATA_ROOT,
     save: bool = True,
 ) -> ServerState:
     """Fallback: manually specify paths for an existing server.
@@ -370,7 +370,7 @@ def discover_manual(
     config = _config_exists(config_path)
     ports = _read_ports_from_config(config_path) if config else PortInfo()
 
-    inst_root = P.instance_root(instance, data_root)
+    inst_root = paths.instance_root(instance, data_root)
 
     state = ServerState(
         server_installed=binary,
@@ -386,7 +386,7 @@ def discover_manual(
     )
 
     if save:
-        sf = P.state_file(instance, data_root)
+        sf = paths.state_file(instance, data_root)
         save_state(state, sf)
         log.info("Saved manually discovered state to %s", sf)
 

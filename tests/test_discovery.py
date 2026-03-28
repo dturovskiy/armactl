@@ -105,7 +105,7 @@ WantedBy=multi-user.target
     unit_file = tmp_path / "armareforger.service"
     unit_file.write_text(unit_content)
 
-    with patch("armactl.discovery.P.SYSTEMD_DIR", tmp_path):
+    with patch("armactl.discovery.paths.SYSTEMD_DIR", tmp_path):
         result = _parse_systemd_unit()
 
     assert result["working_directory"] == "/home/user/armactl-data/default/server"
@@ -114,7 +114,7 @@ WantedBy=multi-user.target
 
 def test_parse_systemd_unit_missing(tmp_path: Path):
     """Should return empty dict for missing unit file."""
-    with patch("armactl.discovery.P.SYSTEMD_DIR", tmp_path):
+    with patch("armactl.discovery.paths.SYSTEMD_DIR", tmp_path):
         result = _parse_systemd_unit()
     assert result == {}
 

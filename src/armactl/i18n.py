@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from armactl import paths as P
+from armactl import paths
 
 # A centralized file to store global settings like language
-SETTINGS_FILE = P.DEFAULT_DATA_ROOT / "user_settings.json"
+SETTINGS_FILE = paths.DEFAULT_DATA_ROOT / "user_settings.json"
 
 _current_lang = "en"
 _available_locales = {}
@@ -21,25 +21,28 @@ def init_locales() -> None:
     global _available_locales, _locale_order, _current_lang
     _available_locales.clear()
     _locale_order.clear()
-    
+
     if LOCALES_DIR.exists():
         for p in LOCALES_DIR.glob("*.json"):
             try:
-                with open(p, "r", encoding="utf-8") as f:
+                with open(p, encoding="utf-8") as f:
                     data = json.load(f)
                     meta = data.get("__meta__", {})
                     code = meta.get("code", p.stem)
                     _available_locales[code] = data
             except Exception:
                 pass
-                
+
     # fallback if completely empty
     if not _available_locales:
-        _available_locales["en"] = {"__meta__": {"code": "en", "language": "English"}, "translations": {}}
-        
+        _available_locales["en"] = {
+            "__meta__": {"code": "en", "language": "English"},
+            "translations": {},
+        }
+
     # Standardize order so toggle iterates predictably
     _locale_order = sorted(_available_locales.keys())
-    
+
     # Ensure en is first if it exists
     if "en" in _locale_order:
         _locale_order.remove("en")
@@ -51,7 +54,7 @@ def load_lang() -> None:
     init_locales()
     try:
         if SETTINGS_FILE.exists():
-            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            with open(SETTINGS_FILE, encoding="utf-8") as f:
                 data = json.load(f)
                 code = data.get("lang", "en")
                 if code in _available_locales:
@@ -67,7 +70,7 @@ def save_lang(lang: str) -> None:
             SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
             data = {}
             if SETTINGS_FILE.exists():
-                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                with open(SETTINGS_FILE, encoding="utf-8") as f:
                     data = json.load(f)
             data["lang"] = lang
             with open(SETTINGS_FILE, "w", encoding="utf-8") as f:

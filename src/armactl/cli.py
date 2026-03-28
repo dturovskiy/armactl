@@ -13,7 +13,7 @@ from pathlib import Path
 import click
 
 from armactl import __version__
-from armactl import paths as P
+from armactl import paths
 
 
 @click.group(invoke_without_command=True)
@@ -59,7 +59,11 @@ def main(ctx: click.Context, instance: str, use_json: bool) -> None:
             t = threading.Thread(target=keep_sudo_alive, daemon=True)
             t.start()
         except subprocess.CalledProcessError:
-            click.echo("Failed to acquire sudo privileges! Background commands might fail.", err=True)
+            click.echo(
+                "Failed to acquire sudo privileges! "
+                "Background commands might fail.",
+                err=True,
+            )
 
         from armactl.tui.app import run_tui
         # If no strict command given, launch the visual TUI
@@ -90,7 +94,10 @@ def status(ctx: click.Context) -> None:
         if ctx.obj["json"]:
             click.echo(json.dumps({"error": "no_server_found"}))
         else:
-            click.echo(f"[{instance}] No server found. Run './armactl detect' or './armactl install'.")
+            click.echo(
+                f"[{instance}] No server found. "
+                "Run './armactl detect' or './armactl install'."
+            )
         sys.exit(1)
 
     svc = get_service_status(state.service_name)
@@ -110,7 +117,10 @@ def status(ctx: click.Context) -> None:
     if svc['main_pid']:
         click.echo(f"  PID:         {svc['main_pid']}")
     if state.ports.game:
-        click.echo(f"  Ports:       game={state.ports.game} a2s={state.ports.a2s} rcon={state.ports.rcon}")
+        click.echo(
+            f"  Ports:       game={state.ports.game} "
+            f"a2s={state.ports.a2s} rcon={state.ports.rcon}"
+        )
 
 
 @main.command()
@@ -273,14 +283,14 @@ def ports_open(ctx: click.Context) -> None:
     """Open server ports in UFW."""
     from armactl.discovery import discover
     from armactl.ports import manage_ports
-    
+
     instance = ctx.obj["instance"]
     state = discover(instance=instance, save=False)
-    
+
     game = state.ports.game or 2001
     a2s = state.ports.a2s or 17777
     rcon = state.ports.rcon or 19999
-    
+
     click.echo(f"[{instance}] Opening ports using UFW...")
     for msg in manage_ports("open", game, a2s, rcon):
         click.echo(msg)
@@ -292,14 +302,14 @@ def ports_close(ctx: click.Context) -> None:
     """Close server ports in UFW."""
     from armactl.discovery import discover
     from armactl.ports import manage_ports
-    
+
     instance = ctx.obj["instance"]
     state = discover(instance=instance, save=False)
-    
+
     game = state.ports.game or 2001
     a2s = state.ports.a2s or 17777
     rcon = state.ports.rcon or 19999
-    
+
     click.echo(f"[{instance}] Closing ports using UFW...")
     for msg in manage_ports("close", game, a2s, rcon):
         click.echo(msg)
@@ -345,20 +355,29 @@ def detect(ctx: click.Context, install_dir: Path | None, config_path: Path | Non
         binary_path = Path(state.install_dir) / "ArmaReforgerServer"
         click.echo(f"  ✓ Server found at: {state.install_dir}")
         click.echo(f"  ✓ Binary:  {'found' if state.binary_exists else 'missing'} ({binary_path})")
-        click.echo(f"  ✓ Config:  {'found' if state.config_exists else 'missing'} ({state.config_path})")
+        click.echo(
+            f"  Config:  {'found' if state.config_exists else 'missing'} "
+            f"({state.config_path})"
+        )
         click.echo(f"  ✓ Service: {'found' if state.service_exists else 'missing'}")
         click.echo(f"  ✓ Timer:   {'found' if state.timer_exists else 'missing'}")
         icon = "🟢" if state.server_running else "🔴"
         click.echo(f"  ✓ Status:  {icon} {'running' if state.server_running else 'stopped'}")
         if state.ports.game:
-            click.echo(f"  ✓ Ports:   game={state.ports.game} a2s={state.ports.a2s} rcon={state.ports.rcon}")
+            click.echo(
+                f"  Ports:   game={state.ports.game} "
+                f"a2s={state.ports.a2s} rcon={state.ports.rcon}"
+            )
         if state.migrated_from:
             click.echo(f"  ⚠ Detected from legacy paths (migrated_from={state.migrated_from})")
-        click.echo(f"  State saved to: {P.state_file(instance)}")
+        click.echo(f"  State saved to: {paths.state_file(instance)}")
     else:
         click.echo("  ✗ No server found.")
         click.echo("  Use 'armactl install' to install, or")
-        click.echo("  Use 'armactl detect --install-dir <path> --config-path <path>' for manual detection.")
+        click.echo(
+            "  Use 'armactl detect --install-dir <path> --config-path <path>' "
+            "for manual detection."
+        )
 
 
 @main.command()
@@ -367,7 +386,7 @@ def install(ctx: click.Context) -> None:
     """Install server from scratch."""
     from armactl.installer import InstallError, run_install
     instance = ctx.obj["instance"]
-    
+
     click.echo(f"[{instance}] Starting installation...")
     try:
         for msg in run_install(instance=instance):
@@ -382,7 +401,7 @@ def install(ctx: click.Context) -> None:
 def repair(ctx: click.Context) -> None:
     """Repair broken installation."""
     from armactl.repair import run_repair, RepairError
-    
+
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
 
@@ -622,9 +641,12 @@ def service_install(ctx: click.Context) -> None:
 def service_enable_cmd(ctx: click.Context) -> None:
     """Enable systemd service."""
     from armactl.service_manager import enable_service
-    from armactl import paths as P
     instance = ctx.obj["instance"]
-    service_name = f"armareforger@{instance}.service" if instance != "default" else P.SERVICE_NAME
+    service_name = (
+        f"armareforger@{instance}.service"
+        if instance != "default"
+        else paths.SERVICE_NAME
+    )
     result = enable_service(service_name)
     click.echo(f"[{instance}] {result.message}")
 
@@ -633,9 +655,12 @@ def service_enable_cmd(ctx: click.Context) -> None:
 def service_disable_cmd(ctx: click.Context) -> None:
     """Disable systemd service."""
     from armactl.service_manager import disable_service
-    from armactl import paths as P
     instance = ctx.obj["instance"]
-    service_name = f"armareforger@{instance}.service" if instance != "default" else P.SERVICE_NAME
+    service_name = (
+        f"armareforger@{instance}.service"
+        if instance != "default"
+        else paths.SERVICE_NAME
+    )
     result = disable_service(service_name)
     click.echo(f"[{instance}] {result.message}")
 
@@ -670,9 +695,12 @@ def timer_install(ctx: click.Context) -> None:
 def timer_enable_cmd(ctx: click.Context) -> None:
     """Enable systemd timer."""
     from armactl.service_manager import enable_service
-    from armactl import paths as P
     instance = ctx.obj["instance"]
-    timer_name = f"armareforger-restart@{instance}.timer" if instance != "default" else P.TIMER_NAME
+    timer_name = (
+        f"armareforger-restart@{instance}.timer"
+        if instance != "default"
+        else paths.TIMER_NAME
+    )
     result = enable_service(timer_name)
     click.echo(f"[{instance}] {result.message}")
 
@@ -681,9 +709,12 @@ def timer_enable_cmd(ctx: click.Context) -> None:
 def timer_disable_cmd(ctx: click.Context) -> None:
     """Disable systemd timer."""
     from armactl.service_manager import disable_service
-    from armactl import paths as P
     instance = ctx.obj["instance"]
-    timer_name = f"armareforger-restart@{instance}.timer" if instance != "default" else P.TIMER_NAME
+    timer_name = (
+        f"armareforger-restart@{instance}.timer"
+        if instance != "default"
+        else paths.TIMER_NAME
+    )
     result = disable_service(timer_name)
     click.echo(f"[{instance}] {result.message}")
 
@@ -750,12 +781,19 @@ def schedule() -> None:
 def schedule_show(ctx: click.Context) -> None:
     """Show current restart schedule."""
     import subprocess
-    from armactl import paths as P
     instance = ctx.obj["instance"]
-    timer_name = f"armareforger-restart@{instance}.timer" if instance != "default" else P.TIMER_NAME
-    
+    timer_name = (
+        f"armareforger-restart@{instance}.timer"
+        if instance != "default"
+        else paths.TIMER_NAME
+    )
+
     try:
-        ans = subprocess.run(["systemctl", "show", timer_name, "--property=TimersCalendar"], capture_output=True, text=True)
+        ans = subprocess.run(
+            ["systemctl", "show", timer_name, "--property=TimersCalendar"],
+            capture_output=True,
+            text=True,
+        )
         click.echo(f"[{instance}] Schedule: {ans.stdout.strip()}")
     except OSError:
         click.echo(f"[{instance}] Failed to read timer status.")
@@ -799,10 +837,13 @@ def schedule_disable(ctx: click.Context) -> None:
 def schedule_restart_now(ctx: click.Context) -> None:
     """Trigger immediate restart via timer service."""
     from armactl.service_manager import start_service
-    from armactl import paths as P
     instance = ctx.obj["instance"]
-    restart_service_name = f"armareforger-restart@{instance}.service" if instance != "default" else P.RESTART_SERVICE_NAME
-    
+    restart_service_name = (
+        f"armareforger-restart@{instance}.service"
+        if instance != "default"
+        else paths.RESTART_SERVICE_NAME
+    )
+
     click.echo(f"[{instance}] Triggering restart...")
     res = start_service(restart_service_name)
     click.echo(f"[{instance}] {res.message}")
@@ -826,23 +867,23 @@ def mods(ctx: click.Context) -> None:
 def mods_list(ctx: click.Context) -> None:
     """List all installed mods."""
     from armactl.mods_manager import get_mods
-    
+
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
     if not state.config_exists:
         click.echo(f"[{instance}] Config not found. Cannot read mods.", err=True)
         sys.exit(1)
-        
+
     mods_arr = get_mods(state.config_path)
-    
+
     if ctx.obj["json"]:
         click.echo(json.dumps(mods_arr))
         return
-        
+
     if not mods_arr:
         click.echo(f"[{instance}] No mods configured.")
         return
-        
+
     click.echo(f"[{instance}] Installed mods ({len(mods_arr)}):")
     for idx, mod in enumerate(mods_arr, 1):
         mod_id = mod.get("modId", "UNKNOWN")
@@ -859,14 +900,14 @@ def mods_list(ctx: click.Context) -> None:
 def mods_add(ctx: click.Context, mod_id: str, name: str, version: str) -> None:
     """Add a mod by ID to the configuration."""
     from armactl.mods_manager import add_mod
-    
+
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
-    
+
     if not state.config_exists:
         click.echo(f"[{instance}] Config not found.", err=True)
         sys.exit(1)
-        
+
     added = add_mod(state.config_path, mod_id, name, version)
     if added:
         click.echo(f"[{instance}] ✓ Mod {mod_id} ({name}) added.")
@@ -880,14 +921,14 @@ def mods_add(ctx: click.Context, mod_id: str, name: str, version: str) -> None:
 def mods_remove(ctx: click.Context, mod_id: str) -> None:
     """Remove a mod by ID from the configuration."""
     from armactl.mods_manager import remove_mod
-    
+
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
-    
+
     if not state.config_exists:
         click.echo(f"[{instance}] Config not found.", err=True)
         sys.exit(1)
-        
+
     removed = remove_mod(state.config_path, mod_id)
     if removed:
         click.echo(f"[{instance}] ✓ Mod {mod_id} removed.")
@@ -900,14 +941,14 @@ def mods_remove(ctx: click.Context, mod_id: str) -> None:
 def mods_count(ctx: click.Context) -> None:
     """Show the total number of installed mods."""
     from armactl.mods_manager import get_mods
-    
+
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
-    
+
     if not state.config_exists:
         click.echo(f"[{instance}] Config not found.", err=True)
         sys.exit(1)
-        
+
     mods_arr = get_mods(state.config_path)
     if ctx.obj["json"]:
         click.echo(json.dumps({"count": len(mods_arr)}))
@@ -920,14 +961,14 @@ def mods_count(ctx: click.Context) -> None:
 def mods_dedupe(ctx: click.Context) -> None:
     """Remove duplicate mods with the same ID."""
     from armactl.mods_manager import dedupe_mods
-    
+
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
-    
+
     if not state.config_exists:
         click.echo(f"[{instance}] Config not found.", err=True)
         sys.exit(1)
-        
+
     count = dedupe_mods(state.config_path)
     if count > 0:
         click.echo(f"[{instance}] ✓ Removed {count} duplicate mod(s).")
@@ -941,14 +982,14 @@ def mods_dedupe(ctx: click.Context) -> None:
 def mods_export(ctx: click.Context, output_file: str) -> None:
     """Export the list of mods to a JSON file."""
     from armactl.mods_manager import export_mods
-    
+
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
-    
+
     if not state.config_exists:
         click.echo(f"[{instance}] Config not found.", err=True)
         sys.exit(1)
-        
+
     count = export_mods(state.config_path, output_file)
     click.echo(f"[{instance}] ✓ Exported {count} mods to {output_file}.")
 
@@ -961,14 +1002,14 @@ def mods_import(ctx: click.Context, input_file: str, replace: bool) -> None:
     """Import a list of mods from a JSON file."""
     from armactl.mods_manager import import_mods
     from armactl.config_manager import ConfigError
-    
+
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
-    
+
     if not state.config_exists:
         click.echo(f"[{instance}] Config not found.", err=True)
         sys.exit(1)
-        
+
     try:
         added, skipped = import_mods(state.config_path, input_file, append=not replace)
         click.echo(f"[{instance}] ✓ Imported mods from {input_file}.")
