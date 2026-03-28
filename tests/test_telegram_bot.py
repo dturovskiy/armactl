@@ -1,5 +1,8 @@
 """Tests for Telegram bot runtime helpers."""
 
+import types
+import unittest.mock as mock
+
 import armactl.metrics as metrics
 import armactl.status_summary as status_summary
 import armactl.telegram_bot as telegram_bot
@@ -64,8 +67,8 @@ def test_render_bot_status_text_uses_english_fallback():
     assert "Timer: armareforger-restart.timer" in text
     assert "Current schedule: 08:00, 20:00" in text
     assert "Players: 3/64" in text
-    assert "Denis (#17)" in text
-    assert "Vova (#18)" in text
+    assert "Denis (#17)" not in text
+    assert "Vova (#18)" not in text
 
 
 def test_render_bot_metrics_text_uses_english_fallback():
@@ -144,6 +147,9 @@ def test_render_bot_details_text_uses_english_fallback():
             ],
             remaining_count=2,
         ),
+        player_lines=["Denis (#17)", "Vova (#18)"],
+        roster_available=True,
+        roster_configured=True,
     )
 
     text = telegram_bot.render_bot_details_text(snapshot, "en")
@@ -158,6 +164,10 @@ def test_render_bot_details_text_uses_english_fallback():
     assert "Installed mods: 4" in text
     assert "Weapons Pack (ABC123)" in text
     assert "+ 2 more mod(s)" in text
+    assert "Player Roster" in text
+    assert "Players: 3/64" in text
+    assert "Denis (#17)" in text
+    assert "Vova (#18)" in text
 
 
 def test_render_bot_schedule_text_uses_english_fallback():
@@ -215,7 +225,7 @@ def test_render_bot_status_text_handles_unavailable_player_query():
     assert "Players: unavailable" in text
 
 
-def test_render_bot_status_text_warns_when_roster_is_unavailable():
+def test_render_bot_status_text_keeps_rcon_roster_errors_out_of_main_status():
     snapshot = telegram_bot.BotStatusSnapshot(
         instance="default",
         server_running=True,
@@ -234,12 +244,90 @@ def test_render_bot_status_text_warns_when_roster_is_unavailable():
         mods_summary=status_summary.ModsSummary(available=True, count=0),
         player_lines=[],
         roster_available=False,
+        roster_configured=True,
+        roster_error="RCON command timed out.",
     )
 
     text = telegram_bot.render_bot_status_text(snapshot, "en")
 
     assert "Players: 2/64" in text
-    assert "Player roster unavailable via RCON." in text
+    assert "Player roster unavailable" not in text
+
+
+def test_render_bot_details_text_explains_roster_failures():
+    snapshot = telegram_bot.BotStatusSnapshot(
+        instance="default",
+        server_running=True,
+        service_name="armareforger.service",
+        service_active_state="active",
+        service_enabled=True,
+        timer_name="armareforger-restart.timer",
+        schedule="08:00, 20:00",
+        next_run="2026-03-29 08:00:00 UTC",
+        player_count=2,
+        max_players=64,
+        config_summary=status_summary.ConfigSummary(available=True),
+        mods_summary=status_summary.ModsSummary(available=True, count=0),
+        player_lines=[],
+        roster_available=False,
+        roster_configured=True,
+        roster_error="RCON command timed out.",
+    )
+
+    text = telegram_bot.render_bot_details_text(snapshot, "en")
+
+    assert "Player Roster" in text
+    assert "Players: 2/64" in text
+    assert "Player roster unavailable: RCON command timed out." in text
+    assert "Check local RCON address, port, and password." in text
+
+
+def test_bot_snapshot_cache_reuses_view_data_until_refresh():
+    config = types.SimpleNamespace(
+        instance="default",
+        language="en",
+        enabled=True,
+        token="token",
+        admin_chat_ids=["1"],
+    )
+    snapshot = telegram_bot.BotStatusSnapshot(
+        instance="default",
+        server_running=True,
+        service_name="armareforger.service",
+        service_active_state="active",
+        service_enabled=True,
+        timer_name="armareforger-restart.timer",
+        schedule="08:00, 20:00",
+        next_run="2026-03-29 08:00:00 UTC",
+        player_count=0,
+        max_players=64,
+    )
+
+    with mock.patch("armactl.telegram_bot.load_bot_config", return_value=config):
+        bot = telegram_bot.ArmaCtlTelegramBot("default")
+
+    with mock.patch("armactl.telegram_bot._build_status_snapshot", return_value=snapshot) as build:
+        bot._status_text()
+        bot._status_text()
+        bot._metrics_text()
+        bot._metrics_text()
+        bot._details_text()
+        bot._details_text()
+        bot._status_text(force_refresh=True)
+
+    assert build.call_count == 4
+    assert build.call_args_list[0] == mock.call("default")
+    assert build.call_args_list[1] == mock.call(
+        "default",
+        include_runtime_metrics=True,
+        include_host_metrics=True,
+    )
+    assert build.call_args_list[2] == mock.call(
+        "default",
+        include_summaries=True,
+        include_roster=True,
+    )
+    assert build.call_args_list[3] == mock.call("default")
 
 
 def test_parse_friendly_schedule_input_accepts_simple_times():
