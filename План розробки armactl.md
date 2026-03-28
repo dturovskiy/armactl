@@ -106,8 +106,9 @@ Service посилається на root інстансу:
 
 Правильна модель:
 
-- **backend CLI**: `armactl`
-- **TUI**: оболонка над backend CLI
+- **backend modules**: reusable Python-модулі з бізнес-логікою
+- **backend CLI**: `armactl` поверх цих модулів
+- **TUI**: оболонка над backend-шаром (через reusable modules / CLI), без логіки в екранах
 - **systemd**: рушій сервера
 - **state/discovery**: окремий модуль
 

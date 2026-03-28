@@ -125,7 +125,7 @@
 - [x] Додати режим `Install server`
 - [x] Додати режим `Manage existing server`
 - [x] Додати режим `Repair installation`
-- [x] Підв'язати TUI до backend CLI
+- [x] Підв'язати TUI до backend-шару без логіки в екранах
 - [x] Перевірити, що TUI не містить бізнес-логіки
 
 ## Phase 9 — TUI server controls
@@ -164,6 +164,10 @@
 - [x] Додати i18n Локалізацію (en/uk)
 - [x] Додати Maintenance / Cleanup screen
 - [x] Додати функцію Detect Existing Server в UI
+- [x] Додати one-click launcher `./armactl` з автозавантаженням залежностей
+- [x] Додати Raw Config JSON editor у TUI
+- [x] Додати запуск host tests з TUI
+- [x] Додати автозбереження логів host tests у файл
 
 ## Phase 12 — TUI schedule
 
@@ -191,15 +195,15 @@
 - [ ] Додати summary по конфігу
 - [ ] Додати summary по модах
 - [ ] Додати зрозумілі помилки
-- [ ] Додати success notifications
+- [x] Додати success notifications
 - [ ] Додати masking для паролів
 - [ ] Перевірити, що секрети не течуть у логах
 
 ## Phase 14 — Тести
 
-- [ ] Unit tests для discovery
-- [ ] Unit tests для config manager
-- [ ] Unit tests для mod manager
+- [x] Unit tests для discovery
+- [x] Unit tests для config manager
+- [x] Unit tests для mod manager
 - [ ] Integration tests для install
 - [ ] Integration tests для service/timer
 - [ ] Manual smoke test на чистій VM
@@ -208,10 +212,10 @@
 
 ## Phase 15 — Release readiness
 
-- [ ] Описати інсталяцію в README
-- [ ] Описати запуск TUI в README
-- [ ] Описати режим existing server
-- [ ] Описати repair mode
+- [x] Описати інсталяцію в README
+- [x] Описати запуск TUI в README
+- [x] Описати режим existing server
+- [x] Описати repair mode
 - [ ] Додати changelog
 - [ ] Підготувати перший GitHub release
 - [ ] Перевірити встановлення з релізного архіву

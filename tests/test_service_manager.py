@@ -17,6 +17,7 @@ from armactl.service_manager import (
 
 def test_normalize_on_calendar_accepts_time_only() -> None:
     """Short HH:MM input should expand to a full OnCalendar expression."""
+    assert normalize_on_calendar("8:00") == "*-*-* 08:00:00"
     assert normalize_on_calendar("05:30") == "*-*-* 05:30:00"
     assert normalize_on_calendar("05:30:10") == "*-*-* 05:30:10"
 

@@ -7,7 +7,7 @@ Open-source installer, manager and TUI for **Arma Reforger Dedicated Server** on
 - **Install** a server from scratch via SteamCMD
 - **Detect** an already existing server installation
 - **Manage** server: start, stop, restart, status, logs, ports
-- **Edit** `config.json` safely — no manual JSON editing
+- **Edit** `config.json` safely, with an optional raw JSON screen for advanced cases
 - **Manage mods** — add, remove, dedupe, import/export
 - **Automate** via systemd service and scheduled restart timer
 - **Repair** broken or incomplete installations
@@ -37,6 +37,41 @@ If you want the dev toolchain from the first launch too, use:
 ```bash
 ARMACTL_BOOTSTRAP_MODE=--dev ./armactl
 ```
+
+## Existing server
+
+If the server already exists on the host, launch `./armactl` and choose
+`Detect Existing Server` or `Manage Existing Server`. armactl will look for the
+runtime root, `config.json`, systemd service, timer and current ports, then
+switch into management mode without reinstalling the server.
+
+For older scattered installs, see [docs/migration.md](docs/migration.md).
+
+## Repair mode
+
+If the installation is partial or broken, run `./armactl` and choose
+`Repair Installation`, or use:
+
+```bash
+armactl repair
+```
+
+Repair re-checks the installation, validates or regenerates missing pieces,
+rebuilds service/timer files and refreshes `state.json`.
+
+## Scheduled restarts
+
+In TUI, `Restart Schedule` accepts exact times instead of raw systemd syntax.
+Examples:
+
+```text
+08:00
+08:00, 20:00
+08:00 20:00
+```
+
+armactl converts those values into the correct `OnCalendar=` entries in the
+timer unit automatically.
 
 ## Architecture
 

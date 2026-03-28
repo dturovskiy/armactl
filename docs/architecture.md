@@ -22,14 +22,17 @@ armactl/
 ├── LICENSE
 ├── pyproject.toml
 ├── .gitignore
+├── armactl
 ├── docs/
 │   ├── architecture.md
-│   ├── install.md
+│   ├── localization.md
 │   ├── migration.md
-│   └── screenshots/
+│   └── ...
 ├── scripts/
+│   ├── bootstrap.sh
+│   ├── run-host-tests
 │   ├── run-tui
-│   └── bootstrap-dev.sh
+│   └── ...
 ├── templates/
 │   ├── config.json.j2
 │   ├── start-armareforger.sh.j2
@@ -39,29 +42,31 @@ armactl/
 ├── src/
 │   └── armactl/
 │       ├── __init__.py
+│       ├── cleaner.py
 │       ├── cli.py
-│       ├── paths.py
-│       ├── discovery.py
-│       ├── state.py
 │       ├── config_manager.py
-│       ├── service_manager.py
-│       ├── timer_manager.py
+│       ├── discovery.py
+│       ├── i18n.py
 │       ├── installer.py
-│       ├── repair.py
-│       ├── mods.py
 │       ├── logs.py
+│       ├── mods.py
+│       ├── mods_manager.py
+│       ├── paths.py
 │       ├── ports.py
-│       ├── utils.py
+│       ├── repair.py
+│       ├── service_manager.py
+│       ├── state.py
 │       └── tui/
 │           ├── app.py
-│           ├── screens/
-│           ├── widgets/
-│           └── forms/
+│           └── screens.py
 └── tests/
-    ├── test_discovery.py
     ├── test_config_manager.py
+    ├── test_discovery.py
+    ├── test_i18n.py
     ├── test_mods.py
-    └── test_paths.py
+    ├── test_paths.py
+    ├── test_service_manager.py
+    └── test_state.py
 ```
 
 ### Що де
@@ -84,14 +89,15 @@ armactl/
 | `discovery.py` | Пошук існуючого сервера |
 | `state.py` | Читання/запис `state.json` |
 | `config_manager.py` | Безпечне редагування `config.json` |
-| `service_manager.py` | Генерація та керування systemd service |
-| `timer_manager.py` | Генерація та керування systemd timer |
+| `service_manager.py` | Генерація та керування systemd service/timer, статус і розклад |
 | `installer.py` | Install flow: SteamCMD + config + service |
 | `repair.py` | Відновлення зламаної інсталяції |
-| `mods.py` | Керування модами: add/remove/dedupe/import/export |
+| `mods.py` | Базові операції над списком модів у `config.json` |
+| `mods_manager.py` | Вищорівневе керування модами й mod pack import/export |
+| `cleaner.py` | Аналіз і прибирання старих логів, dump-файлів і backup-ів |
+| `i18n.py` | Локалізація UI та backend-повідомлень |
 | `logs.py` | Читання journalctl логів |
 | `ports.py` | Перевірка listening портів (ss) |
-| `utils.py` | Спільні утиліти |
 
 ---
 
@@ -188,8 +194,8 @@ ExecStart=/home/<user>/armactl-data/default/start-armareforger.sh
 
 ### Правила
 
-1. **TUI не містить бізнес-логіки** — тільки викликає CLI-команди
-2. **CLI — єдина точка входу до логіки** — усе працює і без TUI
+1. **TUI не містить бізнес-логіки** — викликає reusable backend-модулі, а не реалізує логіку в екранах
+2. **CLI — стабільна точка входу для адміністрування** — але core-логіка живе в окремих модулях і працює і без TUI
 3. **Модулі незалежні** — discovery не знає про TUI, config manager не знає про installer
 4. **Templates → generated files** — конфіги та unit-файли генеруються з Jinja2-шаблонів
 5. **Backup before write** — будь-яка зміна конфігу створює backup

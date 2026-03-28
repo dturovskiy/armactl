@@ -243,9 +243,11 @@ def normalize_on_calendar(on_calendar: str) -> str:
     """Normalize friendly time-only input into a full systemd OnCalendar value."""
     value = on_calendar.strip()
     if TIME_ONLY_RE.match(value):
-        if value.count(":") == 1:
-            value += ":00"
-        return f"*-*-* {value}"
+        parts = value.split(":")
+        hour = int(parts[0])
+        minute = int(parts[1])
+        second = int(parts[2]) if len(parts) == 3 else 0
+        return f"*-*-* {hour:02d}:{minute:02d}:{second:02d}"
     return value
 
 
