@@ -25,9 +25,8 @@ RCON_NOISE_PREFIXES = (
     "processing command:",
 )
 
-REFORGER_PLAYER_RE = re.compile(
-    r"^\s*;?\s*(?P<guid>[0-9a-fA-F-]{8,})\s*;\s*(?P<name>.+?)\s*\(#(?P<player_id>\d+)\)\s*$"
-)
+PLAYER_SLOT_SUFFIX_RE = re.compile(r"\s*\(#(?P<player_id>\d+)\)\s*$")
+GUID_LIKE_RE = re.compile(r"^[0-9a-fA-F-]{8,}$")
 
 
 class RconError(Exception):
@@ -115,6 +114,39 @@ def _parse_packet(data: bytes) -> bytes:
             return trimmed_payload
         raise RconError("Invalid BattlEye packet checksum.")
     return payload
+
+
+def _parse_reforger_player_line(line: str) -> PlayerEntry | None:
+    """Parse Arma Reforger semicolon-delimited roster lines when possible."""
+    if ";" not in line:
+        return None
+
+    normalized = line.strip().lstrip(";").strip()
+    parts = [part.strip() for part in normalized.split(";") if part.strip()]
+    if len(parts) < 2:
+        return None
+
+    guid = parts[0]
+    tail = parts[-1]
+
+    if not GUID_LIKE_RE.fullmatch(guid):
+        return None
+
+    player_id = None
+    slot_match = PLAYER_SLOT_SUFFIX_RE.search(tail)
+    if slot_match:
+        player_id = slot_match.group("player_id")
+        tail = PLAYER_SLOT_SUFFIX_RE.sub("", tail).strip()
+
+    if not tail:
+        return None
+
+    return PlayerEntry(
+        name=tail,
+        player_id=player_id,
+        guid=guid,
+        raw=line,
+    )
 
 
 class _RconSession:
@@ -243,16 +275,9 @@ def _parse_player_lines(response: str) -> list[PlayerEntry]:
         if line.startswith("#"):
             continue
 
-        reforger_match = REFORGER_PLAYER_RE.match(line)
-        if reforger_match:
-            entries.append(
-                PlayerEntry(
-                    name=reforger_match.group("name").strip(),
-                    player_id=reforger_match.group("player_id"),
-                    guid=reforger_match.group("guid"),
-                    raw=line,
-                )
-            )
+        reforger_entry = _parse_reforger_player_line(line)
+        if reforger_entry is not None:
+            entries.append(reforger_entry)
             continue
 
         parts = line.split(maxsplit=1)

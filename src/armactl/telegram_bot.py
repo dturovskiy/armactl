@@ -127,6 +127,15 @@ def _player_count_text(snapshot: BotStatusSnapshot, lang: str) -> str:
     )
 
 
+def _player_count_value_text(snapshot: BotStatusSnapshot, lang: str) -> str:
+    """Render only the player count value for the dedicated players page."""
+    if snapshot.player_count is None:
+        return translate_for_lang(lang, "Unavailable")
+    if snapshot.max_players is None:
+        return str(snapshot.player_count)
+    return f"{snapshot.player_count}/{snapshot.max_players}"
+
+
 def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
     """Render a localized status response for Telegram."""
     unknown_text = translate_for_lang(lang, "Unknown")
@@ -367,12 +376,19 @@ def render_bot_players_text(snapshot: BotStatusSnapshot, lang: str) -> str:
             tr_for_lang(lang, "Players: {instance}", instance=snapshot.instance),
         ),
         "",
-        _bullet_line(_player_count_text(snapshot, lang)),
+        _bullet_line(
+            tr_for_lang(
+                lang,
+                "Count: {value}",
+                value=_player_count_value_text(snapshot, lang),
+            )
+        ),
     ]
 
     if snapshot.player_count and snapshot.player_count > 0:
         if snapshot.player_lines:
-            lines.extend(_bullet_line(player_line) for player_line in snapshot.player_lines)
+            for index, player_line in enumerate(snapshot.player_lines, start=1):
+                lines.append(f"{index}. {player_line}")
         elif not snapshot.roster_configured:
             lines.append(
                 _bullet_line(
@@ -527,14 +543,7 @@ def _build_status_snapshot(
         roster_available = roster.available
         roster_configured = roster.configured
         roster_error = roster.error
-        roster_lines = [
-            (
-                f"{entry.name} (#{entry.player_id})"
-                if entry.player_id
-                else entry.name
-            )
-            for entry in roster.entries
-        ]
+        roster_lines = [entry.name for entry in roster.entries]
     return BotStatusSnapshot(
         instance=instance,
         server_running=state.server_running,

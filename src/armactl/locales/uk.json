@@ -23,7 +23,6 @@
     "Language changed! Please exit and run armactl again to apply changes.": "Мову змінено! Вийдіть і знову запустіть armactl, щоб застосувати зміни.",
     "Language Swapped": "Мову змінено",
     "Language:": "Мова:",
-
     "Restart": "Перезапустити",
     "Start": "Запустити",
     "Stop": "Зупинити",
@@ -207,7 +206,6 @@
     "Bot access denied for chat ID {chat_id}.": "Доступ для Chat ID {chat_id} заборонено.",
     "Your chat ID is {chat_id}. Add it to ARMACTL_BOT_ADMIN_CHAT_IDS to authorize this chat.": "Ваш Chat ID: {chat_id}. Додайте його до ARMACTL_BOT_ADMIN_CHAT_IDS, щоб авторизувати цей чат.",
     "Choose an action:": "Оберіть дію:",
-
     "Copy Output": "Копіювати вивід",
     "Close Task (Running...)": "Закрити задачу (виконується...)",
     "There is no output to copy yet.": "Ще немає виводу для копіювання.",
@@ -239,12 +237,10 @@
     "Host tests failed with exit code {code}.": "Хост-тести завершилися з кодом {code}.",
     "Saved failing host test log to {path}": "Лог невдалих хост-тестів збережено в {path}",
     "Host Tests Log": "Лог хост-тестів",
-
     "Yes": "Так",
     "No": "Ні",
     "Close Logs": "Закрити логи",
     "Live Logs: {instance} (Press Q to exit)": "Живі логи: {instance} (натисніть Q для виходу)",
-
     "Maintenance & Cleanup: ": "Обслуговування та очищення: ",
     "Clean Junk Files": "Очистити сміттєві файли",
     "Clean Now": "Очистити зараз",
@@ -257,7 +253,6 @@
     "Cleaned {count} files, freed {freed}!": "Очищено {count} файлів, звільнено {freed}!",
     "Cleanup Success": "Очищення успішне",
     "Are you sure you want to permanently delete these files?": "Ви точно хочете назавжди видалити ці файли?",
-
     "Back without saving": "Назад без збереження",
     "Edit Config: {instance}": "Редагування конфіга: {instance}",
     "Server Name:": "Назва сервера:",
@@ -277,7 +272,6 @@
     "Cannot parse config: {error}": "Не вдалося розібрати конфіг: {error}",
     "Config saved successfully (backup created automatically)": "Конфіг успішно збережено (резервну копію створено автоматично)",
     "Error saving config: {error}": "Помилка збереження конфіга: {error}",
-
     "Save JSON": "Зберегти JSON",
     "Reload": "Перезавантажити",
     "Copy JSON": "Копіювати JSON",
@@ -292,7 +286,6 @@
     "Invalid JSON: {error}": "Некоректний JSON: {error}",
     "Config Validation": "Перевірка конфіга",
     "Raw config saved successfully (backup created automatically)": "Сирий конфіг успішно збережено (резервну копію створено автоматично)",
-
     "Import accepts either an exported mod pack JSON or a full config.json with game.mods.": "Імпорт приймає або експортований JSON модпак, або повний config.json з game.mods.",
     "Path to mod pack JSON or config.json": "Шлях до JSON модпаку або config.json",
     "Export writes the current mod list as a standalone JSON mod pack.": "Експорт зберігає поточний список модів як окремий JSON модпак.",
@@ -302,7 +295,6 @@
     "Import (Replace)": "Імпортувати (замінити)",
     "Export": "Експортувати",
     "File path is required.": "Потрібно вказати шлях до файлу.",
-
     "Mods Manager": "Менеджер модів",
     "Mods Manager: ": "Менеджер модів: ",
     "Refresh List": "Оновити список",
@@ -342,7 +334,6 @@
     "Mod {mod_id} not found.": "Мод {mod_id} не знайдено.",
     "Are you sure you want to remove Mod '{mod_id}'?": "Ви точно хочете видалити мод '{mod_id}'?",
     "Deduped mods. Reclaimed {count} duplicates.": "Дублікати модів прибрано. Видалено {count} дублікатів.",
-
     "Config file not found: {path}": "Файл конфігурації не знайдено: {path}",
     "Invalid JSON in config file: {error}": "Некоректний JSON у файлі конфігурації: {error}",
     "Failed to read config file: {error}": "Не вдалося прочитати файл конфігурації: {error}",
@@ -359,7 +350,6 @@
     "Missing 'game.maxPlayers'.": "У конфізі відсутній 'game.maxPlayers'.",
     "'game.maxPlayers' must be an integer.": "'game.maxPlayers' має бути цілим числом.",
     "Key '{key}' not found in config.": "Ключ '{key}' не знайдено в конфізі.",
-
     "Import file must contain either a JSON array of mod objects or a full config object with game.mods.": "Файл імпорту має містити або JSON-масив об'єктів модів, або повний об'єкт конфіга з game.mods.",
     "Each imported mod must be an object containing a 'modId' key.": "Кожен імпортований мод має бути об'єктом, що містить ключ 'modId'.",
     "Imported mod 'modId' cannot be empty.": "Поле 'modId' імпортованого мода не може бути порожнім.",
@@ -371,7 +361,6 @@
     "Bot token is required when Telegram bot is enabled.": "Коли Telegram-бот увімкнений, потрібно вказати токен бота.",
     "At least one admin Chat ID is required when Telegram bot is enabled.": "Коли Telegram-бот увімкнений, потрібно вказати хоча б один Chat ID адміністратора.",
     "Failed to save bot config file: {error}": "Не вдалося зберегти файл конфіга бота: {error}",
-
     "Systemctl action: start": "запуск",
     "Systemctl action: stop": "зупинка",
     "Systemctl action: restart": "перезапуск",
@@ -396,7 +385,6 @@
     "Service generation failed: {error}": "Не вдалося згенерувати сервіси: {error}",
     "Secure privileged control install failed: {error}": "Не вдалося встановити захищений привілейований канал: {error}",
     "Restart timer schedule update failed: {error}": "Не вдалося оновити розклад таймера перезапуску: {error}",
-
     "armactl must be run on a Linux system.": "armactl потрібно запускати в Linux-системі.",
     "Sudo access is required for installation.": "Для встановлення потрібен доступ sudo.",
     "apt-get not found. steamcmd must be installed manually on this OS.": "apt-get не знайдено. На цій ОС steamcmd потрібно встановити вручну.",
@@ -427,7 +415,6 @@
     "Installation complete!": "Встановлення завершено!",
     "{message}:\n{details}": "{message}:\n{details}",
     "{message}: {error}": "{message}: {error}",
-
     "[{instance}] Diagnosing existing installation...": "[{instance}] Діагностика наявного встановлення...",
     "  ! Critical: Install directory {path} is completely missing!": "  ! Критично: директорія встановлення {path} повністю відсутня!",
     "Will not repair missing base directory. Try running 'install' instead.": "Неможливо відновити відсутню базову директорію. Спробуйте натомість запустити 'install'.",
@@ -452,6 +439,8 @@
     "  ! Start script still missing?": "  ! Стартовий скрипт усе ще відсутній?",
     "[{instance}] Step 7: Updating server state...": "[{instance}] Крок 7: оновлення стану сервера...",
     "  OK Server state synchronized": "  OK Стан сервера синхронізовано",
-    "[{instance}] Repair complete! Run 'start' to boot the server.": "[{instance}] Відновлення завершено! Запустіть 'start', щоб підняти сервер."
+    "[{instance}] Repair complete! Run 'start' to boot the server.": "[{instance}] Відновлення завершено! Запустіть 'start', щоб підняти сервер.",
+    "Count: {value}": "Кількість: {value}",
+    "Unavailable": "Недоступно"
   }
 }

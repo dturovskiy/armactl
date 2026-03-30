@@ -52,7 +52,7 @@ def test_render_bot_status_text_uses_english_fallback():
             ],
             remaining_count=2,
         ),
-        player_lines=["Denis (#17)", "Vova (#18)"],
+        player_lines=["Denis", "Vova"],
         roster_available=True,
     )
 
@@ -147,7 +147,7 @@ def test_render_bot_details_text_uses_english_fallback():
             ],
             remaining_count=2,
         ),
-        player_lines=["Denis (#17)", "Vova (#18)"],
+        player_lines=["Denis", "Vova"],
         roster_available=True,
         roster_configured=True,
     )
@@ -178,7 +178,7 @@ def test_render_bot_players_text_uses_english_fallback():
         next_run="2026-03-29 08:00:00 UTC",
         player_count=3,
         max_players=64,
-        player_lines=["Denis (#17)", "Vova (#18)"],
+        player_lines=["Denis", "Vova"],
         roster_available=True,
         roster_configured=True,
     )
@@ -186,9 +186,9 @@ def test_render_bot_players_text_uses_english_fallback():
     text = telegram_bot.render_bot_players_text(snapshot, "en")
 
     assert "Players: default" in text
-    assert "Players: 3/64" in text
-    assert "Denis (#17)" in text
-    assert "Vova (#18)" in text
+    assert "Count: 3/64" in text
+    assert "1. Denis" in text
+    assert "2. Vova" in text
 
 
 def test_render_bot_schedule_text_uses_english_fallback():
@@ -298,7 +298,7 @@ def test_render_bot_players_text_explains_roster_failures():
     text = telegram_bot.render_bot_players_text(snapshot, "en")
 
     assert "Players: default" in text
-    assert "Players: 2/64" in text
+    assert "Count: 2/64" in text
     assert "Player roster unavailable: RCON command timed out." in text
     assert "Check local RCON address, port, and password." in text
 
