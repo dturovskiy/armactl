@@ -2,14 +2,18 @@
 Description=armactl Telegram Bot ({{ instance }})
 After=network-online.target
 Wants=network-online.target
+RequiresMountsFor={{ project_root }} {{ bot_dir }}
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User={{ user }}
 WorkingDirectory={{ project_root }}
 ExecStart={{ python_bin }} -m armactl.telegram_bot --instance {{ instance }}
-Restart=on-failure
-RestartSec=5
+Restart=always
+RestartSec=15
+Environment=HOME={{ home_dir }}
+Environment=USER={{ user }}
 Environment=PYTHONUNBUFFERED=1
 
 [Install]

@@ -5,12 +5,14 @@ from __future__ import annotations
 import os
 import sys
 
+from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalGroup
 from textual.widgets import Button, Footer, Header, Label
 
 from armactl import paths
+from armactl.bot_manager import ensure_bot_service_runtime
 from armactl.discovery import discover
 from armactl.i18n import _, get_current_lang_name, toggle_lang, tr
 
@@ -200,6 +202,33 @@ class ArmaCtlApp(App):
     def __init__(self, instance: str = paths.DEFAULT_INSTANCE_NAME, **kwargs):
         super().__init__(**kwargs)
         self.instance = instance
+
+    def on_mount(self) -> None:
+        """Kick off small background health checks once the main menu is shown."""
+        self.ensure_bot_runtime_task()
+
+    @work(exclusive=True, thread=True)
+    def ensure_bot_runtime_task(self) -> None:
+        """Auto-heal the optional Telegram bot when it was already installed earlier."""
+        results = ensure_bot_service_runtime(self.instance)
+        if not results:
+            return
+
+        failures = [result.message for result in results if not result.success]
+        if failures:
+            self.call_from_thread(
+                self.notify,
+                tr("Telegram bot auto-start check failed: {error}", error=failures[0]),
+                title=_("Telegram Bot"),
+                severity="warning",
+            )
+            return
+
+        self.call_from_thread(
+            self.notify,
+            _("Recovered Telegram bot service automatically after host boot."),
+            title=_("Telegram Bot"),
+        )
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""

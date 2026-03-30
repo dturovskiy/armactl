@@ -9,6 +9,7 @@ from unittest.mock import patch
 from armactl.bot_config import BotConfig
 from armactl.bot_manager import (
     check_bot_runtime,
+    ensure_bot_service_runtime,
     get_bot_service_status,
     render_bot_service_unit,
     validate_bot_service_config,
@@ -53,6 +54,77 @@ def test_render_bot_service_unit_contains_instance_and_execstart(tmp_path: Path)
 
     assert "Description=armactl Telegram Bot (default)" in text
     assert f"ExecStart={python_bin} -m armactl.telegram_bot --instance default" in text
+    assert "Restart=always" in text
+    assert "StartLimitIntervalSec=0" in text
+    assert "Environment=HOME=" in text
+
+
+def test_ensure_bot_service_runtime_enables_and_starts_installed_bot(
+    tmp_path: Path,
+) -> None:
+    config = BotConfig(
+        instance="default",
+        enabled=True,
+        token="123456:ABCDEF",
+        admin_chat_ids=["123456789"],
+        language="uk",
+    )
+    service_path = tmp_path / "armactl-bot.service"
+    service_path.write_text("[Unit]\n", encoding="utf-8")
+
+    with (
+        patch("armactl.bot_manager.load_bot_config", return_value=config),
+        patch("armactl.bot_manager.paths.bot_service_file", return_value=service_path),
+        patch(
+            "armactl.bot_manager.check_bot_runtime",
+            return_value=ServiceResult(True, _("Bot runtime is ready.")),
+        ),
+        patch(
+            "armactl.bot_manager.get_service_status",
+            return_value={"active": False, "enabled": False, "active_state": "inactive"},
+        ),
+        patch(
+            "armactl.bot_manager.enable_service",
+            return_value=ServiceResult(
+                True,
+                _("Systemctl action: enable armactl-bot.service: ok"),
+            ),
+        ) as enable_mock,
+        patch(
+            "armactl.bot_manager.start_bot_service",
+            return_value=ServiceResult(
+                True,
+                _("Systemctl action: start armactl-bot.service: ok"),
+            ),
+        ) as start_mock,
+    ):
+        results = ensure_bot_service_runtime("default")
+
+    assert [result.success for result in results] == [True, True]
+    enable_mock.assert_called_once()
+    start_mock.assert_called_once()
+
+
+def test_ensure_bot_service_runtime_ignores_disabled_bot(tmp_path: Path) -> None:
+    config = BotConfig(
+        instance="default",
+        enabled=False,
+        token="",
+        admin_chat_ids=[],
+        language="uk",
+    )
+    service_path = tmp_path / "armactl-bot.service"
+    service_path.write_text("[Unit]\n", encoding="utf-8")
+
+    with (
+        patch("armactl.bot_manager.load_bot_config", return_value=config),
+        patch("armactl.bot_manager.paths.bot_service_file", return_value=service_path),
+        patch("armactl.bot_manager.start_bot_service") as start_mock,
+    ):
+        results = ensure_bot_service_runtime("default")
+
+    assert results == []
+    start_mock.assert_not_called()
 
 
 def test_get_bot_service_status_reports_privileged_channel(tmp_path: Path):

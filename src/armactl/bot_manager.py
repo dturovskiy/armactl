@@ -94,6 +94,7 @@ def render_bot_service_unit(instance: str) -> str:
     project_root = Path(__file__).resolve().parents[2]
     templates_dir = project_root / "templates"
     env = Environment(loader=FileSystemLoader(str(templates_dir)))
+    home_dir = Path.home()
     user = os.getenv("USER", "root")
     try:
         if user == "root" and os.getlogin():
@@ -105,6 +106,8 @@ def render_bot_service_unit(instance: str) -> str:
     return service_template.render(
         instance=instance,
         user=user,
+        home_dir=str(home_dir),
+        bot_dir=str(paths.bot_dir(instance)),
         project_root=str(project_root),
         python_bin=str(bot_python_path()),
     )
@@ -180,6 +183,51 @@ def get_bot_service_status() -> dict[str, Any]:
         privileged_channel_installed=has_privileged_systemctl_channel(),
     )
     return status
+
+
+def ensure_bot_service_runtime(instance: str) -> list[ServiceResult]:
+    """Best-effort auto-heal for an already installed and enabled Telegram bot."""
+    try:
+        config = load_bot_config(instance)
+    except Exception as e:
+        return [
+            ServiceResult(
+                False,
+                tr(
+                    "Failed to load Telegram bot settings: {error}",
+                    error=redact_sensitive_text(e),
+                ),
+                1,
+            )
+        ]
+
+    if not config.enabled or not paths.bot_service_file().exists():
+        return []
+
+    runtime_result = check_bot_runtime()
+    if not runtime_result.success:
+        return [runtime_result]
+
+    status = get_service_status(bot_service_name())
+    results: list[ServiceResult] = []
+
+    if not status.get("enabled"):
+        enable_result = enable_service(bot_service_name())
+        results.append(enable_result)
+        if not enable_result.success:
+            return results
+        status["enabled"] = True
+
+    active_state = str(status.get("active_state", "")).lower()
+    is_running = bool(status.get("active")) or active_state in {
+        "active",
+        "activating",
+        "reloading",
+    }
+    if not is_running:
+        results.append(start_bot_service())
+
+    return results
 
 
 def start_bot_service() -> ServiceResult:
