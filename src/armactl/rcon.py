@@ -148,15 +148,22 @@ class _RconSession:
         deadline = time.monotonic() + self.timeout
         parts: dict[int, bytes] = {}
         expected_parts: int | None = None
+        server_messages: list[str] = []
 
         while time.monotonic() < deadline:
             remaining = max(deadline - time.monotonic(), 0.05)
-            payload = self._recv_payload(timeout=remaining)
+            try:
+                payload = self._recv_payload(timeout=remaining)
+            except TimeoutError:
+                break
             if not payload:
                 continue
 
             if payload[0] == BE_SERVER_MESSAGE and len(payload) >= 2:
                 self._ack_server_message(payload[1])
+                message_text = payload[2:].decode("utf-8", errors="replace").strip()
+                if message_text:
+                    server_messages.append(message_text)
                 continue
 
             if payload[0] != BE_COMMAND or len(payload) < 2 or payload[1] != sequence_number:
@@ -175,16 +182,24 @@ class _RconSession:
             break
 
         if expected_parts is None and not parts:
+            if server_messages:
+                return "\n".join(server_messages).strip()
             raise RconError("RCON command timed out.")
 
         if expected_parts is None:
             expected_parts = len(parts) or 1
 
-        return (
+        command_text = (
             b"".join(parts.get(index, b"") for index in range(expected_parts))
             .decode("utf-8", errors="replace")
             .strip()
         )
+        server_text = "\n".join(server_messages).strip()
+        if server_text and not command_text:
+            return server_text
+        if server_text and command_text and server_text not in command_text:
+            return f"{command_text}\n{server_text}".strip()
+        return command_text
 
     def logout(self) -> None:
         try:
@@ -219,7 +234,28 @@ def _parse_player_lines(response: str) -> list[PlayerEntry]:
     return entries
 
 
-def query_player_roster(instance: str, timeout: float = 2.0) -> PlayerRoster:
+def _query_player_entries(session: _RconSession) -> list[PlayerEntry]:
+    """Try the most likely roster commands and return the first non-empty parse."""
+    last_error: str = ""
+    for command in ("#players", "players"):
+        try:
+            response = session.send_command(command)
+        except RconError as error:
+            last_error = str(error)
+            continue
+
+        entries = _parse_player_lines(response)
+        if entries:
+            return entries
+        if response:
+            last_error = response
+
+    if last_error:
+        raise RconError(last_error)
+    return []
+
+
+def query_player_roster(instance: str, timeout: float = 5.0) -> PlayerRoster:
     """Return a best-effort player roster using configured local RCON."""
     state = discover(instance, save=False)
     host = "127.0.0.1"
@@ -250,13 +286,7 @@ def query_player_roster(instance: str, timeout: float = 2.0) -> PlayerRoster:
     session = _RconSession(host, port, password, timeout)
     try:
         session.login()
-        response = session.send_command("#players")
-        entries = _parse_player_lines(response)
-        if not entries and response:
-            fallback_response = session.send_command("players")
-            fallback_entries = _parse_player_lines(fallback_response)
-            if fallback_entries:
-                entries = fallback_entries
+        entries = _query_player_entries(session)
         return PlayerRoster(True, True, host, port, entries=entries)
     except (OSError, RconError) as error:
         return PlayerRoster(False, True, host, port, error=str(error))

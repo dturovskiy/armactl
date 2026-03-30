@@ -1042,6 +1042,7 @@ class BotConfigScreen(Screen):
                     id="btn_install_bot_service",
                     variant="primary",
                 )
+                yield Button(_("Restart Bot"), id="btn_restart_bot_service", variant="success")
                 yield Button(_("Stop Bot"), id="btn_stop_bot_service", variant="warning")
                 yield Button(
                     _("Refresh Status"),
@@ -1301,6 +1302,8 @@ class BotConfigScreen(Screen):
             self.action_copy_bot_env_path()
         elif event.button.id == "btn_install_bot_service":
             self.action_install_bot_service()
+        elif event.button.id == "btn_restart_bot_service":
+            self._handle_bot_service_action(_("Restart Bot"), restart_bot_service())
         elif event.button.id == "btn_stop_bot_service":
             self._handle_bot_service_action(_("Stop Bot"), stop_bot_service())
         elif event.button.id == "btn_refresh_bot_service":

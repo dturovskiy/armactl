@@ -108,6 +108,7 @@
     "Apply Bot Service installs/updates the secure helper and systemd unit, then starts or restarts the bot automatically.": "Застосування сервісу бота встановлює або оновлює захищений helper і systemd-юніт, а потім автоматично запускає або перезапускає бота.",
     "Start Bot Service": "Запустити сервіс бота",
     "Stop Bot Service": "Зупинити сервіс бота",
+    "Restart Bot": "Перезапустити бота",
     "Stop Bot": "Зупинити бота",
     "Restart Bot Service": "Перезапустити сервіс бота",
     "Refresh Bot Service": "Оновити стан сервісу бота",
