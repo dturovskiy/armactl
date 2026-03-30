@@ -121,17 +121,28 @@ def _parse_reforger_player_line(line: str) -> PlayerEntry | None:
     if ";" not in line:
         return None
 
-    normalized = line.strip().lstrip(";").strip()
+    normalized = line.strip()
     parts = [part.strip() for part in normalized.split(";") if part.strip()]
     if len(parts) < 2:
         return None
 
-    guid = parts[0]
-    tail = parts[-1]
+    guid_index: int | None = None
+    guid: str | None = None
+    for index, part in enumerate(parts):
+        candidate = part.lstrip("#").strip()
+        if GUID_LIKE_RE.fullmatch(candidate):
+            guid_index = index
+            guid = candidate
+            break
 
-    if not GUID_LIKE_RE.fullmatch(guid):
+    if guid_index is None or guid is None:
         return None
 
+    trailing_parts = [part.strip() for part in parts[guid_index + 1 :] if part.strip()]
+    if not trailing_parts:
+        return None
+
+    tail = trailing_parts[-1]
     player_id = None
     slot_match = PLAYER_SLOT_SUFFIX_RE.search(tail)
     if slot_match:
