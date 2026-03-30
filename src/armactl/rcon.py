@@ -154,7 +154,7 @@ class _RconSession:
             remaining = max(deadline - time.monotonic(), 0.05)
             try:
                 payload = self._recv_payload(timeout=remaining)
-            except socket.timeout:
+            except TimeoutError:
                 break
             if not payload:
                 continue

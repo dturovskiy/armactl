@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import socket
 import zlib
 from unittest.mock import patch
 
@@ -120,7 +119,7 @@ def test_send_command_uses_server_messages_when_command_packets_are_empty() -> N
         "_recv_payload",
         side_effect=[
             bytes([rcon.BE_SERVER_MESSAGE, 7]) + b"17 Denis\n18 Vova",
-            socket.timeout(),
+            TimeoutError(),
         ],
     ):
         response = session.send_command("#players")
