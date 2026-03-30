@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import socket
 import time
 import zlib
@@ -19,6 +20,16 @@ BE_SERVER_MESSAGE = 0x02
 BE_PACKET_TYPES = {BE_LOGIN, BE_COMMAND, BE_SERVER_MESSAGE}
 
 
+RCON_NOISE_PREFIXES = (
+    "logged in! client id:",
+    "processing command:",
+)
+
+REFORGER_PLAYER_RE = re.compile(
+    r"^\s*;?\s*(?P<guid>[0-9a-fA-F-]{8,})\s*;\s*(?P<name>.+?)\s*\(#(?P<player_id>\d+)\)\s*$"
+)
+
+
 class RconError(Exception):
     """Raised when a BattlEye RCON action fails."""
 
@@ -29,6 +40,7 @@ class PlayerEntry:
 
     name: str
     player_id: str | None = None
+    guid: str | None = None
     raw: str = ""
 
 
@@ -201,6 +213,7 @@ class _RconSession:
             return f"{command_text}\n{server_text}".strip()
         return command_text
 
+
     def logout(self) -> None:
         try:
             self.send_command("@logout")
@@ -210,28 +223,53 @@ class _RconSession:
 
 def _parse_player_lines(response: str) -> list[PlayerEntry]:
     entries: list[PlayerEntry] = []
+
     for raw_line in response.splitlines():
         line = raw_line.strip()
         if not line:
             continue
 
         lowered = line.lower()
+
         if lowered in {"players on server:", "players on server"}:
             continue
 
         if lowered.startswith("players") and ":" in line:
             continue
 
+        if lowered.startswith(RCON_NOISE_PREFIXES):
+            continue
+
         if line.startswith("#"):
+            continue
+
+        reforger_match = REFORGER_PLAYER_RE.match(line)
+        if reforger_match:
+            entries.append(
+                PlayerEntry(
+                    name=reforger_match.group("name").strip(),
+                    player_id=reforger_match.group("player_id"),
+                    guid=reforger_match.group("guid"),
+                    raw=line,
+                )
+            )
             continue
 
         parts = line.split(maxsplit=1)
         if len(parts) == 2 and parts[0].isdigit():
-            entries.append(PlayerEntry(name=parts[1].strip(), player_id=parts[0], raw=line))
+            entries.append(
+                PlayerEntry(
+                    name=parts[1].strip(),
+                    player_id=parts[0],
+                    raw=line,
+                )
+            )
             continue
 
         entries.append(PlayerEntry(name=line, raw=line))
+
     return entries
+
 
 
 def _query_player_entries(session: _RconSession) -> list[PlayerEntry]:

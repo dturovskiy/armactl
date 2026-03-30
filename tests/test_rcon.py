@@ -53,6 +53,65 @@ def test_parse_player_lines_extracts_ids_when_possible() -> None:
     ]
 
 
+def test_parse_player_lines_ignores_battleye_noise():
+    response = """
+Logged In! Client ID: #0
+Processing Command: #players
+; 0109fcf5-a861-4002-881e-8a497c59797c ; MisanTropiC#DivisioN (#1)
+""".strip()
+
+    entries = rcon._parse_player_lines(response)
+
+    assert len(entries) == 1
+    assert entries[0].name == "MisanTropiC#DivisioN"
+    assert entries[0].player_id == "1"
+    assert entries[0].guid == "0109fcf5-a861-4002-881e-8a497c59797c"
+
+
+def test_parse_player_lines_supports_legacy_numeric_format():
+    response = "17 Denis"
+
+    entries = rcon._parse_player_lines(response)
+
+    assert entries == [
+        rcon.PlayerEntry(name="Denis", player_id="17", raw="17 Denis")
+    ]
+
+
+def test_parse_player_lines_ignores_players_header_lines():
+    response = """
+Players on server:
+Players: 1
+""".strip()
+
+    entries = rcon._parse_player_lines(response)
+
+    assert entries == []
+
+
+def test_parse_player_lines_keeps_unknown_nonempty_lines_as_fallback():
+    response = "Some Unexpected Line"
+
+    entries = rcon._parse_player_lines(response)
+
+    assert len(entries) == 1
+    assert entries[0].name == "Some Unexpected Line"
+    assert entries[0].player_id is None
+    assert entries[0].guid is None
+
+
+def test_parse_player_lines_handles_incomplete_reforger_output_as_fallback():
+    response = "; 0109fcf5-a861-4002-881e-8a497c59797c ; Name Without Slot"
+
+    entries = rcon._parse_player_lines(response)
+
+    # Regex requires (#id), so this should go to the direct name fallback
+    assert len(entries) == 1
+    assert entries[0].name == response
+    assert entries[0].player_id is None
+    assert entries[0].guid is None
+
+
 def test_query_player_roster_reports_missing_password() -> None:
     state = ServerState(
         server_running=True,
