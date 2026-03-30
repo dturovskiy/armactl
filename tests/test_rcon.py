@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
+import socket
 import zlib
 from unittest.mock import patch
 
 import armactl.rcon as rcon
 from armactl.state import PortInfo, ServerState
+
+
+class _FakeSocket:
+    def settimeout(self, timeout: float) -> None:
+        self.timeout = timeout
+
+    def sendto(self, payload: bytes, address) -> None:
+        self.payload = payload
+        self.address = address
+
+    def close(self) -> None:
+        pass
 
 
 def test_build_and_parse_packet_roundtrip() -> None:
@@ -96,3 +109,55 @@ def test_query_player_roster_returns_empty_entries_when_server_is_stopped() -> N
     assert roster.available is True
     assert roster.configured is True
     assert roster.entries == []
+
+
+def test_send_command_uses_server_messages_when_command_packets_are_empty() -> None:
+    with patch("armactl.rcon.socket.socket", return_value=_FakeSocket()):
+        session = rcon._RconSession("127.0.0.1", 19999, "secret", timeout=1.0)
+
+    with patch.object(
+        session,
+        "_recv_payload",
+        side_effect=[
+            bytes([rcon.BE_SERVER_MESSAGE, 7]) + b"17 Denis\n18 Vova",
+            socket.timeout(),
+        ],
+    ):
+        response = session.send_command("#players")
+
+    assert response == "17 Denis\n18 Vova"
+
+
+def test_query_player_roster_falls_back_to_plain_players_command() -> None:
+    state = ServerState(
+        server_running=True,
+        config_exists=True,
+        config_path="/tmp/config.json",
+        ports=PortInfo(rcon=19999),
+    )
+    config = {"rcon": {"address": "127.0.0.1", "port": 19999, "password": "secret"}}
+
+    session = type(
+        "FakeSession",
+        (),
+        {
+            "login": lambda self: None,
+            "send_command": lambda self, command: (
+                (_ for _ in ()).throw(rcon.RconError("RCON command timed out."))
+                if command == "#players"
+                else "17 Denis\n18 Vova"
+            ),
+            "logout": lambda self: None,
+            "close": lambda self: None,
+        },
+    )()
+
+    with (
+        patch("armactl.rcon.discover", return_value=state),
+        patch("armactl.rcon.load_config", return_value=config),
+        patch("armactl.rcon._RconSession", return_value=session),
+    ):
+        roster = rcon.query_player_roster("default")
+
+    assert roster.available is True
+    assert [entry.name for entry in roster.entries] == ["Denis", "Vova"]
