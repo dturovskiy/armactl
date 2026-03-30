@@ -125,6 +125,8 @@
     "Bot service and secure control channel installed/updated.": "Сервіс бота та захищений канал керування встановлено/оновлено.",
     "Bot service applied and bot runtime is ready.": "Сервіс бота застосовано, а runtime бота готовий.",
     "Refreshed bot service status.": "Стан сервісу бота оновлено.",
+    "Recovered Telegram bot service automatically after host boot.": "Telegram-бота автоматично відновлено після перезавантаження хоста.",
+    "Telegram bot auto-start check failed: {error}": "Перевірка автозапуску Telegram-бота не вдалася: {error}",
     "Telegram bot must be enabled before installing the bot service.": "Перед встановленням сервісу потрібно увімкнути Telegram-бота.",
     "Bot runtime is ready.": "Середовище бота готове.",
     "Bot runtime Python not found at {path}. Re-run ./scripts/bootstrap.sh --prod or --dev.": "Python для бота не знайдено за шляхом {path}. Повторно виконайте ./scripts/bootstrap.sh --prod або --dev.",
