@@ -100,16 +100,15 @@ def test_parse_player_lines_keeps_unknown_nonempty_lines_as_fallback():
     assert entries[0].guid is None
 
 
-def test_parse_player_lines_handles_incomplete_reforger_output_as_fallback():
+def test_parse_player_lines_handles_incomplete_reforger_output_without_slot():
     response = "; 0109fcf5-a861-4002-881e-8a497c59797c ; Name Without Slot"
 
     entries = rcon._parse_player_lines(response)
 
-    # Regex requires (#id), so this should go to the direct name fallback
     assert len(entries) == 1
-    assert entries[0].name == response
+    assert entries[0].name == "Name Without Slot"
     assert entries[0].player_id is None
-    assert entries[0].guid is None
+    assert entries[0].guid == "0109fcf5-a861-4002-881e-8a497c59797c"
 
 
 def test_query_player_roster_reports_missing_password() -> None:

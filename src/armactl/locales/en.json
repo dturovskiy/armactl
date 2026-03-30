@@ -3,5 +3,8 @@
     "language": "English",
     "code": "en"
   },
-  "translations": {}
+  "translations": {
+    "Count: {value}": "Count: {value}",
+    "Unavailable": "Unavailable"
+  }
 }
