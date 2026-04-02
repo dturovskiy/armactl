@@ -84,6 +84,10 @@ installed, rerun:
 This reinstalls the narrow helper and sudoers drop-in used for non-interactive
 service actions.
 
+If the problem started after running install/repair from a root shell, rerun it
+from the regular Linux account that owns the instance so the sudoers rule is
+generated for the correct user.
+
 ## Metrics show as Unknown
 
 Runtime metrics can be unavailable when:

@@ -372,7 +372,7 @@
     "{action} {service_name}: timed out after 30s": "{service_name}: дія \"{action}\" перевищила тайм-аут 30 с",
     "systemctl not found - is systemd installed?": "systemctl не знайдено. Чи встановлено systemd?",
     "{action} {service_name}: {error}": "{service_name}: дія \"{action}\" завершилася помилкою: {error}",
-    "Secure privileged control is not configured yet. Install/update the bot service or re-run install/repair from the TUI to install the secure sudo helper.": "Захищений привілейований канал ще не налаштовано. Встановіть/оновіть сервіс бота або повторно запустіть install/repair з TUI, щоб встановити безпечний sudo-helper.",
+    "Secure privileged control is not configured for this Linux user yet. Install/update the bot service or re-run install/repair from the TUI to refresh the secure sudo helper.": "Захищений привілейований канал ще не налаштовано для цього Linux-користувача. Встановіть/оновіть сервіс бота або повторно запустіть install/repair з TUI, щоб перевстановити безпечний sudo-helper.",
     "Templates directory not found at {path}": "Директорію шаблонів не знайдено за шляхом {path}",
     "Generated {path}": "Згенеровано {path}",
     "Failed to install {name}: {error}": "Не вдалося встановити {name}: {error}",

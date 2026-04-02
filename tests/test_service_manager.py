@@ -5,17 +5,18 @@ from subprocess import CompletedProcess
 from unittest.mock import patch
 
 from armactl import paths
-from armactl.i18n import _
 from armactl.service_manager import (
     _build_systemctl_command,
     _render_privileged_helper_script,
     _run_systemctl,
+    _secure_privileged_channel_message,
     format_schedule_for_input,
     get_service_status,
     get_timer_status,
     has_privileged_systemctl_channel,
     normalize_on_calendar,
     normalize_on_calendar_entries,
+    resolve_linux_user,
     service_unit_name,
     timer_unit_name,
     update_restart_timer_schedule,
@@ -178,6 +179,28 @@ def test_has_privileged_systemctl_channel_requires_helper_and_sudoers(tmp_path: 
         assert has_privileged_systemctl_channel() is True
 
 
+def test_resolve_linux_user_prefers_sudo_user() -> None:
+    with (
+        patch.dict(
+            "os.environ",
+            {"SUDO_USER": "defenders88", "USER": "root", "LOGNAME": "root"},
+            clear=True,
+        ),
+        patch("armactl.service_manager.os.getlogin", side_effect=OSError),
+        patch("armactl.service_manager.getpass.getuser", return_value="root"),
+    ):
+        assert resolve_linux_user() == "defenders88"
+
+
+def test_resolve_linux_user_falls_back_to_root_when_needed() -> None:
+    with (
+        patch.dict("os.environ", {"USER": "root", "LOGNAME": "root"}, clear=True),
+        patch("armactl.service_manager.os.getlogin", side_effect=OSError),
+        patch("armactl.service_manager.getpass.getuser", return_value="root"),
+    ):
+        assert resolve_linux_user() == "root"
+
+
 def test_render_privileged_helper_script_uses_python_and_lf_newlines() -> None:
     rendered = _render_privileged_helper_script()
 
@@ -286,11 +309,7 @@ def test_run_systemctl_rewrites_noninteractive_sudo_error() -> None:
         result = _run_systemctl("stop", "armareforger.service")
 
     assert result.success is False
-    assert _(
-        "Secure privileged control is not configured yet. "
-        "Install/update the bot service or re-run install/repair "
-        "from the TUI to install the secure sudo helper."
-    ) == result.message
+    assert _secure_privileged_channel_message() == result.message
 
 
 def test_run_systemctl_redacts_secret_values_in_stderr() -> None:

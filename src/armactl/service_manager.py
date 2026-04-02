@@ -6,6 +6,7 @@ All systemctl calls go through subprocess with proper error handling.
 
 from __future__ import annotations
 
+import getpass
 import os
 import re
 import shutil
@@ -40,6 +41,15 @@ class ServiceResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {"success": self.success, "message": self.message, "exit_code": self.exit_code}
+
+
+def _secure_privileged_channel_message() -> str:
+    """Return the user-facing guidance for missing or stale sudo-helper access."""
+    return _(
+        "Secure privileged control is not configured for this Linux user yet. "
+        "Install/update the bot service or re-run install/repair from the TUI "
+        "to refresh the secure sudo helper."
+    )
 
 
 def _run_systemctl(
@@ -80,11 +90,7 @@ def _run_systemctl(
             if use_sudo and _looks_like_sudo_auth_error(stderr):
                 return ServiceResult(
                     success=False,
-                    message=_(
-                        "Secure privileged control is not configured yet. "
-                        "Install/update the bot service or re-run install/repair "
-                        "from the TUI to install the secure sudo helper."
-                    ),
+                    message=_secure_privileged_channel_message(),
                     exit_code=result.returncode,
                 )
             return ServiceResult(
@@ -185,13 +191,36 @@ def _build_systemctl_command(
 
 def _systemctl_helper_user() -> str:
     """Best-effort current Linux username for helper/sudoers installation."""
-    user = os.getenv("USER", "root")
+    return resolve_linux_user()
+
+
+def resolve_linux_user(default: str = "root") -> str:
+    """Resolve the non-root Linux user armactl should target for services/helpers."""
+    sudo_user = (os.getenv("SUDO_USER") or "").strip()
+    if sudo_user and sudo_user != "root":
+        return sudo_user
+
     try:
-        if user == "root" and os.getlogin():
-            user = os.getlogin()
+        login_user = (os.getlogin() or "").strip()
     except OSError:
-        pass
-    return user
+        login_user = ""
+
+    env_logname = (os.getenv("LOGNAME") or "").strip()
+    env_user = (os.getenv("USER") or "").strip()
+    try:
+        getpass_user = (getpass.getuser() or "").strip()
+    except Exception:
+        getpass_user = ""
+
+    for candidate in (login_user, env_logname, env_user, getpass_user):
+        if candidate and candidate != "root":
+            return candidate
+
+    for candidate in (login_user, env_user, env_logname, getpass_user):
+        if candidate:
+            return candidate
+
+    return default
 
 
 def _templates_dir() -> Path:
@@ -381,11 +410,7 @@ def install_systemd_unit_file(source: Path, destination: Path) -> ServiceResult:
     if _looks_like_sudo_auth_error(stderr):
         return ServiceResult(
             False,
-            _(
-                "Secure privileged control is not configured yet. "
-                "Install/update the bot service or re-run install/repair "
-                "from the TUI to install the secure sudo helper."
-            ),
+            _secure_privileged_channel_message(),
             result.returncode,
         )
 
@@ -437,11 +462,7 @@ def update_restart_timer_schedule(
                     return [
                         ServiceResult(
                             False,
-                            _(
-                                "Secure privileged control is not configured yet. "
-                                "Install/update the bot service or re-run install/repair "
-                                "from the TUI to install the secure sudo helper."
-                            ),
+                            _secure_privileged_channel_message(),
                             update_result.returncode,
                         )
                     ]
@@ -855,12 +876,7 @@ def generate_services(
     results = []
 
     # 1. Paths and Variables
-    user = os.getenv("USER", "root")
-    try:
-        if user == "root" and os.getlogin():
-            user = os.getlogin()
-    except OSError:
-        pass
+    user = resolve_linux_user()
 
     inst_root = paths.instance_root(instance)
 
@@ -971,4 +987,3 @@ def generate_services(
         )
 
     return results
-
