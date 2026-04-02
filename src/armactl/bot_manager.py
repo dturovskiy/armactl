@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -23,6 +22,7 @@ from armactl.service_manager import (
     has_privileged_systemctl_channel,
     install_privileged_systemctl_channel,
     install_systemd_unit_file,
+    resolve_linux_user,
     restart_service,
     start_service,
     stop_service,
@@ -95,12 +95,7 @@ def render_bot_service_unit(instance: str) -> str:
     templates_dir = project_root / "templates"
     env = Environment(loader=FileSystemLoader(str(templates_dir)))
     home_dir = Path.home()
-    user = os.getenv("USER", "root")
-    try:
-        if user == "root" and os.getlogin():
-            user = os.getlogin()
-    except OSError:
-        pass
+    user = resolve_linux_user()
 
     service_template = env.get_template("armactl-bot.service.j2")
     return service_template.render(

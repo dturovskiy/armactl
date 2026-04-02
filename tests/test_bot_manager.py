@@ -49,10 +49,14 @@ def test_check_bot_runtime_reports_missing_python(tmp_path: Path):
 def test_render_bot_service_unit_contains_instance_and_execstart(tmp_path: Path):
     python_bin = tmp_path / ".venv" / "bin" / "python"
 
-    with patch("armactl.bot_manager.bot_python_path", return_value=python_bin):
+    with (
+        patch("armactl.bot_manager.bot_python_path", return_value=python_bin),
+        patch("armactl.bot_manager.resolve_linux_user", return_value="defenders88"),
+    ):
         text = render_bot_service_unit("default")
 
     assert "Description=armactl Telegram Bot (default)" in text
+    assert "User=defenders88" in text
     assert f"ExecStart={python_bin} -m armactl.telegram_bot --instance default" in text
     assert "Restart=always" in text
     assert "StartLimitIntervalSec=0" in text
