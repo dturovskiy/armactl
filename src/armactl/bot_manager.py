@@ -18,6 +18,7 @@ from armactl.service_manager import (
     daemon_reload,
     disable_service,
     enable_service,
+    get_privileged_channel_user,
     get_service_status,
     has_privileged_systemctl_channel,
     install_privileged_systemctl_channel,
@@ -171,11 +172,20 @@ def install_bot_service(instance: str) -> list[ServiceResult]:
 def get_bot_service_status() -> dict[str, Any]:
     """Return structured status for the Telegram bot service and runtime."""
     status = get_service_status(bot_service_name())
+    service_user = str(status.get("user", "")).strip()
+    helper_user = get_privileged_channel_user()
+    current_user = resolve_linux_user()
     status.update(
         service_file=str(paths.bot_service_file()),
         installed=paths.bot_service_file().exists(),
         runtime=check_bot_runtime().to_dict(),
         privileged_channel_installed=has_privileged_systemctl_channel(),
+        service_user=service_user,
+        current_linux_user=current_user,
+        privileged_channel_user=helper_user,
+        privileged_channel_matches_service_user=(
+            bool(service_user and helper_user and service_user == helper_user)
+        ),
     )
     return status
 

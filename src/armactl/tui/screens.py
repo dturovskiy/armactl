@@ -1116,6 +1116,14 @@ class BotConfigScreen(Screen):
             privileged_channel = (
                 _("Yes") if bot_service.get("privileged_channel_installed") else _("No")
             )
+            helper_user = bot_service.get("privileged_channel_user") or _("Unknown")
+            service_user = bot_service.get("service_user") or _("Unknown")
+            current_linux_user = bot_service.get("current_linux_user") or _("Unknown")
+            helper_matches = (
+                _("Yes")
+                if bot_service.get("privileged_channel_matches_service_user")
+                else _("No")
+            )
 
             lines.extend(
                 [
@@ -1129,9 +1137,16 @@ class BotConfigScreen(Screen):
                     ),
                     tr("Bot service installed: {value}", value=service_installed),
                     tr("Bot service enabled on boot: {value}", value=service_enabled),
+                    tr("Bot service user: {value}", value=service_user),
+                    tr("Current Linux user: {value}", value=current_linux_user),
                     tr(
                         "Secure control channel installed: {value}",
                         value=privileged_channel,
+                    ),
+                    tr("Secure control channel user: {value}", value=helper_user),
+                    tr(
+                        "Secure control channel matches bot user: {value}",
+                        value=helper_matches,
                     ),
                     tr(
                         "Bot service active state: {value}",
@@ -1148,6 +1163,15 @@ class BotConfigScreen(Screen):
             description = str(bot_service.get("description", "")).strip()
             if description:
                 lines.append(tr("Bot service description: {value}", value=description))
+            if bot_service.get("privileged_channel_installed") and not bot_service.get(
+                "privileged_channel_matches_service_user"
+            ):
+                lines.append(
+                    _(
+                        "[bold yellow]Secure control channel is currently granted "
+                        "to a different Linux user.[/bold yellow]"
+                    )
+                )
 
         if validation_errors:
             lines.append(_("[bold yellow]Validation warnings[/bold yellow]"))
@@ -2068,5 +2092,4 @@ class ModManagerScreen(Screen):
             )
             if count > 0:
                 self.action_refresh_mods()
-
 
