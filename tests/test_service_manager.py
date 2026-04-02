@@ -5,7 +5,6 @@ from subprocess import CompletedProcess
 from unittest.mock import patch
 
 from armactl import paths
-from armactl.i18n import _
 from armactl.service_manager import (
     _build_systemctl_command,
     _render_privileged_helper_script,
