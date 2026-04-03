@@ -159,10 +159,9 @@ def has_privileged_systemctl_channel() -> bool:
 def get_privileged_channel_user() -> str | None:
     """Return the Linux user currently granted access to the secure helper."""
     sudoers_path = paths.privileged_sudoers_file()
-    if not sudoers_path.is_file():
-        return None
-
     try:
+        if not sudoers_path.is_file():
+            return None
         for raw_line in sudoers_path.read_text(encoding="utf-8").splitlines():
             line = raw_line.strip()
             if not line or line.startswith("#"):
