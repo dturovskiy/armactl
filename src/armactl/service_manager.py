@@ -29,6 +29,7 @@ SUDO_AUTH_ERROR_MARKERS = (
     "a terminal is required to read the password",
     "a password is required",
 )
+SUDOERS_USER_RE = re.compile(r"^\s*([A-Za-z0-9._-]+)\s+ALL=\(root\)\s+NOPASSWD:")
 
 
 @dataclass
@@ -153,6 +154,25 @@ def has_privileged_systemctl_channel() -> bool:
         paths.privileged_helper_file().is_file()
         and paths.privileged_sudoers_file().is_file()
     )
+
+
+def get_privileged_channel_user() -> str | None:
+    """Return the Linux user currently granted access to the secure helper."""
+    sudoers_path = paths.privileged_sudoers_file()
+    try:
+        if not sudoers_path.is_file():
+            return None
+        for raw_line in sudoers_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            match = SUDOERS_USER_RE.match(line)
+            if match:
+                return match.group(1)
+    except OSError:
+        return None
+
+    return None
 
 
 def _looks_like_sudo_auth_error(stderr: str) -> bool:
@@ -576,6 +596,7 @@ def get_service_status(service_name: str = "armareforger.service") -> dict[str, 
     description = ""
     active_state = "unknown"
     sub_state = "unknown"
+    user = ""
     main_pid = 0
     exec_main_pid = 0
     control_pid = 0
@@ -589,7 +610,7 @@ def get_service_status(service_name: str = "armareforger.service") -> dict[str, 
                 "systemctl",
                 "show",
                 service_name,
-                "--property=ActiveState,SubState,Description,MainPID,"
+                "--property=ActiveState,SubState,Description,User,MainPID,"
                 "ExecMainPID,ControlPID,MemoryCurrent,CPUUsageNSec,"
                 "ExecMainStartTimestampMonotonic,ActiveEnterTimestampMonotonic",
             ],
@@ -607,6 +628,8 @@ def get_service_status(service_name: str = "armareforger.service") -> dict[str, 
                 active_state = val
             elif key == "SubState":
                 sub_state = val
+            elif key == "User":
+                user = val
             elif key == "MainPID":
                 try:
                     main_pid = int(val)
@@ -665,6 +688,7 @@ def get_service_status(service_name: str = "armareforger.service") -> dict[str, 
         "active_state": active_state,
         "sub_state": sub_state,
         "description": description,
+        "user": user,
         "main_pid": resolved_pid,
         "main_pid_raw": main_pid,
         "exec_main_pid": exec_main_pid,

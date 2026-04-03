@@ -11,6 +11,7 @@ from armactl.service_manager import (
     _run_systemctl,
     _secure_privileged_channel_message,
     format_schedule_for_input,
+    get_privileged_channel_user,
     get_service_status,
     get_timer_status,
     has_privileged_systemctl_channel,
@@ -108,6 +109,7 @@ def test_get_service_status_falls_back_to_exec_main_pid() -> None:
             "ActiveState=active\n"
             "SubState=running\n"
             "Description=Arma Reforger Dedicated Server\n"
+            "User=defenders88\n"
             "MainPID=0\n"
             "ExecMainPID=4321\n"
             "ControlPID=0\n"
@@ -130,6 +132,7 @@ def test_get_service_status_falls_back_to_exec_main_pid() -> None:
     assert status["enabled"] is True
     assert status["active_state"] == "active"
     assert status["sub_state"] == "running"
+    assert status["user"] == "defenders88"
     assert status["main_pid"] == 4321
     assert status["exec_main_pid"] == 4321
     assert status["memory_current_bytes"] == 268435456
@@ -177,6 +180,18 @@ def test_has_privileged_systemctl_channel_requires_helper_and_sudoers(tmp_path: 
         assert has_privileged_systemctl_channel() is False
         sudoers_path.write_text("sudoers", encoding="utf-8")
         assert has_privileged_systemctl_channel() is True
+
+
+def test_get_privileged_channel_user_parses_sudoers_dropin(tmp_path: Path) -> None:
+    sudoers_path = tmp_path / "armactl-systemctl-helper.sudoers"
+    sudoers_path.write_text(
+        "defenders88 ALL=(root) NOPASSWD: /usr/local/libexec/armactl-systemctl-helper, "
+        "/usr/local/libexec/armactl-systemctl-helper *\n",
+        encoding="utf-8",
+    )
+
+    with patch("armactl.service_manager.paths.privileged_sudoers_file", return_value=sudoers_path):
+        assert get_privileged_channel_user() == "defenders88"
 
 
 def test_resolve_linux_user_prefers_sudo_user() -> None:
