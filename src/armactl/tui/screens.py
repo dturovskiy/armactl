@@ -1119,11 +1119,13 @@ class BotConfigScreen(Screen):
             helper_user = bot_service.get("privileged_channel_user") or _("Unknown")
             service_user = bot_service.get("service_user") or _("Unknown")
             current_linux_user = bot_service.get("current_linux_user") or _("Unknown")
-            helper_matches = (
-                _("Yes")
-                if bot_service.get("privileged_channel_matches_service_user")
-                else _("No")
-            )
+            helper_match_value = bot_service.get("privileged_channel_matches_service_user")
+            if helper_match_value is True:
+                helper_matches = _("Yes")
+            elif helper_match_value is False:
+                helper_matches = _("No")
+            else:
+                helper_matches = _("Unknown")
 
             lines.extend(
                 [
@@ -1163,9 +1165,7 @@ class BotConfigScreen(Screen):
             description = str(bot_service.get("description", "")).strip()
             if description:
                 lines.append(tr("Bot service description: {value}", value=description))
-            if bot_service.get("privileged_channel_installed") and not bot_service.get(
-                "privileged_channel_matches_service_user"
-            ):
+            if bot_service.get("privileged_channel_matches_service_user") is False:
                 lines.append(
                     _(
                         "[bold yellow]Secure control channel is currently granted "
@@ -2092,4 +2092,3 @@ class ModManagerScreen(Screen):
             )
             if count > 0:
                 self.action_refresh_mods()
-

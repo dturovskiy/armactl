@@ -175,6 +175,11 @@ def get_bot_service_status() -> dict[str, Any]:
     service_user = str(status.get("user", "")).strip()
     helper_user = get_privileged_channel_user()
     current_user = resolve_linux_user()
+    helper_matches_service_user: bool | None
+    if service_user and helper_user:
+        helper_matches_service_user = service_user == helper_user
+    else:
+        helper_matches_service_user = None
     status.update(
         service_file=str(paths.bot_service_file()),
         installed=paths.bot_service_file().exists(),
@@ -183,9 +188,8 @@ def get_bot_service_status() -> dict[str, Any]:
         service_user=service_user,
         current_linux_user=current_user,
         privileged_channel_user=helper_user,
-        privileged_channel_matches_service_user=(
-            bool(service_user and helper_user and service_user == helper_user)
-        ),
+        privileged_channel_user_known=helper_user is not None,
+        privileged_channel_matches_service_user=helper_matches_service_user,
     )
     return status
 

@@ -168,8 +168,10 @@ def test_get_service_status_keeps_zero_memory_current() -> None:
 
 
 def test_has_privileged_systemctl_channel_requires_helper_and_sudoers(tmp_path: Path) -> None:
-    helper_path = tmp_path / "armactl-systemctl-helper"
-    sudoers_path = tmp_path / "armactl-systemctl-helper.sudoers"
+    helper_path = tmp_path / "libexec" / "armactl-systemctl-helper"
+    sudoers_path = tmp_path / "sudoers.d" / "armactl-systemctl-helper"
+    helper_path.parent.mkdir()
+    sudoers_path.parent.mkdir()
 
     with (
         patch("armactl.service_manager.paths.privileged_helper_file", return_value=helper_path),
@@ -183,7 +185,8 @@ def test_has_privileged_systemctl_channel_requires_helper_and_sudoers(tmp_path: 
 
 
 def test_get_privileged_channel_user_parses_sudoers_dropin(tmp_path: Path) -> None:
-    sudoers_path = tmp_path / "armactl-systemctl-helper.sudoers"
+    sudoers_path = tmp_path / "sudoers.d" / "armactl-systemctl-helper"
+    sudoers_path.parent.mkdir()
     sudoers_path.write_text(
         "defenders88 ALL=(root) NOPASSWD: /usr/local/libexec/armactl-systemctl-helper, "
         "/usr/local/libexec/armactl-systemctl-helper *\n",
