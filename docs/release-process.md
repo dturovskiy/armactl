@@ -25,8 +25,8 @@ Ship a GitHub Release that matches the repo-local operational model of
 Use semantic version tags:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 ## Release workflow
@@ -42,4 +42,3 @@ The GitHub release workflow should:
 - Verify installation from the release archive
 - Verify `./armactl` on another machine
 - Check release notes and attached artifacts
-
