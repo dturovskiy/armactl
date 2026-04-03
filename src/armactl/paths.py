@@ -26,7 +26,7 @@ RESTART_SERVICE_NAME = "armareforger-restart.service"
 TIMER_NAME = "armareforger-restart.timer"
 BOT_SERVICE_NAME = "armactl-bot.service"
 PRIVILEGED_HELPER_NAME = "armactl-systemctl-helper"
-PRIVILEGED_SUDOERS_NAME = "armactl-systemctl-helper.sudoers"
+PRIVILEGED_SUDOERS_NAME = "armactl-systemctl-helper"
 
 
 # ---------------------------------------------------------------------------

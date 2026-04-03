@@ -291,7 +291,7 @@ def install_privileged_systemctl_channel() -> list[ServiceResult]:
         with tempfile.TemporaryDirectory() as tempd:
             temp_dir = Path(tempd)
             helper_temp = temp_dir / paths.PRIVILEGED_HELPER_NAME
-            sudoers_temp = temp_dir / paths.PRIVILEGED_SUDOERS_NAME
+            sudoers_temp = temp_dir / f"{paths.PRIVILEGED_HELPER_NAME}.sudoers"
             helper_temp.write_text(helper_text, encoding="utf-8")
             sudoers_temp.write_text(sudoers_text, encoding="utf-8")
 
