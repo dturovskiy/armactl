@@ -36,4 +36,5 @@ Thanks for helping improve `armactl`.
 - Explain what changed and why.
 - List any manual verification you performed.
 - Call out risk areas, especially around install, systemd, SteamCMD, config migration, or Telegram bot behavior.
+- Low-effort automated PRs that do not address the linked issue will be closed without review.
 
