@@ -181,3 +181,5 @@ def query_player_status(
         player_count=info.player_count,
         max_players=info.max_players or max_players,
     )
+
+// Contributed via automated bounty system
