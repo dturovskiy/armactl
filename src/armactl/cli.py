@@ -92,6 +92,17 @@ def status(ctx: click.Context) -> None:
     if not state.server_installed:
         if ctx.obj["json"]:
             click.echo(json.dumps({"error": "no_server_found"}))
+        elif state.has_install_evidence():
+            click.echo(
+                f"[{instance}] Server installation is incomplete or unverified. "
+                "Run './armactl repair'."
+            )
+            click.echo(f"  Install dir: {state.install_dir}")
+            click.echo(f"  Package integrity: {state.package_integrity or 'unknown'}")
+            click.echo(
+                f"  Config:      {'found' if state.config_exists else 'missing'} "
+                f"({state.config_path})"
+            )
         else:
             click.echo(
                 f"[{instance}] No server found. "
@@ -133,6 +144,10 @@ def start(ctx: click.Context) -> None:
 
     if not state.server_installed:
         click.echo(f"[{instance}] No server found.", err=True)
+        sys.exit(1)
+
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config missing. Run './armactl repair' first.", err=True)
         sys.exit(1)
 
     if state.server_running:
@@ -206,6 +221,10 @@ def restart(ctx: click.Context) -> None:
 
     if not state.server_installed:
         click.echo(f"[{instance}] No server found.", err=True)
+        sys.exit(1)
+
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config missing. Run './armactl repair' first.", err=True)
         sys.exit(1)
 
     if not ctx.obj["json"]:
@@ -371,6 +390,21 @@ def detect(ctx: click.Context, install_dir: Path | None, config_path: Path | Non
             click.echo(f"  ⚠ Detected from legacy paths (migrated_from={state.migrated_from})")
         click.echo(f"  State saved to: {paths.state_file(instance)}")
     else:
+        if state.has_install_evidence():
+            click.echo("  Incomplete or unverified server installation found.")
+            click.echo(f"  Install dir: {state.install_dir}")
+            click.echo(f"  Package integrity: {state.package_integrity or 'unknown'}")
+            click.echo(
+                f"  Config:  {'found' if state.config_exists else 'missing'} "
+                f"({state.config_path})"
+            )
+            if state.package_missing_files:
+                click.echo(
+                    "  Missing package files: "
+                    + ", ".join(state.package_missing_files[:5])
+                )
+            click.echo("  Run 'armactl repair' to validate and complete the install.")
+            return
         click.echo("  ✗ No server found.")
         click.echo("  Use 'armactl install' to install, or")
         click.echo(
@@ -404,12 +438,11 @@ def repair(ctx: click.Context) -> None:
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
 
-    if not state.install_dir:
-        click.echo(f"[{instance}] Cannot determine install dir to repair.", err=True)
-        sys.exit(1)
+    install_dir = state.install_dir or str(paths.server_dir(instance))
+    config_path = state.config_path or str(paths.config_file(instance))
 
     try:
-        for output in run_repair(instance, state.install_dir, state.config_path):
+        for output in run_repair(instance, install_dir, config_path):
             click.echo(output)
     except RepairError as e:
         click.echo(f"[{instance}] Repair failed: {e}", err=True)

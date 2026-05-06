@@ -18,6 +18,7 @@ from armactl.discovery import (
     discover,
     discover_manual,
 )
+from armactl.integrity import mark_install_started, write_package_manifest
 from armactl.state import PortInfo, ServerState, save_state
 
 # ---------------------------------------------------------------------------
@@ -161,6 +162,42 @@ def test_discover_from_standard_paths(tmp_path: Path):
     assert state.ports.game == 2001
 
 
+def test_discover_from_standard_paths_rejects_binary_only_partial_install(tmp_path: Path):
+    """A lone binary is not enough to treat an interrupted package as installed."""
+    data_root = tmp_path / "armactl-data"
+    server = data_root / "default" / "server"
+    server.mkdir(parents=True)
+    (server / "ArmaReforgerServer").write_text("fake")
+
+    with patch("armactl.discovery._service_exists", return_value=False), \
+         patch("armactl.discovery._timer_exists", return_value=False), \
+         patch("armactl.discovery._is_service_active", return_value=False):
+        state = _discover_from_standard_paths("default", data_root)
+
+    assert state is not None
+    assert state.server_installed is False
+    assert state.binary_exists is True
+    assert state.config_exists is False
+    assert state.package_integrity == "untracked"
+
+
+def test_discover_from_standard_paths_rejects_install_in_progress(tmp_path: Path):
+    """An interrupted armactl install marker should keep the server unavailable."""
+    data_root = _setup_standard_instance(tmp_path)
+    server = data_root / "default" / "server"
+    write_package_manifest(server)
+    mark_install_started(server)
+
+    with patch("armactl.discovery._service_exists", return_value=False), \
+         patch("armactl.discovery._timer_exists", return_value=False), \
+         patch("armactl.discovery._is_service_active", return_value=False):
+        state = _discover_from_standard_paths("default", data_root)
+
+    assert state is not None
+    assert state.server_installed is False
+    assert state.package_integrity == "installing"
+
+
 def test_discover_from_standard_paths_empty(tmp_path: Path):
     """Should return None when no instance exists."""
     data_root = tmp_path / "armactl-data"
@@ -239,7 +276,12 @@ def test_discover_loads_existing_state(tmp_path: Path):
     """discover() should load existing state.json first."""
     data_root = tmp_path / "armactl-data"
     inst = data_root / "default"
-    inst.mkdir(parents=True)
+    server = inst / "server"
+    config = inst / "config"
+    server.mkdir(parents=True)
+    config.mkdir(parents=True)
+    (server / "ArmaReforgerServer").write_text("fake")
+    (config / "config.json").write_text(json.dumps({"bindPort": 2001}))
 
     existing_state = ServerState(
         server_installed=True,
@@ -259,6 +301,44 @@ def test_discover_loads_existing_state(tmp_path: Path):
 
     assert state.server_installed is True
     assert state.ports.game == 2001
+
+
+def test_discover_refreshes_stale_state_when_package_files_are_missing(tmp_path: Path):
+    """A saved installed=True state should not hide missing package files."""
+    data_root = tmp_path / "armactl-data"
+    inst = data_root / "default"
+    server = inst / "server"
+    config = inst / "config"
+    addons = server / "addons"
+    addons.mkdir(parents=True)
+    config.mkdir(parents=True)
+    (server / "ArmaReforgerServer").write_text("fake")
+    missing_file = addons / "worlds.pak"
+    missing_file.write_text("fake")
+    (config / "config.json").write_text(json.dumps({"bindPort": 2001}))
+    write_package_manifest(server)
+    missing_file.unlink()
+
+    existing_state = ServerState(
+        server_installed=True,
+        binary_exists=True,
+        config_exists=True,
+        instance_root=str(inst),
+        install_dir=str(server),
+        config_path=str(config / "config.json"),
+    )
+    save_state(existing_state, inst / "state.json")
+
+    with patch("armactl.discovery._service_exists", return_value=False), \
+         patch("armactl.discovery._timer_exists", return_value=False), \
+         patch("armactl.discovery._is_service_active", return_value=False), \
+         patch("armactl.discovery._check_listening_ports", return_value={}):
+        state = discover(instance="default", data_root=data_root, save=False)
+
+    assert state.server_installed is False
+    assert state.binary_exists is True
+    assert state.package_integrity == "missing_files"
+    assert state.package_missing_files == ["addons/worlds.pak"]
 
 
 # ---------------------------------------------------------------------------
@@ -297,4 +377,3 @@ def test_discover_manual(tmp_path: Path):
     # Verify state.json was saved
     sf = data_root / "default" / "state.json"
     assert sf.is_file()
-

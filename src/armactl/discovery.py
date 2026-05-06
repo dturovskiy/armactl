@@ -16,6 +16,7 @@ import subprocess
 from pathlib import Path
 
 from armactl import paths
+from armactl.integrity import PackageIntegrity, check_package_integrity
 from armactl.state import PortInfo, ServerState, load_state, save_state
 
 log = logging.getLogger(__name__)
@@ -45,6 +46,48 @@ def _binary_exists(install_dir: Path) -> bool:
 def _config_exists(config_path: Path) -> bool:
     """Check if config.json exists."""
     return config_path.is_file()
+
+
+def _server_installed_from_integrity(
+    integrity: PackageIntegrity,
+    *,
+    config_exists: bool,
+) -> bool:
+    """Decide whether a server is safe enough to expose as installed."""
+    if integrity.complete:
+        return config_exists
+
+    if integrity.status == "untracked":
+        # Backward-compatible path for pre-manifest installs. Requiring config
+        # avoids treating a binary-only interrupted SteamCMD download as ready.
+        return integrity.binary_exists and config_exists
+
+    return False
+
+
+def _apply_package_integrity(state: ServerState) -> ServerState:
+    """Refresh package-related state from disk."""
+    if not state.install_dir:
+        return state
+
+    install_dir = Path(state.install_dir)
+    integrity = check_package_integrity(install_dir)
+    state.binary_exists = integrity.binary_exists
+    state.package_integrity = integrity.status
+    state.package_manifest_exists = integrity.manifest_exists
+    state.package_files_checked = integrity.checked_files
+    state.package_files_expected = integrity.expected_files
+    state.package_missing_files = integrity.missing_files
+    state.package_changed_files = integrity.changed_files
+
+    if state.config_path:
+        state.config_exists = _config_exists(Path(state.config_path))
+
+    state.server_installed = _server_installed_from_integrity(
+        integrity,
+        config_exists=state.config_exists,
+    )
+    return state
 
 
 def _service_exists(service_name: str = paths.SERVICE_NAME) -> bool:
@@ -163,6 +206,18 @@ def _discover_from_state(
     state = load_state(sf)
     if state is not None:
         log.info("Loaded existing state from %s", sf)
+        if not state.install_dir:
+            state.install_dir = str(paths.server_dir(instance, data_root))
+        if not state.config_path:
+            state.config_path = str(paths.config_file(instance, data_root))
+        _apply_package_integrity(state)
+        if (
+            not state.server_installed
+            and not state.binary_exists
+            and not state.config_exists
+            and state.package_integrity == "empty"
+        ):
+            return None
     return state
 
 
@@ -178,18 +233,22 @@ def _discover_from_standard_paths(
     if not root.is_dir():
         return None
 
-    binary = _binary_exists(s_dir)
+    integrity = check_package_integrity(s_dir)
+    binary = integrity.binary_exists
     config = _config_exists(c_file)
 
-    if not binary and not config:
+    if not integrity.has_install_evidence and not config:
         return None
 
     log.info("Found instance at standard path: %s", root)
 
     ports = _read_ports_from_config(c_file) if config else PortInfo()
 
-    return ServerState(
-        server_installed=binary,
+    state = ServerState(
+        server_installed=_server_installed_from_integrity(
+            integrity,
+            config_exists=config,
+        ),
         binary_exists=binary,
         config_exists=config,
         service_exists=_service_exists(),
@@ -200,6 +259,7 @@ def _discover_from_standard_paths(
         config_path=str(c_file),
         ports=ports,
     )
+    return _apply_package_integrity(state)
 
 
 def _discover_from_systemd() -> ServerState | None:
@@ -233,13 +293,17 @@ def _discover_from_systemd() -> ServerState | None:
                 break
 
     config = _config_exists(config_path)
-    binary = _binary_exists(working_path)
+    integrity = check_package_integrity(working_path)
+    binary = integrity.binary_exists
     ports = _read_ports_from_config(config_path) if config else PortInfo()
 
     log.info("Found server via systemd unit, working_dir=%s", working_dir)
 
-    return ServerState(
-        server_installed=binary,
+    state = ServerState(
+        server_installed=_server_installed_from_integrity(
+            integrity,
+            config_exists=config,
+        ),
         binary_exists=binary,
         config_exists=config,
         service_exists=True,
@@ -250,6 +314,7 @@ def _discover_from_systemd() -> ServerState | None:
         config_path=str(config_path),
         ports=ports,
     )
+    return _apply_package_integrity(state)
 
 
 def _discover_from_legacy_paths() -> ServerState | None:
@@ -257,7 +322,8 @@ def _discover_from_legacy_paths() -> ServerState | None:
     for legacy_dir in LEGACY_INSTALL_DIRS:
         if not legacy_dir.is_dir():
             continue
-        binary = _binary_exists(legacy_dir)
+        integrity = check_package_integrity(legacy_dir)
+        binary = integrity.binary_exists
         if not binary:
             continue
 
@@ -273,8 +339,11 @@ def _discover_from_legacy_paths() -> ServerState | None:
 
         log.info("Found legacy server at %s", legacy_dir)
 
-        return ServerState(
-            server_installed=True,
+        state = ServerState(
+            server_installed=_server_installed_from_integrity(
+                integrity,
+                config_exists=config,
+            ),
             binary_exists=True,
             config_exists=config,
             service_exists=_service_exists(),
@@ -286,6 +355,7 @@ def _discover_from_legacy_paths() -> ServerState | None:
             ports=ports,
             migrated_from="legacy",
         )
+        return _apply_package_integrity(state)
 
     return None
 
@@ -366,14 +436,18 @@ def discover_manual(
 
     Used when auto-discovery fails and the user provides paths manually.
     """
-    binary = _binary_exists(install_dir)
+    integrity = check_package_integrity(install_dir)
+    binary = integrity.binary_exists
     config = _config_exists(config_path)
     ports = _read_ports_from_config(config_path) if config else PortInfo()
 
     inst_root = paths.instance_root(instance, data_root)
 
     state = ServerState(
-        server_installed=binary,
+        server_installed=_server_installed_from_integrity(
+            integrity,
+            config_exists=config,
+        ),
         binary_exists=binary,
         config_exists=config,
         service_exists=_service_exists(),
@@ -384,6 +458,7 @@ def discover_manual(
         config_path=str(config_path),
         ports=ports,
     )
+    _apply_package_integrity(state)
 
     if save:
         sf = paths.state_file(instance, data_root)

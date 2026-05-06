@@ -243,6 +243,14 @@ class ArmaCtlApp(App):
             if state.server_installed:
                 yield Button(_("Manage Existing Server >>"), id="btn_manage", variant="primary")
             else:
+                if state.has_install_evidence():
+                    yield Label(
+                        _(
+                            "Incomplete server installation detected. "
+                            "Use Repair Installation to finish validation."
+                        ),
+                        id="install-warning",
+                    )
                 yield Button(_("Install New Server"), id="btn_install", variant="success")
 
             yield Button(_("Repair Installation"), id="btn_repair", variant="warning")
@@ -264,6 +272,14 @@ class ArmaCtlApp(App):
                 self.notify(
                     _("Server files detected! Restart app to see Manage screen."),
                     title=_("Success"),
+                )
+            elif state.has_install_evidence():
+                self.notify(
+                    _(
+                        "Incomplete server installation detected. "
+                        "Use Repair Installation to finish validation."
+                    ),
+                    severity="warning",
                 )
             else:
                 self.notify(
@@ -317,4 +333,3 @@ def run_tui(instance: str) -> None:
     _restore_terminal_state()
 
     sys.exit(reply or 0)
-

@@ -1,5 +1,6 @@
 """Integration-style tests for the installer orchestration flow."""
 
+import types
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,7 +23,14 @@ def test_run_install_orchestrates_default_instance_flow() -> None:
         patch("armactl.installer.check_sudo"),
         patch("armactl.installer.install_steamcmd"),
         patch("armactl.installer.create_install_dir"),
+        patch(
+            "armactl.installer.check_package_integrity",
+            return_value=types.SimpleNamespace(complete=False),
+        ),
+        patch("armactl.installer.mark_install_started") as mark_install_started_mock,
         patch("armactl.installer.download_server", return_value=iter(())),
+        patch("armactl.installer.record_package_manifest") as record_manifest_mock,
+        patch("armactl.installer.clear_install_marker") as clear_marker_mock,
         patch("armactl.installer.smoke_check"),
         patch("armactl.installer.generate_default_config"),
         patch("armactl.installer.generate_services", return_value=generate_results),
@@ -42,6 +50,7 @@ def test_run_install_orchestrates_default_instance_flow() -> None:
         i18n._("Verifying steamcmd..."),
         i18n._("Creating installation directories..."),
         i18n._("Downloading Arma Reforger via steamcmd... (This may take a while)"),
+        i18n._("Recording package integrity manifest..."),
         i18n._("Running smoke check..."),
         i18n._("Generating default configuration..."),
         i18n._("Generating systemd services and timers..."),
@@ -53,6 +62,9 @@ def test_run_install_orchestrates_default_instance_flow() -> None:
         i18n._("Saving state.json..."),
         i18n._("Installation complete!"),
     ]
+    mark_install_started_mock.assert_called_once()
+    record_manifest_mock.assert_called_once_with("default")
+    clear_marker_mock.assert_called_once()
     enable_service_mock.assert_called_once_with("armareforger.service")
     restart_service_mock.assert_called_once_with("armareforger.service")
     discover_mock.assert_called_once_with(instance="default")
@@ -64,7 +76,14 @@ def test_run_install_uses_instance_specific_service_name() -> None:
         patch("armactl.installer.check_sudo"),
         patch("armactl.installer.install_steamcmd"),
         patch("armactl.installer.create_install_dir"),
+        patch(
+            "armactl.installer.check_package_integrity",
+            return_value=types.SimpleNamespace(complete=False),
+        ),
+        patch("armactl.installer.mark_install_started"),
         patch("armactl.installer.download_server", return_value=iter(())),
+        patch("armactl.installer.record_package_manifest"),
+        patch("armactl.installer.clear_install_marker"),
         patch("armactl.installer.smoke_check"),
         patch("armactl.installer.generate_default_config"),
         patch(
@@ -107,7 +126,7 @@ def test_download_server_includes_steamcmd_details_in_error() -> None:
         else:
             raise AssertionError("download_server() should raise InstallError")
 
-    assert "Failed to download server via steamcmd:" in message
+    assert i18n._("Failed to download server via steamcmd") in message
     assert "ERROR! Failed to install app '1874900' (No subscription)" in message
 
 

@@ -135,3 +135,15 @@ def test_server_state_defaults_listening():
     state = ServerState()
     assert state.listening == {}
 
+
+def test_server_state_has_install_evidence_for_partial_install():
+    """Partial installs should be distinguishable from clean systems."""
+    clean_state = ServerState()
+    partial_state = ServerState(
+        binary_exists=True,
+        install_dir="/tmp/server",
+        package_integrity="untracked",
+    )
+
+    assert clean_state.has_install_evidence() is False
+    assert partial_state.has_install_evidence() is True
