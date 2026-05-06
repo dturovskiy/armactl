@@ -7,7 +7,7 @@ It can be serialized to / deserialized from state.json.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -32,6 +32,14 @@ class ServerState:
     config_exists: bool = False
     service_exists: bool = False
     timer_exists: bool = False
+
+    # --- package integrity ---
+    package_integrity: str = ""
+    package_manifest_exists: bool = False
+    package_files_checked: int = 0
+    package_files_expected: int = 0
+    package_missing_files: list[str] = field(default_factory=list)
+    package_changed_files: list[str] = field(default_factory=list)
 
     # --- runtime status ---
     server_running: bool = False
@@ -61,9 +69,21 @@ class ServerState:
             data["discovered_at"] = datetime.now(timezone.utc).isoformat()
         return data
 
+    def has_install_evidence(self) -> bool:
+        """Return whether discovery saw a partial or unverified install."""
+        return any(
+            [
+                self.binary_exists,
+                self.install_dir,
+                self.package_manifest_exists,
+                self.package_integrity not in {"", "empty"},
+            ]
+        )
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ServerState:
         """Create a ServerState from a dict (e.g. parsed JSON)."""
+        data = dict(data)
         ports_data = data.pop("ports", {})
         if isinstance(ports_data, dict):
             ports = PortInfo(**ports_data)
@@ -74,7 +94,10 @@ class ServerState:
         raw_listening = data.pop("listening", {})
         listening = {int(k): v for k, v in raw_listening.items()} if raw_listening else {}
 
-        return cls(ports=ports, listening=listening, **data)
+        valid_fields = {item.name for item in fields(cls)}
+        filtered_data = {key: value for key, value in data.items() if key in valid_fields}
+
+        return cls(ports=ports, listening=listening, **filtered_data)
 
 
 def save_state(state: ServerState, path: Path) -> None:

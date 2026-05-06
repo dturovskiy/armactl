@@ -9,9 +9,17 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
+from armactl import paths
 from armactl.discovery import discover_manual
 from armactl.i18n import _, tr
-from armactl.paths import start_script
+from armactl.installer import build_steamcmd_update_command
+from armactl.integrity import (
+    IntegrityError,
+    check_package_integrity,
+    clear_install_marker,
+    mark_install_started,
+    write_package_manifest,
+)
 from armactl.redaction import safe_subprocess_error
 from armactl.service_manager import (
     generate_services,
@@ -32,8 +40,8 @@ def run_repair(
     """Generator that repairs an existing server installation."""
     yield tr("[{instance}] Diagnosing existing installation...", instance=instance)
 
-    install_dir = Path(install_dir)
-    config_path = Path(config_path)
+    install_dir = Path(install_dir) if str(install_dir).strip() else paths.server_dir(instance)
+    config_path = Path(config_path) if str(config_path).strip() else paths.config_file(instance)
 
     if not install_dir.exists():
         yield tr(
@@ -53,21 +61,26 @@ def run_repair(
         yield _("  - Server is already stopped")
 
     yield tr("[{instance}] Step 2: Validating game files via SteamCMD...", instance=instance)
-    cmd = [
-        "steamcmd",
-        "+force_install_dir",
-        str(install_dir.absolute()),
-        "+login",
-        "anonymous",
-        "+app_update",
-        "1874900",
-        "validate",
-        "+quit",
-    ]
+    cmd = build_steamcmd_update_command(install_dir.absolute())
+    previous_integrity = check_package_integrity(install_dir)
+    mark_install_started(install_dir)
     try:
         subprocess.run(cmd, capture_output=True, text=True, check=True)
+        write_package_manifest(install_dir)
+        clear_install_marker(install_dir)
+        integrity = check_package_integrity(install_dir, verify_hashes=False)
+        if not integrity.complete:
+            raise RepairError(
+                tr(
+                    "Package integrity check failed after SteamCMD validate: {details}",
+                    details=integrity.summary(),
+                )
+            )
         yield _("  OK Server files validated and updated")
+        yield _("  OK Package integrity manifest refreshed")
     except subprocess.CalledProcessError as e:
+        if previous_integrity.complete:
+            clear_install_marker(install_dir)
         raise RepairError(
             tr(
                 "SteamCMD failed:\n{details}",
@@ -75,7 +88,15 @@ def run_repair(
             )
         ) from e
     except FileNotFoundError:
+        if previous_integrity.complete:
+            clear_install_marker(install_dir)
         raise RepairError(_("SteamCMD not found in PATH. Make sure it is installed."))
+    except (IntegrityError, OSError) as e:
+        if previous_integrity.complete:
+            clear_install_marker(install_dir)
+        raise RepairError(
+            tr("Failed to record package integrity manifest: {error}", error=e)
+        ) from e
 
     yield tr("[{instance}] Step 3: Checking configuration...", instance=instance)
     if not config_path.exists():
@@ -120,7 +141,7 @@ def run_repair(
             )
 
     yield tr("[{instance}] Step 6: Fixing permissions...", instance=instance)
-    script_path = start_script(instance)
+    script_path = paths.start_script(instance)
     if script_path.exists():
         script_path.chmod(0o755)
         yield _("  OK Start script permissions fixed")

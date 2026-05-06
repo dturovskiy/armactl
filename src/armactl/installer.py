@@ -21,6 +21,13 @@ from armactl import paths
 from armactl.bot_config import ensure_bot_config
 from armactl.discovery import discover
 from armactl.i18n import _, tr
+from armactl.integrity import (
+    IntegrityError,
+    check_package_integrity,
+    clear_install_marker,
+    mark_install_started,
+    write_package_manifest,
+)
 from armactl.redaction import redact_sensitive_text, safe_subprocess_error
 from armactl.service_manager import (
     enable_service,
@@ -218,8 +225,13 @@ def _stream_cmd(
 def download_server(instance: str) -> Iterator[str]:
     """Download Arma Reforger via steamcmd and stream steamcmd output."""
     install_dir = paths.server_dir(instance).absolute()
+    yield from stream_server_update(install_dir)
+
+
+def build_steamcmd_update_command(install_dir: Path) -> list[str]:
+    """Build the SteamCMD command that installs or validates the server package."""
     steamcmd_bin = _resolve_steamcmd_binary() or "steamcmd"
-    cmd = [
+    return [
         steamcmd_bin,
         "+force_install_dir",
         str(install_dir),
@@ -231,10 +243,24 @@ def download_server(instance: str) -> Iterator[str]:
         "+quit",
     ]
 
+
+def stream_server_update(install_dir: Path) -> Iterator[str]:
+    """Run SteamCMD app_update validate for a specific install directory."""
+    cmd = build_steamcmd_update_command(install_dir.absolute())
     yield from _stream_cmd(
         cmd,
         err_msg="Failed to download server via steamcmd",
     )
+
+
+def record_package_manifest(instance: str) -> None:
+    """Create armactl's local package integrity manifest."""
+    try:
+        write_package_manifest(paths.server_dir(instance))
+    except (IntegrityError, OSError) as e:
+        raise InstallError(
+            tr("Failed to record package integrity manifest: {error}", error=e)
+        ) from e
 
 
 def generate_default_config(instance: str) -> None:
@@ -266,13 +292,22 @@ def generate_default_config(instance: str) -> None:
 
 
 def smoke_check(instance: str) -> None:
-    """Verify that the binary exists."""
+    """Verify that the package manifest and binary are present."""
     binary = paths.server_binary(instance)
     if not binary.exists():
         raise InstallError(
             tr(
                 "Smoke check failed: binary missing at {path}. Did steamcmd download fail?",
                 path=binary,
+            )
+        )
+
+    integrity = check_package_integrity(paths.server_dir(instance), verify_hashes=False)
+    if not integrity.complete:
+        raise InstallError(
+            tr(
+                "Installation package integrity check failed: {details}",
+                details=integrity.summary(),
             )
         )
 
@@ -292,10 +327,22 @@ def run_install(instance: str) -> Iterator[str]:
     create_install_dir(instance)
 
     yield _("Downloading Arma Reforger via steamcmd... (This may take a while)")
-    yield from download_server(instance)
+    install_dir = paths.server_dir(instance)
+    previous_integrity = check_package_integrity(install_dir)
+    mark_install_started(install_dir)
+    try:
+        yield from download_server(instance)
 
-    yield _("Running smoke check...")
-    smoke_check(instance)
+        yield _("Recording package integrity manifest...")
+        record_package_manifest(instance)
+        clear_install_marker(install_dir)
+
+        yield _("Running smoke check...")
+        smoke_check(instance)
+    except Exception:
+        if previous_integrity.complete:
+            clear_install_marker(install_dir)
+        raise
 
     yield _("Generating default configuration...")
     generate_default_config(instance)
