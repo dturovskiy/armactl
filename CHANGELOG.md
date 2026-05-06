@@ -7,6 +7,26 @@ Semantic Versioning once public releases begin.
 
 ## [Unreleased]
 
+## [0.2.0]
+
+### Added
+- Added server package integrity tracking for armactl-managed installs.
+- Added local package manifest creation after successful SteamCMD installs.
+- Added install-in-progress markers to prevent interrupted downloads from being treated as complete.
+- Added repair support for validating and completing incomplete or unverified server installs.
+
+### Changed
+- Server discovery now checks package integrity, SteamCMD app manifests, config presence, and install markers before reporting an instance as installed.
+- `armactl status` and `armactl detect` now surface incomplete or unverified installations with actionable repair guidance.
+- `armactl start` and `armactl restart` now fail early when the server config is missing.
+- Installation smoke checks now verify package integrity metadata in addition to the server binary.
+- Updated PR template and contributing guidance to require issue relevance, human review, and disclosure for automated contributions.
+- Updated Ukrainian localization for integrity and repair messages.
+
+### Fixed
+- Avoid treating partial SteamCMD downloads or missing-config installs as ready-to-manage servers.
+- Improved repair behavior when default install/config paths need to be inferred.
+
 ## [0.1.3]
 
 ### Fixed
