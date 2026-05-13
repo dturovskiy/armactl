@@ -45,11 +45,18 @@ def test_generate_services_writes_expected_units_and_restarts_timer(tmp_path: Pa
     service_path = systemd_dir / "armareforger@alpha.service"
     restart_service_path = systemd_dir / "armareforger-restart@alpha.service"
     timer_path = systemd_dir / "armareforger-restart@alpha.timer"
+    server_dir = instance_root / "server"
+    service_text = installed_units[service_path]
+    start_script_text = start_script_path.read_text(encoding="utf-8")
 
     assert start_script_path.exists()
-    assert str(instance_root) in start_script_path.read_text(encoding="utf-8")
-    assert "CPUAccounting=yes" in installed_units[service_path]
-    assert "MemoryAccounting=yes" in installed_units[service_path]
+    assert f'SERVER_DIR="{server_dir}"' in start_script_text
+    assert f'CONFIG_FILE="{instance_root / "config" / "config.json"}"' in start_script_text
+    assert 'exec "${SERVER_DIR}/ArmaReforgerServer"' in start_script_text
+    assert f"WorkingDirectory={server_dir}" in service_text
+    assert f"ExecStart={start_script_path}" in service_text
+    assert "CPUAccounting=yes" in service_text
+    assert "MemoryAccounting=yes" in service_text
     assert "ExecStart=/usr/bin/systemctl restart armareforger@alpha.service" in installed_units[
         restart_service_path
     ]

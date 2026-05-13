@@ -360,11 +360,15 @@ def detect(ctx: click.Context, install_dir: Path | None, config_path: Path | Non
 
     if install_dir and config_path:
         click.echo(f"[{instance}] Manual detection...")
-        state = discover_manual(
-            install_dir=install_dir,
-            config_path=config_path,
-            instance=instance,
-        )
+        try:
+            state = discover_manual(
+                install_dir=install_dir,
+                config_path=config_path,
+                instance=instance,
+            )
+        except paths.UnsafeServerInstallDirError as e:
+            click.echo(f"[{instance}] Detection failed: {e}", err=True)
+            sys.exit(1)
     else:
         click.echo(f"[{instance}] Running auto-detection...")
         state = discover(instance=instance)
@@ -372,7 +376,8 @@ def detect(ctx: click.Context, install_dir: Path | None, config_path: Path | Non
     if state.server_installed:
         binary_path = Path(state.install_dir) / "ArmaReforgerServer"
         click.echo(f"  ✓ Server found at: {state.install_dir}")
-        click.echo(f"  ✓ Binary:  {'found' if state.binary_exists else 'missing'} ({binary_path})")
+        binary_status = "found" if state.binary_exists else "missing"
+        click.echo(f"  ✓ Binary:  {binary_status} ({binary_path})")
         click.echo(
             f"  Config:  {'found' if state.config_exists else 'missing'} "
             f"({state.config_path})"

@@ -4,6 +4,8 @@ import types
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 import armactl.i18n as i18n
 import armactl.installer as installer
 import armactl.service_manager as service_manager
@@ -155,3 +157,19 @@ def test_download_server_streams_steamcmd_output_lines() -> None:
         "Connecting anonymously to Steam Public...OK",
         "Success! App '1874900' fully installed.",
     ]
+
+
+def test_installer_refuses_project_root_as_install_dir() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+
+    with pytest.raises(installer.InstallError, match="project root"):
+        installer.build_steamcmd_update_command(repo_root)
+
+
+def test_installer_refuses_install_dir_inside_git_working_tree(tmp_path: Path) -> None:
+    git_root = tmp_path / "checkout"
+    install_dir = git_root / "server"
+    (git_root / ".git").mkdir(parents=True)
+
+    with pytest.raises(installer.InstallError, match="Git working tree"):
+        installer.build_steamcmd_update_command(install_dir)

@@ -2,10 +2,13 @@
 set -euo pipefail
 
 INSTANCE_ROOT="{{ instance_root }}"
+SERVER_DIR="{{ server_dir }}"
+CONFIG_DIR="{{ config_dir }}"
+CONFIG_FILE="{{ config_file }}"
 
-cd "${INSTANCE_ROOT}/server"
+cd "${SERVER_DIR}"
 
-exec "${INSTANCE_ROOT}/server/ArmaReforgerServer" \
-  -config "${INSTANCE_ROOT}/config/config.json" \
-  -profile "${INSTANCE_ROOT}/config" \
+exec "${SERVER_DIR}/ArmaReforgerServer" \
+  -config "${CONFIG_FILE}" \
+  -profile "${CONFIG_DIR}" \
   -maxFPS {{ max_fps | default(60) }}

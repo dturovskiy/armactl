@@ -34,6 +34,19 @@ Thumbs.db
 # Project-specific
 *.bak
 
+# Arma Reforger server/runtime artifacts must never live in the repo root.
+/ArmaReforgerServer
+/ArmaReforgerServerDiag
+/CrashReporter
+/addons/
+/battleye/
+/licenses/
+/steamapps/
+/steam_appid.txt
+/License.txt
+/Readme.txt
+/docs/ServerHostingDocs.bat
+
 # Local environment / secrets
 .env
 *.env

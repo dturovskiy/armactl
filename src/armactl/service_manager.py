@@ -902,13 +902,23 @@ def generate_services(
     # 1. Paths and Variables
     user = resolve_linux_user()
 
-    inst_root = paths.instance_root(instance)
+    try:
+        server_dir = paths.validate_server_install_dir(
+            paths.server_dir(instance),
+            instance=instance,
+        )
+    except paths.UnsafeServerInstallDirError as e:
+        return [ServiceResult(False, str(e), 1)]
+
+    inst_root = server_dir.parent
 
     # Check if instance actually exists contextually
     if not inst_root.exists():
         inst_root.mkdir(parents=True, exist_ok=True)
 
-    start_sh = paths.start_script(instance)
+    start_sh = inst_root / "start-armareforger.sh"
+    config_dir = inst_root / "config"
+    config_file = config_dir / "config.json"
 
     service_name = service_unit_name(instance)
     restart_service_name = restart_service_unit_name(instance)
@@ -939,11 +949,16 @@ def generate_services(
     try:
         start_sh_render = env.get_template("start-armareforger.sh.j2").render(
             instance_root=str(inst_root),
+            server_dir=str(server_dir),
+            config_dir=str(config_dir),
+            config_file=str(config_file),
             max_fps=60,
         )
         service_render = env.get_template("armareforger.service.j2").render(
             user=user,
             instance_root=str(inst_root),
+            server_dir=str(server_dir),
+            start_script=str(start_sh),
         )
         restart_service_render = (
             "[Unit]\n"

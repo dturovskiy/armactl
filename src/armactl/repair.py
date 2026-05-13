@@ -12,7 +12,7 @@ from jinja2 import Environment, FileSystemLoader
 from armactl import paths
 from armactl.discovery import discover_manual
 from armactl.i18n import _, tr
-from armactl.installer import build_steamcmd_update_command
+from armactl.installer import InstallError, build_steamcmd_update_command
 from armactl.integrity import (
     IntegrityError,
     check_package_integrity,
@@ -42,6 +42,10 @@ def run_repair(
 
     install_dir = Path(install_dir) if str(install_dir).strip() else paths.server_dir(instance)
     config_path = Path(config_path) if str(config_path).strip() else paths.config_file(instance)
+    try:
+        install_dir = paths.validate_server_install_dir(install_dir, instance=instance)
+    except paths.UnsafeServerInstallDirError as e:
+        raise RepairError(str(e)) from e
 
     if not install_dir.exists():
         yield tr(
@@ -61,7 +65,10 @@ def run_repair(
         yield _("  - Server is already stopped")
 
     yield tr("[{instance}] Step 2: Validating game files via SteamCMD...", instance=instance)
-    cmd = build_steamcmd_update_command(install_dir.absolute())
+    try:
+        cmd = build_steamcmd_update_command(install_dir, instance=instance)
+    except InstallError as e:
+        raise RepairError(str(e)) from e
     previous_integrity = check_package_integrity(install_dir)
     mark_install_started(install_dir)
     try:

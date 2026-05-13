@@ -29,6 +29,85 @@ PRIVILEGED_HELPER_NAME = "armactl-systemctl-helper"
 PRIVILEGED_SUDOERS_NAME = "armactl-systemctl-helper"
 
 
+class UnsafeServerInstallDirError(ValueError):
+    """Raised when a server install directory could pollute source control."""
+
+
+def project_root() -> Path:
+    """Return the armactl source tree root."""
+    return Path(__file__).resolve().parents[2]
+
+
+def _is_path_inside_or_equal(child: Path, parent: Path) -> bool:
+    """Return True when child resolves to parent or one of its descendants."""
+    child_resolved = child.expanduser().resolve(strict=False)
+    parent_resolved = parent.expanduser().resolve(strict=False)
+    try:
+        child_resolved.relative_to(parent_resolved)
+    except ValueError:
+        return False
+    return True
+
+
+def _containing_git_marker(path: Path) -> Path | None:
+    """Return the nearest .git marker at or above path, if one exists."""
+    resolved = path.expanduser().resolve(strict=False)
+    candidates = [resolved, *resolved.parents]
+    for candidate in candidates:
+        git_marker = candidate / ".git"
+        if git_marker.exists():
+            return git_marker
+    return None
+
+
+def _server_dir_guidance(
+    instance: str = DEFAULT_INSTANCE_NAME,
+    data_root: Path = DEFAULT_DATA_ROOT,
+) -> str:
+    return str(server_dir(instance, data_root).expanduser().resolve(strict=False))
+
+
+def validate_server_install_dir(
+    install_dir: Path | str,
+    *,
+    instance: str = DEFAULT_INSTANCE_NAME,
+    data_root: Path = DEFAULT_DATA_ROOT,
+) -> Path:
+    """Validate that SteamCMD/server runtime files stay outside Git/source trees."""
+    resolved = Path(install_dir).expanduser().resolve(strict=False)
+    source_root = project_root().expanduser().resolve(strict=False)
+    expected = _server_dir_guidance(instance, data_root)
+
+    if resolved == source_root:
+        raise UnsafeServerInstallDirError(
+            "Refusing to use the armactl project root as the Arma Reforger "
+            f"server install directory: {resolved}. Use {expected} instead."
+        )
+
+    if _is_path_inside_or_equal(resolved, source_root):
+        raise UnsafeServerInstallDirError(
+            "Refusing to use a directory inside the armactl source repository "
+            f"as the Arma Reforger server install directory: {resolved}. "
+            f"Use {expected} instead."
+        )
+
+    if ".git" in resolved.parts:
+        raise UnsafeServerInstallDirError(
+            "Refusing to use a path inside a .git directory as the Arma Reforger "
+            f"server install directory: {resolved}. Use {expected} instead."
+        )
+
+    git_marker = _containing_git_marker(resolved)
+    if git_marker is not None:
+        raise UnsafeServerInstallDirError(
+            "Refusing to use a directory inside a Git working tree as the "
+            f"Arma Reforger server install directory: {resolved} "
+            f"(found {git_marker}). Use {expected} instead."
+        )
+
+    return resolved
+
+
 # ---------------------------------------------------------------------------
 # Instance paths
 # ---------------------------------------------------------------------------
