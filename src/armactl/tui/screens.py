@@ -367,7 +367,10 @@ class TailLogScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Label(
-            tr("Live Logs: {instance} (Press Q to exit)", instance=self.instance),
+            tr(
+                "Live Logs: {instance} (Press Q to exit)",
+                instance=get_instance_display_label(self.instance),
+            ),
             id="screen-title",
         )
         yield RichLog(id="tail-log", highlight=True, markup=False)
