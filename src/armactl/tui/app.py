@@ -105,13 +105,98 @@ class ArmaCtlApp(App):
         layout: vertical;
         align: center middle;
     }
-    #main-menu, #manage-container, #confirm-dialog {
+    #main-menu, #confirm-dialog {
         width: 64;
         max-width: 90%;
         height: auto;
         border: solid green;
         padding: 1 2;
         background: $surface;
+    }
+    #manage-container {
+        width: 100%;
+        height: 100%;
+        padding: 1 2;
+        background: $surface;
+    }
+    #manage-header {
+        width: 100%;
+        height: auto;
+        border: solid green;
+        padding: 1 2;
+        margin-bottom: 1;
+    }
+    #manage-title-row, #manage-action-row {
+        width: 100%;
+        height: auto;
+    }
+    #manage-title-block {
+        width: 1fr;
+        height: auto;
+    }
+    #manage-screen-title {
+        width: 100%;
+        text-style: bold;
+        color: white;
+    }
+    #manage-server-name, #manage-instance-id {
+        width: 100%;
+    }
+    #manage-instance-id {
+        color: $text-muted;
+    }
+    #manage-runtime-badge {
+        width: 20;
+        content-align: center middle;
+        text-style: bold;
+    }
+    #manage-action-row {
+        margin-top: 1;
+    }
+    #server-status {
+        width: 1fr;
+        content-align: left middle;
+        margin-bottom: 0;
+    }
+    #manage-action-row Button {
+        width: 14;
+        margin: 0 0 0 1;
+    }
+    #manage-shell {
+        width: 100%;
+        height: 1fr;
+    }
+    #manage-sidebar {
+        width: 28;
+        height: 100%;
+        border: solid green;
+        padding: 1;
+        margin-right: 1;
+    }
+    #manage-sidebar-title {
+        width: 100%;
+        margin-bottom: 1;
+        color: $text-muted;
+    }
+    #manage-sidebar Button {
+        width: 100%;
+        margin: 0 0 1 0;
+    }
+    #manage-content {
+        width: 1fr;
+        height: 100%;
+        border: solid green;
+        padding: 1 2;
+    }
+    #manage-panel-title {
+        width: 100%;
+        margin-bottom: 1;
+        text-style: bold;
+        color: white;
+    }
+    #manage-panel-log {
+        width: 100%;
+        height: 1fr;
     }
     #modpack-dialog {
         width: 80;
@@ -152,11 +237,6 @@ class ArmaCtlApp(App):
         margin-bottom: 2;
         text-style: bold;
         color: yellow;
-    }
-    #server-status {
-        content-align: center middle;
-        width: 100%;
-        margin-bottom: 1;
     }
     #control-buttons, #schedule-buttons-primary, #schedule-buttons-secondary,
     #bot-enable-buttons, #bot-config-buttons, #bot-service-buttons {
@@ -301,15 +381,9 @@ class ArmaCtlApp(App):
         server_name = get_instance_server_name(self.instance)
         widgets: list[Widget] = [
             Label(_("Arma Reforger Manager"), id="title"),
-            Label(server_name or self.instance, id="instance-server-name"),
+            Label(server_name or _("Server name not configured"), id="instance-server-name"),
+            Label(tr("Instance: {instance}", instance=self.instance), id="instance-id"),
         ]
-        if server_name:
-            widgets.append(
-                Label(
-                    tr("Instance: {instance}", instance=self.instance),
-                    id="instance-id",
-                )
-            )
 
         installed_text = _("Yes") if state.server_installed else _("No")
         widgets.append(

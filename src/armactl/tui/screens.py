@@ -50,6 +50,7 @@ from armactl.discovery import discover
 from armactl.i18n import _, tr
 from armactl.installer import run_install
 from armactl.metrics import (
+    HostMetrics,
     format_bytes,
     format_cpu_percent,
     format_duration,
@@ -82,7 +83,8 @@ from armactl.service_manager import (
     update_restart_timer_schedule,
 )
 from armactl.status_summary import ConfigSummary, ModsSummary, load_status_summaries
-from armactl.tui.display import get_instance_display_label
+from armactl.tui.dashboard import format_player_count, format_usage_bar
+from armactl.tui.display import get_instance_display_label, get_instance_server_name
 
 
 def _build_mod_list_item(index: int, mod: dict[str, object]) -> ListItem:
@@ -464,12 +466,25 @@ class ManageScreen(Screen):
 
     BINDINGS = [
         ("b", "pop_screen", _("Back to Menu")),
+        ("q", "pop_screen", _("Back to Menu")),
         ("r", "refresh_state", _("Refresh Status")),
     ]
 
     def __init__(self, instance: str, **kwargs):
         super().__init__(**kwargs)
         self.instance = instance
+        self._active_panel = "overview"
+
+    @staticmethod
+    def _yes_no(value: object) -> str:
+        if value is True:
+            return _("Yes")
+        if value is False:
+            return _("No")
+        return _("Unknown")
+
+    def _service_name(self) -> str:
+        return service_unit_name(self.instance)
 
     def _title_text(self) -> str:
         return tr(
@@ -477,37 +492,221 @@ class ManageScreen(Screen):
             instance=get_instance_display_label(self.instance),
         )
 
+    def _server_display_name(self) -> str:
+        return get_instance_server_name(self.instance) or _("Server name not configured")
+
+    def _nav_items(self) -> list[tuple[str, str, str, str]]:
+        return [
+            ("overview", "nav_overview", _("Overview"), "panel"),
+            ("config", "nav_config", _("Configuration"), "screen"),
+            ("raw_config", "nav_raw_config", _("Raw Config JSON"), "screen"),
+            ("schedule", "nav_schedule", _("Restart Schedule"), "screen"),
+            ("bot", "nav_bot", _("Telegram Bot"), "screen"),
+            ("mods", "nav_mods", _("Mods Manager"), "screen"),
+            ("cleanup", "nav_cleanup", _("Maintenance / Cleanup"), "screen"),
+            ("logs", "nav_logs", _("Live Logs"), "screen"),
+            ("status", "nav_status", _("Status Details"), "panel"),
+            ("ports", "nav_ports", _("Check Ports"), "panel"),
+        ]
+
+    def _panel_title(self) -> str:
+        if self._active_panel == "status":
+            return _("Status Details")
+        if self._active_panel == "ports":
+            return _("Check Ports")
+        return _("Overview")
+
     def on_mount(self) -> None:
         self.action_refresh_state()
 
     def on_screen_resume(self) -> None:
         """Auto-refresh state when returning from a sub-screen like ConfigEditor."""
-        self.query_one("#screen-title", Label).update(self._title_text())
         self.action_refresh_state()
 
     def action_refresh_state(self) -> None:
         state = discover(self.instance, save=False)
-        lbl = self.query_one("#server-status", Label)
+        service_status = get_service_status(self._service_name())
+        title = self.query_one("#manage-screen-title", Label)
+        server_name = self.query_one("#manage-server-name", Label)
+        instance_id = self.query_one("#manage-instance-id", Label)
+        runtime_badge = self.query_one("#manage-runtime-badge", Label)
+        status_label = self.query_one("#server-status", Label)
         btn_toggle = self.query_one("#btn_toggle", Button)
 
+        title.update(self._title_text())
+        server_name.update(self._server_display_name())
+        instance_id.update(tr("Instance: {instance}", instance=self.instance))
+
         if state.server_running:
-            lbl.update(_("[bold green]SERVER IS RUNNING[/bold green]"))
+            runtime_badge.update(_("Running"))
+            runtime_badge.styles.color = "green"
+            status_text = _("[bold green]SERVER IS RUNNING[/bold green]")
             btn_toggle.label = _("Stop")
             btn_toggle.variant = "error"
         else:
-            lbl.update(_("[bold red]SERVER IS STOPPED[/bold red]"))
+            runtime_badge.update(_("Stopped"))
+            runtime_badge.styles.color = "red"
+            status_text = _("[bold red]SERVER IS STOPPED[/bold red]")
             btn_toggle.label = _("Start")
             btn_toggle.variant = "success"
 
+        enabled_text = self._yes_no(service_status.get("enabled"))
+        status_label.update(
+            f"{status_text}  |  {tr('Service enabled: {value}', value=enabled_text)}"
+        )
+        self._render_active_panel()
+
+    def _format_players(self, current: int | None, maximum: int | None) -> str:
+        player_text = format_player_count(current, maximum)
+        if player_text == "Unknown":
+            return _("Unknown")
+        return player_text
+
+    def _format_bytes_pair(
+        self,
+        used: int | None,
+        total: int | None,
+        *,
+        width: int = 12,
+    ) -> str:
+        if used is None or total is None:
+            return _("Unknown")
+        usage_bar = format_usage_bar(used, total, width=width)
+        return f"{format_bytes(used)} / {format_bytes(total)} {usage_bar}"
+
+    def _query_host_metrics(self) -> HostMetrics:
+        try:
+            return query_host_metrics()
+        except Exception as error:
+            return HostMetrics(False, error=str(error))
+
+    def _build_overview_text(self) -> str:
+        state = discover(self.instance, save=False)
+        service_status = get_service_status(self._service_name())
+        player_status = query_player_status(self.instance, state=state)
+        metrics = query_service_runtime_metrics(service_status)
+        host_metrics = self._query_host_metrics()
+
+        if state.config_exists and state.config_path:
+            config_summary, mods_summary = load_status_summaries(state.config_path)
+        else:
+            config_summary, mods_summary = ConfigSummary(False), ModsSummary(False)
+
+        unknown_text = _("Unknown")
+        lines = [
+            _("[bold cyan]Service Status[/bold cyan]"),
+            tr(
+                "Service active state: {value}",
+                value=_("Running") if state.server_running else _("Stopped"),
+            ),
+            tr(
+                "Service enabled: {value}",
+                value=self._yes_no(service_status.get("enabled")),
+            ),
+            "",
+            _("[bold cyan]Players[/bold cyan]"),
+            tr(
+                "Players: {value}",
+                value=self._format_players(
+                    player_status.player_count,
+                    player_status.max_players,
+                ),
+            ),
+            "",
+            _("[bold cyan]Runtime Metrics[/bold cyan]"),
+            tr(
+                "Server CPU: {value}",
+                value=(
+                    format_cpu_percent(metrics.cpu_percent)
+                    if metrics.cpu_percent is not None
+                    else unknown_text
+                ),
+            ),
+            tr(
+                "Server RAM: {value}",
+                value=(
+                    format_bytes(metrics.memory_rss_bytes)
+                    if metrics.memory_rss_bytes is not None
+                    else unknown_text
+                ),
+            ),
+            "",
+            _("[bold cyan]Host / VM Metrics[/bold cyan]"),
+            tr(
+                "Host CPU: {value}",
+                value=(
+                    format_cpu_percent(host_metrics.cpu_percent)
+                    if host_metrics.cpu_percent is not None
+                    else unknown_text
+                ),
+            ),
+            tr(
+                "Host RAM: {value}",
+                value=self._format_bytes_pair(
+                    host_metrics.memory_used_bytes,
+                    host_metrics.memory_total_bytes,
+                ),
+            ),
+            tr(
+                "Host Disk: {value}",
+                value=self._format_bytes_pair(
+                    host_metrics.disk_used_bytes,
+                    host_metrics.disk_total_bytes,
+                ),
+            ),
+            "",
+            _("[bold cyan]Config Summary[/bold cyan]"),
+            tr(
+                "Server name: {value}",
+                value=config_summary.server_name or unknown_text,
+            ),
+            tr("Config path: {value}", value=state.config_path or unknown_text),
+            tr("Server directory: {value}", value=state.install_dir or unknown_text),
+            "",
+            _("[bold cyan]Mods Summary[/bold cyan]"),
+            tr(
+                "Installed mods: {count}",
+                count=mods_summary.count if mods_summary.available else 0,
+            ),
+        ]
+
+        warnings: list[str] = []
+        if player_status.player_count is None:
+            warnings.append(_("Players: unavailable"))
+        if not metrics.available:
+            warnings.append(
+                tr(
+                    "Server metrics unavailable: {value}",
+                    value=metrics.error or unknown_text,
+                )
+            )
+        if not host_metrics.available:
+            warnings.append(
+                tr(
+                    "Host metrics unavailable: {value}",
+                    value=host_metrics.error or unknown_text,
+                )
+            )
+        if not config_summary.available:
+            warnings.append(_("Config summary unavailable."))
+        if not mods_summary.available:
+            warnings.append(_("Mods summary unavailable."))
+
+        if warnings:
+            lines.extend(["", _("[bold yellow]Warnings[/bold yellow]")])
+            lines.extend(f"- {warning}" for warning in warnings)
+
+        return "\n".join(lines)
+
     def _build_status_details_text(self) -> str:
         state = discover(self.instance, save=False)
-        service_name = service_unit_name(self.instance)
+        service_name = self._service_name()
         timer_name = timer_unit_name(self.instance)
         service_status = get_service_status(service_name)
         timer_status = get_timer_status(timer_name)
         player_status = query_player_status(self.instance, state=state)
         metrics = query_service_runtime_metrics(service_status)
-        host_metrics = query_host_metrics()
+        host_metrics = self._query_host_metrics()
         main_pid = metrics.pid
         if state.config_exists and state.config_path:
             config_summary, mods_summary = load_status_summaries(state.config_path)
@@ -741,34 +940,86 @@ class ManageScreen(Screen):
 
         return "\n".join(lines)
 
+    def _build_ports_text(self) -> str:
+        state = discover(self.instance, save=False)
+        if not state.config_exists:
+            return _("Config missing. Cannot read ports.")
+
+        port_rows = ports.check_server_ports(
+            state.ports.game,
+            state.ports.a2s,
+            state.ports.rcon,
+        )
+        lines = [_("Ports Status"), ""]
+        for name, info in port_rows.items():
+            status = (
+                _("[green]OPEN listening[/green]")
+                if info["listening"]
+                else _("[red]CLOSED[/red]")
+            )
+            lines.append(f"{name:<10} | {info['port']:<6} | {status}")
+        return "\n".join(lines)
+
+    def _render_active_panel(self) -> None:
+        self.query_one("#manage-panel-title", Label).update(self._panel_title())
+        log = self.query_one("#manage-panel-log", RichLog)
+        log.clear()
+
+        if self._active_panel == "status":
+            log.write(self._build_status_details_text())
+        elif self._active_panel == "ports":
+            log.write(self._build_ports_text())
+        else:
+            log.write(self._build_overview_text())
+
+        active_button = f"nav_{self._active_panel}"
+        if self._active_panel == "raw_config":
+            active_button = "nav_raw_config"
+        for panel, button_id, _label, kind in self._nav_items():
+            button = self.query_one(f"#{button_id}", Button)
+            if kind == "panel" and button_id == active_button:
+                button.variant = "primary"
+            else:
+                button.variant = "default" if panel != "cleanup" else "warning"
+
     def compose(self) -> ComposeResult:
         yield Header()
         with VerticalGroup(id="manage-container"):
-            yield Label(self._title_text(), id="screen-title")
-            yield Label(_("Loading status..."), id="server-status")
+            with VerticalGroup(id="manage-header"):
+                with HorizontalGroup(id="manage-title-row"):
+                    with VerticalGroup(id="manage-title-block"):
+                        yield Label(self._title_text(), id="manage-screen-title")
+                        yield Label(self._server_display_name(), id="manage-server-name")
+                        yield Label(
+                            tr("Instance: {instance}", instance=self.instance),
+                            id="manage-instance-id",
+                        )
+                    yield Label(_("Loading status..."), id="manage-runtime-badge")
 
-            with HorizontalGroup(id="control-buttons"):
-                yield Button("...", id="btn_toggle", variant="primary")
-                yield Button(_("Restart"), id="btn_restart", variant="warning")
+                with HorizontalGroup(id="manage-action-row"):
+                    yield Label(_("Loading status..."), id="server-status")
+                    yield Button("...", id="btn_toggle", variant="primary")
+                    yield Button(_("Restart"), id="btn_restart", variant="warning")
+                    yield Button(_("View Logs"), id="btn_view_logs", variant="primary")
+                    yield Button(_("Refresh Status"), id="btn_refresh_manage", variant="default")
 
-            yield Button(_("Edit Configuration"), id="btn_config", variant="success")
-            yield Button(_("Raw Config JSON"), id="btn_config_raw", variant="default")
-            yield Button(_("Restart Schedule"), id="btn_schedule", variant="primary")
-            yield Button(_("Telegram Bot"), id="btn_bot", variant="primary")
-            yield Button(_("Mods Manager"), id="btn_mods", variant="primary")
-            yield Button(_("Maintenance / Cleanup"), id="btn_cleanup", variant="warning")
-            yield Button(_("View Live Logs"), id="btn_logs", variant="primary")
-            yield Button(_("Status Details"), id="btn_status", variant="default")
-            yield Button(_("Check Ports"), id="btn_ports", variant="default")
-            yield Button(_("Back to Main Menu"), id="btn_back", variant="default")
+            with HorizontalGroup(id="manage-shell"):
+                with VerticalScroll(id="manage-sidebar"):
+                    yield Label(_("Navigation"), id="manage-sidebar-title")
+                    for _panel, button_id, label, kind in self._nav_items():
+                        variant = "primary" if button_id == "nav_overview" else "default"
+                        if button_id == "nav_cleanup":
+                            variant = "warning"
+                        yield Button(label, id=button_id, variant=variant)
+                    yield Button(_("Back to Main Menu"), id="btn_back", variant="default")
+
+                with VerticalScroll(id="manage-content"):
+                    yield Label(_("Overview"), id="manage-panel-title")
+                    yield RichLog(id="manage-panel-log", markup=True, highlight=False)
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        service_name = (
-            f"armareforger@{self.instance}.service"
-            if self.instance != "default"
-            else paths.SERVICE_NAME
-        )
+        service_name = self._service_name()
 
         if event.button.id == "btn_back":
             self.app.pop_screen()
@@ -805,55 +1056,44 @@ class ManageScreen(Screen):
                 check_restart,
             )
 
-        elif event.button.id == "btn_logs":
+        elif event.button.id == "btn_view_logs":
             self.app.push_screen(TailLogScreen(self.instance))
 
-        elif event.button.id == "btn_status":
-            self.app.push_screen(
-                InfoViewerScreen(_("Detailed Server Status"), self._build_status_details_text())
-            )
+        elif event.button.id == "btn_refresh_manage":
+            self.action_refresh_state()
 
-        elif event.button.id == "btn_ports":
-            state = discover(self.instance, save=False)
-            if not state.config_exists:
-                self.app.notify(
-                    _("Config missing. Cannot read ports."),
-                    title=_("Error"),
-                    severity="error",
-                )
-                return
-            arr = ports.check_server_ports(
-                state.ports.game,
-                state.ports.a2s,
-                state.ports.rcon,
-            )
-            text_lines = []
-            for name, info in arr.items():
-                status = (
-                    _("[green]OPEN listening[/green]")
-                    if info["listening"]
-                    else _("[red]CLOSED[/red]")
-                )
-                text_lines.append(f"{name:<10} | {info['port']:<6} | {status}")
-            self.app.push_screen(InfoViewerScreen(_("Ports Status"), "\n".join(text_lines)))
+        elif event.button.id == "nav_overview":
+            self._active_panel = "overview"
+            self.action_refresh_state()
 
-        elif event.button.id == "btn_config":
+        elif event.button.id == "nav_status":
+            self._active_panel = "status"
+            self.action_refresh_state()
+
+        elif event.button.id == "nav_ports":
+            self._active_panel = "ports"
+            self.action_refresh_state()
+
+        elif event.button.id == "nav_config":
             self.app.push_screen(ConfigEditorScreen(self.instance))
 
-        elif event.button.id == "btn_config_raw":
+        elif event.button.id == "nav_raw_config":
             self.app.push_screen(RawConfigScreen(self.instance))
 
-        elif event.button.id == "btn_schedule":
+        elif event.button.id == "nav_schedule":
             self.app.push_screen(ScheduleScreen(self.instance))
 
-        elif event.button.id == "btn_bot":
+        elif event.button.id == "nav_bot":
             self.app.push_screen(BotConfigScreen(self.instance))
 
-        elif event.button.id == "btn_mods":
+        elif event.button.id == "nav_mods":
             self.app.push_screen(ModManagerScreen(self.instance))
 
-        elif event.button.id == "btn_cleanup":
+        elif event.button.id == "nav_cleanup":
             self.app.push_screen(CleanupScreen(self.instance))
+
+        elif event.button.id == "nav_logs":
+            self.app.push_screen(TailLogScreen(self.instance))
 
 
 class ScheduleScreen(Screen):
