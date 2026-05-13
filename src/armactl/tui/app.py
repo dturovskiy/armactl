@@ -15,6 +15,7 @@ from armactl import paths
 from armactl.bot_manager import ensure_bot_service_runtime
 from armactl.discovery import discover
 from armactl.i18n import _, get_current_lang_name, toggle_lang, tr
+from armactl.tui.display import get_instance_server_name
 
 
 def _restore_terminal_state() -> None:
@@ -153,6 +154,21 @@ class ArmaCtlApp(App):
         margin-bottom: 1;
         color: $text-muted;
     }
+    #title, #instance-server-name, #instance-id {
+        content-align: center middle;
+        width: 100%;
+    }
+    #title {
+        text-style: bold;
+        color: white;
+    }
+    #instance-server-name {
+        margin-bottom: 1;
+    }
+    #instance-id {
+        margin-bottom: 1;
+        color: $text-muted;
+    }
     #mods-list {
         height: 1fr;
         border: solid green;
@@ -234,10 +250,11 @@ class ArmaCtlApp(App):
         """Create child widgets for the app."""
         yield Header(show_clock=True)
         with VerticalGroup(id="main-menu"):
-            yield Label(
-                tr("Arma Reforger Manager [{instance}]", instance=self.instance),
-                id="title",
-            )
+            server_name = get_instance_server_name(self.instance)
+            yield Label(_("Arma Reforger Manager"), id="title")
+            yield Label(server_name or self.instance, id="instance-server-name")
+            if server_name:
+                yield Label(tr("Instance: {instance}", instance=self.instance), id="instance-id")
 
             state = discover(instance=self.instance, save=False)
             if state.server_installed:

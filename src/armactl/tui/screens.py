@@ -82,6 +82,7 @@ from armactl.service_manager import (
     update_restart_timer_schedule,
 )
 from armactl.status_summary import ConfigSummary, ModsSummary, load_status_summaries
+from armactl.tui.display import get_instance_display_label
 
 
 def _build_mod_list_item(index: int, mod: dict[str, object]) -> ListItem:
@@ -442,11 +443,18 @@ class ManageScreen(Screen):
         super().__init__(**kwargs)
         self.instance = instance
 
+    def _title_text(self) -> str:
+        return tr(
+            "Manage Server: {instance}",
+            instance=get_instance_display_label(self.instance),
+        )
+
     def on_mount(self) -> None:
         self.action_refresh_state()
 
     def on_screen_resume(self) -> None:
         """Auto-refresh state when returning from a sub-screen like ConfigEditor."""
+        self.query_one("#screen-title", Label).update(self._title_text())
         self.action_refresh_state()
 
     def action_refresh_state(self) -> None:
@@ -708,7 +716,7 @@ class ManageScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with VerticalGroup(id="manage-container"):
-            yield Label(tr("Manage Server: {instance}", instance=self.instance), id="screen-title")
+            yield Label(self._title_text(), id="screen-title")
             yield Label(_("Loading status..."), id="server-status")
 
             with HorizontalGroup(id="control-buttons"):
@@ -838,7 +846,10 @@ class ScheduleScreen(Screen):
         yield Header()
         with VerticalGroup(id="info-container"):
             yield Label(
-                tr("Restart Schedule: {instance}", instance=self.instance),
+                tr(
+                    "Restart Schedule: {instance}",
+                    instance=get_instance_display_label(self.instance),
+                ),
                 id="screen-title",
             )
             yield Label(
@@ -1015,7 +1026,13 @@ class BotConfigScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with VerticalGroup(id="bot-config-container"):
-            yield Label(tr("Telegram Bot: {instance}", instance=self.instance), id="screen-title")
+            yield Label(
+                tr(
+                    "Telegram Bot: {instance}",
+                    instance=get_instance_display_label(self.instance),
+                ),
+                id="screen-title",
+            )
             yield Label(
                 tr(
                     "Optional Telegram bot settings. armactl reads and writes "
@@ -1367,7 +1384,10 @@ class CleanupScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with VerticalGroup(id="info-container"):
-            yield Label(_("Maintenance & Cleanup: ") + f"{self.instance}", id="screen-title")
+            yield Label(
+                f"{_('Maintenance / Cleanup')}: {get_instance_display_label(self.instance)}",
+                id="screen-title",
+            )
             yield RichLog(id="info-log", markup=True)
             with HorizontalGroup(id="control-buttons"):
                 yield Button(_("Clean Junk Files"), id="btn_clean_now", variant="warning")
@@ -1521,7 +1541,13 @@ class ConfigEditorScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Label(tr("Edit Config: {instance}", instance=self.instance), id="screen-title")
+        yield Label(
+            tr(
+                "Configuration: {instance}",
+                instance=get_instance_display_label(self.instance),
+            ),
+            id="screen-title",
+        )
 
         with VerticalScroll(id="config-editor"):
             yield Label(_("Server Name:"))
@@ -1673,7 +1699,10 @@ class RawConfigScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with VerticalGroup(id="raw-config-container"):
-            yield Label(f"{_('Raw Config JSON')}: {self.instance}", id="screen-title")
+            yield Label(
+                f"{_('Raw Config JSON')}: {get_instance_display_label(self.instance)}",
+                id="screen-title",
+            )
             yield Label(
                 _(
                     "Manual JSON editor. Save keeps an automatic backup before writing."
@@ -1910,7 +1939,10 @@ class ModManagerScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with VerticalGroup(id="info-container"):
-            yield Label(_("Mods Manager: ") + f"{self.instance}", id="screen-title")
+            yield Label(
+                f"{_('Mods Manager')}: {get_instance_display_label(self.instance)}",
+                id="screen-title",
+            )
 
             yield Input(id="inp_mod_id", placeholder=_("Paste Mod ID or Workshop String here..."))
             yield Input(id="inp_mod_name", placeholder=_("Name (Optional)"))
