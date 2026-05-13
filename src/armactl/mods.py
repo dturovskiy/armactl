@@ -38,19 +38,15 @@ def add_mod(
 
 
 def remove_mod(config_path: str | Any, mod_id: str) -> bool:
-    """Remove a mod by id."""
-    conf = load_config(config_path)
-    game = conf.get("game", {})
-    mods: list[dict[str, str]] = game.get("mods", [])
+    """Remove a mod by id and clean up its local addon directory."""
+    return remove_mod_detailed(config_path, mod_id).config_changed
 
-    initial_len = len(mods)
-    mods = [mod for mod in mods if mod.get("modId") != mod_id]
 
-    if len(mods) != initial_len:
-        game["mods"] = mods
-        save_config(config_path, conf)
-        return True
-    return False
+def remove_mod_detailed(config_path: str | Any, mod_id: str):
+    """Remove a mod by id and return cleanup metadata."""
+    from armactl.mods_manager import remove_mod_detailed as manager_remove_mod_detailed
+
+    return manager_remove_mod_detailed(config_path, mod_id)
 
 
 def dedupe_mods(config_path: str | Any) -> int:

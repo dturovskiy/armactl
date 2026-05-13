@@ -26,6 +26,7 @@ from textual.widgets import (
 
 from armactl import paths, ports
 from armactl.a2s import query_player_status
+from armactl.addon_cleanup import cleanup_unconfigured_addons
 from armactl.bot_config import (
     BotConfig,
     BotConfigError,
@@ -55,11 +56,11 @@ from armactl.metrics import (
     query_host_metrics,
     query_service_runtime_metrics,
 )
-from armactl.mods import add_mod, dedupe_mods, remove_mod
+from armactl.mods import add_mod, dedupe_mods, remove_mod_detailed
 from armactl.mods_manager import (
     export_mods,
     get_mods,
-    import_mods,
+    import_mods_detailed,
     preview_import_mods,
 )
 from armactl.rcon import query_player_roster
@@ -1354,6 +1355,11 @@ class CleanupScreen(Screen):
             yield RichLog(id="info-log", markup=True)
             with HorizontalGroup(id="control-buttons"):
                 yield Button(_("Clean Junk Files"), id="btn_clean_now", variant="warning")
+                yield Button(
+                    _("Clean Unused Workshop Addons"),
+                    id="btn_clean_addons",
+                    variant="error",
+                )
                 yield Button(_("Back"), id="btn_back", variant="default")
         yield Footer()
 
@@ -1428,6 +1434,59 @@ class CleanupScreen(Screen):
                     _("Are you sure you want to permanently delete these files?")
                 ),
                 confirm_cleanup,
+            )
+
+        elif event.button.id == "btn_clean_addons":
+            cfg = paths.config_file(self.instance)
+            # Dry-run first to show what would be deleted.
+            preview = cleanup_unconfigured_addons(cfg, dry_run=True)
+            if preview.errors:
+                self.app.notify(
+                    tr(
+                        "Workshop addon cleanup failed: {error}",
+                        error="; ".join(preview.errors),
+                    ),
+                    title=_("Workshop Cleanup"),
+                    severity="warning",
+                )
+                return
+            if not preview.deleted:
+                self.app.notify(
+                    _("No unused workshop addon directories found."),
+                    title=_("Workshop Cleanup"),
+                )
+                return
+
+            dir_count = len(preview.deleted)
+            freed = format_size(preview.bytes_deleted)
+            prompt = tr(
+                "Delete {count} unused workshop addon directory/directories "
+                "and free {size}?",
+                count=dir_count,
+                size=freed,
+            )
+
+            def confirm_addon_cleanup(confirm: bool) -> None:
+                if confirm:
+                    result = cleanup_unconfigured_addons(cfg)
+                    freed_real = format_size(result.bytes_deleted)
+                    if result.deleted:
+                        self.app.notify(
+                            tr(
+                                "Deleted {count} addon directories, freed {freed}.",
+                                count=len(result.deleted),
+                                freed=freed_real,
+                            ),
+                            title=_("Workshop Cleanup"),
+                        )
+                    if result.errors:
+                        for err in result.errors:
+                            self.app.notify(str(err), severity="warning")
+                    self.refresh_stats()
+
+            self.app.push_screen(
+                ConfirmScreen(prompt),
+                confirm_addon_cleanup,
             )
 
 
@@ -1950,7 +2009,11 @@ class ModManagerScreen(Screen):
                 )
                 return
 
-            added, skipped = import_mods(cfg, file_path, append=(action == "append"))
+            added, skipped, update_result = import_mods_detailed(
+                cfg,
+                file_path,
+                append=(action == "append"),
+            )
             mode_label = _("appended") if action == "append" else _("replaced")
             self.app.notify(
                 tr(
@@ -1961,6 +2024,32 @@ class ModManagerScreen(Screen):
                 ),
                 title=_("Mod Pack Import"),
             )
+            if update_result.enospc_retry_performed:
+                self.app.notify(
+                    _(
+                        "Disk is full. Removed local files for deleted mod(s) "
+                        "and retried saving config."
+                    ),
+                    severity="warning",
+                )
+            cleanup = update_result.cleanup_result
+            if cleanup and cleanup.deleted:
+                self.app.notify(
+                    tr(
+                        "Deleted {count} addon directories, freed {freed}.",
+                        count=len(cleanup.deleted),
+                        freed=format_size(cleanup.bytes_deleted),
+                    ),
+                    title=_("Workshop Cleanup"),
+                )
+            if cleanup and cleanup.errors:
+                self.app.notify(
+                    tr(
+                        "Mod pack imported, but local addon cleanup failed: {error}",
+                        error="; ".join(cleanup.errors),
+                    ),
+                    severity="warning",
+                )
             self.action_refresh_mods()
         except Exception as e:
             self.app.notify(tr("Mod pack operation failed: {error}", error=e), severity="error")
@@ -2068,9 +2157,48 @@ class ModManagerScreen(Screen):
 
                 def confirm_remove(confirm: bool):
                     if confirm:
-                        success = remove_mod(cfg, mod_id)
-                        if success:
-                            self.app.notify(tr("Removed mod {mod_id}.", mod_id=mod_id))
+                        result = remove_mod_detailed(cfg, mod_id)
+                        if result.config_changed:
+                            if result.enospc_retry_performed:
+                                self.app.notify(
+                                    _(
+                                        "Disk is full. Removed local files for "
+                                        "deleted mod(s) and retried saving config."
+                                    ),
+                                    severity="warning",
+                                )
+
+                            cleanup = result.cleanup_result
+                            if cleanup and cleanup.errors:
+                                self.app.notify(
+                                    tr(
+                                        "Mod removed from config, but local addon "
+                                        "cleanup failed: {error}",
+                                        error="; ".join(cleanup.errors),
+                                    ),
+                                    severity="warning",
+                                )
+
+                            if cleanup and cleanup.deleted:
+                                freed = format_size(cleanup.bytes_deleted)
+                                self.app.notify(
+                                    tr(
+                                        "Removed mod {mod_id} and deleted {count} "
+                                        "local addon directory/directories: "
+                                        "{size} freed.",
+                                        mod_id=mod_id,
+                                        count=len(cleanup.deleted),
+                                        size=freed,
+                                    )
+                                )
+                            elif not (cleanup and cleanup.errors):
+                                self.app.notify(
+                                    tr(
+                                        "Removed mod {mod_id}. "
+                                        "No local addon files found.",
+                                        mod_id=mod_id,
+                                    )
+                                )
                             self.action_refresh_mods()
                         else:
                             self.app.notify(

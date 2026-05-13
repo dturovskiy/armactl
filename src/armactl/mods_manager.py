@@ -3,11 +3,28 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from armactl.addon_cleanup import (
+    CleanupResult,
+    cleanup_addons_by_mod_ids,
+    is_enospc,
+    normalize_mod_id,
+)
 from armactl.config_manager import ConfigError, load_config, save_config
 from armactl.i18n import _, tr
+
+
+@dataclass
+class ModUpdateResult:
+    """Details for a config mod-list update and any addon cleanup."""
+
+    config_changed: bool
+    cleanup_result: CleanupResult | None = None
+    enospc_retry_performed: bool = False
+    removed_ids: set[str] = field(default_factory=set)
 
 
 def get_mods(config_path: Path | str) -> list[dict[str, Any]]:
@@ -17,13 +34,97 @@ def get_mods(config_path: Path | str) -> list[dict[str, Any]]:
     return game.get("mods", [])
 
 
-def set_mods(config_path: Path | str, mods_list: list[dict[str, Any]]) -> None:
-    """Save a new list of mods to config."""
+def _mod_ids(mods: list[dict[str, Any]]) -> set[str]:
+    """Return valid normalized mod IDs from a mod list."""
+    ids: set[str] = set()
+    for mod in mods:
+        mod_id = normalize_mod_id(mod.get("modId"))
+        if mod_id is not None:
+            ids.add(mod_id)
+    return ids
+
+
+def save_mods_with_removed_addon_cleanup(
+    config_path: Path | str,
+    config: dict[str, Any],
+    old_mods: list[dict[str, Any]],
+    new_mods: list[dict[str, Any]],
+    *,
+    cleanup_removed: bool = True,
+) -> ModUpdateResult:
+    """Save a mod list and safely clean addons for IDs no longer present."""
+    old_ids = _mod_ids(old_mods)
+    new_ids = _mod_ids(new_mods)
+    removed_ids = old_ids - new_ids
+
+    game = config.setdefault("game", {})
+    game["mods"] = new_mods
+
+    cleanup_result: CleanupResult | None = None
+    enospc_retry_performed = False
+
+    try:
+        save_config(config_path, config)
+    except Exception as exc:
+        if not (cleanup_removed and removed_ids and is_enospc(exc)):
+            raise
+
+        enospc_retry_performed = True
+        cleanup_result = cleanup_addons_by_mod_ids(config_path, removed_ids)
+
+        try:
+            save_config(config_path, config)
+        except Exception as retry_exc:
+            raise ConfigError(
+                tr(
+                    "Failed to save config after freeing addon files for removed mods: {error}",
+                    error=retry_exc,
+                )
+            ) from retry_exc
+
+    if cleanup_removed and removed_ids and cleanup_result is None:
+        cleanup_result = cleanup_addons_by_mod_ids(config_path, removed_ids)
+    elif cleanup_removed and cleanup_result is None:
+        cleanup_result = CleanupResult()
+
+    return ModUpdateResult(
+        config_changed=True,
+        cleanup_result=cleanup_result,
+        enospc_retry_performed=enospc_retry_performed,
+        removed_ids=removed_ids,
+    )
+
+
+def set_mods(
+    config_path: Path | str,
+    mods_list: list[dict[str, Any]],
+    *,
+    _cleanup_removed: bool = True,
+) -> None:
+    """Save a new list of mods to config.
+
+    If *_cleanup_removed* is True, addon directories for mod IDs that
+    existed before but are no longer present will be deleted.
+    """
+    set_mods_detailed(config_path, mods_list, _cleanup_removed=_cleanup_removed)
+
+
+def set_mods_detailed(
+    config_path: Path | str,
+    mods_list: list[dict[str, Any]],
+    *,
+    _cleanup_removed: bool = True,
+) -> ModUpdateResult:
+    """Save a new list of mods and return cleanup metadata."""
     config = load_config(config_path)
-    if "game" not in config:
-        config["game"] = {}
-    config["game"]["mods"] = mods_list
-    save_config(config_path, config)
+    old_mods = list(config.get("game", {}).get("mods", []))
+    return save_mods_with_removed_addon_cleanup(
+        config_path,
+        config,
+        old_mods,
+        mods_list,
+        cleanup_removed=_cleanup_removed,
+    )
 
 
 def add_mod(
@@ -45,24 +146,51 @@ def add_mod(
 
 
 def remove_mod(config_path: Path | str, mod_id: str) -> bool:
-    """Remove a mod from config by ID. Returns True if removed."""
-    mods = get_mods(config_path)
-    new_mods = [mod for mod in mods if mod.get("modId") != mod_id]
+    """Remove a mod from config by ID and clean up its addon directory.
+
+    Returns True if the mod was found and removed.
+    """
+    return remove_mod_detailed(config_path, mod_id).config_changed
+
+
+def remove_mod_detailed(config_path: Path | str, mod_id: str) -> ModUpdateResult:
+    """Remove a mod from config by ID and return cleanup metadata."""
+    config = load_config(config_path)
+    mods = list(config.get("game", {}).get("mods", []))
+    target_id = normalize_mod_id(mod_id)
+    if target_id is None:
+        new_mods = [mod for mod in mods if mod.get("modId") != mod_id]
+    else:
+        new_mods = [
+            mod for mod in mods if normalize_mod_id(mod.get("modId")) != target_id
+        ]
 
     if len(new_mods) == len(mods):
-        return False
+        return ModUpdateResult(config_changed=False)
 
-    set_mods(config_path, new_mods)
-    return True
+    return save_mods_with_removed_addon_cleanup(config_path, config, mods, new_mods)
 
 
 def clear_mods(config_path: Path | str) -> int:
-    """Remove all mods. Returns the number of removed mods."""
+    """Remove all mods and clean up their addon directories.
+
+    Returns the number of removed mods.
+    """
     mods = get_mods(config_path)
     if not mods:
         return 0
+    # set_mods computes removed IDs and cleans addon directories.
     set_mods(config_path, [])
     return len(mods)
+
+
+def clear_mods_detailed(config_path: Path | str) -> ModUpdateResult:
+    """Remove all mods and return cleanup metadata."""
+    config = load_config(config_path)
+    mods = list(config.get("game", {}).get("mods", []))
+    if not mods:
+        return ModUpdateResult(config_changed=False)
+    return save_mods_with_removed_addon_cleanup(config_path, config, mods, [])
 
 
 def dedupe_mods(config_path: Path | str) -> int:
@@ -153,8 +281,24 @@ def import_mods(
     Returns `(added_count, skipped_count)`.
     If `append` is False, overwrites existing mods.
     """
+    added_count, skipped_count, _ = import_mods_detailed(
+        config_path,
+        import_file,
+        append=append,
+    )
+    return added_count, skipped_count
+
+
+def import_mods_detailed(
+    config_path: Path | str,
+    import_file: Path | str,
+    append: bool = False,
+) -> tuple[int, int, ModUpdateResult]:
+    """Import mods from a JSON file and return cleanup metadata."""
     imported_mods = _load_import_mods(import_file)
-    current_mods = get_mods(config_path) if append else []
+    config = load_config(config_path)
+    old_mods = list(config.get("game", {}).get("mods", []))
+    current_mods = list(old_mods) if append else []
     seen_ids = {mod.get("modId") for mod in current_mods}
 
     added_count = 0
@@ -175,5 +319,10 @@ def import_mods(
         seen_ids.add(mod_id)
         added_count += 1
 
-    set_mods(config_path, current_mods)
-    return added_count, skipped_count
+    update_result = save_mods_with_removed_addon_cleanup(
+        config_path,
+        config,
+        old_mods,
+        current_mods,
+    )
+    return added_count, skipped_count, update_result
