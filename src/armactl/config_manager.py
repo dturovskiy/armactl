@@ -56,13 +56,16 @@ def save_config(config_path: Path | str, data: dict[str, Any], backup: bool = Tr
         # Atomic replace (os.replace works across platforms, but this is Linux)
         os.replace(tmp_path, config_path)
     except OSError as e:
-        if tmp_path.exists():
+        try:
             tmp_path.unlink(missing_ok=True)
-        raise ConfigError(tr("Failed to save config file: {error}", error=e))
+        except OSError:
+            pass
+        raise ConfigError(tr("Failed to save config file: {error}", error=e)) from e
 
 
 def _create_backup(config_path: Path) -> None:
     """Create a timestamped backup of config.json in the backups/ directory."""
+    backup_path: Path | None = None
     try:
         # Standard layout:
         #   <instance>/config/config.json -> <instance>/backups/
@@ -75,16 +78,25 @@ def _create_backup(config_path: Path) -> None:
 
         backups_dir.mkdir(parents=True, exist_ok=True)
 
+        # Rotate BEFORE creating the new backup to free disk space first.
+        # This prevents ENOSPC when the disk is nearly full.
+        _rotate_backups(backups_dir, max_backups=9)
+
         timestamp = int(time.time())
         backup_name = f"config.json.{timestamp}.bak"
         backup_path = backups_dir / backup_name
 
         shutil.copy2(config_path, backup_path)
 
-        # Optional: rotate old backups to avoid filling up disk.
-        _rotate_backups(backups_dir)
-    except (OSError, Exception) as e:
-        raise ConfigError(tr("Failed to create config backup: {error}", error=e))
+        # Rotate again after to enforce the cap with the new backup included.
+        _rotate_backups(backups_dir, max_backups=10)
+    except Exception as e:
+        if backup_path is not None:
+            try:
+                backup_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise ConfigError(tr("Failed to create config backup: {error}", error=e)) from e
 
 
 def _rotate_backups(backups_dir: Path, max_backups: int = 10) -> None:

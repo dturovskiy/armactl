@@ -38,19 +38,30 @@ def add_mod(
 
 
 def remove_mod(config_path: str | Any, mod_id: str) -> bool:
-    """Remove a mod by id."""
+    """Remove a mod by id and clean up its local addon directory."""
+    return remove_mod_detailed(config_path, mod_id).config_changed
+
+
+def remove_mod_detailed(config_path: str | Any, mod_id: str):
+    """Remove a mod by id and return cleanup metadata."""
+    from armactl.mods_manager import ModUpdateResult, save_mods_with_removed_addon_cleanup
+
     conf = load_config(config_path)
     game = conf.get("game", {})
-    mods: list[dict[str, str]] = game.get("mods", [])
+    old_mods: list[dict[str, str]] = list(game.get("mods", []))
 
-    initial_len = len(mods)
-    mods = [mod for mod in mods if mod.get("modId") != mod_id]
+    initial_len = len(old_mods)
+    new_mods = [mod for mod in old_mods if mod.get("modId") != mod_id]
 
-    if len(mods) != initial_len:
-        game["mods"] = mods
-        save_config(config_path, conf)
-        return True
-    return False
+    if len(new_mods) == initial_len:
+        return ModUpdateResult(config_changed=False)
+
+    return save_mods_with_removed_addon_cleanup(
+        config_path,
+        conf,
+        old_mods,
+        new_mods,
+    )
 
 
 def dedupe_mods(config_path: str | Any) -> int:

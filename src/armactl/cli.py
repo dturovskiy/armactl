@@ -901,7 +901,7 @@ def mods_add(ctx: click.Context, mod_id: str, name: str, version: str) -> None:
 @click.pass_context
 def mods_remove(ctx: click.Context, mod_id: str) -> None:
     """Remove a mod by ID from the configuration."""
-    from armactl.mods_manager import remove_mod
+    from armactl.mods_manager import remove_mod_detailed
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -910,9 +910,24 @@ def mods_remove(ctx: click.Context, mod_id: str) -> None:
         click.echo(f"[{instance}] Config not found.", err=True)
         sys.exit(1)
 
-    removed = remove_mod(state.config_path, mod_id)
-    if removed:
-        click.echo(f"[{instance}] ✓ Mod {mod_id} removed.")
+    result = remove_mod_detailed(state.config_path, mod_id)
+    if result.config_changed:
+        cleanup = result.cleanup_result
+        if result.enospc_retry_performed:
+            click.echo(
+                f"[{instance}] ! Disk was full; removed local files for deleted "
+                "mod(s) and retried saving config."
+            )
+        if cleanup and cleanup.deleted:
+            click.echo(
+                f"[{instance}] ✓ Mod {mod_id} removed; deleted "
+                f"{len(cleanup.deleted)} addon dir(s), freed {cleanup.freed_display}."
+            )
+        else:
+            click.echo(f"[{instance}] ✓ Mod {mod_id} removed.")
+        if cleanup and cleanup.errors:
+            for error in cleanup.errors:
+                click.echo(f"[{instance}] ! Addon cleanup warning: {error}", err=True)
     else:
         click.echo(f"[{instance}] ! Mod {mod_id} not found in the list.")
 
