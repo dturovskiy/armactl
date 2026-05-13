@@ -10,7 +10,10 @@ Closes #
 ## Validation
 
 - [ ] `./scripts/run-host-tests`
+- [ ] `python3 -m pytest -q`
+- [ ] `python3 -m ruff check src tests`
 - [ ] Relevant manual flow tested
+- [ ] TUI flow tested, if this PR changes Textual screens or user interaction
 - [ ] The changed files are relevant to the linked issue
 - [ ] This PR does not introduce unrelated changes
 
@@ -20,7 +23,10 @@ Closes #
 - [ ] Existing server detection
 - [ ] systemd / timer
 - [ ] config.json handling
+- [ ] Mods / addon cleanup
+- [ ] TUI / UX / Textual screens
 - [ ] Telegram bot
+- [ ] Release / versioning
 - [ ] docs only
 
 ## Automated contribution disclosure
@@ -32,3 +38,4 @@ Closes #
 ## Notes
 
 - List any migration, rollback, or operator-facing implications.
+- For TUI changes, list the manual screens/flows tested.
