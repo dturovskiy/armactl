@@ -8,6 +8,9 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
+from armactl import paths
 from armactl.discovery import (
     _binary_exists,
     _config_exists,
@@ -341,6 +344,35 @@ def test_discover_refreshes_stale_state_when_package_files_are_missing(tmp_path:
     assert state.package_missing_files == ["addons/worlds.pak"]
 
 
+def test_discover_repairs_state_json_that_points_at_project_root(tmp_path: Path):
+    """A bad saved install_dir should not be reused or re-saved."""
+    data_root = _setup_standard_instance(tmp_path)
+    inst = data_root / "default"
+    server = inst / "server"
+    repo_root = Path(__file__).resolve().parents[1]
+
+    bad_state = ServerState(
+        server_installed=True,
+        binary_exists=True,
+        config_exists=True,
+        instance_root=str(repo_root),
+        install_dir=str(repo_root),
+        config_path=str(inst / "config" / "config.json"),
+    )
+    save_state(bad_state, inst / "state.json")
+
+    with patch("armactl.discovery._service_exists", return_value=False), \
+         patch("armactl.discovery._timer_exists", return_value=False), \
+         patch("armactl.discovery._is_service_active", return_value=False), \
+         patch("armactl.discovery._check_listening_ports", return_value={}):
+        state = discover(instance="default", data_root=data_root, save=True)
+
+    assert Path(state.install_dir) == server.resolve(strict=False)
+    saved = json.loads((inst / "state.json").read_text(encoding="utf-8"))
+    assert Path(saved["install_dir"]) == server.resolve(strict=False)
+    assert Path(saved["install_dir"]) != repo_root
+
+
 # ---------------------------------------------------------------------------
 # Manual discovery
 # ---------------------------------------------------------------------------
@@ -377,3 +409,21 @@ def test_discover_manual(tmp_path: Path):
     # Verify state.json was saved
     sf = data_root / "default" / "state.json"
     assert sf.is_file()
+
+
+def test_discover_manual_refuses_project_root_install_dir(tmp_path: Path):
+    repo_root = Path(__file__).resolve().parents[1]
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}", encoding="utf-8")
+    data_root = tmp_path / "armactl-data"
+
+    with pytest.raises(paths.UnsafeServerInstallDirError, match="project root"):
+        discover_manual(
+            install_dir=repo_root,
+            config_path=config_path,
+            instance="default",
+            data_root=data_root,
+            save=True,
+        )
+
+    assert not (data_root / "default" / "state.json").exists()

@@ -41,6 +41,29 @@ class InstallError(Exception):
     """Raised when installation fails at any step."""
 
 
+def _validated_server_dir(instance: str) -> Path:
+    """Return the safe server directory for an instance or raise InstallError."""
+    try:
+        return paths.validate_server_install_dir(
+            paths.server_dir(instance),
+            instance=instance,
+        )
+    except paths.UnsafeServerInstallDirError as e:
+        raise InstallError(str(e)) from e
+
+
+def _validated_steamcmd_install_dir(
+    install_dir: Path,
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> Path:
+    """Return a safe SteamCMD install directory or raise InstallError."""
+    try:
+        return paths.validate_server_install_dir(install_dir, instance=instance)
+    except paths.UnsafeServerInstallDirError as e:
+        raise InstallError(str(e)) from e
+
+
 def _resolve_steamcmd_binary() -> str | None:
     """Return the best available steamcmd binary path."""
     found = shutil.which("steamcmd")
@@ -161,6 +184,7 @@ def install_steamcmd() -> None:
 
 def create_install_dir(instance: str) -> None:
     """Create essential directory structure."""
+    _validated_server_dir(instance)
     paths.instance_root(instance).mkdir(parents=True, exist_ok=True)
     paths.server_dir(instance).mkdir(parents=True, exist_ok=True)
     paths.config_dir(instance).mkdir(parents=True, exist_ok=True)
@@ -224,12 +248,17 @@ def _stream_cmd(
 
 def download_server(instance: str) -> Iterator[str]:
     """Download Arma Reforger via steamcmd and stream steamcmd output."""
-    install_dir = paths.server_dir(instance).absolute()
-    yield from stream_server_update(install_dir)
+    install_dir = _validated_server_dir(instance)
+    yield from stream_server_update(install_dir, instance=instance)
 
 
-def build_steamcmd_update_command(install_dir: Path) -> list[str]:
+def build_steamcmd_update_command(
+    install_dir: Path,
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> list[str]:
     """Build the SteamCMD command that installs or validates the server package."""
+    install_dir = _validated_steamcmd_install_dir(install_dir, instance=instance)
     steamcmd_bin = _resolve_steamcmd_binary() or "steamcmd"
     return [
         steamcmd_bin,
@@ -244,9 +273,13 @@ def build_steamcmd_update_command(install_dir: Path) -> list[str]:
     ]
 
 
-def stream_server_update(install_dir: Path) -> Iterator[str]:
+def stream_server_update(
+    install_dir: Path,
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> Iterator[str]:
     """Run SteamCMD app_update validate for a specific install directory."""
-    cmd = build_steamcmd_update_command(install_dir.absolute())
+    cmd = build_steamcmd_update_command(install_dir, instance=instance)
     yield from _stream_cmd(
         cmd,
         err_msg="Failed to download server via steamcmd",
@@ -256,7 +289,7 @@ def stream_server_update(install_dir: Path) -> Iterator[str]:
 def record_package_manifest(instance: str) -> None:
     """Create armactl's local package integrity manifest."""
     try:
-        write_package_manifest(paths.server_dir(instance))
+        write_package_manifest(_validated_server_dir(instance))
     except (IntegrityError, OSError) as e:
         raise InstallError(
             tr("Failed to record package integrity manifest: {error}", error=e)
@@ -293,7 +326,8 @@ def generate_default_config(instance: str) -> None:
 
 def smoke_check(instance: str) -> None:
     """Verify that the package manifest and binary are present."""
-    binary = paths.server_binary(instance)
+    install_dir = _validated_server_dir(instance)
+    binary = install_dir / "ArmaReforgerServer"
     if not binary.exists():
         raise InstallError(
             tr(
@@ -302,7 +336,7 @@ def smoke_check(instance: str) -> None:
             )
         )
 
-    integrity = check_package_integrity(paths.server_dir(instance), verify_hashes=False)
+    integrity = check_package_integrity(install_dir, verify_hashes=False)
     if not integrity.complete:
         raise InstallError(
             tr(
@@ -327,7 +361,7 @@ def run_install(instance: str) -> Iterator[str]:
     create_install_dir(instance)
 
     yield _("Downloading Arma Reforger via steamcmd... (This may take a while)")
-    install_dir = paths.server_dir(instance)
+    install_dir = _validated_server_dir(instance)
     previous_integrity = check_package_integrity(install_dir)
     mark_install_started(install_dir)
     try:

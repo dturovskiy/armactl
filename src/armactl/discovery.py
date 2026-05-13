@@ -65,12 +65,53 @@ def _server_installed_from_integrity(
     return False
 
 
-def _apply_package_integrity(state: ServerState) -> ServerState:
+def _safe_install_dir_or_none(
+    install_dir: Path | str,
+    *,
+    instance: str,
+    data_root: Path,
+    source: str,
+) -> Path | None:
+    """Return a validated install dir, or None when discovery must ignore it."""
+    try:
+        return paths.validate_server_install_dir(
+            install_dir,
+            instance=instance,
+            data_root=data_root,
+        )
+    except paths.UnsafeServerInstallDirError as e:
+        log.warning("Ignoring unsafe server install dir from %s: %s", source, e)
+        return None
+
+
+def _apply_package_integrity(
+    state: ServerState,
+    *,
+    instance: str,
+    data_root: Path,
+) -> ServerState:
     """Refresh package-related state from disk."""
     if not state.install_dir:
         return state
 
-    install_dir = Path(state.install_dir)
+    install_dir = _safe_install_dir_or_none(
+        state.install_dir,
+        instance=instance,
+        data_root=data_root,
+        source="state",
+    )
+    if install_dir is None:
+        state.server_installed = False
+        state.binary_exists = False
+        state.package_integrity = "unsafe_path"
+        state.package_manifest_exists = False
+        state.package_files_checked = 0
+        state.package_files_expected = 0
+        state.package_missing_files = []
+        state.package_changed_files = []
+        return state
+
+    state.install_dir = str(install_dir)
     integrity = check_package_integrity(install_dir)
     state.binary_exists = integrity.binary_exists
     state.package_integrity = integrity.status
@@ -210,7 +251,16 @@ def _discover_from_state(
             state.install_dir = str(paths.server_dir(instance, data_root))
         if not state.config_path:
             state.config_path = str(paths.config_file(instance, data_root))
-        _apply_package_integrity(state)
+        install_dir = _safe_install_dir_or_none(
+            state.install_dir,
+            instance=instance,
+            data_root=data_root,
+            source="state.json",
+        )
+        if install_dir is None:
+            return None
+        state.install_dir = str(install_dir)
+        _apply_package_integrity(state, instance=instance, data_root=data_root)
         if (
             not state.server_installed
             and not state.binary_exists
@@ -232,6 +282,16 @@ def _discover_from_standard_paths(
 
     if not root.is_dir():
         return None
+
+    safe_s_dir = _safe_install_dir_or_none(
+        s_dir,
+        instance=instance,
+        data_root=data_root,
+        source="standard paths",
+    )
+    if safe_s_dir is None:
+        return None
+    s_dir = safe_s_dir
 
     integrity = check_package_integrity(s_dir)
     binary = integrity.binary_exists
@@ -259,10 +319,13 @@ def _discover_from_standard_paths(
         config_path=str(c_file),
         ports=ports,
     )
-    return _apply_package_integrity(state)
+    return _apply_package_integrity(state, instance=instance, data_root=data_root)
 
 
-def _discover_from_systemd() -> ServerState | None:
+def _discover_from_systemd(
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    data_root: Path = paths.DEFAULT_DATA_ROOT,
+) -> ServerState | None:
     """Strategy 3: Parse systemd unit to find server paths."""
     if not _service_exists():
         return None
@@ -273,7 +336,14 @@ def _discover_from_systemd() -> ServerState | None:
     if not working_dir:
         return None
 
-    working_path = Path(working_dir)
+    working_path = _safe_install_dir_or_none(
+        Path(working_dir),
+        instance=instance,
+        data_root=data_root,
+        source="systemd unit",
+    )
+    if working_path is None:
+        return None
 
     # Try to infer instance_root from working_directory
     # Expected: .../armactl-data/<instance>/server  →  parent.parent = data_root
@@ -314,14 +384,26 @@ def _discover_from_systemd() -> ServerState | None:
         config_path=str(config_path),
         ports=ports,
     )
-    return _apply_package_integrity(state)
+    return _apply_package_integrity(state, instance=instance, data_root=data_root)
 
 
-def _discover_from_legacy_paths() -> ServerState | None:
+def _discover_from_legacy_paths(
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    data_root: Path = paths.DEFAULT_DATA_ROOT,
+) -> ServerState | None:
     """Strategy 4: Check legacy (pre-armactl) paths."""
     for legacy_dir in LEGACY_INSTALL_DIRS:
         if not legacy_dir.is_dir():
             continue
+        safe_legacy_dir = _safe_install_dir_or_none(
+            legacy_dir,
+            instance=instance,
+            data_root=data_root,
+            source="legacy paths",
+        )
+        if safe_legacy_dir is None:
+            continue
+        legacy_dir = safe_legacy_dir
         integrity = check_package_integrity(legacy_dir)
         binary = integrity.binary_exists
         if not binary:
@@ -355,7 +437,7 @@ def _discover_from_legacy_paths() -> ServerState | None:
             ports=ports,
             migrated_from="legacy",
         )
-        return _apply_package_integrity(state)
+        return _apply_package_integrity(state, instance=instance, data_root=data_root)
 
     return None
 
@@ -384,8 +466,8 @@ def discover(
     strategies = [
         ("state.json", lambda: _discover_from_state(instance, data_root)),
         ("standard paths", lambda: _discover_from_standard_paths(instance, data_root)),
-        ("systemd unit", _discover_from_systemd),
-        ("legacy paths", _discover_from_legacy_paths),
+        ("systemd unit", lambda: _discover_from_systemd(instance, data_root)),
+        ("legacy paths", lambda: _discover_from_legacy_paths(instance, data_root)),
     ]
 
     state: ServerState | None = None
@@ -436,6 +518,11 @@ def discover_manual(
 
     Used when auto-discovery fails and the user provides paths manually.
     """
+    install_dir = paths.validate_server_install_dir(
+        install_dir,
+        instance=instance,
+        data_root=data_root,
+    )
     integrity = check_package_integrity(install_dir)
     binary = integrity.binary_exists
     config = _config_exists(config_path)
@@ -458,7 +545,7 @@ def discover_manual(
         config_path=str(config_path),
         ports=ports,
     )
-    _apply_package_integrity(state)
+    _apply_package_integrity(state, instance=instance, data_root=data_root)
 
     if save:
         sf = paths.state_file(instance, data_root)

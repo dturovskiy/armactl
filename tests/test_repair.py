@@ -4,10 +4,12 @@ from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import patch
 
+import pytest
+
 import armactl.i18n as i18n
 import armactl.service_manager as service_manager
 from armactl.integrity import check_package_integrity
-from armactl.repair import run_repair
+from armactl.repair import RepairError, run_repair
 from armactl.state import ServerState
 
 
@@ -53,7 +55,19 @@ def test_run_repair_defaults_empty_paths_and_refreshes_package_manifest(
     ):
         messages = list(run_repair("default", "", ""))
 
-    command_mock.assert_called_once_with(server_dir.absolute())
+    command_mock.assert_called_once_with(
+        server_dir.resolve(strict=False),
+        instance="default",
+    )
     assert config_path.is_file()
     assert check_package_integrity(server_dir).complete is True
     assert i18n._("  OK Package integrity manifest refreshed") in messages
+
+
+def test_run_repair_refuses_project_root_install_dir(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(RepairError, match="project root"):
+        list(run_repair("default", repo_root, config_path))

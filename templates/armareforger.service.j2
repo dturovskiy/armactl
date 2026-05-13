@@ -6,8 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User={{ user }}
-WorkingDirectory={{ instance_root }}/server
-ExecStart={{ instance_root }}/start-armareforger.sh
+WorkingDirectory={{ server_dir }}
+ExecStart={{ start_script }}
 Restart=always
 RestartSec=15
 CPUAccounting=yes
