@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from asyncio import Lock
 from dataclasses import dataclass
 from typing import Literal
 
@@ -266,6 +267,7 @@ class ArmaCtlApp(App):
         super().__init__(**kwargs)
         self.instance = instance
         self._main_menu: VerticalGroup | None = None
+        self._main_menu_refresh_lock = Lock()
 
     def on_mount(self) -> None:
         """Kick off small background health checks once the main menu is shown."""
@@ -363,14 +365,15 @@ class ArmaCtlApp(App):
 
     async def refresh_main_menu(self, *, save: bool = False) -> ServerState:
         """Re-run discovery and rebuild the root menu without duplicate widget IDs."""
-        state = discover(instance=self.instance, save=save)
-        if self._main_menu is None:
-            return state
+        async with self._main_menu_refresh_lock:
+            state = discover(instance=self.instance, save=save)
+            if self._main_menu is None:
+                return state
 
-        async with self._main_menu.batch():
-            await self._main_menu.remove_children()
-            await self._main_menu.mount_all(self._main_menu_widgets(state))
-        return state
+            async with self._main_menu.batch():
+                await self._main_menu.remove_children()
+                await self._main_menu.mount_all(self._main_menu_widgets(state))
+            return state
 
     def request_main_menu_refresh(self, *, save: bool = False) -> None:
         """Schedule a root menu refresh from sync or worker callbacks."""
