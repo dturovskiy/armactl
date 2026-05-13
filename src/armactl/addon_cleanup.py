@@ -105,7 +105,9 @@ def resolve_safe_addons_dir(config_path: Path | str) -> Path:
         raise ValueError(f"Refusing addon cleanup through symlinked addons dir: {addons}")
     if addons.exists():
         if not addons.is_dir():
-            raise ValueError(f"Refusing addon cleanup because addons path is not a directory: {addons}")
+            raise ValueError(
+                f"Refusing addon cleanup because addons path is not a directory: {addons}"
+            )
 
     addons_resolved = addons.resolve(strict=False)
     try:
@@ -189,7 +191,9 @@ def _prepare_addons_root(config_path: Path | str, result: CleanupResult) -> Path
         result.errors.append(f"Refusing addon cleanup through symlinked addons dir: {addons}")
         return None
     if not addons.is_dir():
-        result.errors.append(f"Refusing addon cleanup because addons path is not a directory: {addons}")
+        result.errors.append(
+            f"Refusing addon cleanup because addons path is not a directory: {addons}"
+        )
         return None
     return addons.resolve(strict=True)
 

@@ -462,6 +462,7 @@
     "Removed mod {mod_id} and deleted local addon files: {size} freed.": "Мод {mod_id} видалено й очищено локальні аддон-файли: звільнено {size}.",
     "Disk is full. Removed local files for deleted mod(s) and retried saving config.": "Диск заповнений. Локальні файли видалених модів очищено, після чого збереження конфіга повторено.",
     "Mod removed from config, but local addon cleanup failed: {error}": "Мод видалено з конфіга, але очищення локальних аддонів не вдалося: {error}",
+    "Mod pack imported, but local addon cleanup failed: {error}": "Модпак імпортовано, але очищення локальних аддонів не вдалося: {error}",
     "Removed mod {mod_id} and deleted {count} local addon directory/directories: {size} freed.": "Мод {mod_id} видалено й очищено {count} локальних аддон-директорій: звільнено {size}.",
     "Failed to save config after freeing addon files for removed mods: {error}": "Не вдалося зберегти конфіг після звільнення місця файлами видалених модів: {error}",
     "Removed mod {mod_id}. No local addon files found.": "Мод {mod_id} видалено. Локальних аддон-файлів не знайдено."

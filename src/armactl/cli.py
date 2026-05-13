@@ -997,7 +997,7 @@ def mods_export(ctx: click.Context, output_file: str) -> None:
 def mods_import(ctx: click.Context, input_file: str, replace: bool) -> None:
     """Import a list of mods from a JSON file."""
     from armactl.config_manager import ConfigError
-    from armactl.mods_manager import import_mods
+    from armactl.mods_manager import import_mods_detailed
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -1007,9 +1007,27 @@ def mods_import(ctx: click.Context, input_file: str, replace: bool) -> None:
         sys.exit(1)
 
     try:
-        added, skipped = import_mods(state.config_path, input_file, append=not replace)
+        added, skipped, update_result = import_mods_detailed(
+            state.config_path,
+            input_file,
+            append=not replace,
+        )
         click.echo(f"[{instance}] ✓ Imported mods from {input_file}.")
         click.echo(f"  Added: {added}, Skipped duplicates: {skipped}")
+        cleanup = update_result.cleanup_result
+        if update_result.enospc_retry_performed:
+            click.echo(
+                f"[{instance}] ! Disk was full; removed local files for deleted "
+                "mod(s) and retried saving config."
+            )
+        if cleanup and cleanup.deleted:
+            click.echo(
+                f"[{instance}] ✓ Deleted {len(cleanup.deleted)} addon dir(s), "
+                f"freed {cleanup.freed_display}."
+            )
+        if cleanup and cleanup.errors:
+            for error in cleanup.errors:
+                click.echo(f"[{instance}] ! Addon cleanup warning: {error}", err=True)
     except ConfigError as e:
         click.echo(f"[{instance}] ✗ Failed to import: {e}", err=True)
         sys.exit(1)

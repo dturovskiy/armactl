@@ -157,7 +157,13 @@ def remove_mod_detailed(config_path: Path | str, mod_id: str) -> ModUpdateResult
     """Remove a mod from config by ID and return cleanup metadata."""
     config = load_config(config_path)
     mods = list(config.get("game", {}).get("mods", []))
-    new_mods = [mod for mod in mods if mod.get("modId") != mod_id]
+    target_id = normalize_mod_id(mod_id)
+    if target_id is None:
+        new_mods = [mod for mod in mods if mod.get("modId") != mod_id]
+    else:
+        new_mods = [
+            mod for mod in mods if normalize_mod_id(mod.get("modId")) != target_id
+        ]
 
     if len(new_mods) == len(mods):
         return ModUpdateResult(config_changed=False)
@@ -176,6 +182,15 @@ def clear_mods(config_path: Path | str) -> int:
     # set_mods computes removed IDs and cleans addon directories.
     set_mods(config_path, [])
     return len(mods)
+
+
+def clear_mods_detailed(config_path: Path | str) -> ModUpdateResult:
+    """Remove all mods and return cleanup metadata."""
+    config = load_config(config_path)
+    mods = list(config.get("game", {}).get("mods", []))
+    if not mods:
+        return ModUpdateResult(config_changed=False)
+    return save_mods_with_removed_addon_cleanup(config_path, config, mods, [])
 
 
 def dedupe_mods(config_path: Path | str) -> int:
@@ -266,8 +281,24 @@ def import_mods(
     Returns `(added_count, skipped_count)`.
     If `append` is False, overwrites existing mods.
     """
+    added_count, skipped_count, _ = import_mods_detailed(
+        config_path,
+        import_file,
+        append=append,
+    )
+    return added_count, skipped_count
+
+
+def import_mods_detailed(
+    config_path: Path | str,
+    import_file: Path | str,
+    append: bool = False,
+) -> tuple[int, int, ModUpdateResult]:
+    """Import mods from a JSON file and return cleanup metadata."""
     imported_mods = _load_import_mods(import_file)
-    current_mods = get_mods(config_path) if append else []
+    config = load_config(config_path)
+    old_mods = list(config.get("game", {}).get("mods", []))
+    current_mods = list(old_mods) if append else []
     seen_ids = {mod.get("modId") for mod in current_mods}
 
     added_count = 0
@@ -288,5 +319,10 @@ def import_mods(
         seen_ids.add(mod_id)
         added_count += 1
 
-    set_mods(config_path, current_mods)
-    return added_count, skipped_count
+    update_result = save_mods_with_removed_addon_cleanup(
+        config_path,
+        config,
+        old_mods,
+        current_mods,
+    )
+    return added_count, skipped_count, update_result

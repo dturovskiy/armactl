@@ -19,7 +19,7 @@ from armactl.addon_cleanup import (
 )
 from armactl.config_manager import ConfigError
 from armactl.mods import remove_mod_detailed as legacy_remove_mod_detailed
-from armactl.mods_manager import remove_mod_detailed, set_mods_detailed
+from armactl.mods_manager import import_mods_detailed, remove_mod_detailed, set_mods_detailed
 
 
 def _write_config(config_path: Path, mods: list[dict[str, str]] | None = None) -> None:
@@ -231,7 +231,7 @@ def test_dry_run_reports_deletions_without_removing(tmp_path: Path) -> None:
     assert stale.exists()
 
 
-def test_legacy_remove_mod_keeps_addon_if_case_variant_duplicate_remains(
+def test_legacy_remove_mod_removes_case_variant_duplicates_safely(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "instance" / "config" / "config.json"
@@ -248,9 +248,12 @@ def test_legacy_remove_mod_keeps_addon_if_case_variant_duplicate_remains(
     result = legacy_remove_mod_detailed(config_path, "AAAAAAAAAAAAAAAA")
 
     assert result.config_changed
-    assert result.removed_ids == set()
-    assert result.cleanup_result == CleanupResult()
-    assert addon_dir.exists()
+    assert result.removed_ids == {"AAAAAAAAAAAAAAAA"}
+    assert result.cleanup_result is not None
+    assert result.cleanup_result.deleted == [addon_dir.resolve()]
+    assert not addon_dir.exists()
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["game"]["mods"] == []
 
 
 def test_single_mod_removal_does_not_delete_unrelated_stale_addons(tmp_path: Path) -> None:
@@ -318,6 +321,38 @@ def test_set_mods_handles_enospc_by_cleaning_removed_ids_and_retrying_once(
     assert unrelated_stale.exists()
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["game"]["mods"] == [{"modId": "BBBBBBBBBBBBBBBB", "name": "Keep"}]
+
+
+def test_import_mods_detailed_replace_returns_cleanup_metadata(tmp_path: Path) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    import_file = tmp_path / "modpack.json"
+    addons = tmp_path / "instance" / "config" / "addons"
+    _write_config(
+        config_path,
+        [
+            {"modId": "AAAAAAAAAAAAAAAA", "name": "Remove"},
+            {"modId": "BBBBBBBBBBBBBBBB", "name": "Keep"},
+        ],
+    )
+    removed = _create_addon_dir(addons, "Remove_AAAAAAAAAAAAAAAA")
+    kept = _create_addon_dir(addons, "Keep_BBBBBBBBBBBBBBBB")
+    import_file.write_text(
+        json.dumps([{"modId": "BBBBBBBBBBBBBBBB", "name": "Keep"}]),
+        encoding="utf-8",
+    )
+
+    added, skipped, update_result = import_mods_detailed(
+        config_path,
+        import_file,
+        append=False,
+    )
+
+    assert (added, skipped) == (1, 0)
+    assert update_result.removed_ids == {"AAAAAAAAAAAAAAAA"}
+    assert update_result.cleanup_result is not None
+    assert update_result.cleanup_result.deleted == [removed.resolve()]
+    assert not removed.exists()
+    assert kept.exists()
 
 
 def test_cleanup_errors_are_returned_to_mod_update_result(

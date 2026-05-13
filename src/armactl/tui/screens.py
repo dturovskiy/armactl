@@ -26,6 +26,7 @@ from textual.widgets import (
 
 from armactl import paths, ports
 from armactl.a2s import query_player_status
+from armactl.addon_cleanup import cleanup_unconfigured_addons
 from armactl.bot_config import (
     BotConfig,
     BotConfigError,
@@ -42,7 +43,6 @@ from armactl.bot_manager import (
     start_bot_service,
     stop_bot_service,
 )
-from armactl.addon_cleanup import cleanup_unconfigured_addons
 from armactl.cleaner import clean_junk, format_size, get_junk_stats
 from armactl.config_manager import load_config, save_config, validate_config
 from armactl.discovery import discover
@@ -60,7 +60,7 @@ from armactl.mods import add_mod, dedupe_mods, remove_mod_detailed
 from armactl.mods_manager import (
     export_mods,
     get_mods,
-    import_mods,
+    import_mods_detailed,
     preview_import_mods,
 )
 from armactl.rcon import query_player_roster
@@ -2009,7 +2009,11 @@ class ModManagerScreen(Screen):
                 )
                 return
 
-            added, skipped = import_mods(cfg, file_path, append=(action == "append"))
+            added, skipped, update_result = import_mods_detailed(
+                cfg,
+                file_path,
+                append=(action == "append"),
+            )
             mode_label = _("appended") if action == "append" else _("replaced")
             self.app.notify(
                 tr(
@@ -2020,6 +2024,32 @@ class ModManagerScreen(Screen):
                 ),
                 title=_("Mod Pack Import"),
             )
+            if update_result.enospc_retry_performed:
+                self.app.notify(
+                    _(
+                        "Disk is full. Removed local files for deleted mod(s) "
+                        "and retried saving config."
+                    ),
+                    severity="warning",
+                )
+            cleanup = update_result.cleanup_result
+            if cleanup and cleanup.deleted:
+                self.app.notify(
+                    tr(
+                        "Deleted {count} addon directories, freed {freed}.",
+                        count=len(cleanup.deleted),
+                        freed=format_size(cleanup.bytes_deleted),
+                    ),
+                    title=_("Workshop Cleanup"),
+                )
+            if cleanup and cleanup.errors:
+                self.app.notify(
+                    tr(
+                        "Mod pack imported, but local addon cleanup failed: {error}",
+                        error="; ".join(cleanup.errors),
+                    ),
+                    severity="warning",
+                )
             self.action_refresh_mods()
         except Exception as e:
             self.app.notify(tr("Mod pack operation failed: {error}", error=e), severity="error")
