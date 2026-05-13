@@ -7,6 +7,12 @@ Semantic Versioning once public releases begin.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-05-13
+
+### Fixed
+- Fixed a Textual TUI crash in the mods manager when refreshing the installed
+  mods list after add/remove/import/dedupe operations.
+
 ## [0.3.0] - 2026-05-13
 
 ### Added

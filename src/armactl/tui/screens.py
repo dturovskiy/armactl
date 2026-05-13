@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from asyncio import Lock
 from datetime import datetime
 from pathlib import Path
 
@@ -81,6 +82,21 @@ from armactl.service_manager import (
     update_restart_timer_schedule,
 )
 from armactl.status_summary import ConfigSummary, ModsSummary, load_status_summaries
+
+
+def _build_mod_list_item(index: int, mod: dict[str, object]) -> ListItem:
+    """Build a mods list row without a stable DOM id."""
+    raw_mod_id = str(mod.get("modId") or "").strip()
+    mod_id = raw_mod_id.upper() if raw_mod_id else _("Unknown")
+    name = str(mod.get("name") or "")
+
+    display = f"[{index}] {mod_id}"
+    if name:
+        display += f" - {name}"
+
+    item = ListItem(Label(display))
+    item.mod_id = mod_id  # type: ignore[attr-defined]
+    return item
 
 
 class LogWorkerScreen(Screen):
@@ -1889,6 +1905,7 @@ class ModManagerScreen(Screen):
     def __init__(self, instance: str, **kwargs):
         super().__init__(**kwargs)
         self.instance = instance
+        self._mods_refresh_lock = Lock()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -1913,8 +1930,11 @@ class ModManagerScreen(Screen):
                 yield Button(_("Back"), id="btn_back", variant="default")
         yield Footer()
 
-    def on_mount(self) -> None:
-        self.action_refresh_mods()
+    async def on_mount(self) -> None:
+        await self.action_refresh_mods()
+
+    async def on_screen_resume(self) -> None:
+        await self.action_refresh_mods()
 
     @staticmethod
     def _repo_root() -> Path:
@@ -1992,7 +2012,7 @@ class ModManagerScreen(Screen):
         filename = f"mods-export-{timestamp}.json"
         return str(paths.modpacks_dir(self.instance) / filename)
 
-    def _handle_mod_pack_result(self, result: tuple[str, str] | None) -> None:
+    async def _handle_mod_pack_result(self, result: tuple[str, str] | None) -> None:
         if result is None:
             return
 
@@ -2050,40 +2070,34 @@ class ModManagerScreen(Screen):
                     ),
                     severity="warning",
                 )
-            self.action_refresh_mods()
+            await self.action_refresh_mods()
         except Exception as e:
             self.app.notify(tr("Mod pack operation failed: {error}", error=e), severity="error")
 
-    def action_refresh_mods(self) -> None:
-        cfg = paths.config_file(self.instance)
-        try:
-            mods = get_mods(cfg)
-        except Exception as e:
-            self.app.notify(tr("Error loading mods: {error}", error=e), severity="error")
-            return
+    async def action_refresh_mods(self) -> None:
+        async with self._mods_refresh_lock:
+            cfg = paths.config_file(self.instance)
+            try:
+                mods = get_mods(cfg)
+            except Exception as e:
+                self.app.notify(tr("Error loading mods: {error}", error=e), severity="error")
+                return
 
-        self.query_one("#mods-summary", Label).update(
-            tr("Installed Mods: {count}", count=len(mods))
-        )
+            self.query_one("#mods-summary", Label).update(
+                tr("Installed Mods: {count}", count=len(mods))
+            )
 
-        list_view = self.query_one("#mods-list", ListView)
-        list_view.clear()
+            list_view = self.query_one("#mods-list", ListView)
+            await list_view.clear()
 
-        if not mods:
-            list_view.append(ListItem(Label(_("No mods installed."))))
-            return
+            if not mods:
+                await list_view.append(ListItem(Label(_("No mods installed."))))
+                return
 
-        for idx, mod in enumerate(mods, 1):
-            mod_id = mod.get("modId", _("Unknown"))
-            name = mod.get("name", "")
-            display = f"[{idx}] {mod_id}"
-            if name:
-                display += f" - {name}"
-            item = ListItem(Label(display), id=f"mod_item_{mod_id}")
-            item.mod_id = mod_id  # type: ignore[attr-defined]
-            list_view.append(item)
+            for idx, mod in enumerate(mods, 1):
+                await list_view.append(_build_mod_list_item(idx, mod))
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
         cfg = paths.config_file(self.instance)
 
         if event.button.id == "btn_back":
@@ -2144,7 +2158,7 @@ class ModManagerScreen(Screen):
 
             inp_id.value = ""
             inp_name.value = ""
-            self.action_refresh_mods()
+            await self.action_refresh_mods()
 
         elif event.button.id == "btn_remove_mod":
             list_view = self.query_one("#mods-list", ListView)
@@ -2155,7 +2169,7 @@ class ModManagerScreen(Screen):
             mod_id = getattr(list_view.highlighted_child, "mod_id", None)
             if mod_id:
 
-                def confirm_remove(confirm: bool):
+                async def confirm_remove(confirm: bool):
                     if confirm:
                         result = remove_mod_detailed(cfg, mod_id)
                         if result.config_changed:
@@ -2199,7 +2213,7 @@ class ModManagerScreen(Screen):
                                         mod_id=mod_id,
                                     )
                                 )
-                            self.action_refresh_mods()
+                            await self.action_refresh_mods()
                         else:
                             self.app.notify(
                                 tr("Mod {mod_id} not found.", mod_id=mod_id),
@@ -2219,4 +2233,4 @@ class ModManagerScreen(Screen):
                 tr("Deduped mods. Reclaimed {count} duplicates.", count=count)
             )
             if count > 0:
-                self.action_refresh_mods()
+                await self.action_refresh_mods()
