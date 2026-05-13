@@ -7,6 +7,30 @@ Semantic Versioning once public releases begin.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-13
+
+### Added
+- Added automated cleanup of local Arma Reforger addon files when mods are removed from `config.json`.
+- Added maintenance cleanup for unused Workshop addon directories.
+- Added cleanup metadata reporting for TUI and CLI mod operations.
+- Added safeguards that prevent SteamCMD install, repair, discovery, and service generation from using the `armactl` source repository or any Git working tree as the server install directory.
+- Added `.gitignore` rules for accidental Arma Reforger runtime artifacts in the repository root.
+- Added regression tests for addon cleanup safety, symlink/path containment, ENOSPC retry behavior, config backup safety, install-dir validation, discovery, repair, and service generation.
+
+### Changed
+- Mod removal, import, replace, and clear flows now compute removed mod IDs and clean only addon directories for IDs no longer present in `game.mods`.
+- `repair` now validates `install_dir` before running SteamCMD.
+- Discovery now ignores unsafe install paths from `state.json`, systemd units, legacy paths, and manual discovery.
+- Systemd service generation now validates runtime paths before rendering unit files.
+- Config backup creation now rotates old backups before creating a new backup.
+
+### Fixed
+- Fixed disk-full crashes when saving config after removing mods by cleaning removed addon files and retrying once.
+- Fixed stale Workshop addon directories accumulating under `config/addons` after mods are removed.
+- Fixed unsafe repair behavior that could run SteamCMD with `+force_install_dir` pointed at the source repository.
+- Fixed partial backup and temporary config files being left behind after failed writes.
+- Fixed misleading TUI/CLI cleanup success reporting by using actual cleanup results instead of dry-run previews.
+
 ## [0.2.0]
 
 ### Added
