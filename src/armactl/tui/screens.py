@@ -107,6 +107,7 @@ class LogWorkerScreen(Screen):
         ("b", "go_back", _("Back to Menu")),
         ("c", "copy_output", _("Copy Output")),
     ]
+    refresh_main_menu_on_return = False
 
     def __init__(self, instance: str, title: str, **kwargs):
         super().__init__(**kwargs)
@@ -133,13 +134,25 @@ class LogWorkerScreen(Screen):
         if event.button.id == "btn_copy_output":
             self.action_copy_output()
         elif event.button.id == "btn_close":
-            self.app.pop_screen()
+            self.run_worker(self._return_to_menu(), group="navigation", exclusive=True)
 
     def action_go_back(self) -> None:
         # Prevent going back if task is not finished
         btn = self.query_one("#btn_close", Button)
         if not btn.disabled:
-            self.app.pop_screen()
+            self.run_worker(self._return_to_menu(), group="navigation", exclusive=True)
+
+    async def _return_to_menu(self) -> None:
+        if self.refresh_main_menu_on_return:
+            refresh = getattr(self.app, "refresh_main_menu", None)
+            if refresh is not None:
+                await refresh()
+        self.app.pop_screen()
+
+    def request_main_menu_refresh(self) -> None:
+        refresh = getattr(self.app, "request_main_menu_refresh", None)
+        if refresh is not None:
+            refresh()
 
     def action_copy_output(self) -> None:
         text = "\n".join(line for line in self._output_lines if line)
@@ -182,11 +195,14 @@ class LogWorkerScreen(Screen):
 class InstallScreen(LogWorkerScreen):
     """Screen for running the server installation."""
 
+    refresh_main_menu_on_return = True
+
     def on_mount(self) -> None:
         self.run_installation_task()
 
     @work(exclusive=True, thread=True)
     def run_installation_task(self) -> None:
+        install_completed = False
         try:
             for message in run_install(self.instance):
                 self.app.call_from_thread(self.append_output, message)
@@ -195,6 +211,7 @@ class InstallScreen(LogWorkerScreen):
                 _("[green]Installation completely finished![/green]"),
                 _("Installation completely finished!"),
             )
+            install_completed = True
         except Exception as e:
             self.app.call_from_thread(
                 self.append_output,
@@ -202,11 +219,15 @@ class InstallScreen(LogWorkerScreen):
                 tr("Installation failed: {error}", error=redact_sensitive_text(e)),
             )
 
+        if install_completed:
+            self.app.call_from_thread(self.request_main_menu_refresh)
         self.app.call_from_thread(self.complete_task)
 
 
 class RepairScreen(LogWorkerScreen):
     """Screen for running the server repair task."""
+
+    refresh_main_menu_on_return = True
 
     def on_mount(self) -> None:
         self.run_repair_task()
@@ -214,6 +235,7 @@ class RepairScreen(LogWorkerScreen):
     @work(exclusive=True, thread=True)
     def run_repair_task(self) -> None:
         state = discover(self.instance, save=False)
+        repair_completed = False
         try:
             # We call run_repair from backend
             for message in run_repair(self.instance, state.install_dir, state.config_path):
@@ -223,6 +245,7 @@ class RepairScreen(LogWorkerScreen):
                 _("[green]Repair completed successfully![/green]"),
                 _("Repair completed successfully!"),
             )
+            repair_completed = True
         except Exception as e:
             self.app.call_from_thread(
                 self.append_output,
@@ -230,6 +253,8 @@ class RepairScreen(LogWorkerScreen):
                 tr("Repair failed: {error}", error=redact_sensitive_text(e)),
             )
 
+        if repair_completed:
+            self.app.call_from_thread(self.request_main_menu_refresh)
         self.app.call_from_thread(self.complete_task)
 
 

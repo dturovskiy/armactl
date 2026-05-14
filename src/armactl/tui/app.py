@@ -4,18 +4,57 @@ from __future__ import annotations
 
 import os
 import sys
+from asyncio import Lock
+from dataclasses import dataclass
+from typing import Literal
 
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalGroup
+from textual.widget import Widget
 from textual.widgets import Button, Footer, Header, Label
 
 from armactl import paths
 from armactl.bot_manager import ensure_bot_service_runtime
 from armactl.discovery import discover
 from armactl.i18n import _, get_current_lang_name, toggle_lang, tr
+from armactl.state import ServerState
 from armactl.tui.display import get_instance_server_name
+
+MainMenuWidgetKind = Literal["button", "status", "warning"]
+
+
+@dataclass(frozen=True)
+class MainMenuEntry:
+    """Pure description of a main menu row."""
+
+    kind: MainMenuWidgetKind
+    widget_id: str
+    variant: str | None = None
+
+
+def build_main_menu_entries(state: ServerState) -> tuple[MainMenuEntry, ...]:
+    """Return the state-dependent main menu entries."""
+    entries: list[MainMenuEntry] = [MainMenuEntry("status", "main-menu-status")]
+
+    if state.server_installed:
+        entries.append(MainMenuEntry("button", "btn_manage", "primary"))
+    else:
+        if state.has_install_evidence():
+            entries.append(MainMenuEntry("warning", "install-warning"))
+        entries.append(MainMenuEntry("button", "btn_install", "success"))
+
+    entries.extend(
+        [
+            MainMenuEntry("button", "btn_repair", "warning"),
+            MainMenuEntry("button", "btn_detect", "default"),
+            MainMenuEntry("button", "btn_host_tests", "primary"),
+            MainMenuEntry("button", "btn_lang", "default"),
+            MainMenuEntry("button", "btn_exit", "error"),
+        ]
+    )
+    return tuple(entries)
 
 
 def _restore_terminal_state() -> None:
@@ -67,7 +106,8 @@ class ArmaCtlApp(App):
         align: center middle;
     }
     #main-menu, #manage-container, #confirm-dialog {
-        width: 50;
+        width: 64;
+        max-width: 90%;
         height: auto;
         border: solid green;
         padding: 1 2;
@@ -169,6 +209,14 @@ class ArmaCtlApp(App):
         margin-bottom: 1;
         color: $text-muted;
     }
+    #main-menu-status, #install-warning {
+        width: 100%;
+        content-align: center middle;
+        margin-bottom: 1;
+    }
+    #install-warning {
+        color: yellow;
+    }
     #mods-list {
         height: 1fr;
         border: solid green;
@@ -218,6 +266,8 @@ class ArmaCtlApp(App):
     def __init__(self, instance: str = paths.DEFAULT_INSTANCE_NAME, **kwargs):
         super().__init__(**kwargs)
         self.instance = instance
+        self._main_menu: VerticalGroup | None = None
+        self._main_menu_refresh_lock = Lock()
 
     def on_mount(self) -> None:
         """Kick off small background health checks once the main menu is shown."""
@@ -246,48 +296,114 @@ class ArmaCtlApp(App):
             title=_("Telegram Bot"),
         )
 
-    def compose(self) -> ComposeResult:
-        """Create child widgets for the app."""
-        yield Header(show_clock=True)
-        with VerticalGroup(id="main-menu"):
-            server_name = get_instance_server_name(self.instance)
-            yield Label(_("Arma Reforger Manager"), id="title")
-            yield Label(server_name or self.instance, id="instance-server-name")
-            if server_name:
-                yield Label(tr("Instance: {instance}", instance=self.instance), id="instance-id")
+    def _main_menu_widgets(self, state: ServerState) -> list[Widget]:
+        """Build fresh widgets for the root menu."""
+        server_name = get_instance_server_name(self.instance)
+        widgets: list[Widget] = [
+            Label(_("Arma Reforger Manager"), id="title"),
+            Label(server_name or self.instance, id="instance-server-name"),
+        ]
+        if server_name:
+            widgets.append(
+                Label(
+                    tr("Instance: {instance}", instance=self.instance),
+                    id="instance-id",
+                )
+            )
 
-            state = discover(instance=self.instance, save=False)
-            if state.server_installed:
-                yield Button(_("Manage Existing Server >>"), id="btn_manage", variant="primary")
-            else:
-                if state.has_install_evidence():
-                    yield Label(
+        installed_text = _("Yes") if state.server_installed else _("No")
+        widgets.append(
+            Label(
+                tr("Installed: {value}", value=installed_text),
+                id="main-menu-status",
+            )
+        )
+
+        for entry in build_main_menu_entries(state):
+            if entry.kind == "status":
+                continue
+
+            if entry.kind == "warning":
+                widgets.append(
+                    Label(
                         _(
                             "Incomplete server installation detected. "
                             "Use Repair Installation to finish validation."
                         ),
-                        id="install-warning",
+                        id=entry.widget_id,
                     )
-                yield Button(_("Install New Server"), id="btn_install", variant="success")
+                )
+                continue
 
-            yield Button(_("Repair Installation"), id="btn_repair", variant="warning")
-            yield Button(_("Detect Existing Server"), id="btn_detect", variant="default")
-            yield Button(_("Run Host Tests"), id="btn_host_tests", variant="primary")
-            lang_label = _("Language:") + f" {get_current_lang_name()}"
-            yield Button(lang_label, id="btn_lang", variant="default")
-            yield Button(_("Exit"), id="btn_exit", variant="error")
+            widgets.append(
+                Button(
+                    self._main_menu_button_label(entry.widget_id),
+                    id=entry.widget_id,
+                    variant=entry.variant or "default",
+                )
+            )
+
+        return widgets
+
+    def _main_menu_button_label(self, widget_id: str) -> str:
+        """Return the current label for a main menu button."""
+        if widget_id == "btn_manage":
+            return _("Manage Existing Server >>")
+        if widget_id == "btn_install":
+            return _("Install New Server")
+        if widget_id == "btn_repair":
+            return _("Repair Installation")
+        if widget_id == "btn_detect":
+            return _("Detect Existing Server")
+        if widget_id == "btn_host_tests":
+            return _("Run Host Tests")
+        if widget_id == "btn_lang":
+            return _("Language:") + f" {get_current_lang_name()}"
+        if widget_id == "btn_exit":
+            return _("Exit")
+        return widget_id
+
+    async def refresh_main_menu(self, *, save: bool = False) -> ServerState:
+        """Re-run discovery and rebuild the root menu without duplicate widget IDs."""
+        async with self._main_menu_refresh_lock:
+            state = discover(instance=self.instance, save=save)
+            if self._main_menu is None:
+                return state
+
+            async with self._main_menu.batch():
+                await self._main_menu.remove_children()
+                await self._main_menu.mount_all(self._main_menu_widgets(state))
+            return state
+
+    def request_main_menu_refresh(self, *, save: bool = False) -> None:
+        """Schedule a root menu refresh from sync or worker callbacks."""
+        self.run_worker(
+            self.refresh_main_menu(save=save),
+            name="refresh-main-menu",
+            group="main-menu",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    def compose(self) -> ComposeResult:
+        """Create child widgets for the app."""
+        yield Header(show_clock=True)
+        state = discover(instance=self.instance, save=False)
+        with VerticalGroup(id="main-menu") as menu:
+            self._main_menu = menu
+            yield from self._main_menu_widgets(state)
 
         yield Footer()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
         """Event handler called when a button is pressed."""
         if event.button.id == "btn_exit":
             self.exit(0)
         elif event.button.id == "btn_detect":
-            state = discover(instance=self.instance, save=True)
+            state = await self.refresh_main_menu(save=True)
             if state.server_installed:
                 self.notify(
-                    _("Server files detected! Restart app to see Manage screen."),
+                    _("Server files detected. Main menu updated."),
                     title=_("Success"),
                 )
             elif state.has_install_evidence():

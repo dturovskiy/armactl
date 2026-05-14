@@ -18,6 +18,7 @@
     "Installing Server -> {instance}": "Встановлення сервера -> {instance}",
     "Repairing Server -> {instance}": "Відновлення сервера -> {instance}",
     "Server files detected! Restart app to see Manage screen.": "Файли сервера знайдено! Перезапустіть застосунок, щоб побачити екран керування.",
+    "Server files detected. Main menu updated.": "Файли сервера знайдено. Головне меню оновлено.",
     "No server installation found at default paths.": "За типовими шляхами встановлення сервера не знайдено.",
     "Incomplete server installation detected. Use Repair Installation to finish validation.": "Виявлено неповне встановлення сервера. Скористайтеся «Відновити встановлення», щоб завершити перевірку.",
     "Success": "Успіх",
