@@ -508,6 +508,75 @@ def test_safe_edit_message_text_retries_transient_network_error():
     assert query.calls == 2
 
 
+def test_safe_answer_callback_uses_short_timeouts():
+    import asyncio
+
+    bot = _test_bot()
+    captured = {}
+
+    class Query:
+        async def answer(self, **kwargs):
+            captured.update(kwargs)
+
+    asyncio.run(bot._safe_answer_callback(Query()))
+
+    assert captured["connect_timeout"] == telegram_bot.TELEGRAM_CALLBACK_TIMEOUT_SECONDS
+    assert captured["read_timeout"] == telegram_bot.TELEGRAM_CALLBACK_TIMEOUT_SECONDS
+    assert captured["write_timeout"] == telegram_bot.TELEGRAM_CALLBACK_TIMEOUT_SECONDS
+    assert captured["pool_timeout"] == telegram_bot.TELEGRAM_CALLBACK_TIMEOUT_SECONDS
+
+
+def test_callback_handler_does_not_wait_for_callback_answer():
+    import asyncio
+
+    bot = _test_bot()
+    events = []
+
+    class Query:
+        data = "metrics"
+
+        async def answer(self, **kwargs):
+            events.append("answer-start")
+            await asyncio.sleep(0.05)
+            events.append("answer-end")
+
+    class Application:
+        def __init__(self):
+            self.tasks = []
+
+        def create_task(self, coroutine):
+            task = asyncio.create_task(coroutine)
+            self.tasks.append(task)
+            return task
+
+    async def ensure_allowed(update):
+        return True
+
+    async def reply_with_menu(update, text, markup=None):
+        events.append(("reply", text, markup))
+
+    bot._ensure_allowed = ensure_allowed
+    bot._reply_with_menu = reply_with_menu
+    bot._metrics_text = lambda: "metrics text"
+
+    update = types.SimpleNamespace(
+        callback_query=Query(),
+        effective_chat=types.SimpleNamespace(id=1),
+    )
+    application = Application()
+    context = types.SimpleNamespace(application=application)
+
+    async def run_handler():
+        await bot.callback_handler(update, context)
+        assert ("reply", "metrics text", None) in events
+        assert "answer-end" not in events
+        await asyncio.gather(*application.tasks)
+
+    asyncio.run(run_handler())
+
+    assert "answer-end" in events
+
+
 def test_safe_edit_message_text_reraises_unknown_errors():
     import asyncio
 

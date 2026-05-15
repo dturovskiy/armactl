@@ -62,6 +62,18 @@ BULLET = "\u2022"
 DETAILS = "\U0001F4CB"
 TIME_INPUT_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 SNAPSHOT_CACHE_TTL_SECONDS = 3.0
+TELEGRAM_CALLBACK_TIMEOUT_SECONDS = 1.0
+TELEGRAM_MESSAGE_TIMEOUT_SECONDS = 3.0
+
+
+def _telegram_timeout_kwargs(timeout: float) -> dict[str, float]:
+    """Return PTB request timeout kwargs for a Telegram API call."""
+    return {
+        "connect_timeout": timeout,
+        "read_timeout": timeout,
+        "write_timeout": timeout,
+        "pool_timeout": timeout,
+    }
 
 
 def admin_chat_allowed(chat_id: int | str, admin_chat_ids: list[str]) -> bool:
@@ -946,7 +958,11 @@ class ArmaCtlTelegramBot:
     ) -> None:
         """Acknowledge a callback without aborting the handler on network blips."""
         try:
-            await query.answer(text=text, show_alert=show_alert)
+            await query.answer(
+                text=text,
+                show_alert=show_alert,
+                **_telegram_timeout_kwargs(TELEGRAM_CALLBACK_TIMEOUT_SECONDS),
+            )
         except Exception as error:
             if _is_telegram_network_error(error):
                 LOGGER.warning(
@@ -956,11 +972,24 @@ class ArmaCtlTelegramBot:
                 return
             raise
 
+    def _schedule_callback_answer(self, context, query) -> None:
+        """Acknowledge a callback in the background so UI rendering is not blocked."""
+        coroutine = self._safe_answer_callback(query)
+        application = getattr(context, "application", None)
+        if application is not None and hasattr(application, "create_task"):
+            application.create_task(coroutine)
+            return
+        asyncio.create_task(coroutine)
+
     async def _safe_edit_message_text(self, query, text: str, markup) -> None:
         """Edit a callback message while tolerating no-op edits and network blips."""
         for attempt in range(2):
             try:
-                await query.edit_message_text(text=text, reply_markup=markup)
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=markup,
+                    **_telegram_timeout_kwargs(TELEGRAM_MESSAGE_TIMEOUT_SECONDS),
+                )
                 return
             except Exception as error:
                 if _is_message_not_modified_error(error):
@@ -980,7 +1009,11 @@ class ArmaCtlTelegramBot:
     async def _safe_reply_text(self, message, text: str, markup=None) -> None:
         """Send a text reply while logging transient Telegram network failures."""
         try:
-            await message.reply_text(text, reply_markup=markup)
+            await message.reply_text(
+                text,
+                reply_markup=markup,
+                **_telegram_timeout_kwargs(TELEGRAM_MESSAGE_TIMEOUT_SECONDS),
+            )
         except Exception as error:
             if _is_telegram_network_error(error):
                 LOGGER.warning(
@@ -1142,7 +1175,7 @@ class ArmaCtlTelegramBot:
             return
 
         query = update.callback_query
-        await self._safe_answer_callback(query)
+        self._schedule_callback_answer(context, query)
         data = query.data or ""
         if data != "schedule:edit":
             self._clear_pending_schedule_input(update)
