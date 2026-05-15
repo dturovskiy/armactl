@@ -7,6 +7,22 @@ Semantic Versioning once public releases begin.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-05-15
+
+### Fixed
+- Improved Telegram inline button responsiveness after idle periods by shortening `getUpdates` polling/read windows.
+- Reduced Telegram status snapshot stalls by using a shorter Telegram-only A2S player-status timeout.
+- Retried transient Telegram callback acknowledgement network failures.
+- Treated stale Telegram callback acknowledgements as benign during delayed or restarted polling.
+- Reduced RCON player roster latency for Players views.
+
+### Changed
+- Hardened Telegram API timeout handling for callback answers, message edits, replies, and polling.
+- Dropped pending Telegram updates on bot startup to avoid processing stale callback queues.
+
+### Added
+- Added redacted `armactl report` diagnostics for troubleshooting bot/server state.
+
 ## [0.5.0] - 2026-05-15
 
 ### Added
