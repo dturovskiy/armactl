@@ -64,12 +64,13 @@ TIME_INPUT_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 SNAPSHOT_CACHE_TTL_SECONDS = 3.0
 TELEGRAM_CALLBACK_TIMEOUT_SECONDS = 1.0
 TELEGRAM_MESSAGE_TIMEOUT_SECONDS = 3.0
+TELEGRAM_PLAYER_STATUS_TIMEOUT_SECONDS = 0.3
 TELEGRAM_API_TIMEOUT_SECONDS = 3.0
 TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT_SECONDS = 3.0
-TELEGRAM_GET_UPDATES_READ_TIMEOUT_SECONDS = 35.0
+TELEGRAM_GET_UPDATES_READ_TIMEOUT_SECONDS = 3.0
 TELEGRAM_GET_UPDATES_WRITE_TIMEOUT_SECONDS = 3.0
 TELEGRAM_GET_UPDATES_POOL_TIMEOUT_SECONDS = 3.0
-TELEGRAM_GET_UPDATES_POLL_TIMEOUT_SECONDS = 30
+TELEGRAM_GET_UPDATES_POLL_TIMEOUT_SECONDS = 1
 
 
 def _telegram_timeout_kwargs(timeout: float) -> dict[str, float]:
@@ -614,12 +615,13 @@ def _build_status_snapshot(
     include_summaries: bool = False,
     include_host_metrics: bool = False,
     include_roster: bool = False,
+    player_status_timeout: float = 1.5,
 ) -> BotStatusSnapshot:
     """Collect service/timer state into a test-friendly snapshot."""
     state = discover(instance, save=False)
     service_status = get_service_status(service_unit_name(instance))
     timer_status = get_timer_status(timer_unit_name(instance))
-    player_status = query_player_status(instance, state=state)
+    player_status = query_player_status(instance, timeout=player_status_timeout, state=state)
     runtime_metrics = (
         metrics.query_service_runtime_metrics(service_status)
         if include_runtime_metrics
@@ -912,19 +914,25 @@ class ArmaCtlTelegramBot:
                 self.instance,
                 include_runtime_metrics=True,
                 include_host_metrics=True,
+                player_status_timeout=TELEGRAM_PLAYER_STATUS_TIMEOUT_SECONDS,
             )
         elif view == "details":
             snapshot = _build_status_snapshot(
                 self.instance,
                 include_summaries=True,
+                player_status_timeout=TELEGRAM_PLAYER_STATUS_TIMEOUT_SECONDS,
             )
         elif view == "players":
             snapshot = _build_status_snapshot(
                 self.instance,
                 include_roster=True,
+                player_status_timeout=TELEGRAM_PLAYER_STATUS_TIMEOUT_SECONDS,
             )
         else:
-            snapshot = _build_status_snapshot(self.instance)
+            snapshot = _build_status_snapshot(
+                self.instance,
+                player_status_timeout=TELEGRAM_PLAYER_STATUS_TIMEOUT_SECONDS,
+            )
 
         self._snapshot_cache[view] = (now, snapshot)
         return snapshot
@@ -972,23 +980,28 @@ class ArmaCtlTelegramBot:
         show_alert: bool = False,
     ) -> None:
         """Acknowledge a callback without aborting the handler on network blips."""
-        try:
-            await query.answer(
-                text=text,
-                show_alert=show_alert,
-                **_telegram_timeout_kwargs(TELEGRAM_CALLBACK_TIMEOUT_SECONDS),
-            )
-        except Exception as error:
-            if _is_stale_callback_query_error(error):
-                LOGGER.debug("Telegram callback answer skipped: stale callback query")
-                return
-            if _is_telegram_network_error(error):
-                LOGGER.warning(
-                    "Telegram callback answer failed: %s",
-                    redact_sensitive_text(error),
+        for attempt in range(2):
+            try:
+                await query.answer(
+                    text=text,
+                    show_alert=show_alert,
+                    **_telegram_timeout_kwargs(TELEGRAM_CALLBACK_TIMEOUT_SECONDS),
                 )
                 return
-            raise
+            except Exception as error:
+                if _is_stale_callback_query_error(error):
+                    LOGGER.debug("Telegram callback answer skipped: stale callback query")
+                    return
+                if _is_telegram_network_error(error):
+                    if attempt == 0:
+                        await asyncio.sleep(0.2)
+                        continue
+                    LOGGER.warning(
+                        "Telegram callback answer failed: %s",
+                        redact_sensitive_text(error),
+                    )
+                    return
+                raise
 
     def _schedule_callback_answer(self, context, query) -> None:
         """Acknowledge a callback in the background so UI rendering is not blocked."""
@@ -1194,6 +1207,7 @@ class ArmaCtlTelegramBot:
 
         query = update.callback_query
         self._schedule_callback_answer(context, query)
+        await asyncio.sleep(0)
         data = query.data or ""
         if data != "schedule:edit":
             self._clear_pending_schedule_input(update)
