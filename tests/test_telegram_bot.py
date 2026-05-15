@@ -404,21 +404,31 @@ def test_bot_snapshot_cache_reuses_view_data_until_refresh():
         bot._status_text(force_refresh=True)
 
     assert build.call_count == 5
-    assert build.call_args_list[0] == mock.call("default")
+    telegram_timeout = telegram_bot.TELEGRAM_PLAYER_STATUS_TIMEOUT_SECONDS
+    assert build.call_args_list[0] == mock.call(
+        "default",
+        player_status_timeout=telegram_timeout,
+    )
     assert build.call_args_list[1] == mock.call(
         "default",
         include_runtime_metrics=True,
         include_host_metrics=True,
+        player_status_timeout=telegram_timeout,
     )
     assert build.call_args_list[2] == mock.call(
         "default",
         include_summaries=True,
+        player_status_timeout=telegram_timeout,
     )
     assert build.call_args_list[3] == mock.call(
         "default",
         include_roster=True,
+        player_status_timeout=telegram_timeout,
     )
-    assert build.call_args_list[4] == mock.call("default")
+    assert build.call_args_list[4] == mock.call(
+        "default",
+        player_status_timeout=telegram_timeout,
+    )
 
 
 def test_parse_friendly_schedule_input_accepts_simple_times():
@@ -484,6 +494,27 @@ def test_safe_answer_callback_ignores_stale_callback_query():
             )
 
     asyncio.run(bot._safe_answer_callback(Query()))
+
+
+def test_safe_answer_callback_retries_transient_network_error():
+    import asyncio
+
+    bot = _test_bot()
+
+    class Query:
+        def __init__(self):
+            self.calls = 0
+
+        async def answer(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise NetworkError("temporary connect error")
+
+    query = Query()
+
+    asyncio.run(bot._safe_answer_callback(query))
+
+    assert query.calls == 2
 
 
 def test_error_handler_ignores_stale_callback_query():
