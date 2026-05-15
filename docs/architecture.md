@@ -97,6 +97,7 @@ armactl/
 | `cleaner.py` | Аналіз і прибирання старих логів, dump-файлів і backup-ів |
 | `i18n.py` | Локалізація UI та backend-повідомлень |
 | `logs.py` | Читання journalctl логів |
+| `metrics.py` | Runtime метрики сервера: CPU/RAM, PID-level state, Server FPS/frame-time telemetry |
 | `ports.py` | Перевірка listening портів (ss) |
 
 ---
@@ -206,6 +207,20 @@ ExecStart=/home/<user>/armactl-data/default/start-armareforger.sh
 ---
 
 ## 5. Потоки даних
+
+### Server FPS telemetry flow
+
+```text
+generated start-armareforger.sh
+  → ArmaReforgerServer -logStats 10000
+  → config/logs/*/console.log
+  → metrics.query_server_fps_metrics()
+  → CLI status / TUI status / Telegram metrics
+```
+
+`armactl` treats FPS as engine telemetry, not as a derived host metric. If the
+latest log line is missing, stale, or malformed, the UI reports the telemetry as
+unavailable/stale instead of inventing a value.
 
 ### Install flow
 

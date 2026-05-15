@@ -7,6 +7,24 @@ Semantic Versioning once public releases begin.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-15
+
+### Added
+- Added real Arma Reforger Dedicated Server FPS/frame-time telemetry from the server engine's `-logStats 10000` output.
+- Added `Server FPS`, average frame time, maximum frame time, and telemetry age to `armactl status`.
+- Added Server FPS/frame-time display to the TUI overview/status views.
+- Added Server FPS/frame-time display to Telegram bot metrics.
+- Added stale, missing, malformed, and unavailable telemetry handling for server FPS metrics.
+- Added focused parser, CLI, TUI, Telegram, and generated start-script tests for FPS telemetry.
+
+### Changed
+- Generated `start-armareforger.sh` now starts `ArmaReforgerServer` with `-logStats 10000` before `-maxFPS`.
+- Metrics now distinguish real server engine FPS from generic host CPU/RAM metrics.
+
+### Notes
+- Server FPS is parsed from the Arma Reforger engine log output and is not estimated from CPU usage.
+- Existing installations should regenerate the start script and restart `armareforger.service` to enable FPS telemetry.
+
 ## [0.4.0] - 2026-05-15
 
 ### Added
