@@ -29,3 +29,29 @@ def test_manage_yes_no_preserves_unknown_for_non_bool_values() -> None:
     assert ManageScreen._yes_no(False) == "No"
     assert ManageScreen._yes_no(None) == "Unknown"
     assert ManageScreen._yes_no("") == "Unknown"
+
+
+def test_manage_navigation_uses_unified_dashboard_tabs() -> None:
+    screen = ManageScreen("default")
+
+    assert [item[0] for item in screen._nav_items()] == [
+        "overview",
+        "config",
+        "mods",
+        "schedule",
+        "bot",
+        "cleanup",
+        "logs",
+        "status",
+        "ports",
+    ]
+
+
+def test_manage_context_actions_keep_deep_screens_out_of_primary_tabs() -> None:
+    screen = ManageScreen("default")
+    screen._active_panel = "config"
+
+    assert [action[0] for action in screen._context_actions()] == [
+        "open_config",
+        "open_raw_config",
+    ]

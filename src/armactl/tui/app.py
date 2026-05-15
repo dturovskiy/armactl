@@ -11,7 +11,7 @@ from typing import Literal
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import VerticalGroup
+from textual.containers import HorizontalGroup, HorizontalScroll, VerticalGroup, VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Button, Footer, Header, Label
 
@@ -105,7 +105,7 @@ class ArmaCtlApp(App):
         layout: vertical;
         align: center middle;
     }
-    #main-menu, #confirm-dialog {
+    #confirm-dialog {
         width: 64;
         max-width: 90%;
         height: auto;
@@ -113,90 +113,87 @@ class ArmaCtlApp(App):
         padding: 1 2;
         background: $surface;
     }
-    #manage-container {
+    #main-menu, #manage-container {
         width: 100%;
         height: 100%;
         padding: 1 2;
         background: $surface;
     }
-    #manage-header {
+    #main-shell-header, #manage-header {
         width: 100%;
         height: auto;
         border: solid green;
         padding: 1 2;
         margin-bottom: 1;
     }
-    #manage-title-row, #manage-action-row {
+    #main-title-row, #manage-title-row {
         width: 100%;
         height: auto;
     }
-    #manage-title-block {
+    #main-title-block, #manage-title-block {
         width: 1fr;
         height: auto;
     }
-    #manage-screen-title {
+    #main-shell-title, #manage-screen-title {
         width: 100%;
         text-style: bold;
         color: white;
     }
-    #manage-server-name, #manage-instance-id {
+    #main-server-name, #main-instance-id, #manage-server-name, #manage-instance-id {
         width: 100%;
     }
-    #manage-instance-id {
+    #main-instance-id, #manage-instance-id {
         color: $text-muted;
     }
-    #manage-runtime-badge {
-        width: 20;
+    #main-runtime-badge, #manage-runtime-badge {
+        width: 18;
         content-align: center middle;
         text-style: bold;
     }
-    #manage-action-row {
+    #main-status-summary, #server-status {
+        width: 100%;
         margin-top: 1;
-    }
-    #server-status {
-        width: 1fr;
-        content-align: left middle;
-        margin-bottom: 0;
-    }
-    #manage-action-row Button {
-        width: 14;
-        margin: 0 0 0 1;
-    }
-    #manage-shell {
-        width: 100%;
-        height: 1fr;
-    }
-    #manage-sidebar {
-        width: 28;
-        height: 100%;
-        border: solid green;
-        padding: 1;
-        margin-right: 1;
-    }
-    #manage-sidebar-title {
-        width: 100%;
-        margin-bottom: 1;
         color: $text-muted;
     }
-    #manage-sidebar Button {
+    #main-action-bar, #manage-nav, #manage-action-row {
         width: 100%;
-        margin: 0 0 1 0;
+        height: auto;
+        margin-bottom: 1;
     }
-    #manage-content {
-        width: 1fr;
-        height: 100%;
+    #main-action-bar Button, #manage-nav Button, #manage-action-row Button {
+        width: auto;
+        min-width: 12;
+        margin: 0 1 0 0;
+    }
+    #manage-nav Button {
+        min-width: 9;
+    }
+    #main-content, #manage-content {
+        width: 100%;
+        height: 1fr;
         border: solid green;
         padding: 1 2;
     }
-    #manage-panel-title {
+    #main-content-title, #manage-panel-title {
         width: 100%;
         margin-bottom: 1;
         text-style: bold;
         color: white;
+    }
+    #main-menu-status, #install-warning {
+        width: 100%;
+        margin-bottom: 1;
+    }
+    #install-warning {
+        color: yellow;
     }
     #manage-panel-log {
         width: 100%;
         height: 1fr;
+    }
+    #main-shell-note {
+        width: 100%;
+        color: $text-muted;
     }
     #modpack-dialog {
         width: 80;
@@ -274,29 +271,6 @@ class ArmaCtlApp(App):
         margin-bottom: 1;
         color: $text-muted;
     }
-    #title, #instance-server-name, #instance-id {
-        content-align: center middle;
-        width: 100%;
-    }
-    #title {
-        text-style: bold;
-        color: white;
-    }
-    #instance-server-name {
-        margin-bottom: 1;
-    }
-    #instance-id {
-        margin-bottom: 1;
-        color: $text-muted;
-    }
-    #main-menu-status, #install-warning {
-        width: 100%;
-        content-align: center middle;
-        margin-bottom: 1;
-    }
-    #install-warning {
-        color: yellow;
-    }
     #mods-list {
         height: 1fr;
         border: solid green;
@@ -341,16 +315,20 @@ class ArmaCtlApp(App):
 
     BINDINGS = [
         Binding("q", "quit", _("Quit"), show=True),
+        Binding("r", "refresh_root_menu", _("Refresh"), show=True),
     ]
 
     def __init__(self, instance: str = paths.DEFAULT_INSTANCE_NAME, **kwargs):
         super().__init__(**kwargs)
         self.instance = instance
         self._main_menu: VerticalGroup | None = None
+        self._main_menu_actions: HorizontalScroll | None = None
+        self._main_menu_content: VerticalScroll | None = None
         self._main_menu_refresh_lock = Lock()
 
     def on_mount(self) -> None:
         """Kick off small background health checks once the main menu is shown."""
+        self._update_main_menu_header(discover(instance=self.instance, save=False))
         self.ensure_bot_runtime_task()
 
     @work(exclusive=True, thread=True)
@@ -376,48 +354,105 @@ class ArmaCtlApp(App):
             title=_("Telegram Bot"),
         )
 
-    def _main_menu_widgets(self, state: ServerState) -> list[Widget]:
-        """Build fresh widgets for the root menu."""
-        server_name = get_instance_server_name(self.instance)
-        widgets: list[Widget] = [
-            Label(_("Arma Reforger Manager"), id="title"),
-            Label(server_name or _("Server name not configured"), id="instance-server-name"),
-            Label(tr("Instance: {instance}", instance=self.instance), id="instance-id"),
-        ]
-
-        installed_text = _("Yes") if state.server_installed else _("No")
-        widgets.append(
-            Label(
-                tr("Installed: {value}", value=installed_text),
-                id="main-menu-status",
-            )
-        )
-
+    def _main_menu_buttons(self, state: ServerState) -> list[Button]:
+        """Build the current root action bar buttons."""
+        buttons: list[Button] = []
         for entry in build_main_menu_entries(state):
-            if entry.kind == "status":
+            if entry.kind != "button":
                 continue
 
-            if entry.kind == "warning":
-                widgets.append(
-                    Label(
-                        _(
-                            "Incomplete server installation detected. "
-                            "Use Repair Installation to finish validation."
-                        ),
-                        id=entry.widget_id,
-                    )
-                )
-                continue
-
-            widgets.append(
+            buttons.append(
                 Button(
                     self._main_menu_button_label(entry.widget_id),
                     id=entry.widget_id,
                     variant=entry.variant or "default",
                 )
             )
+        return buttons
+
+    def _main_menu_badge_text(self, state: ServerState) -> str:
+        if state.server_running:
+            return _("Running")
+        if state.server_installed:
+            return _("Stopped")
+        if state.has_install_evidence():
+            return _("Repair")
+        return _("Setup")
+
+    def _main_menu_status_summary(self, state: ServerState) -> str:
+        installed_text = _("Yes") if state.server_installed else _("No")
+        runtime_text = self._main_menu_badge_text(state)
+        summary = [
+            tr("Installed: {value}", value=installed_text),
+            tr("Status: {value}", value=runtime_text),
+        ]
+
+        if state.config_exists:
+            summary.append(
+                tr(
+                    "Ports: game {game} / A2S {a2s} / RCON {rcon}",
+                    game=state.ports.game or _("Unknown"),
+                    a2s=state.ports.a2s or _("Unknown"),
+                    rcon=state.ports.rcon or _("Unknown"),
+                )
+            )
+        return "  |  ".join(summary)
+
+    def _main_menu_content_widgets(self, state: ServerState) -> list[Widget]:
+        """Build the current root content panel."""
+        content_title = _("Dashboard") if state.server_installed else _("Setup Actions")
+        widgets: list[Widget] = [
+            Label(content_title, id="main-content-title"),
+            Label(self._main_menu_status_summary(state), id="main-menu-status"),
+        ]
+
+        if state.has_install_evidence() and not state.server_installed:
+            widgets.append(
+                Label(
+                    _(
+                        "Incomplete server installation detected. "
+                        "Use Repair Installation to finish validation."
+                    ),
+                    id="install-warning",
+                )
+            )
+
+        if state.server_installed:
+            widgets.extend(
+                [
+                    Label(tr("Service: {value}", value=state.service_name)),
+                    Label(tr("Config path: {value}", value=state.config_path or _("Unknown"))),
+                    Label(
+                        tr("Server directory: {value}", value=state.install_dir or _("Unknown"))
+                    ),
+                ]
+            )
+        else:
+            widgets.append(Label(_("Server is not installed."), id="main-shell-note"))
 
         return widgets
+
+    def _update_main_menu_header(self, state: ServerState) -> None:
+        server_name = get_instance_server_name(self.instance)
+        self.query_one("#main-server-name", Label).update(
+            server_name or _("Server name not configured")
+        )
+        self.query_one("#main-instance-id", Label).update(
+            tr("Instance: {instance}", instance=self.instance)
+        )
+        self.query_one("#main-status-summary", Label).update(
+            self._main_menu_status_summary(state)
+        )
+
+        badge = self.query_one("#main-runtime-badge", Label)
+        badge_text = self._main_menu_badge_text(state)
+        badge.update(badge_text)
+        if state.server_running:
+            badge.styles.color = "green"
+        elif state.server_installed:
+            badge.styles.color = "red"
+        else:
+            badge.styles.color = "yellow"
 
     def _main_menu_button_label(self, widget_id: str) -> str:
         """Return the current label for a main menu button."""
@@ -441,12 +476,18 @@ class ArmaCtlApp(App):
         """Re-run discovery and rebuild the root menu without duplicate widget IDs."""
         async with self._main_menu_refresh_lock:
             state = discover(instance=self.instance, save=save)
-            if self._main_menu is None:
+            if self._main_menu_actions is None or self._main_menu_content is None:
                 return state
 
-            async with self._main_menu.batch():
-                await self._main_menu.remove_children()
-                await self._main_menu.mount_all(self._main_menu_widgets(state))
+            self._update_main_menu_header(state)
+            async with self._main_menu_actions.batch():
+                await self._main_menu_actions.remove_children()
+                await self._main_menu_actions.mount_all(self._main_menu_buttons(state))
+            async with self._main_menu_content.batch():
+                await self._main_menu_content.remove_children()
+                await self._main_menu_content.mount_all(
+                    self._main_menu_content_widgets(state)
+                )
             return state
 
     def request_main_menu_refresh(self, *, save: bool = False) -> None:
@@ -459,13 +500,44 @@ class ArmaCtlApp(App):
             exit_on_error=False,
         )
 
+    def action_refresh_root_menu(self) -> None:
+        self.request_main_menu_refresh(save=False)
+
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header(show_clock=True)
         state = discover(instance=self.instance, save=False)
         with VerticalGroup(id="main-menu") as menu:
             self._main_menu = menu
-            yield from self._main_menu_widgets(state)
+            with VerticalGroup(id="main-shell-header"):
+                with HorizontalGroup(id="main-title-row"):
+                    with VerticalGroup(id="main-title-block"):
+                        yield Label("armactl", id="main-shell-title")
+                        yield Label(
+                            get_instance_server_name(self.instance)
+                            or _("Server name not configured"),
+                            id="main-server-name",
+                        )
+                        yield Label(
+                            tr("Instance: {instance}", instance=self.instance),
+                            id="main-instance-id",
+                        )
+                    yield Label(
+                        self._main_menu_badge_text(state),
+                        id="main-runtime-badge",
+                    )
+                yield Label(
+                    self._main_menu_status_summary(state),
+                    id="main-status-summary",
+                )
+
+            with HorizontalScroll(id="main-action-bar") as action_bar:
+                self._main_menu_actions = action_bar
+                yield from self._main_menu_buttons(state)
+
+            with VerticalScroll(id="main-content") as content:
+                self._main_menu_content = content
+                yield from self._main_menu_content_widgets(state)
 
         yield Footer()
 

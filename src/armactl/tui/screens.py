@@ -9,9 +9,10 @@ from asyncio import Lock
 from datetime import datetime
 from pathlib import Path
 
+from rich.markup import escape
 from textual import work
 from textual.app import ComposeResult
-from textual.containers import HorizontalGroup, VerticalGroup, VerticalScroll
+from textual.containers import HorizontalGroup, HorizontalScroll, VerticalGroup, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import (
     Button,
@@ -49,6 +50,7 @@ from armactl.config_manager import load_config, save_config, validate_config
 from armactl.discovery import discover
 from armactl.i18n import _, tr
 from armactl.installer import run_install
+from armactl.logs import get_logs_text
 from armactl.metrics import (
     HostMetrics,
     format_bytes,
@@ -466,7 +468,7 @@ class ManageScreen(Screen):
 
     BINDINGS = [
         ("b", "pop_screen", _("Back to Menu")),
-        ("q", "pop_screen", _("Back to Menu")),
+        ("q", "quit", _("Quit")),
         ("r", "refresh_state", _("Refresh Status")),
     ]
 
@@ -474,6 +476,7 @@ class ManageScreen(Screen):
         super().__init__(**kwargs)
         self.instance = instance
         self._active_panel = "overview"
+        self._context_action_keys: dict[str, str] = {}
 
     @staticmethod
     def _yes_no(value: object) -> str:
@@ -495,26 +498,35 @@ class ManageScreen(Screen):
     def _server_display_name(self) -> str:
         return get_instance_server_name(self.instance) or _("Server name not configured")
 
-    def _nav_items(self) -> list[tuple[str, str, str, str]]:
+    def action_quit(self) -> None:
+        self.app.exit(0)
+
+    def _nav_items(self) -> list[tuple[str, str, str]]:
         return [
-            ("overview", "nav_overview", _("Overview"), "panel"),
-            ("config", "nav_config", _("Configuration"), "screen"),
-            ("raw_config", "nav_raw_config", _("Raw Config JSON"), "screen"),
-            ("schedule", "nav_schedule", _("Restart Schedule"), "screen"),
-            ("bot", "nav_bot", _("Telegram Bot"), "screen"),
-            ("mods", "nav_mods", _("Mods Manager"), "screen"),
-            ("cleanup", "nav_cleanup", _("Maintenance / Cleanup"), "screen"),
-            ("logs", "nav_logs", _("Live Logs"), "screen"),
-            ("status", "nav_status", _("Status Details"), "panel"),
-            ("ports", "nav_ports", _("Check Ports"), "panel"),
+            ("overview", "nav_overview", _("Overview")),
+            ("config", "nav_config", _("Config")),
+            ("mods", "nav_mods", _("Mods")),
+            ("schedule", "nav_schedule", _("Schedule")),
+            ("bot", "nav_bot", _("Bot")),
+            ("cleanup", "nav_cleanup", _("Cleanup")),
+            ("logs", "nav_logs", _("Logs")),
+            ("status", "nav_status", _("Status")),
+            ("ports", "nav_ports", _("Ports")),
         ]
 
     def _panel_title(self) -> str:
-        if self._active_panel == "status":
-            return _("Status Details")
-        if self._active_panel == "ports":
-            return _("Check Ports")
-        return _("Overview")
+        titles = {
+            "overview": _("Overview"),
+            "config": _("Configuration"),
+            "mods": _("Mods Manager"),
+            "schedule": _("Restart Schedule"),
+            "bot": _("Telegram Bot"),
+            "cleanup": _("Maintenance / Cleanup"),
+            "logs": _("Logs"),
+            "status": _("Status Details"),
+            "ports": _("Ports"),
+        }
+        return titles.get(self._active_panel, _("Overview"))
 
     def on_mount(self) -> None:
         self.action_refresh_state()
@@ -960,6 +972,328 @@ class ManageScreen(Screen):
             lines.append(f"{name:<10} | {info['port']:<6} | {status}")
         return "\n".join(lines)
 
+    def _bool_text(self, value: bool | None) -> str:
+        if value is True:
+            return _("Yes")
+        if value is False:
+            return _("No")
+        return _("Unknown")
+
+    def _build_config_text(self) -> str:
+        state = discover(self.instance, save=False)
+        unknown_text = _("Unknown")
+        lines = [_("[bold cyan]Configuration[/bold cyan]")]
+
+        if not state.config_exists or not state.config_path:
+            lines.extend(
+                [
+                    _("Config missing."),
+                    tr("Expected config path: {value}", value=state.config_path or unknown_text),
+                    tr("Server directory: {value}", value=state.install_dir or unknown_text),
+                ]
+            )
+            return "\n".join(lines)
+
+        config_summary, _mods_summary = load_status_summaries(state.config_path)
+        lines.extend(
+            [
+                tr("Config path: {value}", value=state.config_path),
+                tr("Server directory: {value}", value=state.install_dir or unknown_text),
+                tr(
+                    "Server name: {value}",
+                    value=config_summary.server_name or unknown_text,
+                ),
+                tr("Scenario: {value}", value=config_summary.scenario_id or unknown_text),
+                tr(
+                    "Max players: {value}",
+                    value=(
+                        config_summary.max_players
+                        if config_summary.max_players is not None
+                        else unknown_text
+                    ),
+                ),
+                tr(
+                    "Ports: game {game} / A2S {a2s} / RCON {rcon}",
+                    game=(
+                        config_summary.bind_port
+                        if config_summary.bind_port is not None
+                        else unknown_text
+                    ),
+                    a2s=(
+                        config_summary.a2s_port
+                        if config_summary.a2s_port is not None
+                        else unknown_text
+                    ),
+                    rcon=(
+                        config_summary.rcon_port
+                        if config_summary.rcon_port is not None
+                        else unknown_text
+                    ),
+                ),
+                tr("Visible: {value}", value=self._bool_text(config_summary.visible)),
+                tr("BattlEye: {value}", value=self._bool_text(config_summary.battleye)),
+            ]
+        )
+
+        if not config_summary.available:
+            lines.extend(["", _("Config summary unavailable.")])
+
+        return "\n".join(lines)
+
+    def _build_mods_text(self) -> str:
+        state = discover(self.instance, save=False)
+        if not state.config_exists or not state.config_path:
+            return "\n".join(
+                [
+                    _("[bold cyan]Mods Summary[/bold cyan]"),
+                    _("Config missing. Cannot read mods."),
+                ]
+            )
+
+        _config_summary, mods_summary = load_status_summaries(state.config_path)
+        lines = [_("[bold cyan]Mods Summary[/bold cyan]")]
+        if not mods_summary.available:
+            lines.append(_("Mods summary unavailable."))
+            return "\n".join(lines)
+
+        lines.append(
+            tr(
+                "Installed mods: {count}",
+                count=mods_summary.count if mods_summary.count is not None else 0,
+            )
+        )
+        if mods_summary.preview:
+            lines.extend(f"- {entry.label}" for entry in mods_summary.preview)
+        elif mods_summary.count == 0:
+            lines.append(_("No mods configured."))
+        if mods_summary.remaining_count > 0:
+            lines.append(tr("+ {count} more mod(s)", count=mods_summary.remaining_count))
+        return "\n".join(lines)
+
+    def _display_timer_value(self, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned or cleaned.lower() == "n/a":
+            return _("Unknown")
+        return cleaned
+
+    def _build_schedule_text(self) -> str:
+        state = discover(self.instance, save=False)
+        timer_name = timer_unit_name(self.instance)
+        timer_status = get_timer_status(timer_name)
+
+        installed_value = _("Yes") if state.timer_exists else _("No")
+        enabled_value = _("Yes") if timer_status.get("enabled") else _("No")
+        lines = [
+            _("[bold cyan]Timer Status[/bold cyan]"),
+            tr("Timer unit: {timer_name}", timer_name=timer_name),
+            tr("Installed: {value}", value=installed_value),
+            tr("Enabled: {value}", value=enabled_value),
+            tr(
+                "Active state: {value}",
+                value=self._display_timer_value(timer_status.get("active_state", "")),
+            ),
+            tr(
+                "Current schedule: {value}",
+                value=self._display_timer_value(timer_status.get("schedule", "")),
+            ),
+            tr(
+                "Next run: {value}",
+                value=self._display_timer_value(timer_status.get("next_run", "")),
+            ),
+            tr(
+                "Last trigger: {value}",
+                value=self._display_timer_value(timer_status.get("last_trigger", "")),
+            ),
+        ]
+
+        description = str(timer_status.get("description", "")).strip()
+        if description:
+            lines.append(tr("Description: {value}", value=description))
+        return "\n".join(lines)
+
+    def _build_bot_text(self) -> str:
+        lines = [_("[bold cyan]Telegram Bot Status[/bold cyan]")]
+        validation_errors: list[str] = []
+
+        try:
+            config = load_bot_config(self.instance)
+            validation_errors = validate_bot_config(config)
+            enabled_value = _("Yes") if config.enabled else _("No")
+            admins_value = config.admin_chat_ids_text() or _("Missing")
+            lines.extend(
+                [
+                    tr("Bot config file: {path}", path=config.env_path),
+                    tr("Bot enabled: {value}", value=enabled_value),
+                    tr("Bot token status: {value}", value=config.masked_token()),
+                    tr("Admin Chat IDs: {value}", value=admins_value),
+                    tr("Bot language: {value}", value=config.language),
+                ]
+            )
+        except Exception as error:
+            lines.extend(
+                [
+                    tr("Bot config file: {path}", path=paths.bot_env_file(self.instance)),
+                    tr(
+                        "Failed to load Telegram bot settings: {error}",
+                        error=redact_sensitive_text(error),
+                    ),
+                ]
+            )
+
+        bot_service = get_bot_service_status()
+        runtime_status = bot_service.get("runtime", {})
+        lines.extend(
+            [
+                tr(
+                    "Bot service unit: {value}",
+                    value=bot_service.get("service_name", paths.BOT_SERVICE_NAME),
+                ),
+                tr(
+                    "Bot service installed: {value}",
+                    value=_("Yes") if bot_service.get("installed") else _("No"),
+                ),
+                tr(
+                    "Bot service enabled on boot: {value}",
+                    value=_("Yes") if bot_service.get("enabled") else _("No"),
+                ),
+                tr(
+                    "Bot service active state: {value}",
+                    value=bot_service.get("active_state", _("Unknown")),
+                ),
+                tr(
+                    "Bot runtime ready: {value}",
+                    value=_("Yes") if runtime_status.get("success") else _("No"),
+                ),
+            ]
+        )
+
+        if validation_errors:
+            lines.append(_("[bold yellow]Validation warnings[/bold yellow]"))
+            lines.extend(tr("- {error}", error=error) for error in validation_errors)
+        return "\n".join(lines)
+
+    def _build_cleanup_text(self) -> str:
+        stats = get_junk_stats(self.instance)
+        sz_logs = format_size(stats["logs"]["size"])
+        sz_dumps = format_size(stats["dumps"]["size"])
+        sz_backups = format_size(stats["backups"]["size"])
+        total_size = format_size(stats["total_size"])
+
+        lines = [
+            _("[bold cyan]Server Junk Analysis[/bold cyan]"),
+            tr("- Old Logs: {count} files ({size})", count=stats["logs"]["count"], size=sz_logs),
+            tr(
+                "- Crash Dumps: {count} files ({size})",
+                count=stats["dumps"]["count"],
+                size=sz_dumps,
+            ),
+            tr(
+                "- Stale Backups: {count} files ({size})",
+                count=stats["backups"]["count"],
+                size=sz_backups,
+            ),
+        ]
+
+        if stats["total_size"] > 0:
+            lines.append(
+                tr("[bold red]Total Recoverable Space: {size}[/bold red]", size=total_size)
+            )
+        else:
+            lines.append(_("[bold green]System is clean! Nothing to remove.[/bold green]"))
+        return "\n".join(lines)
+
+    def _build_logs_text(self) -> str:
+        text = get_logs_text(self._service_name(), lines=30).strip()
+        lines = [_("[bold cyan]Recent Logs[/bold cyan]")]
+        if not text:
+            lines.append(_("No recent log output available."))
+            return "\n".join(lines)
+
+        lines.extend(escape(line) for line in text.splitlines()[-30:])
+        return "\n".join(lines)
+
+    def _context_actions(self) -> list[tuple[str, str, str]]:
+        actions = {
+            "overview": [
+                ("open_live_logs", _("Live Logs"), "primary"),
+                ("open_config", _("Config"), "default"),
+            ],
+            "config": [
+                ("open_config", _("Edit Configuration"), "primary"),
+                ("open_raw_config", _("Raw Config JSON"), "default"),
+            ],
+            "mods": [
+                ("open_mods", _("Mods Manager"), "primary"),
+                ("refresh", _("Refresh Status"), "default"),
+            ],
+            "schedule": [
+                ("open_schedule", _("Restart Schedule"), "primary"),
+                ("refresh", _("Refresh Status"), "default"),
+            ],
+            "bot": [
+                ("open_bot", _("Telegram Bot"), "primary"),
+                ("refresh", _("Refresh Status"), "default"),
+            ],
+            "cleanup": [
+                ("open_cleanup", _("Maintenance / Cleanup"), "warning"),
+                ("refresh", _("Refresh Status"), "default"),
+            ],
+            "logs": [
+                ("open_live_logs", _("Live Logs"), "primary"),
+                ("refresh", _("Refresh Status"), "default"),
+            ],
+            "status": [
+                ("refresh", _("Refresh Status"), "primary"),
+                ("open_schedule", _("Restart Schedule"), "default"),
+            ],
+            "ports": [
+                ("refresh", _("Refresh Status"), "primary"),
+                ("open_config", _("Config"), "default"),
+            ],
+        }
+        return actions.get(self._active_panel, actions["overview"])
+
+    def _update_context_actions(self) -> None:
+        action_buttons = ("btn_context_primary", "btn_context_secondary")
+        self._context_action_keys.clear()
+
+        for index, button_id in enumerate(action_buttons):
+            button = self.query_one(f"#{button_id}", Button)
+            try:
+                action_key, label, variant = self._context_actions()[index]
+            except IndexError:
+                button.label = ""
+                button.variant = "default"
+                button.disabled = True
+                continue
+
+            self._context_action_keys[button_id] = action_key
+            button.label = label
+            button.variant = variant
+            button.disabled = False
+
+    def _select_panel(self, panel: str) -> None:
+        self._active_panel = panel
+        self.action_refresh_state()
+
+    def _handle_context_action(self, action_key: str) -> None:
+        if action_key == "refresh":
+            self.action_refresh_state()
+        elif action_key == "open_config":
+            self.app.push_screen(ConfigEditorScreen(self.instance))
+        elif action_key == "open_raw_config":
+            self.app.push_screen(RawConfigScreen(self.instance))
+        elif action_key == "open_schedule":
+            self.app.push_screen(ScheduleScreen(self.instance))
+        elif action_key == "open_bot":
+            self.app.push_screen(BotConfigScreen(self.instance))
+        elif action_key == "open_mods":
+            self.app.push_screen(ModManagerScreen(self.instance))
+        elif action_key == "open_cleanup":
+            self.app.push_screen(CleanupScreen(self.instance))
+        elif action_key == "open_live_logs":
+            self.app.push_screen(TailLogScreen(self.instance))
+
     def _render_active_panel(self) -> None:
         self.query_one("#manage-panel-title", Label).update(self._panel_title())
         log = self.query_one("#manage-panel-log", RichLog)
@@ -969,18 +1303,25 @@ class ManageScreen(Screen):
             log.write(self._build_status_details_text())
         elif self._active_panel == "ports":
             log.write(self._build_ports_text())
+        elif self._active_panel == "config":
+            log.write(self._build_config_text())
+        elif self._active_panel == "mods":
+            log.write(self._build_mods_text())
+        elif self._active_panel == "schedule":
+            log.write(self._build_schedule_text())
+        elif self._active_panel == "bot":
+            log.write(self._build_bot_text())
+        elif self._active_panel == "cleanup":
+            log.write(self._build_cleanup_text())
+        elif self._active_panel == "logs":
+            log.write(self._build_logs_text())
         else:
             log.write(self._build_overview_text())
 
-        active_button = f"nav_{self._active_panel}"
-        if self._active_panel == "raw_config":
-            active_button = "nav_raw_config"
-        for panel, button_id, _label, kind in self._nav_items():
+        for panel, button_id, _label in self._nav_items():
             button = self.query_one(f"#{button_id}", Button)
-            if kind == "panel" and button_id == active_button:
-                button.variant = "primary"
-            else:
-                button.variant = "default" if panel != "cleanup" else "warning"
+            button.variant = "primary" if panel == self._active_panel else "default"
+        self._update_context_actions()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -996,26 +1337,24 @@ class ManageScreen(Screen):
                         )
                     yield Label(_("Loading status..."), id="manage-runtime-badge")
 
-                with HorizontalGroup(id="manage-action-row"):
-                    yield Label(_("Loading status..."), id="server-status")
-                    yield Button("...", id="btn_toggle", variant="primary")
-                    yield Button(_("Restart"), id="btn_restart", variant="warning")
-                    yield Button(_("View Logs"), id="btn_view_logs", variant="primary")
-                    yield Button(_("Refresh Status"), id="btn_refresh_manage", variant="default")
+                yield Label(_("Loading status..."), id="server-status")
 
-            with HorizontalGroup(id="manage-shell"):
-                with VerticalScroll(id="manage-sidebar"):
-                    yield Label(_("Navigation"), id="manage-sidebar-title")
-                    for _panel, button_id, label, kind in self._nav_items():
-                        variant = "primary" if button_id == "nav_overview" else "default"
-                        if button_id == "nav_cleanup":
-                            variant = "warning"
-                        yield Button(label, id=button_id, variant=variant)
-                    yield Button(_("Back to Main Menu"), id="btn_back", variant="default")
+            with HorizontalScroll(id="manage-nav"):
+                for panel, button_id, label in self._nav_items():
+                    variant = "primary" if panel == self._active_panel else "default"
+                    yield Button(label, id=button_id, variant=variant)
 
-                with VerticalScroll(id="manage-content"):
-                    yield Label(_("Overview"), id="manage-panel-title")
-                    yield RichLog(id="manage-panel-log", markup=True, highlight=False)
+            with HorizontalScroll(id="manage-action-row"):
+                yield Button("...", id="btn_toggle", variant="primary")
+                yield Button(_("Restart"), id="btn_restart", variant="warning")
+                yield Button(_("Refresh Status"), id="btn_refresh_manage", variant="default")
+                yield Button(_("Live Logs"), id="btn_context_primary", variant="primary")
+                yield Button(_("Config"), id="btn_context_secondary", variant="default")
+                yield Button(_("Back to Main Menu"), id="btn_back", variant="default")
+
+            with VerticalScroll(id="manage-content"):
+                yield Label(_("Overview"), id="manage-panel-title")
+                yield RichLog(id="manage-panel-log", markup=True, highlight=False)
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -1056,44 +1395,16 @@ class ManageScreen(Screen):
                 check_restart,
             )
 
-        elif event.button.id == "btn_view_logs":
-            self.app.push_screen(TailLogScreen(self.instance))
-
         elif event.button.id == "btn_refresh_manage":
             self.action_refresh_state()
 
-        elif event.button.id == "nav_overview":
-            self._active_panel = "overview"
-            self.action_refresh_state()
+        elif event.button.id in self._context_action_keys:
+            self._handle_context_action(self._context_action_keys[event.button.id])
 
-        elif event.button.id == "nav_status":
-            self._active_panel = "status"
-            self.action_refresh_state()
-
-        elif event.button.id == "nav_ports":
-            self._active_panel = "ports"
-            self.action_refresh_state()
-
-        elif event.button.id == "nav_config":
-            self.app.push_screen(ConfigEditorScreen(self.instance))
-
-        elif event.button.id == "nav_raw_config":
-            self.app.push_screen(RawConfigScreen(self.instance))
-
-        elif event.button.id == "nav_schedule":
-            self.app.push_screen(ScheduleScreen(self.instance))
-
-        elif event.button.id == "nav_bot":
-            self.app.push_screen(BotConfigScreen(self.instance))
-
-        elif event.button.id == "nav_mods":
-            self.app.push_screen(ModManagerScreen(self.instance))
-
-        elif event.button.id == "nav_cleanup":
-            self.app.push_screen(CleanupScreen(self.instance))
-
-        elif event.button.id == "nav_logs":
-            self.app.push_screen(TailLogScreen(self.instance))
+        else:
+            nav_targets = {button_id: panel for panel, button_id, _label in self._nav_items()}
+            if event.button.id in nav_targets:
+                self._select_panel(nav_targets[event.button.id])
 
 
 class ScheduleScreen(Screen):
