@@ -434,3 +434,92 @@ def test_parse_friendly_schedule_input_accepts_simple_times():
 
 def test_parse_friendly_schedule_input_rejects_non_time_text():
     assert telegram_bot.parse_friendly_schedule_input("tomorrow at six") == []
+
+
+def _test_bot() -> telegram_bot.ArmaCtlTelegramBot:
+    config = types.SimpleNamespace(
+        instance="default",
+        language="en",
+        enabled=True,
+        token="token",
+        admin_chat_ids=["1"],
+    )
+    with mock.patch("armactl.telegram_bot.load_bot_config", return_value=config):
+        return telegram_bot.ArmaCtlTelegramBot("default")
+
+
+class NetworkError(Exception):
+    pass
+
+
+class TimedOut(Exception):
+    pass
+
+
+class BadRequest(Exception):
+    pass
+
+
+def test_safe_answer_callback_ignores_telegram_network_errors():
+    import asyncio
+
+    bot = _test_bot()
+
+    class Query:
+        async def answer(self, **kwargs):
+            raise NetworkError("temporary read error")
+
+    asyncio.run(bot._safe_answer_callback(Query()))
+
+
+def test_safe_edit_message_text_ignores_message_not_modified():
+    import asyncio
+
+    bot = _test_bot()
+
+    class Query:
+        async def edit_message_text(self, **kwargs):
+            raise BadRequest(
+                "Message is not modified: specified new message content and reply "
+                "markup are exactly the same"
+            )
+
+    asyncio.run(bot._safe_edit_message_text(Query(), "same", object()))
+
+
+def test_safe_edit_message_text_retries_transient_network_error():
+    import asyncio
+
+    bot = _test_bot()
+
+    class Query:
+        def __init__(self):
+            self.calls = 0
+
+        async def edit_message_text(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise TimedOut("telegram timeout")
+
+    query = Query()
+
+    asyncio.run(bot._safe_edit_message_text(query, "new", object()))
+
+    assert query.calls == 2
+
+
+def test_safe_edit_message_text_reraises_unknown_errors():
+    import asyncio
+
+    bot = _test_bot()
+
+    class Query:
+        async def edit_message_text(self, **kwargs):
+            raise RuntimeError("unexpected failure")
+
+    try:
+        asyncio.run(bot._safe_edit_message_text(Query(), "new", object()))
+    except RuntimeError as error:
+        assert "unexpected failure" in str(error)
+    else:  # pragma: no cover - explicit assertion path for readability
+        raise AssertionError("expected RuntimeError")

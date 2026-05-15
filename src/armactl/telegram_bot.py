@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import re
 import sys
@@ -76,6 +77,24 @@ def _icon_line(icon: str, text: str) -> str:
 def _bullet_line(text: str) -> str:
     """Render a simple bullet line for Telegram text blocks."""
     return f"{BULLET} {text}"
+
+
+def _telegram_error_name(error: BaseException) -> str:
+    """Return the short class name for a Telegram/PTB exception."""
+    return error.__class__.__name__
+
+
+def _is_telegram_network_error(error: BaseException) -> bool:
+    """Return whether an exception looks like a transient Telegram API failure."""
+    return _telegram_error_name(error) in {"NetworkError", "TimedOut"}
+
+
+def _is_message_not_modified_error(error: BaseException) -> bool:
+    """Return whether Telegram rejected a no-op message edit."""
+    return (
+        _telegram_error_name(error) == "BadRequest"
+        and "Message is not modified" in str(error)
+    )
 
 
 @dataclass
@@ -903,12 +922,13 @@ class ArmaCtlTelegramBot:
         )
 
         if getattr(update, "callback_query", None) is not None:
-            await update.callback_query.answer(
+            await self._safe_answer_callback(
+                update.callback_query,
                 self.t("Access denied."),
                 show_alert=True,
             )
         elif getattr(update, "effective_message", None) is not None:
-            await update.effective_message.reply_text(message)
+            await self._safe_reply_text(update.effective_message, message)
 
     async def _ensure_allowed(self, update) -> bool:
         chat = getattr(update, "effective_chat", None)
@@ -917,12 +937,65 @@ class ArmaCtlTelegramBot:
             return False
         return True
 
+    async def _safe_answer_callback(
+        self,
+        query,
+        text: str | None = None,
+        *,
+        show_alert: bool = False,
+    ) -> None:
+        """Acknowledge a callback without aborting the handler on network blips."""
+        try:
+            await query.answer(text=text, show_alert=show_alert)
+        except Exception as error:
+            if _is_telegram_network_error(error):
+                LOGGER.warning(
+                    "Telegram callback answer failed: %s",
+                    redact_sensitive_text(error),
+                )
+                return
+            raise
+
+    async def _safe_edit_message_text(self, query, text: str, markup) -> None:
+        """Edit a callback message while tolerating no-op edits and network blips."""
+        for attempt in range(2):
+            try:
+                await query.edit_message_text(text=text, reply_markup=markup)
+                return
+            except Exception as error:
+                if _is_message_not_modified_error(error):
+                    LOGGER.debug("Telegram message edit skipped: message is not modified")
+                    return
+                if _is_telegram_network_error(error):
+                    if attempt == 0:
+                        await asyncio.sleep(0.2)
+                        continue
+                    LOGGER.warning(
+                        "Telegram message edit failed: %s",
+                        redact_sensitive_text(error),
+                    )
+                    return
+                raise
+
+    async def _safe_reply_text(self, message, text: str, markup=None) -> None:
+        """Send a text reply while logging transient Telegram network failures."""
+        try:
+            await message.reply_text(text, reply_markup=markup)
+        except Exception as error:
+            if _is_telegram_network_error(error):
+                LOGGER.warning(
+                    "Telegram message reply failed: %s",
+                    redact_sensitive_text(error),
+                )
+                return
+            raise
+
     async def _reply_with_menu(self, update, text: str, markup=None) -> None:
         markup = markup or self._main_keyboard()
         if getattr(update, "callback_query", None) is not None:
-            await update.callback_query.edit_message_text(text=text, reply_markup=markup)
+            await self._safe_edit_message_text(update.callback_query, text, markup)
         else:
-            await update.effective_message.reply_text(text, reply_markup=markup)
+            await self._safe_reply_text(update.effective_message, text, markup)
 
     async def _apply_schedule_input(self, update, raw_value: str) -> None:
         schedule_entries = parse_friendly_schedule_input(raw_value)
@@ -963,7 +1036,7 @@ class ArmaCtlTelegramBot:
 
     async def _edit_message(self, query, text: str, markup) -> None:
         """Edit an existing callback message with an explicit keyboard."""
-        await query.edit_message_text(text=text, reply_markup=markup)
+        await self._safe_edit_message_text(query, text, markup)
 
     def _call_backend(self, fn, *args):
         with using_lang(self.lang):
@@ -1069,7 +1142,7 @@ class ArmaCtlTelegramBot:
             return
 
         query = update.callback_query
-        await query.answer()
+        await self._safe_answer_callback(query)
         data = query.data or ""
         if data != "schedule:edit":
             self._clear_pending_schedule_input(update)
@@ -1205,6 +1278,20 @@ class ArmaCtlTelegramBot:
                 self._schedule_keyboard(),
             )
 
+    async def error_handler(self, update, context) -> None:
+        """Log Telegram handler errors without exposing secrets or noisy no-op edits."""
+        error = getattr(context, "error", None)
+        if error is None:
+            LOGGER.error("Telegram update failed without an attached exception")
+            return
+        if _is_message_not_modified_error(error):
+            LOGGER.debug("Telegram update skipped: message is not modified")
+            return
+        if _is_telegram_network_error(error):
+            LOGGER.warning("Telegram network error: %s", redact_sensitive_text(error))
+            return
+        LOGGER.exception("Telegram update failed: %s", redact_sensitive_text(error))
+
     def build_application(self):
         """Create and configure the PTB Application."""
         try:
@@ -1240,6 +1327,7 @@ class ArmaCtlTelegramBot:
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.text_message_handler)
         )
         application.add_handler(CallbackQueryHandler(self.callback_handler))
+        application.add_error_handler(self.error_handler)
         application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
