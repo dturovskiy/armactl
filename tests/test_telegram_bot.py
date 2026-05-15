@@ -452,11 +452,11 @@ class NetworkError(Exception):
     pass
 
 
-class TimedOut(Exception):
+class TimedOut(Exception):  # noqa: N818 - mirrors python-telegram-bot exception name
     pass
 
 
-class BadRequest(Exception):
+class BadRequest(Exception):  # noqa: N818 - mirrors python-telegram-bot exception name
     pass
 
 

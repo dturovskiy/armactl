@@ -32,7 +32,10 @@ def test_build_report_redacts_secrets_and_keeps_sections(monkeypatch):
     monkeypatch.setattr(report, "get_timer_status", lambda name: {"enabled": True})
 
     def command_runner(cmd: list[str], timeout: int) -> str:
-        return "$ " + " ".join(cmd) + "\npassword=supersecret\nARMACTL_BOT_TOKEN=123456:ABCDEFSECRET"
+        return (
+            "$ " + " ".join(cmd)
+            + "\npassword=supersecret\nARMACTL_BOT_TOKEN=123456:ABCDEFSECRET"
+        )
 
     text = report.build_report(
         "default",
@@ -52,7 +55,9 @@ def test_build_report_redacts_secrets_and_keeps_sections(monkeypatch):
 def test_cli_report_command_prints_report(monkeypatch):
     monkeypatch.setattr(
         "armactl.report.build_report",
-        lambda instance, lines, include_journal: f"report for {instance} {lines} {include_journal}\n",
+        lambda instance, lines, include_journal: (
+            f"report for {instance} {lines} {include_journal}\n"
+        ),
     )
 
     result = CliRunner().invoke(main, ["--instance", "default", "report", "--no-journal"])

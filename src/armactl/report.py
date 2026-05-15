@@ -6,9 +6,9 @@ import json
 import os
 import platform
 import subprocess
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
 
 from armactl import __version__, paths
 from armactl.discovery import discover
@@ -174,7 +174,10 @@ def build_report(
             "\n".join(
                 [
                     command_runner(["git", "-C", str(project_root), "branch", "--show-current"], 5),
-                    command_runner(["git", "-C", str(project_root), "rev-parse", "--short", "HEAD"], 5),
+                    command_runner(
+                        ["git", "-C", str(project_root), "rev-parse", "--short", "HEAD"],
+                        5,
+                    ),
                     command_runner(["git", "-C", str(project_root), "status", "--short"], 5),
                 ]
             ),
