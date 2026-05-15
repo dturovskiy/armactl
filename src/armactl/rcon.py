@@ -24,6 +24,7 @@ RCON_NOISE_PREFIXES = (
     "logged in! client id:",
     "processing command:",
 )
+RCON_ROSTER_TIMEOUT_SECONDS = 1.5
 
 PLAYER_SLOT_SUFFIX_RE = re.compile(r"\s*\(#(?P<player_id>\d+)\)\s*$")
 GUID_LIKE_RE = re.compile(r"^[0-9a-fA-F-]{8,}$")
@@ -256,7 +257,6 @@ class _RconSession:
             return f"{command_text}\n{server_text}".strip()
         return command_text
 
-
     def logout(self) -> None:
         try:
             self.send_command("@logout")
@@ -307,7 +307,6 @@ def _parse_player_lines(response: str) -> list[PlayerEntry]:
     return entries
 
 
-
 def _query_player_entries(session: _RconSession) -> list[PlayerEntry]:
     """Try the most likely roster commands and return the first non-empty parse."""
     last_error: str = ""
@@ -329,7 +328,10 @@ def _query_player_entries(session: _RconSession) -> list[PlayerEntry]:
     return []
 
 
-def query_player_roster(instance: str, timeout: float = 5.0) -> PlayerRoster:
+def query_player_roster(
+    instance: str,
+    timeout: float = RCON_ROSTER_TIMEOUT_SECONDS,
+) -> PlayerRoster:
     """Return a best-effort player roster using configured local RCON."""
     state = discover(instance, save=False)
     host = "127.0.0.1"

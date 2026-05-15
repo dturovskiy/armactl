@@ -218,3 +218,90 @@ def test_query_player_roster_falls_back_to_plain_players_command() -> None:
 
     assert roster.available is True
     assert [entry.name for entry in roster.entries] == ["Denis", "Vova"]
+
+
+def test_query_player_roster_uses_short_default_timeout() -> None:
+    state = ServerState(
+        server_running=True,
+        config_exists=True,
+        config_path="/tmp/config.json",
+        ports=PortInfo(rcon=20000),
+    )
+    config = {
+        "rcon": {
+            "address": "127.0.0.1",
+            "port": 20000,
+            "password": "secret",
+        }
+    }
+    captured: dict[str, float] = {}
+
+    class FakeSession:
+        def __init__(self, host: str, port: int, password: str, timeout: float):
+            captured["timeout"] = timeout
+
+        def login(self) -> None:
+            pass
+
+        def send_command(self, command: str) -> str:
+            return "1 Alice" if command == "#players" else ""
+
+        def logout(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    with (
+        patch("armactl.rcon.discover", return_value=state),
+        patch("armactl.rcon.load_config", return_value=config),
+        patch("armactl.rcon._RconSession", FakeSession),
+    ):
+        roster = rcon.query_player_roster("default")
+
+    assert captured["timeout"] == rcon.RCON_ROSTER_TIMEOUT_SECONDS
+    assert captured["timeout"] == 1.5
+    assert roster.available is True
+    assert [entry.name for entry in roster.entries] == ["Alice"]
+
+
+def test_query_player_roster_allows_explicit_timeout_override() -> None:
+    state = ServerState(
+        server_running=True,
+        config_exists=True,
+        config_path="/tmp/config.json",
+        ports=PortInfo(rcon=20000),
+    )
+    config = {
+        "rcon": {
+            "address": "127.0.0.1",
+            "port": 20000,
+            "password": "secret",
+        }
+    }
+    captured: dict[str, float] = {}
+
+    class FakeSession:
+        def __init__(self, host: str, port: int, password: str, timeout: float):
+            captured["timeout"] = timeout
+
+        def login(self) -> None:
+            pass
+
+        def send_command(self, command: str) -> str:
+            return ""
+
+        def logout(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    with (
+        patch("armactl.rcon.discover", return_value=state),
+        patch("armactl.rcon.load_config", return_value=config),
+        patch("armactl.rcon._RconSession", FakeSession),
+    ):
+        rcon.query_player_roster("default", timeout=0.25)
+
+    assert captured["timeout"] == 0.25
