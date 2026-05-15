@@ -472,6 +472,33 @@ def test_safe_answer_callback_ignores_telegram_network_errors():
     asyncio.run(bot._safe_answer_callback(Query()))
 
 
+def test_safe_answer_callback_ignores_stale_callback_query():
+    import asyncio
+
+    bot = _test_bot()
+
+    class Query:
+        async def answer(self, **kwargs):
+            raise BadRequest(
+                "Query is too old and response timeout expired or query id is invalid"
+            )
+
+    asyncio.run(bot._safe_answer_callback(Query()))
+
+
+def test_error_handler_ignores_stale_callback_query():
+    import asyncio
+
+    bot = _test_bot()
+    context = types.SimpleNamespace(
+        error=BadRequest(
+            "Query is too old and response timeout expired or query id is invalid"
+        )
+    )
+
+    asyncio.run(bot.error_handler(None, context))
+
+
 def test_safe_edit_message_text_ignores_message_not_modified():
     import asyncio
 
@@ -684,5 +711,6 @@ def test_build_application_configures_telegram_request_timeouts():
         fake_application.polling_kwargs["timeout"]
         == telegram_bot.TELEGRAM_GET_UPDATES_POLL_TIMEOUT_SECONDS
     )
+    assert fake_application.polling_kwargs["drop_pending_updates"] is True
     assert fake_application.handlers
     assert fake_application.error_handlers == [bot.error_handler]
