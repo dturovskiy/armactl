@@ -64,6 +64,12 @@ TIME_INPUT_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 SNAPSHOT_CACHE_TTL_SECONDS = 3.0
 TELEGRAM_CALLBACK_TIMEOUT_SECONDS = 1.0
 TELEGRAM_MESSAGE_TIMEOUT_SECONDS = 3.0
+TELEGRAM_API_TIMEOUT_SECONDS = 3.0
+TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT_SECONDS = 3.0
+TELEGRAM_GET_UPDATES_READ_TIMEOUT_SECONDS = 35.0
+TELEGRAM_GET_UPDATES_WRITE_TIMEOUT_SECONDS = 3.0
+TELEGRAM_GET_UPDATES_POOL_TIMEOUT_SECONDS = 3.0
+TELEGRAM_GET_UPDATES_POLL_TIMEOUT_SECONDS = 30
 
 
 def _telegram_timeout_kwargs(timeout: float) -> dict[str, float]:
@@ -1350,7 +1356,23 @@ class ArmaCtlTelegramBot:
         )
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
-        application = Application.builder().token(self.config.token).build()
+        application = (
+            Application.builder()
+            .token(self.config.token)
+            .connect_timeout(TELEGRAM_API_TIMEOUT_SECONDS)
+            .read_timeout(TELEGRAM_API_TIMEOUT_SECONDS)
+            .write_timeout(TELEGRAM_API_TIMEOUT_SECONDS)
+            .pool_timeout(TELEGRAM_API_TIMEOUT_SECONDS)
+            .get_updates_connect_timeout(
+                TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT_SECONDS
+            )
+            .get_updates_read_timeout(TELEGRAM_GET_UPDATES_READ_TIMEOUT_SECONDS)
+            .get_updates_write_timeout(
+                TELEGRAM_GET_UPDATES_WRITE_TIMEOUT_SECONDS
+            )
+            .get_updates_pool_timeout(TELEGRAM_GET_UPDATES_POOL_TIMEOUT_SECONDS)
+            .build()
+        )
         application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("status", self.status_command))
         application.add_handler(CommandHandler("stop", self.stop_command))
@@ -1361,7 +1383,10 @@ class ArmaCtlTelegramBot:
         )
         application.add_handler(CallbackQueryHandler(self.callback_handler))
         application.add_error_handler(self.error_handler)
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
+        application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            timeout=TELEGRAM_GET_UPDATES_POLL_TIMEOUT_SECONDS,
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
