@@ -284,6 +284,22 @@ def logs(ctx: click.Context, lines: int, follow: bool) -> None:
     sys.exit(exit_code)
 
 
+@main.command()
+@click.option("-n", "--lines", default=120, help="Journal lines to include per unit.")
+@click.option("--no-journal", is_flag=True, default=False, help="Skip journalctl sections.")
+@click.pass_context
+def report(ctx: click.Context, lines: int, no_journal: bool) -> None:
+    """Print a redacted support/debug diagnostic report."""
+    from armactl.report import build_report
+
+    instance = ctx.obj["instance"]
+    text = build_report(instance=instance, lines=lines, include_journal=not no_journal)
+    if ctx.obj["json"]:
+        click.echo(json.dumps({"instance": instance, "report": text}))
+        return
+    click.echo(text, nl=False)
+
+
 @main.group(invoke_without_command=True)
 @click.pass_context
 def ports(ctx: click.Context) -> None:
