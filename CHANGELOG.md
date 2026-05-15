@@ -7,6 +7,25 @@ Semantic Versioning once public releases begin.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-15
+
+### Added
+- Added a unified full-width Textual TUI shell for the main menu and server management views.
+- Added dashboard-style server management with horizontal navigation tabs.
+- Added inline dashboard panels for overview, configuration summary, mods summary, schedule, Telegram bot, cleanup, logs, status, and ports.
+- Added lightweight dashboard formatting helpers and focused TUI layout tests.
+
+### Changed
+- Replaced the old centered button-only main menu with a consistent shell layout.
+- Replaced the left-sidebar dashboard prototype with top navigation that uses terminal width more effectively.
+- Improved TUI action/navigation button sizing so English and Ukrainian labels remain visible.
+- Kept deeper tools such as raw config editing, mods manager, cleanup actions, schedule editor, bot config, and live logs as dedicated screens where appropriate.
+
+### Fixed
+- Fixed stale main menu state after install, repair, or detect flows; the menu now updates without restarting `armactl`.
+- Serialized main menu refreshes to avoid concurrent Textual DOM rebuilds.
+- Fixed top navigation/action labels being truncated after dynamic context changes.
+
 ## [0.3.1] - 2026-05-13
 
 ### Fixed
