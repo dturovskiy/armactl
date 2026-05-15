@@ -952,6 +952,7 @@ def generate_services(
             server_dir=str(server_dir),
             config_dir=str(config_dir),
             config_file=str(config_file),
+            log_stats_interval_ms=10000,
             max_fps=60,
         )
         service_render = env.get_template("armareforger.service.j2").render(

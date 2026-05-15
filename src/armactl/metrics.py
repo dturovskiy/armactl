@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import time
 from dataclasses import dataclass
@@ -38,6 +39,37 @@ class HostMetrics:
     error: str = ""
 
 
+@dataclass
+class ServerFpsMetrics:
+    """Real Arma Reforger engine FPS metrics parsed from -logStats output."""
+
+    available: bool
+    fps: float | None = None
+    frame_avg_ms: float | None = None
+    frame_min_ms: float | None = None
+    frame_max_ms: float | None = None
+    engine_memory_kb: int | None = None
+    players: int | None = None
+    ai: int | None = None
+    ai_char: int | None = None
+    age_seconds: float | None = None
+    source: str = ""
+    stale: bool = False
+    error: str = ""
+
+
+FPS_STATS_RE = re.compile(
+    r"FPS:\s*(?P<fps>\d+(?:\.\d+)?),\s*"
+    r"frame time\s*\(\s*avg:\s*(?P<frame_avg>\d+(?:\.\d+)?)\s*ms,\s*"
+    r"min:\s*(?P<frame_min>\d+(?:\.\d+)?)\s*ms,\s*"
+    r"max:\s*(?P<frame_max>\d+(?:\.\d+)?)\s*ms\s*\),\s*"
+    r"Mem:\s*(?P<memory_kb>\d+)\s*kB,\s*"
+    r"Player:\s*(?P<players>\d+),\s*"
+    r"AI:\s*(?P<ai>\d+),\s*"
+    r"AIChar:\s*(?P<ai_char>\d+)"
+)
+
+
 def format_bytes(value: int | None) -> str:
     """Format a byte count using small binary units."""
     if value is None:
@@ -59,6 +91,20 @@ def format_cpu_percent(value: float | None) -> str:
     if value is None:
         return "Unknown"
     return f"{value:.1f}%"
+
+
+def format_fps(value: float | None) -> str:
+    """Format a real server FPS value parsed from engine telemetry."""
+    if value is None:
+        return "Unknown"
+    return f"{value:.1f}"
+
+
+def format_frame_time_ms(value: float | None) -> str:
+    """Format a frame time in milliseconds."""
+    if value is None:
+        return "Unknown"
+    return f"{value:.1f} ms"
 
 
 def format_load_average(
@@ -100,6 +146,80 @@ def format_duration(seconds: float | None) -> str:
 
 def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _latest_console_log(config_dir: Path) -> Path | None:
+    logs_dir = config_dir / "logs"
+    try:
+        candidates = list(logs_dir.glob("*/console.log"))
+    except OSError:
+        return None
+
+    latest_log: Path | None = None
+    latest_mtime = -1.0
+    for candidate in candidates:
+        try:
+            mtime = os.path.getmtime(candidate)
+        except OSError:
+            continue
+        if mtime > latest_mtime:
+            latest_log = candidate
+            latest_mtime = mtime
+    return latest_log
+
+
+def query_server_fps_metrics(
+    config_dir: str | Path,
+    max_age_seconds: float = 45.0,
+) -> ServerFpsMetrics:
+    """Parse real server FPS/frame-time metrics from the latest -logStats console log."""
+    latest_log = _latest_console_log(Path(config_dir))
+    if latest_log is None:
+        return ServerFpsMetrics(
+            False,
+            error="server FPS telemetry log is not available",
+        )
+
+    source = str(latest_log)
+    try:
+        log_mtime = os.path.getmtime(latest_log)
+        text = latest_log.read_text(encoding="utf-8", errors="replace")
+    except OSError as error:
+        return ServerFpsMetrics(False, source=source, error=str(error))
+
+    match = None
+    for line in text.splitlines():
+        line_match = FPS_STATS_RE.search(line)
+        if line_match is not None:
+            match = line_match
+
+    if match is None:
+        return ServerFpsMetrics(
+            False,
+            source=source,
+            error="server FPS telemetry line is not available",
+        )
+
+    try:
+        age_seconds = max(time.time() - log_mtime, 0.0)
+        stale = age_seconds > max_age_seconds
+        return ServerFpsMetrics(
+            available=not stale,
+            fps=float(match.group("fps")),
+            frame_avg_ms=float(match.group("frame_avg")),
+            frame_min_ms=float(match.group("frame_min")),
+            frame_max_ms=float(match.group("frame_max")),
+            engine_memory_kb=int(match.group("memory_kb")),
+            players=int(match.group("players")),
+            ai=int(match.group("ai")),
+            ai_char=int(match.group("ai_char")),
+            age_seconds=age_seconds,
+            source=source,
+            stale=stale,
+            error="server FPS telemetry is stale" if stale else "",
+        )
+    except (IndexError, ValueError) as error:
+        return ServerFpsMetrics(False, source=source, error=str(error))
 
 
 def _cpu_count() -> int:

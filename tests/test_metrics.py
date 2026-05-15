@@ -2,10 +2,33 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import patch
 
 import armactl.metrics as metrics
+
+SAMPLE_FPS_LINE = (
+    "17:45:09.973   DEFAULT      : FPS: 60.0, frame time "
+    "(avg: 16.7 ms, min: 15.3 ms, max: 17.8 ms), Mem: 3387286 kB, "
+    "Player: 0, AI: 227, AIChar: 168, Veh: 0 (8), Proj "
+    "(S: 0, M: 0, G: 0 | 0), Streaming(Dynam: 1433, Static: 29291)"
+)
+
+
+def _write_console_log(
+    config_dir: Path,
+    timestamp: str,
+    text: str,
+    *,
+    mtime: float,
+) -> Path:
+    log_dir = config_dir / "logs" / timestamp
+    log_dir.mkdir(parents=True)
+    log_path = log_dir / "console.log"
+    log_path.write_text(text, encoding="utf-8")
+    os.utime(log_path, (mtime, mtime))
+    return log_path
 
 
 def test_format_bytes_handles_small_and_large_values() -> None:
@@ -18,6 +41,13 @@ def test_format_bytes_handles_small_and_large_values() -> None:
 def test_format_cpu_percent_handles_missing_values() -> None:
     assert metrics.format_cpu_percent(None) == "Unknown"
     assert metrics.format_cpu_percent(12.5) == "12.5%"
+
+
+def test_format_fps_and_frame_time_handle_missing_values() -> None:
+    assert metrics.format_fps(None) == "Unknown"
+    assert metrics.format_fps(59.95) == "60.0"
+    assert metrics.format_frame_time_ms(None) == "Unknown"
+    assert metrics.format_frame_time_ms(16.666) == "16.7 ms"
 
 
 def test_format_load_average_and_duration_handle_missing_values() -> None:
@@ -184,3 +214,112 @@ def test_query_host_metrics_reads_meminfo_disk_load_and_uptime() -> None:
     assert result.load_average_5m == 0.5
     assert result.load_average_15m == 0.25
     assert result.uptime_seconds == 7200.0
+
+
+def test_query_server_fps_metrics_parses_valid_logstats_line(tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    log_path = _write_console_log(
+        config_dir,
+        "2026-05-15_174500",
+        f"{SAMPLE_FPS_LINE.replace('FPS: 60.0', 'FPS: 30.0')}\n{SAMPLE_FPS_LINE}\n",
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1008.0):
+        result = metrics.query_server_fps_metrics(config_dir)
+
+    assert result.available is True
+    assert result.stale is False
+    assert result.source == str(log_path)
+    assert result.fps == 60.0
+    assert result.frame_avg_ms == 16.7
+    assert result.frame_min_ms == 15.3
+    assert result.frame_max_ms == 17.8
+    assert result.engine_memory_kb == 3387286
+    assert result.players == 0
+    assert result.ai == 227
+    assert result.ai_char == 168
+    assert result.age_seconds == 8.0
+
+
+def test_query_server_fps_metrics_selects_latest_console_log_by_mtime(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "older",
+        SAMPLE_FPS_LINE.replace("FPS: 60.0", "FPS: 30.0"),
+        mtime=1000.0,
+    )
+    latest_log = _write_console_log(
+        config_dir,
+        "newer",
+        SAMPLE_FPS_LINE.replace("FPS: 60.0", "FPS: 55.5"),
+        mtime=2000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=2010.0):
+        result = metrics.query_server_fps_metrics(config_dir)
+
+    assert result.available is True
+    assert result.source == str(latest_log)
+    assert result.fps == 55.5
+
+
+def test_query_server_fps_metrics_reports_missing_logs(tmp_path: Path) -> None:
+    result = metrics.query_server_fps_metrics(tmp_path / "config")
+
+    assert result.available is False
+    assert result.error == "server FPS telemetry log is not available"
+
+
+def test_query_server_fps_metrics_reports_missing_fps_line(tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    log_path = _write_console_log(
+        config_dir,
+        "2026-05-15_174500",
+        "server started\nno telemetry yet\n",
+        mtime=1000.0,
+    )
+
+    result = metrics.query_server_fps_metrics(config_dir)
+
+    assert result.available is False
+    assert result.source == str(log_path)
+    assert result.error == "server FPS telemetry line is not available"
+
+
+def test_query_server_fps_metrics_returns_stale_values(tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-05-15_174500",
+        SAMPLE_FPS_LINE,
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1100.0):
+        result = metrics.query_server_fps_metrics(config_dir, max_age_seconds=45.0)
+
+    assert result.available is False
+    assert result.stale is True
+    assert result.error == "server FPS telemetry is stale"
+    assert result.fps == 60.0
+    assert result.frame_avg_ms == 16.7
+    assert result.age_seconds == 100.0
+
+
+def test_query_server_fps_metrics_ignores_malformed_lines(tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-05-15_174500",
+        "FPS: nope, frame time (avg: no ms, min: 0 ms, max: 0 ms)\n",
+        mtime=1000.0,
+    )
+
+    result = metrics.query_server_fps_metrics(config_dir)
+
+    assert result.available is False
+    assert result.error == "server FPS telemetry line is not available"

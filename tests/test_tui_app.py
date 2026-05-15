@@ -68,19 +68,20 @@ def test_main_menu_action_bar_keeps_setup_actions_horizontal() -> None:
 
 
 def test_main_menu_status_summary_uses_dashboard_status_language() -> None:
-    app = ArmaCtlApp()
-    state = ServerState(
-        server_installed=True,
-        server_running=True,
-        config_exists=True,
-        ports=PortInfo(game=2001, a2s=17777, rcon=19999),
-    )
+    with using_lang("en"):
+        app = ArmaCtlApp()
+        state = ServerState(
+            server_installed=True,
+            server_running=True,
+            config_exists=True,
+            ports=PortInfo(game=2001, a2s=17777, rcon=19999),
+        )
 
-    summary = app._main_menu_status_summary(state)
+        summary = app._main_menu_status_summary(state)
 
-    assert "Installed: Yes" in summary
-    assert "Status: Running" in summary
-    assert "Ports: game 2001 / A2S 17777 / RCON 19999" in summary
+        assert "Installed: Yes" in summary
+        assert "Status: Running" in summary
+        assert "Ports: game 2001 / A2S 17777 / RCON 19999" in summary
 
 
 def test_main_action_bar_buttons_fit_english_and_ukrainian_labels() -> None:
