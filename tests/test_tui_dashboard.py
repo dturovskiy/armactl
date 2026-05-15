@@ -32,6 +32,14 @@ def _assert_button_label_fits(button: Button) -> None:
     assert button.region.width >= cell_len(_button_label(button)) + 2
 
 
+def _visible_action_buttons(screen: ManageScreen) -> list[Button]:
+    return [
+        button
+        for button in screen.query("#manage-action-row Button").results(Button)
+        if button.display
+    ]
+
+
 def test_format_usage_bar_returns_percentage_bar() -> None:
     assert format_usage_bar(25, 100, width=10) == "[##--------] 25%"
 
@@ -53,10 +61,11 @@ def test_format_player_count() -> None:
 
 
 def test_manage_yes_no_preserves_unknown_for_non_bool_values() -> None:
-    assert ManageScreen._yes_no(True) == "Yes"
-    assert ManageScreen._yes_no(False) == "No"
-    assert ManageScreen._yes_no(None) == "Unknown"
-    assert ManageScreen._yes_no("") == "Unknown"
+    with using_lang("en"):
+        assert ManageScreen._yes_no(True) == "Yes"
+        assert ManageScreen._yes_no(False) == "No"
+        assert ManageScreen._yes_no(None) == "Unknown"
+        assert ManageScreen._yes_no("") == "Unknown"
 
 
 def test_manage_navigation_uses_unified_dashboard_tabs() -> None:
@@ -116,7 +125,67 @@ def test_manage_top_bars_fit_english_and_ukrainian_labels() -> None:
                     screen._update_context_actions()
                     await pilot.pause()
                     for button in screen.query("#manage-action-row Button").results(Button):
+                        if not button.display:
+                            continue
                         _assert_button_label_fits(button)
+
+    for lang in ("en", "uk"):
+        asyncio.run(run_case(lang))
+
+
+def test_manage_context_action_slots_hide_unused_buttons() -> None:
+    async def run_case(lang: str) -> None:
+        with (
+            using_lang(lang),
+            patch.object(ManageScreen, "action_refresh_state", lambda self: None),
+        ):
+            async with ManageSmokeApp().run_test(size=(70, 24)) as pilot:
+                await pilot.pause()
+                screen = pilot.app.screen
+
+                for panel in ("mods", "schedule", "bot", "cleanup", "logs", "status", "ports"):
+                    screen._active_panel = panel
+                    screen._update_context_actions()
+                    await pilot.pause()
+
+                    visible_labels = [
+                        _button_label(button) for button in _visible_action_buttons(screen)
+                    ]
+                    assert "" not in visible_labels
+
+                    secondary = screen.query_one("#btn_context_secondary", Button)
+                    assert not secondary.display
+                    assert secondary.disabled
+                    assert _button_label(secondary) == ""
+                    assert secondary.region.width == 0
+
+    for lang in ("en", "uk"):
+        asyncio.run(run_case(lang))
+
+
+def test_manage_context_action_slots_show_two_action_tabs() -> None:
+    async def run_case(lang: str) -> None:
+        with (
+            using_lang(lang),
+            patch.object(ManageScreen, "action_refresh_state", lambda self: None),
+        ):
+            async with ManageSmokeApp().run_test(size=(70, 24)) as pilot:
+                await pilot.pause()
+                screen = pilot.app.screen
+
+                for panel in ("overview", "config"):
+                    screen._active_panel = panel
+                    screen._update_context_actions()
+                    await pilot.pause()
+
+                    primary = screen.query_one("#btn_context_primary", Button)
+                    secondary = screen.query_one("#btn_context_secondary", Button)
+                    assert primary.display
+                    assert secondary.display
+                    assert not primary.disabled
+                    assert not secondary.disabled
+                    assert _button_label(primary)
+                    assert _button_label(secondary)
 
     for lang in ("en", "uk"):
         asyncio.run(run_case(lang))
@@ -137,18 +206,20 @@ def test_manage_action_row_keeps_one_global_refresh_button() -> None:
                     screen._update_context_actions()
                     await pilot.pause()
 
-                    buttons = list(screen.query("#manage-action-row Button").results(Button))
-                    labels = [_button_label(button) for button in buttons]
+                    labels = [_button_label(button) for button in _visible_action_buttons(screen)]
                     assert labels.count(_("Refresh Status")) == 1
 
                     refresh_button = screen.query_one("#btn_refresh_manage", Button)
+                    assert refresh_button.display
                     assert _button_label(refresh_button) == _("Refresh Status")
                     assert not refresh_button.disabled
 
                     secondary = screen.query_one("#btn_context_secondary", Button)
                     if len(screen._context_actions()) == 1:
+                        assert not secondary.display
                         assert secondary.disabled
                         assert _button_label(secondary) == ""
+                        assert secondary.region.width == 0
 
     for lang in ("en", "uk"):
         asyncio.run(run_case(lang))

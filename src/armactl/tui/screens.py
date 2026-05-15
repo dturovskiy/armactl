@@ -1250,12 +1250,14 @@ class ManageScreen(Screen):
     def _update_context_actions(self) -> None:
         action_buttons = ("btn_context_primary", "btn_context_secondary")
         self._context_action_keys.clear()
+        actions = self._context_actions()
 
         for index, button_id in enumerate(action_buttons):
             button = self.query_one(f"#{button_id}", Button)
             try:
-                action_key, label, variant = self._context_actions()[index]
+                action_key, label, variant = actions[index]
             except IndexError:
+                button.display = False
                 button.label = ""
                 button.variant = "default"
                 button.disabled = True
@@ -1263,6 +1265,7 @@ class ManageScreen(Screen):
                 continue
 
             self._context_action_keys[button_id] = action_key
+            button.display = True
             button.label = label
             button.variant = variant
             button.disabled = False
