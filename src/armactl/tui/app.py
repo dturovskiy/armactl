@@ -159,14 +159,17 @@ class ArmaCtlApp(App):
         width: 100%;
         height: auto;
         margin-bottom: 1;
+        overflow-x: auto;
+        overflow-y: hidden;
     }
     #main-action-bar Button, #manage-nav Button, #manage-action-row Button {
         width: auto;
-        min-width: 12;
+        min-width: 10;
+        height: auto;
         margin: 0 1 0 0;
     }
     #manage-nav Button {
-        min-width: 9;
+        min-width: 8;
     }
     #main-content, #manage-content {
         width: 100%;
@@ -250,8 +253,10 @@ class ArmaCtlApp(App):
         margin: 0 1;
     }
     Button {
-        width: 100%;
         margin-bottom: 1;
+    }
+    #info-container > Button, #modpack-suggestions Button, #btn_add_mod {
+        width: 100%;
     }
     #info-container RichLog {
         height: 1fr;
@@ -307,9 +312,6 @@ class ArmaCtlApp(App):
         border: solid green;
         margin-bottom: 1;
         padding: 0 1;
-    }
-    #modpack-suggestions Button {
-        width: 100%;
     }
     """
 

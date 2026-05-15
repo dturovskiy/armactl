@@ -562,6 +562,7 @@ class ManageScreen(Screen):
             btn_toggle.label = _("Start")
             btn_toggle.variant = "success"
 
+        btn_toggle.refresh(layout=True)
         enabled_text = self._yes_no(service_status.get("enabled"))
         status_label.update(
             f"{status_text}  |  {tr('Service enabled: {value}', value=enabled_text)}"
@@ -1265,12 +1266,14 @@ class ManageScreen(Screen):
                 button.label = ""
                 button.variant = "default"
                 button.disabled = True
+                button.refresh(layout=True)
                 continue
 
             self._context_action_keys[button_id] = action_key
             button.label = label
             button.variant = variant
             button.disabled = False
+            button.refresh(layout=True)
 
     def _select_panel(self, panel: str) -> None:
         self._active_panel = panel
