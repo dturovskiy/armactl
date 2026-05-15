@@ -115,6 +115,15 @@ def _is_message_not_modified_error(error: BaseException) -> bool:
     )
 
 
+def _is_stale_callback_query_error(error: BaseException) -> bool:
+    """Return whether Telegram rejected an expired callback query answer."""
+    return (
+        _telegram_error_name(error) == "BadRequest"
+        and "Query is too old and response timeout expired or query id is invalid"
+        in str(error)
+    )
+
+
 @dataclass
 class BotStatusSnapshot:
     """Small, test-friendly status payload for rendering bot responses."""
@@ -970,6 +979,9 @@ class ArmaCtlTelegramBot:
                 **_telegram_timeout_kwargs(TELEGRAM_CALLBACK_TIMEOUT_SECONDS),
             )
         except Exception as error:
+            if _is_stale_callback_query_error(error):
+                LOGGER.debug("Telegram callback answer skipped: stale callback query")
+                return
             if _is_telegram_network_error(error):
                 LOGGER.warning(
                     "Telegram callback answer failed: %s",
@@ -1326,6 +1338,9 @@ class ArmaCtlTelegramBot:
         if _is_message_not_modified_error(error):
             LOGGER.debug("Telegram update skipped: message is not modified")
             return
+        if _is_stale_callback_query_error(error):
+            LOGGER.debug("Telegram update skipped: stale callback query")
+            return
         if _is_telegram_network_error(error):
             LOGGER.warning("Telegram network error: %s", redact_sensitive_text(error))
             return
@@ -1386,6 +1401,7 @@ class ArmaCtlTelegramBot:
         application.run_polling(
             allowed_updates=Update.ALL_TYPES,
             timeout=TELEGRAM_GET_UPDATES_POLL_TIMEOUT_SECONDS,
+            drop_pending_updates=True,
         )
 
 
