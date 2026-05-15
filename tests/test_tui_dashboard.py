@@ -61,10 +61,11 @@ def test_format_player_count() -> None:
 
 
 def test_manage_yes_no_preserves_unknown_for_non_bool_values() -> None:
-    assert ManageScreen._yes_no(True) == "Yes"
-    assert ManageScreen._yes_no(False) == "No"
-    assert ManageScreen._yes_no(None) == "Unknown"
-    assert ManageScreen._yes_no("") == "Unknown"
+    with using_lang("en"):
+        assert ManageScreen._yes_no(True) == "Yes"
+        assert ManageScreen._yes_no(False) == "No"
+        assert ManageScreen._yes_no(None) == "Unknown"
+        assert ManageScreen._yes_no("") == "Unknown"
 
 
 def test_manage_navigation_uses_unified_dashboard_tabs() -> None:
