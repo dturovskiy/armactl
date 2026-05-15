@@ -53,6 +53,8 @@ def test_generate_services_writes_expected_units_and_restarts_timer(tmp_path: Pa
     assert f'SERVER_DIR="{server_dir}"' in start_script_text
     assert f'CONFIG_FILE="{instance_root / "config" / "config.json"}"' in start_script_text
     assert 'exec "${SERVER_DIR}/ArmaReforgerServer"' in start_script_text
+    assert "  -logStats 10000 \\" in start_script_text
+    assert start_script_text.index("-logStats 10000") < start_script_text.index("-maxFPS 60")
     assert f"WorkingDirectory={server_dir}" in service_text
     assert f"ExecStart={start_script_path}" in service_text
     assert "CPUAccounting=yes" in service_text

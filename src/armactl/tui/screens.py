@@ -53,11 +53,15 @@ from armactl.installer import run_install
 from armactl.logs import get_logs_text
 from armactl.metrics import (
     HostMetrics,
+    ServerFpsMetrics,
     format_bytes,
     format_cpu_percent,
     format_duration,
+    format_fps,
+    format_frame_time_ms,
     format_load_average,
     query_host_metrics,
+    query_server_fps_metrics,
     query_service_runtime_metrics,
 )
 from armactl.mods import add_mod, dedupe_mods, remove_mod_detailed
@@ -593,12 +597,50 @@ class ManageScreen(Screen):
         except Exception as error:
             return HostMetrics(False, error=str(error))
 
+    def _query_server_fps_metrics(self) -> ServerFpsMetrics:
+        try:
+            return query_server_fps_metrics(paths.config_dir(self.instance))
+        except Exception as error:
+            return ServerFpsMetrics(False, error=str(error))
+
+    def _server_fps_lines(self, fps_metrics: ServerFpsMetrics) -> list[str]:
+        if fps_metrics.available:
+            return [
+                tr("Server FPS: {value}", value=format_fps(fps_metrics.fps)),
+                tr(
+                    "Frame time avg: {value}",
+                    value=format_frame_time_ms(fps_metrics.frame_avg_ms),
+                ),
+                tr(
+                    "Frame time max: {value}",
+                    value=format_frame_time_ms(fps_metrics.frame_max_ms),
+                ),
+                tr(
+                    "Telemetry age: {value}",
+                    value=format_duration(fps_metrics.age_seconds),
+                ),
+            ]
+
+        if fps_metrics.stale:
+            lines = [tr("Server FPS: {value}", value=_("stale"))]
+            if fps_metrics.age_seconds is not None:
+                lines.append(
+                    tr(
+                        "Last telemetry: {value} ago",
+                        value=format_duration(fps_metrics.age_seconds),
+                    )
+                )
+            return lines
+
+        return [tr("Server FPS: {value}", value=_("unavailable"))]
+
     def _build_overview_text(self) -> str:
         state = discover(self.instance, save=False)
         service_status = get_service_status(self._service_name())
         player_status = query_player_status(self.instance, state=state)
         metrics = query_service_runtime_metrics(service_status)
         host_metrics = self._query_host_metrics()
+        fps_metrics = self._query_server_fps_metrics()
 
         if state.config_exists and state.config_path:
             config_summary, mods_summary = load_status_summaries(state.config_path)
@@ -643,6 +685,7 @@ class ManageScreen(Screen):
                     else unknown_text
                 ),
             ),
+            *self._server_fps_lines(fps_metrics),
             "",
             _("[bold cyan]Host / VM Metrics[/bold cyan]"),
             tr(
@@ -720,6 +763,7 @@ class ManageScreen(Screen):
         player_status = query_player_status(self.instance, state=state)
         metrics = query_service_runtime_metrics(service_status)
         host_metrics = self._query_host_metrics()
+        fps_metrics = self._query_server_fps_metrics()
         main_pid = metrics.pid
         if state.config_exists and state.config_path:
             config_summary, mods_summary = load_status_summaries(state.config_path)
@@ -775,6 +819,7 @@ class ManageScreen(Screen):
                     else unknown_text
                 ),
             ),
+            *self._server_fps_lines(fps_metrics),
             "",
             _("[bold cyan]Host / VM Metrics[/bold cyan]"),
             tr(

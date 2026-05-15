@@ -84,6 +84,7 @@ def _get_state(ctx: click.Context):
 @click.pass_context
 def status(ctx: click.Context) -> None:
     """Show server status."""
+    from armactl import metrics, paths
     from armactl.service_manager import get_service_status
 
     instance = ctx.obj["instance"]
@@ -126,6 +127,21 @@ def status(ctx: click.Context) -> None:
     click.echo(f"  Timer:       {'✓' if state.timer_exists else '✗'} {state.timer_name}")
     if svc['main_pid']:
         click.echo(f"  PID:         {svc['main_pid']}")
+    fps_metrics = metrics.query_server_fps_metrics(paths.config_dir(instance))
+    if fps_metrics.available:
+        click.echo(f"  Server FPS:  {metrics.format_fps(fps_metrics.fps)}")
+        click.echo(
+            "  Frame time:  "
+            f"{metrics.format_frame_time_ms(fps_metrics.frame_avg_ms)} avg / "
+            f"{metrics.format_frame_time_ms(fps_metrics.frame_max_ms)} max"
+        )
+        click.echo(f"  Telemetry:   {metrics.format_duration(fps_metrics.age_seconds)} old")
+    elif fps_metrics.stale:
+        age_text = metrics.format_duration(fps_metrics.age_seconds)
+        click.echo("  Server FPS:  stale")
+        click.echo(f"  Telemetry:   {age_text} old")
+    else:
+        click.echo("  Server FPS:  unavailable")
     if state.ports.game:
         click.echo(
             f"  Ports:       game={state.ports.game} "

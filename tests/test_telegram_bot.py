@@ -98,6 +98,14 @@ def test_render_bot_metrics_text_uses_english_fallback():
             load_average_15m=0.25,
             uptime_seconds=93784,
         ),
+        fps_metrics=metrics.ServerFpsMetrics(
+            available=True,
+            fps=60.0,
+            frame_avg_ms=16.7,
+            frame_min_ms=15.3,
+            frame_max_ms=17.8,
+            age_seconds=8.0,
+        ),
     )
 
     text = telegram_bot.render_bot_metrics_text(snapshot, "en")
@@ -107,12 +115,69 @@ def test_render_bot_metrics_text_uses_english_fallback():
     assert "Main PID: 4321" in text
     assert "Server CPU: 12.5%" in text
     assert "Server RAM: 256.0 MiB" in text
+    assert "Server FPS: 60.0" in text
+    assert "Frame time: 16.7 ms avg / 17.8 ms max" in text
+    assert "Telemetry age: 8s" in text
     assert "Host / VM Metrics" in text
     assert "Host CPU: 37.5%" in text
     assert "Host RAM: 3.0 GiB / 8.0 GiB" in text
     assert "Host Disk: 20.0 GiB / 100.0 GiB" in text
     assert "Host Load Avg: 0.75 / 0.50 / 0.25" in text
     assert "Host uptime: 1d 2h 3m" in text
+
+
+def test_render_bot_metrics_text_reports_stale_server_fps():
+    snapshot = telegram_bot.BotStatusSnapshot(
+        instance="default",
+        server_running=True,
+        service_name="armareforger.service",
+        service_active_state="active",
+        service_enabled=True,
+        timer_name="armareforger-restart.timer",
+        schedule="08:00, 20:00",
+        next_run="2026-03-29 08:00:00 UTC",
+        player_count=0,
+        max_players=64,
+        fps_metrics=metrics.ServerFpsMetrics(
+            available=False,
+            fps=60.0,
+            frame_avg_ms=16.7,
+            frame_min_ms=15.3,
+            frame_max_ms=17.8,
+            age_seconds=72.0,
+            stale=True,
+            error="server FPS telemetry is stale",
+        ),
+    )
+
+    text = telegram_bot.render_bot_metrics_text(snapshot, "en")
+
+    assert "Server FPS: stale" in text
+    assert "Last telemetry: 1m ago" in text
+
+
+def test_render_bot_metrics_text_reports_unavailable_server_fps():
+    snapshot = telegram_bot.BotStatusSnapshot(
+        instance="default",
+        server_running=False,
+        service_name="armareforger.service",
+        service_active_state="inactive",
+        service_enabled=True,
+        timer_name="armareforger-restart.timer",
+        schedule="08:00, 20:00",
+        next_run="2026-03-29 08:00:00 UTC",
+        player_count=None,
+        max_players=None,
+        fps_metrics=metrics.ServerFpsMetrics(
+            available=False,
+            error="server FPS telemetry log is not available",
+        ),
+    )
+
+    text = telegram_bot.render_bot_metrics_text(snapshot, "en")
+
+    assert "Server FPS: unavailable" in text
+    assert "Frame time:" not in text
 
 
 def test_render_bot_details_text_uses_english_fallback():

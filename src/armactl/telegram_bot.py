@@ -12,6 +12,7 @@ from typing import Any
 
 import armactl.metrics as metrics
 import armactl.status_summary as status_summary
+from armactl import paths
 from armactl.a2s import query_player_status
 from armactl.bot_config import BotConfigError, load_bot_config
 from armactl.discovery import discover
@@ -103,6 +104,9 @@ class BotStatusSnapshot:
     host_metrics: metrics.HostMetrics = field(
         default_factory=lambda: metrics.HostMetrics(False)
     )
+    fps_metrics: metrics.ServerFpsMetrics = field(
+        default_factory=lambda: metrics.ServerFpsMetrics(False)
+    )
     player_lines: list[str] = field(default_factory=list)
     roster_available: bool = False
     roster_configured: bool = False
@@ -185,6 +189,8 @@ def render_bot_status_text(snapshot: BotStatusSnapshot, lang: str) -> str:
 def render_bot_metrics_text(snapshot: BotStatusSnapshot, lang: str) -> str:
     """Render runtime server metrics plus host/VM metrics for Telegram."""
     unknown_text = translate_for_lang(lang, "Unknown")
+    unavailable_text = translate_for_lang(lang, "unavailable")
+    stale_text = translate_for_lang(lang, "stale")
     pid_text = str(snapshot.main_pid) if snapshot.main_pid > 0 else unknown_text
     server_cpu_text = (
         metrics.format_cpu_percent(snapshot.cpu_percent)
@@ -221,6 +227,52 @@ def render_bot_metrics_text(snapshot: BotStatusSnapshot, lang: str) -> str:
     )
     host_uptime_text = metrics.format_duration(host.uptime_seconds)
 
+    fps = snapshot.fps_metrics
+    fps_lines: list[str]
+    if fps.available:
+        fps_lines = [
+            _bullet_line(
+                tr_for_lang(
+                    lang,
+                    "Server FPS: {value}",
+                    value=metrics.format_fps(fps.fps),
+                )
+            ),
+            _bullet_line(
+                tr_for_lang(
+                    lang,
+                    "Frame time: {avg} avg / {max} max",
+                    avg=metrics.format_frame_time_ms(fps.frame_avg_ms),
+                    max=metrics.format_frame_time_ms(fps.frame_max_ms),
+                )
+            ),
+            _bullet_line(
+                tr_for_lang(
+                    lang,
+                    "Telemetry age: {value}",
+                    value=metrics.format_duration(fps.age_seconds),
+                )
+            ),
+        ]
+    elif fps.stale:
+        fps_lines = [
+            _bullet_line(tr_for_lang(lang, "Server FPS: {value}", value=stale_text))
+        ]
+        if fps.age_seconds is not None:
+            fps_lines.append(
+                _bullet_line(
+                    tr_for_lang(
+                        lang,
+                        "Last telemetry: {value} ago",
+                        value=metrics.format_duration(fps.age_seconds),
+                    )
+                )
+            )
+    else:
+        fps_lines = [
+            _bullet_line(tr_for_lang(lang, "Server FPS: {value}", value=unavailable_text))
+        ]
+
     return "\n".join(
         [
             _icon_line(
@@ -232,6 +284,7 @@ def render_bot_metrics_text(snapshot: BotStatusSnapshot, lang: str) -> str:
             _bullet_line(tr_for_lang(lang, "Main PID: {value}", value=pid_text)),
             _bullet_line(tr_for_lang(lang, "Server CPU: {value}", value=server_cpu_text)),
             _bullet_line(tr_for_lang(lang, "Server RAM: {value}", value=server_ram_text)),
+            *fps_lines,
             "",
             _icon_line(COMPUTER, translate_for_lang(lang, "Host / VM Metrics")),
             _bullet_line(tr_for_lang(lang, "Host CPU: {value}", value=host_cpu_text)),
@@ -564,6 +617,11 @@ def _build_status_snapshot(
             metrics.query_host_metrics()
             if include_host_metrics
             else metrics.HostMetrics(False)
+        ),
+        fps_metrics=(
+            metrics.query_server_fps_metrics(paths.config_dir(instance))
+            if include_runtime_metrics
+            else metrics.ServerFpsMetrics(False)
         ),
         player_lines=roster_lines,
         roster_available=roster_available,

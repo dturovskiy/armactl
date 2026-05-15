@@ -7,6 +7,7 @@ from rich.cells import cell_len
 from textual.app import App, ComposeResult
 from textual.widgets import Button
 
+import armactl.metrics as metrics
 from armactl.i18n import _, using_lang
 from armactl.tui.app import ArmaCtlApp
 from armactl.tui.dashboard import format_player_count, format_usage_bar
@@ -66,6 +67,49 @@ def test_manage_yes_no_preserves_unknown_for_non_bool_values() -> None:
         assert ManageScreen._yes_no(False) == "No"
         assert ManageScreen._yes_no(None) == "Unknown"
         assert ManageScreen._yes_no("") == "Unknown"
+
+
+def test_manage_server_fps_lines_render_fresh_metrics() -> None:
+    screen = ManageScreen("default")
+
+    with using_lang("en"):
+        lines = screen._server_fps_lines(
+            metrics.ServerFpsMetrics(
+                available=True,
+                fps=60.0,
+                frame_avg_ms=16.7,
+                frame_min_ms=15.3,
+                frame_max_ms=17.8,
+                age_seconds=8.0,
+            )
+        )
+
+    assert lines == [
+        "Server FPS: 60.0",
+        "Frame time avg: 16.7 ms",
+        "Frame time max: 17.8 ms",
+        "Telemetry age: 8s",
+    ]
+
+
+def test_manage_server_fps_lines_render_stale_and_unavailable_metrics() -> None:
+    screen = ManageScreen("default")
+
+    with using_lang("en"):
+        stale_lines = screen._server_fps_lines(
+            metrics.ServerFpsMetrics(
+                available=False,
+                fps=60.0,
+                frame_avg_ms=16.7,
+                frame_max_ms=17.8,
+                age_seconds=72.0,
+                stale=True,
+            )
+        )
+        unavailable_lines = screen._server_fps_lines(metrics.ServerFpsMetrics(False))
+
+    assert stale_lines == ["Server FPS: stale", "Last telemetry: 1m ago"]
+    assert unavailable_lines == ["Server FPS: unavailable"]
 
 
 def test_manage_navigation_uses_unified_dashboard_tabs() -> None:

@@ -11,4 +11,5 @@ cd "${SERVER_DIR}"
 exec "${SERVER_DIR}/ArmaReforgerServer" \
   -config "${CONFIG_FILE}" \
   -profile "${CONFIG_DIR}" \
+  -logStats {{ log_stats_interval_ms | default(10000) }} \
   -maxFPS {{ max_fps | default(60) }}
