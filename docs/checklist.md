@@ -226,8 +226,9 @@
 - [x] Додати changelog
 - [x] Перевірити Server FPS telemetry на live сервері
 - [x] Перевірити `./armactl status` після merge в `main`
-- [ ] Підготувати GitHub release `v0.5.0`
-- [ ] Підготувати перший GitHub release
+- [x] Підготувати GitHub release `v0.5.0`
+- [x] Підготувати перший GitHub release
+- [x] Підготувати patch release `v0.5.1`
 - [ ] Перевірити встановлення з релізного архіву
 - [ ] Перевірити запуск на іншій машині
 
