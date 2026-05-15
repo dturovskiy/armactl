@@ -592,3 +592,97 @@ def test_safe_edit_message_text_reraises_unknown_errors():
         assert "unexpected failure" in str(error)
     else:  # pragma: no cover - explicit assertion path for readability
         raise AssertionError("expected RuntimeError")
+
+
+def test_build_application_configures_telegram_request_timeouts():
+    bot = _test_bot()
+    captured: dict[str, object] = {}
+
+    class FakeBuilder:
+        def token(self, value):
+            captured["token"] = value
+            return self
+
+        def connect_timeout(self, value):
+            captured["connect_timeout"] = value
+            return self
+
+        def read_timeout(self, value):
+            captured["read_timeout"] = value
+            return self
+
+        def write_timeout(self, value):
+            captured["write_timeout"] = value
+            return self
+
+        def pool_timeout(self, value):
+            captured["pool_timeout"] = value
+            return self
+
+        def get_updates_connect_timeout(self, value):
+            captured["get_updates_connect_timeout"] = value
+            return self
+
+        def get_updates_read_timeout(self, value):
+            captured["get_updates_read_timeout"] = value
+            return self
+
+        def get_updates_write_timeout(self, value):
+            captured["get_updates_write_timeout"] = value
+            return self
+
+        def get_updates_pool_timeout(self, value):
+            captured["get_updates_pool_timeout"] = value
+            return self
+
+        def build(self):
+            return fake_application
+
+    class FakeApplication:
+        def __init__(self):
+            self.handlers = []
+            self.error_handlers = []
+            self.polling_kwargs = None
+
+        def add_handler(self, handler):
+            self.handlers.append(handler)
+
+        def add_error_handler(self, handler):
+            self.error_handlers.append(handler)
+
+        def run_polling(self, **kwargs):
+            self.polling_kwargs = kwargs
+
+    fake_application = FakeApplication()
+    fake_builder = FakeBuilder()
+
+    with mock.patch("telegram.ext.Application.builder", return_value=fake_builder):
+        bot.build_application()
+
+    assert captured["token"] == "token"
+    assert captured["connect_timeout"] == telegram_bot.TELEGRAM_API_TIMEOUT_SECONDS
+    assert captured["read_timeout"] == telegram_bot.TELEGRAM_API_TIMEOUT_SECONDS
+    assert captured["write_timeout"] == telegram_bot.TELEGRAM_API_TIMEOUT_SECONDS
+    assert captured["pool_timeout"] == telegram_bot.TELEGRAM_API_TIMEOUT_SECONDS
+    assert (
+        captured["get_updates_connect_timeout"]
+        == telegram_bot.TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT_SECONDS
+    )
+    assert (
+        captured["get_updates_read_timeout"]
+        == telegram_bot.TELEGRAM_GET_UPDATES_READ_TIMEOUT_SECONDS
+    )
+    assert (
+        captured["get_updates_write_timeout"]
+        == telegram_bot.TELEGRAM_GET_UPDATES_WRITE_TIMEOUT_SECONDS
+    )
+    assert (
+        captured["get_updates_pool_timeout"]
+        == telegram_bot.TELEGRAM_GET_UPDATES_POOL_TIMEOUT_SECONDS
+    )
+    assert (
+        fake_application.polling_kwargs["timeout"]
+        == telegram_bot.TELEGRAM_GET_UPDATES_POLL_TIMEOUT_SECONDS
+    )
+    assert fake_application.handlers
+    assert fake_application.error_handlers == [bot.error_handler]
