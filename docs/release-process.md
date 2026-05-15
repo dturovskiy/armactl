@@ -19,6 +19,11 @@ Ship a GitHub Release that matches the repo-local operational model of
   - fresh install
   - existing server
   - reboot flow
+- Confirm Server FPS telemetry on a live server:
+  - generated process args include `-logStats 10000`
+  - runtime `console.log` contains `FPS:` / `frame time`
+  - `./armactl status` shows `Server FPS`, `Frame time`, and telemetry age
+  - TUI and Telegram metrics do not crash when telemetry is missing or stale
 
 ## Tagging
 
@@ -42,3 +47,5 @@ The GitHub release workflow should:
 - Verify installation from the release archive
 - Verify `./armactl` on another machine
 - Check release notes and attached artifacts
+- Verify an existing installation can regenerate the start script and show
+  Server FPS after restarting `armareforger.service`

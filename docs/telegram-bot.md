@@ -13,9 +13,9 @@ Current status:
 - `armactl-bot.service` can now be installed and managed from the TUI
 - bot actions use a narrow root-owned helper plus a sudoers drop-in instead of
   storing a password or attempting interactive sudo from the bot process
-- `/status` now includes server CPU/RAM, best-effort player counts via the
-  configured local A2S query port, and player roster details via local RCON
-  when RCON is configured
+- `/status` now includes server CPU/RAM, real Server FPS/frame-time telemetry
+  when available, best-effort player counts via the configured local A2S query
+  port, and player roster details via local RCON when RCON is configured
 
 ## Goals
 
@@ -82,6 +82,7 @@ of the same `.env` file must produce the same final state that the TUI sees.
 - `/stop` stops the server
 - `/restart` restarts the server
 - `/schedule 05:00, 20:00` updates scheduled restart times
+- metrics view shows Server FPS/frame-time when `-logStats` telemetry is available
 - access is restricted by `ARMACTL_BOT_ADMIN_CHAT_IDS`
 
 ## Library choice

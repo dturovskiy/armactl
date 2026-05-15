@@ -203,6 +203,8 @@
 - [x] Додати success notifications
 - [x] Додати masking для паролів
 - [x] Перевірити, що секрети не течуть у логах
+- [x] Додати показ реального Server FPS/frame-time через `-logStats`
+- [x] Додати stale/unavailable handling для FPS telemetry
 
 ## Phase 14 — Тести
 
@@ -222,6 +224,9 @@
 - [x] Описати режим existing server
 - [x] Описати repair mode
 - [x] Додати changelog
+- [x] Перевірити Server FPS telemetry на live сервері
+- [x] Перевірити `./armactl status` після merge в `main`
+- [ ] Підготувати GitHub release `v0.5.0`
 - [ ] Підготувати перший GitHub release
 - [ ] Перевірити встановлення з релізного архіву
 - [ ] Перевірити запуск на іншій машині

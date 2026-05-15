@@ -1,4 +1,4 @@
-﻿# armactl
+# armactl
 
 [![CI](https://github.com/dturovskiy/armactl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dturovskiy/armactl/actions/workflows/ci.yml)
 [![Latest Release](https://img.shields.io/github/v/release/dturovskiy/armactl)](https://github.com/dturovskiy/armactl/releases)
@@ -78,6 +78,7 @@ refreshes `state.json`.
 - manage mods: add, remove, dedupe, import, export
 - manage scheduled restarts through `systemd`
 - expose optional Telegram bot controls
+- show real Arma Reforger server FPS/frame-time telemetry when `-logStats` data is available
 - keep runtime data separated from repo code
 
 ## Scheduled restarts
@@ -92,6 +93,38 @@ In TUI, `Restart Schedule` accepts exact times instead of raw `systemd` syntax:
 
 `armactl` converts those values into the correct `OnCalendar=` entries in the
 timer unit automatically.
+
+## Server FPS telemetry
+
+`armactl` can show real Arma Reforger Dedicated Server FPS and frame-time
+telemetry.
+
+For generated services, `start-armareforger.sh` starts the server with:
+
+```text
+-logStats 10000
+```
+
+The server writes periodic engine telemetry into the runtime console log, and
+`armactl` reads the latest valid `FPS:` line from:
+
+```text
+~/armactl-data/<instance>/config/logs/*/console.log
+```
+
+Example:
+
+```text
+Server FPS:  60.0
+Frame time:  16.7 ms avg / 18.5 ms max
+Telemetry:   4s old
+```
+
+This value is the server engine's own FPS telemetry. It is not estimated from
+CPU usage.
+
+For existing installations, regenerate the service/start script and restart the
+server after updating `armactl` so the process starts with `-logStats 10000`.
 
 ## Runtime layout
 
@@ -139,6 +172,7 @@ Current bot capabilities include:
 - start / stop / restart
 - scheduled restart management
 - player visibility through A2S and local RCON
+- real Server FPS/frame-time metrics when server telemetry is available
 
 See [docs/telegram-bot.md](docs/telegram-bot.md) for the full flow.
 

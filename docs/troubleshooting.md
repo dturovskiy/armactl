@@ -102,6 +102,50 @@ Check:
 systemctl show armareforger.service --property=MainPID,MemoryCurrent,CPUUsageNSec
 ```
 
+## Server FPS telemetry is unavailable or stale
+
+Symptoms:
+
+- `armactl status` shows Server FPS as unavailable
+- TUI or Telegram metrics do not show FPS/frame-time
+- telemetry age is stale
+
+Check that the running server process includes `-logStats 10000`:
+
+```bash
+pgrep -af ArmaReforgerServer
+```
+
+Expected fragment:
+
+```text
+-logStats 10000 -maxFPS
+```
+
+Check that the server is writing FPS telemetry:
+
+```bash
+grep -RiaE 'FPS:|frame time' ~/armactl-data/default/config/logs | tail -20
+```
+
+Check service logs:
+
+```bash
+sudo journalctl -u armareforger.service -n 200 --no-pager
+```
+
+If `-logStats 10000` is missing, regenerate the service/start script through
+repair or service generation, then restart the server:
+
+```bash
+./armactl repair
+sudo systemctl restart armareforger.service
+./armactl status
+```
+
+If `-logStats 10000` is present but no `FPS:` lines appear, wait for the next
+telemetry interval and re-check the runtime logs.
+
 ## Existing service is found but config or binary is wrong
 
 Use:

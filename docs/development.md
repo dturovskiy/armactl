@@ -19,6 +19,28 @@ model as the main product.
 .venv/bin/ruff check src tests
 ```
 
+## Server FPS telemetry development notes
+
+Server FPS metrics are parsed from Arma Reforger's `-logStats` console output.
+
+When changing this area, cover at least:
+
+- latest log directory selection
+- valid `FPS:` line parsing
+- malformed telemetry lines
+- missing logs
+- stale telemetry
+- CLI/TUI/Telegram rendering
+- generated `start-armareforger.sh` arguments
+
+Manual smoke check on a live server:
+
+```bash
+pgrep -af ArmaReforgerServer
+grep -RiaE 'FPS:|frame time' ~/armactl-data/default/config/logs | tail -20
+./armactl status
+```
+
 ## Project structure
 
 - `src/armactl/` — backend modules, CLI, TUI, Telegram bot
