@@ -7,7 +7,7 @@ from rich.cells import cell_len
 from textual.app import App, ComposeResult
 from textual.widgets import Button
 
-from armactl.i18n import using_lang
+from armactl.i18n import _, using_lang
 from armactl.tui.app import ArmaCtlApp
 from armactl.tui.dashboard import format_player_count, format_usage_bar
 from armactl.tui.screens import ManageScreen
@@ -85,6 +85,14 @@ def test_manage_context_actions_keep_deep_screens_out_of_primary_tabs() -> None:
     ]
 
 
+def test_manage_context_actions_do_not_duplicate_global_refresh() -> None:
+    screen = ManageScreen("default")
+
+    for panel, _button_id, _label in screen._nav_items():
+        screen._active_panel = panel
+        assert "refresh" not in [action[0] for action in screen._context_actions()]
+
+
 def test_manage_top_bars_fit_english_and_ukrainian_labels() -> None:
     async def run_case(lang: str) -> None:
         with (
@@ -109,6 +117,38 @@ def test_manage_top_bars_fit_english_and_ukrainian_labels() -> None:
                     await pilot.pause()
                     for button in screen.query("#manage-action-row Button").results(Button):
                         _assert_button_label_fits(button)
+
+    for lang in ("en", "uk"):
+        asyncio.run(run_case(lang))
+
+
+def test_manage_action_row_keeps_one_global_refresh_button() -> None:
+    async def run_case(lang: str) -> None:
+        with (
+            using_lang(lang),
+            patch.object(ManageScreen, "action_refresh_state", lambda self: None),
+        ):
+            async with ManageSmokeApp().run_test(size=(70, 24)) as pilot:
+                await pilot.pause()
+                screen = pilot.app.screen
+
+                for panel, _button_id, _label in screen._nav_items():
+                    screen._active_panel = panel
+                    screen._update_context_actions()
+                    await pilot.pause()
+
+                    buttons = list(screen.query("#manage-action-row Button").results(Button))
+                    labels = [_button_label(button) for button in buttons]
+                    assert labels.count(_("Refresh Status")) == 1
+
+                    refresh_button = screen.query_one("#btn_refresh_manage", Button)
+                    assert _button_label(refresh_button) == _("Refresh Status")
+                    assert not refresh_button.disabled
+
+                    secondary = screen.query_one("#btn_context_secondary", Button)
+                    if len(screen._context_actions()) == 1:
+                        assert secondary.disabled
+                        assert _button_label(secondary) == ""
 
     for lang in ("en", "uk"):
         asyncio.run(run_case(lang))

@@ -1225,31 +1225,24 @@ class ManageScreen(Screen):
             ],
             "mods": [
                 ("open_mods", _("Mods Manager"), "primary"),
-                ("refresh", _("Refresh Status"), "default"),
             ],
             "schedule": [
                 ("open_schedule", _("Restart Schedule"), "primary"),
-                ("refresh", _("Refresh Status"), "default"),
             ],
             "bot": [
                 ("open_bot", _("Telegram Bot"), "primary"),
-                ("refresh", _("Refresh Status"), "default"),
             ],
             "cleanup": [
                 ("open_cleanup", _("Maintenance / Cleanup"), "warning"),
-                ("refresh", _("Refresh Status"), "default"),
             ],
             "logs": [
                 ("open_live_logs", _("Live Logs"), "primary"),
-                ("refresh", _("Refresh Status"), "default"),
             ],
             "status": [
-                ("refresh", _("Refresh Status"), "primary"),
-                ("open_schedule", _("Restart Schedule"), "default"),
+                ("open_schedule", _("Restart Schedule"), "primary"),
             ],
             "ports": [
-                ("refresh", _("Refresh Status"), "primary"),
-                ("open_config", _("Config"), "default"),
+                ("open_config", _("Config"), "primary"),
             ],
         }
         return actions.get(self._active_panel, actions["overview"])
@@ -1280,9 +1273,7 @@ class ManageScreen(Screen):
         self.action_refresh_state()
 
     def _handle_context_action(self, action_key: str) -> None:
-        if action_key == "refresh":
-            self.action_refresh_state()
-        elif action_key == "open_config":
+        if action_key == "open_config":
             self.app.push_screen(ConfigEditorScreen(self.instance))
         elif action_key == "open_raw_config":
             self.app.push_screen(RawConfigScreen(self.instance))
