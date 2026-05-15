@@ -37,6 +37,106 @@ What to check:
 `armactl` now streams SteamCMD output into the TUI log, so long downloads should
 show live lines rather than a silent hang.
 
+## Telegram bot cannot reach Telegram API
+
+Symptoms:
+
+- Telegram buttons stop responding or respond only intermittently
+- bot logs show `NetworkError`, `TimedOut`, `ReadError`, or `ConnectError`
+- `/start` or inline button callbacks work after retries but fail after idle periods
+
+Check bot logs:
+
+```bash
+sudo journalctl -u armactl-bot.service -n 200 --no-pager
+```
+
+Check recent Telegram/network failures:
+
+```bash
+sudo journalctl -u armactl-bot.service --since "10 minutes ago" --no-pager \
+  | grep -Ei 'ERROR|WARNING|NetworkError|TimedOut|ReadError|ConnectError|BadRequest|callback answer failed|message edit failed' \
+  || echo "OK: no bot errors"
+```
+
+Check outbound HTTPS connectivity to Telegram:
+
+```bash
+curl -4 -sS -o /dev/null \
+  --connect-timeout 3 \
+  --max-time 6 \
+  -w 'code=%{http_code} connect=%{time_connect}s tls=%{time_appconnect}s total=%{time_total}s ip=%{remote_ip}\n' \
+  https://api.telegram.org/
+```
+
+A healthy outbound IPv4 path usually returns quickly with an HTTP status and a
+Telegram IP address. If this fails, fix the host, provider firewall, DNS, proxy,
+or outbound network path before debugging bot code.
+
+## IPv6 vs IPv4 outbound diagnostics
+
+Some hosts have broken IPv6 routing: DNS resolves an IPv6 address, but outbound
+IPv6 connections fail or hang. Compare IPv4 and IPv6 explicitly:
+
+```bash
+curl -4 https://api.telegram.org
+curl -6 https://api.telegram.org
+```
+
+Interpretation:
+
+- `curl -4` works and `curl -6` fails quickly: IPv4 is usable, IPv6 is broken or
+  unavailable on the host.
+- both fail: this is a general outbound HTTPS/DNS/firewall problem.
+- both work: Telegram outbound transport is probably not the bottleneck.
+
+If IPv6 is broken and the bot still tries IPv6 first on that host, prefer a
+host/network fix. As a temporary operator workaround, disable or deprioritize
+broken IPv6 at the OS/network layer rather than changing server config blindly.
+
+## Server heartbeat or registration is intermittent
+
+Symptoms:
+
+- server is running locally, but appears/disappears from the in-game browser
+- local status and ports look correct, but public registration is inconsistent
+- logs mention backend, heartbeat, registration, or connectivity warnings
+
+Check the game service:
+
+```bash
+systemctl status armareforger.service --no-pager
+sudo journalctl -u armareforger.service -n 200 --no-pager
+```
+
+Check that expected UDP ports are listening:
+
+```bash
+sudo ss -lunp | grep -E '(:2001|:17777|:19999)\b'
+```
+
+Confirm `config.json` networking values:
+
+- `bindPort`
+- `publicPort`
+- `publicAddress`
+- A2S/query port
+- RCON port, if enabled
+
+Also check external firewalls:
+
+```bash
+sudo ufw status verbose
+sudo nft list ruleset
+```
+
+Provider firewalls or cloud security groups can block traffic even when UFW is
+open. Confirm the hosting-provider panel allows the same UDP ports.
+
+If local service state, config, and firewall rules are correct but registration
+is still intermittent, treat it as an upstream or network-path symptom first.
+Keep service logs and exact timestamps before changing unrelated armactl code.
+
 ## Server is visible in game but unreachable
 
 This usually means the server started and registered, but clients cannot reach
