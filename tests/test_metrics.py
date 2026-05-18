@@ -323,3 +323,75 @@ def test_query_server_fps_metrics_ignores_malformed_lines(tmp_path: Path) -> Non
 
     assert result.available is False
     assert result.error == "server FPS telemetry line is not available"
+def test_query_server_operational_status_reports_mod_download_retry(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    log_path = _write_console_log(
+        config_dir,
+        "2026-05-18_230000",
+        "\n".join(
+            [
+                "23:00:10.103 NETWORK : Starting dedicated server using command line args.",
+                "23:00:12.182 BACKEND : Addon Download started 6872C012EBB3A7D4",
+                "23:01:54.012 BACKEND (E): Fragmentizer: Download error",
+                "23:01:54.112 BACKEND (E): Fragmentizer: Retrying download",
+            ]
+        ),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.available is True
+    assert result.state == "downloading_mods"
+    assert result.severity == "warning"
+    assert result.message == "Downloading mods (retrying)"
+    assert result.source == str(log_path)
+    assert "Retrying download" in result.details[0]
+
+
+def test_query_server_operational_status_reports_mission_error(tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-05-18_230000",
+        "\n".join(
+            [
+                "23:00:09.955 BACKEND : Loading dedicated server config.",
+                "23:00:09.955 RESOURCES (E): Failed to open",
+                "23:00:09.955 RESOURCES (E): MissionHeader::ReadMissionHeader "
+                "cannot load the resource 'Missions/TRYZUB_Conflict.conf'!",
+            ]
+        ),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.available is True
+    assert result.state == "mission_error"
+    assert result.severity == "error"
+    assert result.message == "Mission/config error"
+
+
+def test_query_server_operational_status_reports_ready_from_fps(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-05-18_230000",
+        SAMPLE_FPS_LINE,
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.available is True
+    assert result.state == "ready"
+    assert result.severity == "success"
+    assert result.message == "Ready"

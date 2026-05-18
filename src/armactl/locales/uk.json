@@ -515,6 +515,18 @@
     "Generated start script sync failed: {error}": "Не вдалося синхронізувати згенерований стартовий скрипт: {error}",
     "Instance root not found: {path}": "Кореневу директорію інстанса не знайдено: {path}",
     "Updated generated start script:": "Оновлено згенерований стартовий скрипт:",
-    "Updated generated start script: {path}. Restart the server to apply launch changes.": "Оновлено згенерований стартовий скрипт: {path}. Перезапустіть сервер, щоб застосувати зміни запуску."
+    "Updated generated start script: {path}. Restart the server to apply launch changes.": "Оновлено згенерований стартовий скрипт: {path}. Перезапустіть сервер, щоб застосувати зміни запуску.",
+    "[bold cyan]Operational Status[/bold cyan]": "[bold cyan]Операційний стан[/bold cyan]",
+    "Operational: {value}": "Стан: {value}",
+    "Operational status: {value}": "Операційний стан: {value}",
+    "Latest log: {value}": "Останній лог: {value}",
+    "Ready": "Готовий",
+    "Downloading mods": "Завантаження модів",
+    "Downloading mods (retrying)": "Завантаження модів (повторна спроба)",
+    "Mission/config error": "Помилка місії/конфігу",
+    "Starting": "Запускається",
+    "Waiting for server telemetry": "Очікування телеметрії сервера",
+    "Telemetry log unavailable": "Лог телеметрії недоступний",
+    "Telemetry stale": "Телеметрія застаріла"
   }
 }

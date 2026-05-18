@@ -54,6 +54,7 @@ from armactl.logs import get_logs_text
 from armactl.metrics import (
     HostMetrics,
     ServerFpsMetrics,
+    ServerOperationalStatus,
     format_bytes,
     format_cpu_percent,
     format_duration,
@@ -62,6 +63,7 @@ from armactl.metrics import (
     format_load_average,
     query_host_metrics,
     query_server_fps_metrics,
+    query_server_operational_status,
     query_service_runtime_metrics,
 )
 from armactl.mods import add_mod, dedupe_mods, remove_mod_detailed
@@ -568,9 +570,19 @@ class ManageScreen(Screen):
 
         btn_toggle.refresh(layout=True)
         enabled_text = self._yes_no(service_status.get("enabled"))
-        status_label.update(
-            f"{status_text}  |  {tr('Service enabled: {value}', value=enabled_text)}"
-        )
+        summary_parts = [
+            status_text,
+            tr("Service enabled: {value}", value=enabled_text),
+        ]
+        if state.server_running:
+            operational_status = self._query_server_operational_status()
+            summary_parts.append(
+                tr(
+                    "Operational: {value}",
+                    value=self._plain_operational_value(operational_status),
+                )
+            )
+        status_label.update("  |  ".join(summary_parts))
         self._render_active_panel()
 
     def _format_players(self, current: int | None, maximum: int | None) -> str:
@@ -602,6 +614,53 @@ class ManageScreen(Screen):
             return query_server_fps_metrics(paths.config_dir(self.instance))
         except Exception as error:
             return ServerFpsMetrics(False, error=str(error))
+
+    def _query_server_operational_status(self) -> ServerOperationalStatus:
+        try:
+            return query_server_operational_status(paths.config_dir(self.instance))
+        except Exception as error:
+            return ServerOperationalStatus(
+                False,
+                severity="warning",
+                message="Telemetry log unavailable",
+                error=str(error),
+            )
+
+    @staticmethod
+    def _plain_operational_value(status: ServerOperationalStatus) -> str:
+        return _(status.message or "Unknown")
+
+    @staticmethod
+    def _format_operational_status_value(status: ServerOperationalStatus) -> str:
+        value = escape(_(status.message or "Unknown"))
+        if status.severity == "error":
+            return f"[red]{value}[/red]"
+        if status.severity == "warning":
+            return f"[yellow]{value}[/yellow]"
+        if status.severity == "success":
+            return f"[green]{value}[/green]"
+        return value
+
+    def _server_operational_lines(
+        self,
+        status: ServerOperationalStatus,
+    ) -> list[str]:
+        lines = [
+            tr(
+                "Operational status: {value}",
+                value=self._format_operational_status_value(status),
+            )
+        ]
+        for detail in status.details[:2]:
+            lines.append(tr("Latest log: {value}", value=escape(detail)))
+        if status.age_seconds is not None:
+            lines.append(
+                tr(
+                    "Telemetry age: {value}",
+                    value=format_duration(status.age_seconds),
+                )
+            )
+        return lines
 
     def _server_fps_lines(self, fps_metrics: ServerFpsMetrics) -> list[str]:
         if fps_metrics.available:
@@ -641,6 +700,7 @@ class ManageScreen(Screen):
         metrics = query_service_runtime_metrics(service_status)
         host_metrics = self._query_host_metrics()
         fps_metrics = self._query_server_fps_metrics()
+        operational_status = self._query_server_operational_status()
 
         if state.config_exists and state.config_path:
             config_summary, mods_summary = load_status_summaries(state.config_path)
@@ -658,6 +718,9 @@ class ManageScreen(Screen):
                 "Service enabled: {value}",
                 value=self._yes_no(service_status.get("enabled")),
             ),
+            "",
+            _("[bold cyan]Operational Status[/bold cyan]"),
+            *self._server_operational_lines(operational_status),
             "",
             _("[bold cyan]Players[/bold cyan]"),
             tr(
@@ -764,6 +827,7 @@ class ManageScreen(Screen):
         metrics = query_service_runtime_metrics(service_status)
         host_metrics = self._query_host_metrics()
         fps_metrics = self._query_server_fps_metrics()
+        operational_status = self._query_server_operational_status()
         main_pid = metrics.pid
         if state.config_exists and state.config_path:
             config_summary, mods_summary = load_status_summaries(state.config_path)
@@ -790,6 +854,9 @@ class ManageScreen(Screen):
                 value=_("Yes") if service_status.get("enabled") else _("No"),
             ),
             tr("Main PID: {value}", value=main_pid or unknown_text),
+            "",
+            _("[bold cyan]Operational Status[/bold cyan]"),
+            *self._server_operational_lines(operational_status),
             "",
             _("[bold cyan]Timer Status[/bold cyan]"),
             tr("Timer: {value}", value=timer_name),

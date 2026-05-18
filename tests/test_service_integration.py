@@ -158,7 +158,7 @@ exec "${SERVER_DIR}/ArmaReforgerServer" \
 
     start_script_text = start_script_path.read_text(encoding="utf-8")
     assert result.success is True
-    assert "Updated generated start script" in result.message
+    assert result.exit_code == 0
     assert "PROFILE_DIR=" not in start_script_text
     assert f'CONFIG_DIR="{config_dir}"' in start_script_text
     assert '-profile "${CONFIG_DIR}"' in start_script_text

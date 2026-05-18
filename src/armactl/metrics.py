@@ -58,6 +58,20 @@ class ServerFpsMetrics:
     error: str = ""
 
 
+@dataclass
+class ServerOperationalStatus:
+    """Best-effort lifecycle state parsed from recent server log lines."""
+
+    available: bool
+    state: str = "unknown"
+    severity: str = "info"
+    message: str = "Unknown"
+    details: tuple[str, ...] = ()
+    age_seconds: float | None = None
+    source: str = ""
+    error: str = ""
+
+
 FPS_STATS_RE = re.compile(
     r"FPS:\s*(?P<fps>\d+(?:\.\d+)?),\s*"
     r"frame time\s*\(\s*avg:\s*(?P<frame_avg>\d+(?:\.\d+)?)\s*ms,\s*"
@@ -220,6 +234,176 @@ def query_server_fps_metrics(
         )
     except (IndexError, ValueError) as error:
         return ServerFpsMetrics(False, source=source, error=str(error))
+
+
+OPERATIONAL_STATUS_TAIL_LINES = 300
+
+
+def _tail_recent_log_lines(
+    text: str,
+    max_lines: int = OPERATIONAL_STATUS_TAIL_LINES,
+) -> list[str]:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[-max_lines:]
+
+
+def _line_has_download_retry(line: str) -> bool:
+    return any(
+        marker in line
+        for marker in (
+            "Fragmentizer: Retrying download",
+            "Fragmentizer: Download error",
+            "Curl error=",
+        )
+    )
+
+
+def _line_has_download_progress(line: str) -> bool:
+    return (
+        "Addon Download started" in line
+        or "Download speed" in line
+        or ("Downloading " in line and ("addons" in line or "version" in line))
+        or re.search(r":\s*\[[=>_ ]+\]\s*\d+%", line) is not None
+    )
+
+
+def _line_has_mission_error(line: str) -> bool:
+    return (
+        "MissionHeader::ReadMissionHeader cannot load" in line
+        or "cannot load the resource" in line
+    )
+
+
+def _line_has_starting_status(line: str) -> bool:
+    return any(
+        marker in line
+        for marker in (
+            "Loading dedicated server config",
+            "Game successfully created",
+            "Starting dedicated server",
+        )
+    )
+
+
+def query_server_operational_status(
+    config_dir: str | Path,
+    max_age_seconds: float = 120.0,
+) -> ServerOperationalStatus:
+    """Return a user-facing lifecycle status from the latest console log."""
+    latest_log = _latest_console_log(Path(config_dir))
+    if latest_log is None:
+        return ServerOperationalStatus(
+            False,
+            state="unknown",
+            severity="warning",
+            message="Telemetry log unavailable",
+            error="server console log is not available",
+        )
+
+    source = str(latest_log)
+    try:
+        log_mtime = os.path.getmtime(latest_log)
+        text = latest_log.read_text(encoding="utf-8", errors="replace")
+    except OSError as error:
+        return ServerOperationalStatus(
+            False,
+            state="unknown",
+            severity="warning",
+            message="Telemetry log unavailable",
+            source=source,
+            error=str(error),
+        )
+
+    age_seconds = max(time.time() - log_mtime, 0.0)
+    lines = _tail_recent_log_lines(text)
+    if not lines:
+        return ServerOperationalStatus(
+            False,
+            state="unknown",
+            severity="warning",
+            message="Telemetry log unavailable",
+            age_seconds=age_seconds,
+            source=source,
+            error="server console log is empty",
+        )
+
+    if age_seconds > max_age_seconds:
+        return ServerOperationalStatus(
+            False,
+            state="telemetry_stale",
+            severity="warning",
+            message="Telemetry stale",
+            details=(lines[-1],),
+            age_seconds=age_seconds,
+            source=source,
+            error="server console log is stale",
+        )
+
+    for line in reversed(lines):
+        if FPS_STATS_RE.search(line):
+            return ServerOperationalStatus(
+                True,
+                state="ready",
+                severity="success",
+                message="Ready",
+                details=(line,),
+                age_seconds=age_seconds,
+                source=source,
+            )
+
+        if _line_has_download_retry(line):
+            return ServerOperationalStatus(
+                True,
+                state="downloading_mods",
+                severity="warning",
+                message="Downloading mods (retrying)",
+                details=(line,),
+                age_seconds=age_seconds,
+                source=source,
+            )
+
+        if _line_has_download_progress(line):
+            return ServerOperationalStatus(
+                True,
+                state="downloading_mods",
+                severity="warning",
+                message="Downloading mods",
+                details=(line,),
+                age_seconds=age_seconds,
+                source=source,
+            )
+
+        if _line_has_mission_error(line):
+            return ServerOperationalStatus(
+                True,
+                state="mission_error",
+                severity="error",
+                message="Mission/config error",
+                details=(line,),
+                age_seconds=age_seconds,
+                source=source,
+            )
+
+        if _line_has_starting_status(line):
+            return ServerOperationalStatus(
+                True,
+                state="starting",
+                severity="info",
+                message="Starting",
+                details=(line,),
+                age_seconds=age_seconds,
+                source=source,
+            )
+
+    return ServerOperationalStatus(
+        True,
+        state="waiting_for_telemetry",
+        severity="warning",
+        message="Waiting for server telemetry",
+        details=(lines[-1],),
+        age_seconds=age_seconds,
+        source=source,
+    )
 
 
 def _cpu_count() -> int:
