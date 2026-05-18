@@ -149,6 +149,38 @@ def status(ctx: click.Context) -> None:
         )
 
 
+@main.command("sync-generated")
+@click.pass_context
+def sync_generated(ctx: click.Context) -> None:
+    """Refresh generated runtime files without stopping the server."""
+    from armactl.service_manager import sync_generated_start_script
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+
+    if not state.server_installed:
+        if ctx.obj["json"]:
+            click.echo(json.dumps({"error": "no_server_found"}))
+        else:
+            click.echo(f"[{instance}] No server found.", err=True)
+        sys.exit(1)
+
+    result = sync_generated_start_script(instance)
+
+    if ctx.obj["json"]:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+    else:
+        prefix = "✓" if result.success else "✗"
+        click.echo(f"[{instance}] {prefix} {result.message}")
+        if result.success and state.server_running:
+            click.echo(
+                f"[{instance}] Restart the server when convenient to apply "
+                "launch script changes."
+            )
+
+    sys.exit(0 if result.success else 1)
+
+
 @main.command()
 @click.pass_context
 def start(ctx: click.Context) -> None:

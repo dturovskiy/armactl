@@ -19,6 +19,7 @@ from armactl import paths
 from armactl.bot_manager import ensure_bot_service_runtime
 from armactl.discovery import discover
 from armactl.i18n import _, get_current_lang_name, toggle_lang, tr
+from armactl.service_manager import sync_generated_start_script
 from armactl.state import ServerState
 from armactl.tui.display import get_instance_server_name
 
@@ -327,10 +328,13 @@ class ArmaCtlApp(App):
         self._main_menu_actions: HorizontalScroll | None = None
         self._main_menu_content: VerticalScroll | None = None
         self._main_menu_refresh_lock = Lock()
+        self._generated_sync_notification_shown = False
 
     def on_mount(self) -> None:
         """Kick off small background health checks once the main menu is shown."""
-        self._update_main_menu_header(discover(instance=self.instance, save=False))
+        state = discover(instance=self.instance, save=False)
+        self._sync_generated_runtime_files(state)
+        self._update_main_menu_header(state)
         self.ensure_bot_runtime_task()
 
     @work(exclusive=True, thread=True)
@@ -355,6 +359,30 @@ class ArmaCtlApp(App):
             _("Recovered Telegram bot service automatically after host boot."),
             title=_("Telegram Bot"),
         )
+
+    def _sync_generated_runtime_files(self, state: ServerState) -> None:
+        """Keep generated per-instance launch files in sync with current templates."""
+        if not state.server_installed:
+            return
+
+        result = sync_generated_start_script(self.instance)
+        if not result.success:
+            if not self._generated_sync_notification_shown:
+                self._generated_sync_notification_shown = True
+                self.notify(
+                    result.message,
+                    title=_("Generated Files"),
+                    severity="warning",
+                )
+            return
+
+        if result.message.startswith(_("Updated generated start script:")):
+            self._generated_sync_notification_shown = True
+            self.notify(
+                result.message,
+                title=_("Generated Files"),
+                severity="warning",
+            )
 
     def _main_menu_buttons(self, state: ServerState) -> list[Button]:
         """Build the current root action bar buttons."""
@@ -478,6 +506,7 @@ class ArmaCtlApp(App):
         """Re-run discovery and rebuild the root menu without duplicate widget IDs."""
         async with self._main_menu_refresh_lock:
             state = discover(instance=self.instance, save=save)
+            self._sync_generated_runtime_files(state)
             if self._main_menu_actions is None or self._main_menu_content is None:
                 return state
 

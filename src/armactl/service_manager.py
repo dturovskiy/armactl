@@ -259,6 +259,120 @@ def _normalize_generated_text(text: str) -> str:
     return normalized if normalized.endswith("\n") else f"{normalized}\n"
 
 
+def render_start_script(
+    *,
+    instance_root: Path | str,
+    server_dir: Path | str,
+    config_dir: Path | str,
+    config_file: Path | str,
+    log_stats_interval_ms: int = 10000,
+    max_fps: int = 60,
+) -> str:
+    """Render the generated Arma Reforger launch script from the current template."""
+    env = _template_environment()
+    rendered = env.get_template("start-armareforger.sh.j2").render(
+        instance_root=str(instance_root),
+        server_dir=str(server_dir),
+        config_dir=str(config_dir),
+        config_file=str(config_file),
+        log_stats_interval_ms=log_stats_interval_ms,
+        max_fps=max_fps,
+    )
+    return _normalize_generated_text(rendered)
+
+
+def sync_generated_start_script(
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> ServiceResult:
+    """Refresh the per-instance generated start script without touching services.
+
+    This is intentionally lighter than repair:
+    - no SteamCMD validate
+    - no service stop/start
+    - no systemd unit installation
+    - safe to run while the server is online
+
+    The refreshed script takes effect on the next service restart.
+    """
+    try:
+        server_dir = paths.validate_server_install_dir(
+            paths.server_dir(instance),
+            instance=instance,
+        )
+        instance_root = server_dir.parent
+        config_dir = paths.config_dir(instance)
+        config_file = paths.config_file(instance)
+        start_sh = paths.start_script(instance)
+
+        if not instance_root.exists():
+            return ServiceResult(
+                False,
+                tr("Instance root not found: {path}", path=instance_root),
+                1,
+            )
+
+        rendered = render_start_script(
+            instance_root=instance_root,
+            server_dir=server_dir,
+            config_dir=config_dir,
+            config_file=config_file,
+            log_stats_interval_ms=10000,
+            max_fps=60,
+        )
+
+        try:
+            current = start_sh.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            current = ""
+        except OSError as error:
+            return ServiceResult(
+                False,
+                tr(
+                    "Failed to read generated start script {path}: {error}",
+                    path=start_sh,
+                    error=redact_sensitive_text(error),
+                ),
+                1,
+            )
+
+        if current == rendered:
+            try:
+                start_sh.chmod(0o755)
+            except OSError:
+                pass
+            return ServiceResult(
+                True,
+                tr("Generated start script is up to date: {path}", path=start_sh),
+            )
+
+        start_sh.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = start_sh.with_name(f".{start_sh.name}.tmp")
+        temp_path.write_text(rendered, encoding="utf-8")
+        temp_path.chmod(0o755)
+        temp_path.replace(start_sh)
+        start_sh.chmod(0o755)
+
+        return ServiceResult(
+            True,
+            tr(
+                "Updated generated start script: {path}. "
+                "Restart the server to apply launch changes.",
+                path=start_sh,
+            ),
+        )
+    except paths.UnsafeServerInstallDirError as error:
+        return ServiceResult(False, str(error), 1)
+    except OSError as error:
+        return ServiceResult(
+            False,
+            tr(
+                "Generated start script sync failed: {error}",
+                error=redact_sensitive_text(error),
+            ),
+            1,
+        )
+
+
 def _render_privileged_helper_script() -> str:
     """Render the root-owned helper script text."""
     env = _template_environment()
@@ -947,11 +1061,11 @@ def generate_services(
 
     # 2. Render templates
     try:
-        start_sh_render = env.get_template("start-armareforger.sh.j2").render(
-            instance_root=str(inst_root),
-            server_dir=str(server_dir),
-            config_dir=str(config_dir),
-            config_file=str(config_file),
+        start_sh_render = render_start_script(
+            instance_root=inst_root,
+            server_dir=server_dir,
+            config_dir=config_dir,
+            config_file=config_file,
             log_stats_interval_ms=10000,
             max_fps=60,
         )
