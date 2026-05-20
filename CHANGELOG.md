@@ -7,6 +7,27 @@ Semantic Versioning once public releases begin.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-05-21
+
+### Added
+- Added generated runtime script synchronization for existing installations after template updates.
+- Added `sync-generated` to refresh generated runtime launch files without running full repair.
+- Added TUI operational server status from recent console logs.
+- Added operational states for ready, starting, downloading mods, retrying downloads, mission/config errors, waiting for telemetry, and stale telemetry.
+
+### Changed
+- Manage Server now surfaces the real log-derived operational state in addition to systemd running/stopped status.
+
+### Fixed
+- Fixed stale generated launch scripts after updating armactl templates.
+- Fixed FPS telemetry visibility for existing installations that still used the legacy profile path.
+- Added retry handling for SteamCMD server download/update during install.
+- Made clean installs more resilient to transient SteamCMD backend/network failures such as `Missing configuration`.
+
+### Notes
+- Existing installations should run `./armactl sync-generated` and restart the Arma Reforger service after updating.
+- New installations work out of the box and retry transient SteamCMD install failures automatically.
+
 ## [0.5.1] - 2026-05-15
 
 ### Fixed
