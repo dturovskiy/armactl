@@ -154,6 +154,7 @@ def test_download_server_streams_steamcmd_output_lines() -> None:
         lines = list(installer.download_server("default"))
 
     assert lines == [
+        "SteamCMD server download attempt 1/3...",
         "Connecting anonymously to Steam Public...OK",
         "Success! App '1874900' fully installed.",
     ]
@@ -173,3 +174,102 @@ def test_installer_refuses_install_dir_inside_git_working_tree(tmp_path: Path) -
 
     with pytest.raises(installer.InstallError, match="Git working tree"):
         installer.build_steamcmd_update_command(install_dir)
+
+
+def test_download_server_retries_transient_steamcmd_failure() -> None:
+    class FakeProc:
+        def __init__(self, lines: list[str], return_code: int) -> None:
+            self.stdout = iter(lines)
+            self._return_code = return_code
+
+        def wait(self) -> int:
+            return self._return_code
+
+    procs = [
+        FakeProc(
+            ["ERROR! Failed to install app '1874900' (Missing configuration)\n"],
+            7,
+        ),
+        FakeProc(["Success! App '1874900' fully installed.\n"], 0),
+    ]
+
+    with (
+        patch("armactl.installer.paths.server_dir", return_value=Path("/tmp/server")),
+        patch(
+            "armactl.installer._resolve_steamcmd_binary",
+            return_value="/usr/games/steamcmd",
+        ),
+        patch("armactl.installer.subprocess.Popen", side_effect=procs) as popen_mock,
+        patch("armactl.installer.time.sleep") as sleep_mock,
+    ):
+        lines = list(installer.download_server("default"))
+
+    assert popen_mock.call_count == 2
+    sleep_mock.assert_called_once_with(10.0)
+    assert "SteamCMD server download attempt 1/3..." in lines
+    assert "SteamCMD download failed; retrying in 10s..." in lines
+    assert "SteamCMD server download attempt 2/3..." in lines
+    assert "Success! App '1874900' fully installed." in lines
+
+
+def test_stream_server_update_raises_after_retry_attempts() -> None:
+    class FakeProc:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                ["ERROR! Failed to install app '1874900' (Missing configuration)\n"]
+            )
+
+        def wait(self) -> int:
+            return 7
+
+    with (
+        patch(
+            "armactl.installer._resolve_steamcmd_binary",
+            return_value="/usr/games/steamcmd",
+        ),
+        patch(
+            "armactl.installer.subprocess.Popen",
+            side_effect=[FakeProc(), FakeProc()],
+        ) as popen_mock,
+        patch("armactl.installer.time.sleep") as sleep_mock,
+    ):
+        with pytest.raises(installer.InstallError) as exc_info:
+            list(
+                installer.stream_server_update(
+                    Path("/tmp/server"),
+                    max_attempts=2,
+                    retry_delays=(0.0,),
+                )
+            )
+
+    assert popen_mock.call_count == 2
+    sleep_mock.assert_not_called()
+    assert "Missing configuration" in str(exc_info.value)
+
+
+def test_download_server_does_not_retry_permanent_steamcmd_error() -> None:
+    class FakeProc:
+        def __init__(self) -> None:
+            self.stdout = iter(
+                ["ERROR! Failed to install app '1874900' (No subscription)\n"]
+            )
+
+        def wait(self) -> int:
+            return 7
+
+    with (
+        patch("armactl.installer.paths.server_dir", return_value=Path("/tmp/server")),
+        patch(
+            "armactl.installer._resolve_steamcmd_binary",
+            return_value="/usr/games/steamcmd",
+        ),
+        patch(
+            "armactl.installer.subprocess.Popen",
+            return_value=FakeProc(),
+        ) as popen_mock,
+    ):
+        with pytest.raises(installer.InstallError) as exc_info:
+            list(installer.download_server("default"))
+
+    popen_mock.assert_called_once()
+    assert "No subscription" in str(exc_info.value)

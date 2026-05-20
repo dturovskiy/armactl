@@ -11,6 +11,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+import time
 from collections import deque
 from collections.abc import Iterator
 from pathlib import Path
@@ -39,6 +40,31 @@ from armactl.service_manager import (
 
 class InstallError(Exception):
     """Raised when installation fails at any step."""
+
+
+STEAMCMD_MAX_ATTEMPTS = 3
+STEAMCMD_RETRY_DELAYS_SECONDS = (10.0, 30.0)
+STEAMCMD_PERMANENT_ERROR_MARKERS = (
+    "No subscription",
+    "Invalid platform",
+    "Account login denied",
+)
+
+
+def _steamcmd_error_is_permanent(error: InstallError) -> bool:
+    """Return True when retrying the SteamCMD failure is unlikely to help."""
+    message = str(error)
+    return any(marker in message for marker in STEAMCMD_PERMANENT_ERROR_MARKERS)
+
+
+def _steamcmd_retry_delay(
+    attempt: int,
+    retry_delays: tuple[float, ...],
+) -> float:
+    """Return the retry delay after a failed SteamCMD attempt."""
+    if not retry_delays:
+        return 0.0
+    return retry_delays[min(attempt - 1, len(retry_delays) - 1)]
 
 
 def _validated_server_dir(instance: str) -> Path:
@@ -277,13 +303,36 @@ def stream_server_update(
     install_dir: Path,
     *,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
+    max_attempts: int = STEAMCMD_MAX_ATTEMPTS,
+    retry_delays: tuple[float, ...] = STEAMCMD_RETRY_DELAYS_SECONDS,
 ) -> Iterator[str]:
-    """Run SteamCMD app_update validate for a specific install directory."""
+    """Run SteamCMD app_update validate with retries for transient failures."""
     cmd = build_steamcmd_update_command(install_dir, instance=instance)
-    yield from _stream_cmd(
-        cmd,
-        err_msg="Failed to download server via steamcmd",
-    )
+    attempts = max(max_attempts, 1)
+
+    for attempt in range(1, attempts + 1):
+        if attempts > 1:
+            yield f"SteamCMD server download attempt {attempt}/{attempts}..."
+
+        try:
+            yield from _stream_cmd(
+                cmd,
+                err_msg="Failed to download server via steamcmd",
+            )
+            return
+        except InstallError as error:
+            if attempt >= attempts or _steamcmd_error_is_permanent(error):
+                raise
+
+            delay_seconds = _steamcmd_retry_delay(attempt, retry_delays)
+            if delay_seconds > 0:
+                yield (
+                    "SteamCMD download failed; "
+                    f"retrying in {delay_seconds:.0f}s..."
+                )
+                time.sleep(delay_seconds)
+            else:
+                yield "SteamCMD download failed; retrying..."
 
 
 def record_package_manifest(instance: str) -> None:
