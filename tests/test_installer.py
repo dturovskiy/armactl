@@ -154,6 +154,7 @@ def test_download_server_streams_steamcmd_output_lines() -> None:
         lines = list(installer.download_server("default"))
 
     assert lines == [
+        "SteamCMD server download attempt 1/3...",
         "Connecting anonymously to Steam Public...OK",
         "Success! App '1874900' fully installed.",
     ]
