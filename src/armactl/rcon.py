@@ -28,6 +28,7 @@ RCON_ROSTER_TIMEOUT_SECONDS = 1.5
 
 PLAYER_SLOT_SUFFIX_RE = re.compile(r"\s*\(#(?P<player_id>\d+)\)\s*$")
 GUID_LIKE_RE = re.compile(r"^[0-9a-fA-F-]{8,}$")
+HASH_PLAYER_PREFIX_RE = re.compile(r"^#(?P<player_id>\d+)\s+(?P<name>.+?)\s*$")
 
 
 class RconError(Exception):
@@ -129,6 +130,7 @@ def _parse_reforger_player_line(line: str) -> PlayerEntry | None:
 
     guid_index: int | None = None
     guid: str | None = None
+    player_id: str | None = None
     for index, part in enumerate(parts):
         candidate = part.lstrip("#").strip()
         if GUID_LIKE_RE.fullmatch(candidate):
@@ -139,12 +141,17 @@ def _parse_reforger_player_line(line: str) -> PlayerEntry | None:
     if guid_index is None or guid is None:
         return None
 
+    for part in parts[:guid_index]:
+        candidate = part.lstrip("#").strip()
+        if candidate.isdigit():
+            player_id = candidate
+            break
+
     trailing_parts = [part.strip() for part in parts[guid_index + 1 :] if part.strip()]
     if not trailing_parts:
         return None
 
     tail = trailing_parts[-1]
-    player_id = None
     slot_match = PLAYER_SLOT_SUFFIX_RE.search(tail)
     if slot_match:
         player_id = slot_match.group("player_id")
@@ -283,12 +290,23 @@ def _parse_player_lines(response: str) -> list[PlayerEntry]:
         if lowered.startswith(RCON_NOISE_PREFIXES):
             continue
 
-        if line.startswith("#"):
-            continue
-
         reforger_entry = _parse_reforger_player_line(line)
         if reforger_entry is not None:
             entries.append(reforger_entry)
+            continue
+
+        hash_match = HASH_PLAYER_PREFIX_RE.match(line)
+        if hash_match:
+            entries.append(
+                PlayerEntry(
+                    name=hash_match.group("name").strip(),
+                    player_id=hash_match.group("player_id"),
+                    raw=line,
+                )
+            )
+            continue
+
+        if line.startswith("#"):
             continue
 
         parts = line.split(maxsplit=1)
@@ -404,3 +422,5 @@ def query_player_roster(
     finally:
         session.logout()
         session.close()
+
+

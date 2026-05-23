@@ -219,6 +219,7 @@
     "Server metrics unavailable: {value}": "Метрики сервера недоступні: {value}",
     "Host metrics unavailable: {value}": "Метрики хоста недоступні: {value}",
     "[bold yellow]Warnings[/bold yellow]": "[bold yellow]Попередження[/bold yellow]",
+    "Player count source warning: {value}": "Попередження джерела кількості гравців: {value}",
     "Installed mods: {count}": "Встановлено модів: {count}",
     "No mods configured.": "Моди не налаштовано.",
     "Mods summary unavailable.": "Підсумок модів недоступний.",
@@ -531,3 +532,4 @@
     "Telemetry stale": "Телеметрія застаріла"
   }
 }
+
