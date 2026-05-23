@@ -926,7 +926,7 @@ class ArmaCtlTelegramBot:
                 include_summaries=True,
                 player_status_timeout=TELEGRAM_PLAYER_STATUS_TIMEOUT_SECONDS,
             )
-        elif view == "players":
+        elif view in {"players", "status"}:
             snapshot = _build_status_snapshot(
                 self.instance,
                 include_roster=True,
@@ -1443,4 +1443,5 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
 
