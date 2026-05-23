@@ -228,6 +228,7 @@
     "[bold cyan]Players[/bold cyan]": "[bold cyan]Гравці[/bold cyan]",
     "Player roster unavailable: {value}": "Список гравців недоступний: {value}",
     "RCON player roster is not configured.": "Список гравців через RCON не налаштовано.",
+    "RCON roster returned no player names yet.": "RCON ще не повернув імена гравців.",
     "Check local RCON address, port, and password.": "Перевірте локальні RCON address, port і password.",
     "No players online.": "Гравців онлайн немає.",
     "- {name} (#{player_id})": "- {name} (#{player_id})",

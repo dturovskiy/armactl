@@ -745,3 +745,30 @@ def test_build_application_configures_telegram_request_timeouts():
     assert fake_application.polling_kwargs["drop_pending_updates"] is True
     assert fake_application.handlers
     assert fake_application.error_handlers == [bot.error_handler]
+
+
+def test_render_bot_players_text_handles_available_empty_roster() -> None:
+    snapshot = telegram_bot.BotStatusSnapshot(
+        instance="default",
+        server_running=True,
+        service_name="armareforger.service",
+        service_active_state="active",
+        service_enabled=True,
+        timer_name="armareforger-restart.timer",
+        schedule="08:00, 20:00",
+        next_run="2026-03-29 08:00:00 UTC",
+        player_count=1,
+        max_players=128,
+        player_lines=[],
+        roster_available=True,
+        roster_configured=True,
+        roster_error="",
+    )
+
+    text = telegram_bot.render_bot_players_text(snapshot, "en")
+
+    assert "Players: default" in text
+    assert "Count: 1/128" in text
+    assert "RCON roster returned no player names yet." in text
+    assert "Player roster unavailable" not in text
+    assert "Check local RCON address, port, and password." not in text
