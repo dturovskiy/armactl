@@ -305,3 +305,24 @@ def test_query_player_roster_allows_explicit_timeout_override() -> None:
         rcon.query_player_roster("default", timeout=0.25)
 
     assert captured["timeout"] == 0.25
+
+
+def test_query_player_entries_treats_header_only_roster_as_empty() -> None:
+    class FakeSession:
+        def __init__(self) -> None:
+            self.commands: list[str] = []
+
+        def send_command(self, command: str) -> str:
+            self.commands.append(command)
+            return """
+Logged In! Client ID: #0
+Processing Command: #players
+Players on server: [Player#] ; [Player UID] ; [Player Name]
+""".strip()
+
+    session = FakeSession()
+
+    entries = rcon._query_player_entries(session)
+
+    assert entries == []
+    assert session.commands == ["#players", "players"]

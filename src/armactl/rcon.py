@@ -307,9 +307,38 @@ def _parse_player_lines(response: str) -> list[PlayerEntry]:
     return entries
 
 
+def _is_empty_player_roster_response(response: str) -> bool:
+    """Return True when RCON returned only login/command noise and roster headers."""
+    meaningful_lines: list[str] = []
+
+    for raw_line in response.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        lowered = line.lower()
+        if lowered.startswith(RCON_NOISE_PREFIXES):
+            continue
+
+        if lowered in {"players on server:", "players on server"}:
+            continue
+
+        if lowered.startswith("players on server:") and "[player" in lowered:
+            continue
+
+        if lowered.startswith("players") and ":" in line:
+            continue
+
+        meaningful_lines.append(line)
+
+    return not meaningful_lines
+
+
 def _query_player_entries(session: _RconSession) -> list[PlayerEntry]:
     """Try the most likely roster commands and return the first non-empty parse."""
     last_error: str = ""
+    saw_empty_roster = False
+
     for command in ("#players", "players"):
         try:
             response = session.send_command(command)
@@ -320,9 +349,15 @@ def _query_player_entries(session: _RconSession) -> list[PlayerEntry]:
         entries = _parse_player_lines(response)
         if entries:
             return entries
+
         if response:
+            if _is_empty_player_roster_response(response):
+                saw_empty_roster = True
+                continue
             last_error = response
 
+    if saw_empty_roster:
+        return []
     if last_error:
         raise RconError(last_error)
     return []
