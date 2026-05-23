@@ -14,11 +14,10 @@ from typing import Any
 import armactl.metrics as metrics
 import armactl.status_summary as status_summary
 from armactl import paths
-from armactl.a2s import query_player_status
 from armactl.bot_config import BotConfigError, load_bot_config
 from armactl.discovery import discover
 from armactl.i18n import tr_for_lang, translate_for_lang, using_lang
-from armactl.rcon import query_player_roster
+from armactl.player_view import query_player_view
 from armactl.redaction import redact_sensitive_text
 from armactl.service_manager import (
     disable_service,
@@ -630,7 +629,12 @@ def _build_status_snapshot(
     state = discover(instance, save=False)
     service_status = get_service_status(service_unit_name(instance))
     timer_status = get_timer_status(timer_unit_name(instance))
-    player_status = query_player_status(instance, timeout=player_status_timeout, state=state)
+    player_view = query_player_view(
+        instance,
+        timeout=player_status_timeout,
+        state=state,
+        include_roster=include_roster,
+    )
     runtime_metrics = (
         metrics.query_service_runtime_metrics(service_status)
         if include_runtime_metrics
@@ -644,16 +648,7 @@ def _build_status_snapshot(
     else:
         config_summary = status_summary.ConfigSummary(False)
         mods_summary = status_summary.ModsSummary(False)
-    roster_lines: list[str] = []
-    roster_available = False
-    roster_configured = False
-    roster_error = ""
-    if include_roster and player_status.player_count and player_status.player_count > 0:
-        roster = query_player_roster(instance)
-        roster_available = roster.available
-        roster_configured = roster.configured
-        roster_error = roster.error
-        roster_lines = [entry.name for entry in roster.entries]
+    roster_lines = player_view.player_lines
     return BotStatusSnapshot(
         instance=instance,
         server_running=state.server_running,
@@ -663,8 +658,8 @@ def _build_status_snapshot(
         timer_name=timer_unit_name(instance),
         schedule=timer_status.get("schedule", ""),
         next_run=timer_status.get("next_run", ""),
-        player_count=player_status.player_count,
-        max_players=player_status.max_players,
+        player_count=player_view.current,
+        max_players=player_view.max_players,
         main_pid=main_pid,
         cpu_percent=runtime_metrics.cpu_percent,
         memory_rss_bytes=runtime_metrics.memory_rss_bytes,
@@ -681,9 +676,9 @@ def _build_status_snapshot(
             else metrics.ServerFpsMetrics(False)
         ),
         player_lines=roster_lines,
-        roster_available=roster_available,
-        roster_configured=roster_configured,
-        roster_error=roster_error,
+        roster_available=player_view.roster_available,
+        roster_configured=player_view.roster_configured,
+        roster_error=player_view.roster_error,
     )
 
 
@@ -1448,3 +1443,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

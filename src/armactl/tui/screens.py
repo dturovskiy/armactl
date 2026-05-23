@@ -27,7 +27,6 @@ from textual.widgets import (
 )
 
 from armactl import paths, ports
-from armactl.a2s import query_player_status
 from armactl.addon_cleanup import cleanup_unconfigured_addons
 from armactl.bot_config import (
     BotConfig,
@@ -73,7 +72,7 @@ from armactl.mods_manager import (
     import_mods_detailed,
     preview_import_mods,
 )
-from armactl.rcon import query_player_roster
+from armactl.player_view import PlayerView, query_player_view
 from armactl.redaction import redact_sensitive_text
 from armactl.repair import run_repair
 from armactl.service_manager import (
@@ -591,6 +590,21 @@ class ManageScreen(Screen):
             return _("Unknown")
         return player_text
 
+    def _player_entry_lines(self, player_view: PlayerView) -> list[str]:
+        lines: list[str] = []
+        for entry in player_view.entries:
+            if entry.player_id:
+                lines.append(
+                    tr(
+                        "- {name} (#{player_id})",
+                        name=entry.name,
+                        player_id=entry.player_id,
+                    )
+                )
+            else:
+                lines.append(tr("- {name}", name=entry.name))
+        return lines
+
     def _format_bytes_pair(
         self,
         used: int | None,
@@ -696,7 +710,7 @@ class ManageScreen(Screen):
     def _build_overview_text(self) -> str:
         state = discover(self.instance, save=False)
         service_status = get_service_status(self._service_name())
-        player_status = query_player_status(self.instance, state=state)
+        player_view = query_player_view(self.instance, state=state, include_roster=True)
         metrics = query_service_runtime_metrics(service_status)
         host_metrics = self._query_host_metrics()
         fps_metrics = self._query_server_fps_metrics()
@@ -726,8 +740,8 @@ class ManageScreen(Screen):
             tr(
                 "Players: {value}",
                 value=self._format_players(
-                    player_status.player_count,
-                    player_status.max_players,
+                    player_view.current,
+                    player_view.max_players,
                 ),
             ),
             "",
@@ -790,8 +804,10 @@ class ManageScreen(Screen):
         ]
 
         warnings: list[str] = []
-        if player_status.player_count is None:
+        if player_view.current is None:
             warnings.append(_("Players: unavailable"))
+        if player_view.warning:
+            warnings.append(player_view.warning)
         if not metrics.available:
             warnings.append(
                 tr(
@@ -823,7 +839,7 @@ class ManageScreen(Screen):
         timer_name = timer_unit_name(self.instance)
         service_status = get_service_status(service_name)
         timer_status = get_timer_status(timer_name)
-        player_status = query_player_status(self.instance, state=state)
+        player_view = query_player_view(self.instance, state=state, include_roster=True)
         metrics = query_service_runtime_metrics(service_status)
         host_metrics = self._query_host_metrics()
         fps_metrics = self._query_server_fps_metrics()
@@ -1019,51 +1035,42 @@ class ManageScreen(Screen):
             ]
         )
 
-        if player_status.player_count is None:
+        if player_view.current is None:
             lines.append(_("Players: unavailable"))
-        elif player_status.max_players is None:
+        elif player_view.max_players is None:
             lines.append(
                 tr(
                     "Players: {current}",
-                    current=player_status.player_count,
+                    current=player_view.current,
                 )
             )
         else:
             lines.append(
                 tr(
                     "Players: {current}/{max}",
-                    current=player_status.player_count,
-                    max=player_status.max_players,
+                    current=player_view.current,
+                    max=player_view.max_players,
                 )
             )
 
-        if player_status.player_count and player_status.player_count > 0:
-            roster = query_player_roster(self.instance)
-            if roster.available and roster.entries:
-                for entry in roster.entries:
-                    if entry.player_id:
-                        lines.append(
-                            tr(
-                                "- {name} (#{player_id})",
-                                name=entry.name,
-                                player_id=entry.player_id,
-                            )
-                        )
-                    else:
-                        lines.append(tr("- {name}", name=entry.name))
-            elif roster.available:
-                lines.append(_("RCON roster returned no player names yet."))
-            elif roster.configured:
-                lines.append(
-                    tr(
-                        "Player roster unavailable: {value}",
-                        value=roster.error or _("Unknown"),
-                    )
-                )
-            else:
-                lines.append(_("RCON player roster is not configured."))
-        elif player_status.player_count == 0:
+        if player_view.entries:
+            lines.extend(self._player_entry_lines(player_view))
+        elif player_view.current == 0:
             lines.append(_("No players online."))
+        elif player_view.roster_available:
+            lines.append(_("RCON roster returned no player names yet."))
+        elif player_view.roster_configured:
+            lines.append(
+                tr(
+                    "Player roster unavailable: {value}",
+                    value=player_view.roster_error or _("Unknown"),
+                )
+            )
+        else:
+            lines.append(_("RCON player roster is not configured."))
+
+        if player_view.warning:
+            lines.append(tr("Player count source warning: {value}", value=player_view.warning))
 
         return "\n".join(lines)
 
@@ -2956,3 +2963,4 @@ class ModManagerScreen(Screen):
             )
             if count > 0:
                 await self.action_refresh_mods()
+
