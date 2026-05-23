@@ -1051,6 +1051,8 @@ class ManageScreen(Screen):
                         )
                     else:
                         lines.append(tr("- {name}", name=entry.name))
+            elif roster.available:
+                lines.append(_("RCON roster returned no player names yet."))
             elif roster.configured:
                 lines.append(
                     tr(

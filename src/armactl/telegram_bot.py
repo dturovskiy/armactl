@@ -489,6 +489,15 @@ def render_bot_players_text(snapshot: BotStatusSnapshot, lang: str) -> str:
         if snapshot.player_lines:
             for index, player_line in enumerate(snapshot.player_lines, start=1):
                 lines.append(f"{index}. {player_line}")
+        elif snapshot.roster_available:
+            lines.append(
+                _bullet_line(
+                    translate_for_lang(
+                        lang,
+                        "RCON roster returned no player names yet.",
+                    )
+                )
+            )
         elif not snapshot.roster_configured:
             lines.append(
                 _bullet_line(
