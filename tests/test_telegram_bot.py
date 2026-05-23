@@ -407,6 +407,7 @@ def test_bot_snapshot_cache_reuses_view_data_until_refresh():
     telegram_timeout = telegram_bot.TELEGRAM_PLAYER_STATUS_TIMEOUT_SECONDS
     assert build.call_args_list[0] == mock.call(
         "default",
+        include_roster=True,
         player_status_timeout=telegram_timeout,
     )
     assert build.call_args_list[1] == mock.call(
@@ -427,6 +428,7 @@ def test_bot_snapshot_cache_reuses_view_data_until_refresh():
     )
     assert build.call_args_list[4] == mock.call(
         "default",
+        include_roster=True,
         player_status_timeout=telegram_timeout,
     )
 
@@ -772,3 +774,4 @@ def test_render_bot_players_text_handles_available_empty_roster() -> None:
     assert "RCON roster returned no player names yet." in text
     assert "Player roster unavailable" not in text
     assert "Check local RCON address, port, and password." not in text
+
