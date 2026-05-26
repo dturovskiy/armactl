@@ -1,0 +1,1182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>armactl - Arma Reforger Server Manager</title>
+    
+    <!-- Open Graph / Site Preview Meta Tags -->
+    <meta property="og:title" content="armactl - Arma Reforger Server Manager">
+    <meta property="og:description" content="Installer, manager, and TUI for Arma Reforger Dedicated Server on Ubuntu.">
+    <meta property="og:image" content="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc4MDAnIGhlaWdodD0nNDUwJz48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9J2cnIHgxPScwJScgeTE9JzAlJyB4Mj0nMTAwJScgeTI9JzEwMCUnPjxzdG9wIG9mZnNldD0nMCUnIHN0b3AtY29sb3I9JyMwMEZGOTQnLz48c3RvcCBvZmZzZXQ9JzEwMCUnIHN0b3AtY29sb3I9JyMwMEIyRkYnLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0nODAwJyBoZWlnaHQ9JzQ1MCcgZmlsbD0ndXJsKCNnKScvPjwvc3ZnPg==" data-alt="Close up photograph of a dark computer monitor displaying a terminal window with glowing neon green and blue code lines, set against a dark room background. Modernism, technical aesthetics, glowing pixels. No readable text.">
+    <meta property="og:type" content="website">
+    
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="armactl - Arma Reforger Server Manager">
+    <meta name="twitter:description" content="Installer, manager, and TUI for Arma Reforger Dedicated Server on Ubuntu.">
+    <meta name="twitter:image" content="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc4MDAnIGhlaWdodD0nNDUwJz48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9J2cnIHgxPScwJScgeTE9JzAlJyB4Mj0nMTAwJScgeTI9JzEwMCUnPjxzdG9wIG9mZnNldD0nMCUnIHN0b3AtY29sb3I9JyMwMEZGOTQnLz48c3RvcCBvZmZzZXQ9JzEwMCUnIHN0b3AtY29sb3I9JyMwMEIyRkYnLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0nODAwJyBoZWlnaHQ9JzQ1MCcgZmlsbD0ndXJsKCNnKScvPjwvc3ZnPg==" data-alt="Close up photograph of a dark computer monitor displaying a terminal window with glowing neon green and blue code lines, set against a dark room background. Modernism, technical aesthetics, glowing pixels. No readable text.">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nico+Moji&family=Roboto+Mono:wght@300;400;600&display=swap" rel="stylesheet">
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        /* CSS Variables - Brand Palette */
+        :root {
+            --bg-dark: #1B1B1E;
+            --bg-darker: #121214;
+            --bg-panel: #24242A;
+            --neon-green: #00FF94;
+            --neon-blue: #00B2FF;
+            --neon-orange: #F6AD55;
+            --text-main: #E2E2E2;
+            --text-muted: #8E8E9E;
+            
+            --heading-color: #FFFFFF;
+            --header-bg: rgba(27, 27, 30, 0.95);
+            --shadow-color: rgba(0,0,0,0.5);
+            --border-light: rgba(255,255,255,0.05);
+            --box-bg: rgba(36, 36, 42, 0.5);
+            
+            --neon-green-alpha-10: rgba(0, 255, 148, 0.1);
+            --neon-green-alpha-30: rgba(0, 255, 148, 0.3);
+            --neon-green-alpha-05: rgba(0, 255, 148, 0.05);
+            
+            --neon-blue-alpha-10: rgba(0, 178, 255, 0.1);
+            --neon-blue-alpha-30: rgba(0, 178, 255, 0.3);
+            --neon-blue-alpha-05: rgba(0, 178, 255, 0.05);
+            
+            --neon-orange-alpha-20: rgba(246, 173, 85, 0.2);
+            
+            --font-display: 'Nico Moji', sans-serif;
+            --font-mono: 'Roboto Mono', monospace;
+            
+            --header-height: 80px;
+        }
+
+        /* Light Theme Overrides - Modern Browsers */
+        :root:has(#theme-toggle:checked) {
+            --bg-dark: #F5F7FA;
+            --bg-darker: #EAECEF;
+            --bg-panel: #FFFFFF;
+            --neon-green: #00A86B;
+            --neon-blue: #0073E6;
+            --neon-orange: #E67300;
+            --text-main: #2D3748;
+            --text-muted: #718096;
+            
+            --heading-color: #1A202C;
+            --header-bg: rgba(245, 247, 250, 0.95);
+            --shadow-color: rgba(0,0,0,0.1);
+            --border-light: rgba(0,0,0,0.1);
+            --box-bg: rgba(255, 255, 255, 0.6);
+            
+            --neon-green-alpha-10: rgba(0, 168, 107, 0.1);
+            --neon-green-alpha-30: rgba(0, 168, 107, 0.3);
+            --neon-green-alpha-05: rgba(0, 168, 107, 0.05);
+            
+            --neon-blue-alpha-10: rgba(0, 115, 230, 0.1);
+            --neon-blue-alpha-30: rgba(0, 115, 230, 0.3);
+            --neon-blue-alpha-05: rgba(0, 115, 230, 0.05);
+            
+            --neon-orange-alpha-20: rgba(230, 115, 0, 0.2);
+        }
+
+        /* Light Theme Overrides - Fallback */
+        #theme-toggle:checked ~ .page-wrapper {
+            --bg-dark: #F5F7FA;
+            --bg-darker: #EAECEF;
+            --bg-panel: #FFFFFF;
+            --neon-green: #00A86B;
+            --neon-blue: #0073E6;
+            --neon-orange: #E67300;
+            --text-main: #2D3748;
+            --text-muted: #718096;
+            
+            --heading-color: #1A202C;
+            --header-bg: rgba(245, 247, 250, 0.95);
+            --shadow-color: rgba(0,0,0,0.1);
+            --border-light: rgba(0,0,0,0.1);
+            --box-bg: rgba(255, 255, 255, 0.6);
+            
+            --neon-green-alpha-10: rgba(0, 168, 107, 0.1);
+            --neon-green-alpha-30: rgba(0, 168, 107, 0.3);
+            --neon-green-alpha-05: rgba(0, 168, 107, 0.05);
+            
+            --neon-blue-alpha-10: rgba(0, 115, 230, 0.1);
+            --neon-blue-alpha-30: rgba(0, 115, 230, 0.3);
+            --neon-blue-alpha-05: rgba(0, 115, 230, 0.05);
+            
+            --neon-orange-alpha-20: rgba(230, 115, 0, 0.2);
+            
+            background-color: var(--bg-dark);
+        }
+
+        /* Reset & Base Styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+            scroll-padding-top: var(--header-height);
+        }
+
+        body {
+            font-family: var(--font-mono);
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+            padding-top: var(--header-height);
+        }
+
+        h1, h2, h3, h4 {
+            font-family: var(--font-display);
+            font-weight: normal;
+            letter-spacing: 1px;
+            margin-bottom: 1rem;
+            color: var(--heading-color);
+        }
+
+        p {
+            margin-bottom: 1.5rem;
+            font-size: 1rem;
+            font-weight: 300;
+        }
+
+        a {
+            color: var(--neon-blue);
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+
+        a:hover {
+            color: var(--neon-green);
+        }
+
+        /* Layout Utility */
+        .page-wrapper {
+            width: 100%;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 5%;
+        }
+
+        section {
+            padding: 120px 0;
+            position: relative;
+        }
+
+        /* Buttons / CTAs */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 24px;
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border: 1px solid var(--neon-green);
+            background-color: transparent;
+            color: var(--neon-green);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn:hover {
+            background-color: var(--neon-green-alpha-10);
+            box-shadow: 0 0 15px var(--neon-green-alpha-30);
+            color: var(--neon-green);
+        }
+
+        /* CSS-Only Language Switcher Logic */
+        .lang-radio { display: none; }
+        .lang-en, .lang-ua, .lang-fr { display: none; }
+
+        #lang-en:checked ~ .page-wrapper .lang-en.lang-block { display: block; }
+        #lang-en:checked ~ .page-wrapper .lang-en.lang-inline { display: inline; }
+        
+        #lang-ua:checked ~ .page-wrapper .lang-ua.lang-block { display: block; }
+        #lang-ua:checked ~ .page-wrapper .lang-ua.lang-inline { display: inline; }
+        
+        #lang-fr:checked ~ .page-wrapper .lang-fr.lang-block { display: block; }
+        #lang-fr:checked ~ .page-wrapper .lang-fr.lang-inline { display: inline; }
+
+        /* Theme Switcher UI */
+        .theme-toggle-btn {
+            cursor: pointer;
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            margin-right: 1.5rem;
+            transition: color 0.3s ease;
+            display: flex;
+            align-items: center;
+        }
+
+        .theme-toggle-btn:hover {
+            color: var(--neon-orange);
+        }
+
+        .theme-toggle-btn .light-icon {
+            display: none;
+        }
+
+        :root:has(#theme-toggle:checked) .theme-toggle-btn .dark-icon,
+        #theme-toggle:checked ~ .page-wrapper .theme-toggle-btn .dark-icon {
+            display: none;
+        }
+
+        :root:has(#theme-toggle:checked) .theme-toggle-btn .light-icon,
+        #theme-toggle:checked ~ .page-wrapper .theme-toggle-btn .light-icon {
+            display: block;
+        }
+
+        /* Language Switcher UI */
+        .lang-switcher {
+            position: relative;
+            font-family: var(--font-mono);
+            color: var(--text-muted);
+            margin-right: 1.5rem;
+        }
+
+        .lang-current {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            padding: 10px 0;
+            transition: color 0.3s ease;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+        }
+
+        .lang-current:hover {
+            color: var(--text-main);
+        }
+
+        .lang-dropdown {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background-color: var(--bg-darker);
+            border: 1px solid var(--bg-panel);
+            list-style: none;
+            min-width: 150px;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(10px);
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 30px var(--shadow-color);
+            z-index: 400;
+        }
+
+        .lang-switcher:hover .lang-dropdown {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .lang-option {
+            display: block;
+            padding: 12px 15px;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .lang-option:hover {
+            color: var(--neon-green);
+            background-color: var(--neon-green-alpha-05);
+        }
+
+        #lang-en:checked ~ .page-wrapper label[for="lang-en"],
+        #lang-ua:checked ~ .page-wrapper label[for="lang-ua"],
+        #lang-fr:checked ~ .page-wrapper label[for="lang-fr"] {
+            color: var(--neon-blue);
+            background-color: var(--neon-blue-alpha-05);
+            border-left: 2px solid var(--neon-blue);
+        }
+
+        /* Header Navigation */
+        header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: var(--header-height);
+            background-color: var(--header-bg);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--bg-panel);
+            z-index: 300;
+            display: flex;
+            align-items: center;
+        }
+
+        .nav-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+        }
+
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .logo-img {
+            width: 45px;
+            height: 45px;
+            object-fit: contain;
+            flex-shrink: 0;
+        }
+
+        .logo-text {
+            font-family: var(--font-display);
+            font-size: 1.5rem;
+            color: var(--heading-color);
+            letter-spacing: 2px;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+        }
+
+        .nav-links a {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            letter-spacing: 1px;
+            position: relative;
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            width: 0;
+            height: 1px;
+            bottom: -5px;
+            left: 0;
+            background-color: var(--neon-blue);
+            transition: width 0.3s ease;
+        }
+
+        .nav-links a:hover {
+            color: var(--text-main);
+        }
+
+        .nav-links a:hover::after {
+            width: 100%;
+        }
+
+        .nav-actions {
+            display: flex;
+            align-items: center;
+        }
+
+        /* Mobile Menu Toggle (CSS Only trick) */
+        .menu-toggle {
+            display: none;
+            flex-direction: column;
+            gap: 5px;
+            cursor: pointer;
+        }
+        
+        .menu-toggle span {
+            width: 25px;
+            height: 2px;
+            background-color: var(--text-main);
+            transition: 0.3s;
+        }
+
+        #menu-checkbox {
+            display: none;
+        }
+
+        /* Hero Section */
+        .hero {
+            min-height: calc(100vh - var(--header-height));
+            display: flex;
+            align-items: center;
+            background: linear-gradient(135deg, var(--bg-dark) 0%, var(--bg-darker) 100%);
+            border-bottom: 1px solid var(--bg-panel);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 50%;
+            height: 100%;
+            background: radial-gradient(circle at 70% 50%, var(--neon-blue-alpha-05) 0%, transparent 60%);
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .hero-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            align-items: center;
+            position: relative;
+            z-index: 2;
+        }
+
+        .hero-content h1 {
+            font-size: clamp(2.5rem, 5vw, 4rem);
+            line-height: 1.1;
+            margin-bottom: 1.5rem;
+            text-transform: none;
+        }
+
+        .terminal-prompt {
+            color: var(--neon-green);
+            margin-right: 10px;
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 12px;
+            height: 1.2em;
+            background-color: var(--neon-green);
+            vertical-align: text-bottom;
+            animation: blink 1s step-end infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        .hero-lead {
+            font-size: 1.2rem;
+            color: var(--text-muted);
+            max-width: 90%;
+        }
+
+        /* Decorative Terminal Window */
+        .terminal-window {
+            background-color: var(--bg-darker);
+            border: 1px solid var(--bg-panel);
+            box-shadow: 0 20px 40px var(--shadow-color), 0 0 0 1px var(--neon-blue-alpha-10);
+            position: relative;
+        }
+
+        .terminal-header {
+            background-color: var(--bg-panel);
+            padding: 10px 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        .terminal-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .dot-red { background-color: #FF5F56; }
+        .dot-yellow { background-color: #FFBD2E; }
+        .dot-green { background-color: #27C93F; }
+
+        .terminal-title {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            margin-left: auto;
+            margin-right: auto;
+            font-family: var(--font-display);
+            text-transform: lowercase;
+        }
+
+        .terminal-body {
+            padding: 20px;
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        .cmd-line {
+            margin-bottom: 10px;
+        }
+
+        .cmd-line-heading { color: var(--heading-color); }
+        .cmd-path { color: var(--neon-blue); }
+        .cmd-success { color: var(--neon-green); }
+        .cmd-warn { color: var(--neon-orange); }
+
+        /* Overview Section */
+        .overview {
+            background-color: var(--bg-dark);
+            border-bottom: 1px solid var(--bg-panel);
+        }
+
+        .section-header {
+            margin-bottom: 4rem;
+            max-width: 700px;
+        }
+
+        .section-header h2 {
+            font-size: 2.5rem;
+            display: inline-block;
+            border-bottom: 2px solid var(--neon-blue);
+            padding-bottom: 10px;
+        }
+
+        .overview-content {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 2rem;
+            font-size: 1.1rem;
+        }
+
+        .overview-box {
+            background-color: var(--box-bg);
+            border-left: 3px solid var(--neon-green);
+            padding: 2rem;
+            position: relative;
+        }
+
+        /* Features Section */
+        .features {
+            background-color: var(--bg-darker);
+            position: relative;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 2rem;
+        }
+
+        .feature-card {
+            background-color: var(--bg-dark);
+            border: 1px solid var(--bg-panel);
+            padding: 2.5rem 2rem;
+            transition: all 0.3s ease;
+            position: relative;
+            z-index: 1;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background-color: transparent;
+            transition: background-color 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--neon-blue-alpha-30);
+            box-shadow: 0 10px 30px var(--shadow-color);
+        }
+
+        .feature-card:hover::before {
+            background-color: var(--neon-blue);
+        }
+
+        .feature-icon {
+            font-size: 2rem;
+            color: var(--neon-blue);
+            margin-bottom: 1.5rem;
+        }
+
+        .feature-card h3 {
+            font-size: 1.2rem;
+            margin-bottom: 1rem;
+            font-family: var(--font-mono);
+            font-weight: 600;
+        }
+
+        /* Image decorative block */
+        .image-break {
+            height: 400px;
+            width: 100%;
+            position: relative;
+            border-top: 1px solid var(--bg-panel);
+            border-bottom: 1px solid var(--bg-panel);
+        }
+        
+        .image-break::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, var(--bg-darker) 0%, transparent 20%, transparent 80%, var(--bg-darker) 100%);
+            pointer-events: none;
+        }
+
+        /* Values Section */
+        .values {
+            background-color: var(--bg-dark);
+        }
+
+        .values-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 2rem;
+            border-top: 1px solid var(--bg-panel);
+            padding-top: 4rem;
+        }
+
+        .value-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .value-number {
+            font-family: var(--font-display);
+            font-size: 3rem;
+            color: var(--neon-orange-alpha-20);
+            line-height: 1;
+            margin-bottom: 0.5rem;
+        }
+
+        .value-title {
+            color: var(--neon-orange);
+            font-weight: 600;
+            font-size: 1.1rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Footer */
+        footer {
+            background-color: var(--bg-darker);
+            border-top: 1px solid var(--bg-panel);
+            padding: 4rem 0 2rem 0;
+        }
+
+        .footer-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .footer-logo {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .social-links {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+        }
+
+        .social-links a {
+            color: var(--text-muted);
+            font-size: 1.5rem;
+            transition: color 0.3s ease, transform 0.3s ease;
+        }
+
+        .social-links a:hover {
+            color: var(--neon-blue);
+            transform: translateY(-2px);
+        }
+
+        .footer-bottom {
+            text-align: center;
+            padding-top: 2rem;
+            border-top: 1px solid var(--border-light);
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 992px) {
+            .hero-grid {
+                grid-template-columns: 1fr;
+            }
+            .hero-content {
+                order: 1;
+            }
+            .terminal-window {
+                order: 2;
+                max-width: 600px;
+                margin: 0 auto;
+            }
+            .section-header h2 {
+                font-size: 2rem;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .menu-toggle {
+                display: flex;
+            }
+            .nav-links, .nav-actions {
+                display: none;
+                flex-direction: column;
+                width: 100%;
+                text-align: center;
+                background-color: var(--bg-darker);
+                position: absolute;
+                top: var(--header-height);
+                left: 0;
+                padding: 1rem 0;
+                border-bottom: 1px solid var(--bg-panel);
+            }
+            
+            #menu-checkbox:checked ~ .nav-links,
+            #menu-checkbox:checked ~ .nav-actions {
+                display: flex;
+            }
+            
+            .nav-links {
+                padding-bottom: 0;
+                border-bottom: none;
+            }
+            
+            .nav-actions {
+                padding-top: 1rem;
+            }
+
+            .lang-switcher {
+                margin-right: 0;
+                margin-bottom: 1rem;
+                width: 100%;
+            }
+
+            .theme-toggle-btn {
+                margin-right: 0;
+                margin-bottom: 1.5rem;
+                justify-content: center;
+                width: 100%;
+            }
+
+            .lang-current {
+                justify-content: center;
+            }
+
+            .lang-dropdown {
+                position: static;
+                opacity: 1;
+                visibility: hidden;
+                display: none;
+                box-shadow: none;
+                border: none;
+                background: transparent;
+                transform: none;
+            }
+
+            .lang-switcher:hover .lang-dropdown {
+                display: block;
+                visibility: visible;
+            }
+
+            .nav-links li {
+                padding: 10px 0;
+            }
+
+            .hero {
+                text-align: center;
+            }
+            
+            .hero-lead {
+                margin: 0 auto 2.5rem auto;
+            }
+
+            .overview-content {
+                padding: 1rem;
+            }
+
+            .footer-content {
+                flex-direction: column;
+                justify-content: center;
+                text-align: center;
+            }
+
+            .social-links {
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Hidden CSS-Only Language Switcher Radios -->
+    <input type="radio" name="lang" id="lang-en" checked class="lang-radio">
+    <input type="radio" name="lang" id="lang-ua" class="lang-radio">
+    <input type="radio" name="lang" id="lang-fr" class="lang-radio">
+
+    <!-- Hidden CSS-Only Theme Switcher Checkbox -->
+    <input type="checkbox" id="theme-toggle" style="display: none;">
+
+    <div class="page-wrapper">
+        <!-- Header -->
+        <header>
+            <div class="container nav-container">
+                <div class="logo-container">
+                    <img src="assets/aS-i3f1smFC4-ep6nXk40X.png" alt="armactl logo" class="logo-img">
+                    <span class="logo-text">ARMActl</span>
+                </div>
+                
+                <input type="checkbox" id="menu-checkbox">
+                <label for="menu-checkbox" class="menu-toggle">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </label>
+
+                <ul class="nav-links">
+                    <li><a href="#overview">
+                        <span class="lang-en lang-inline">Overview</span>
+                        <span class="lang-ua lang-inline">Огляд</span>
+                        <span class="lang-fr lang-inline">Aperçu</span>
+                    </a></li>
+                    <li><a href="#features">
+                        <span class="lang-en lang-inline">Capabilities</span>
+                        <span class="lang-ua lang-inline">Можливості</span>
+                        <span class="lang-fr lang-inline">Capacités</span>
+                    </a></li>
+                    <li><a href="#philosophy">
+                        <span class="lang-en lang-inline">Philosophy</span>
+                        <span class="lang-ua lang-inline">Філософія</span>
+                        <span class="lang-fr lang-inline">Philosophie</span>
+                    </a></li>
+                </ul>
+
+                <div class="nav-actions">
+                    <label for="theme-toggle" class="theme-toggle-btn" aria-label="Toggle light/dark theme">
+                        <i class="fa-solid fa-moon dark-icon"></i>
+                        <i class="fa-solid fa-sun light-icon"></i>
+                    </label>
+                    <div class="lang-switcher">
+                        <div class="lang-current">
+                            <i class="fa-solid fa-globe"></i> 
+                            <span class="lang-en lang-inline">EN</span>
+                            <span class="lang-ua lang-inline">UA</span>
+                            <span class="lang-fr lang-inline">FR</span>
+                            <i class="fa-solid fa-chevron-down" style="font-size: 0.7em;"></i>
+                        </div>
+                        <ul class="lang-dropdown">
+                            <li><label for="lang-en" class="lang-option">EN - English</label></li>
+                            <li><label for="lang-ua" class="lang-option">UA - Українська</label></li>
+                            <li><label for="lang-fr" class="lang-option">FR - Français</label></li>
+                        </ul>
+                    </div>
+                    <a href="https://github.com/dturovskiy/armactl/releases/latest" target="_blank" class="btn">
+                        <i class="fa-brands fa-github" style="margin-right: 8px;"></i>
+                        <span class="lang-en lang-inline">Download</span>
+                        <span class="lang-ua lang-inline">Завантажити</span>
+                        <span class="lang-fr lang-inline">Télécharger</span>
+                    </a>
+                </div>
+            </div>
+        </header>
+
+        <!-- Hero Section -->
+        <section class="hero">
+            <div class="container hero-grid">
+                <div class="hero-content">
+                    <h1><span class="terminal-prompt">$</span>armactl<span class="cursor"></span></h1>
+                    <p class="hero-lead">
+                        <span class="lang-en lang-inline">Installer, manager, and TUI for Arma Reforger Dedicated Server on Ubuntu.</span>
+                        <span class="lang-ua lang-inline">Інсталятор, менеджер та TUI для виділеного сервера Arma Reforger на Ubuntu.</span>
+                        <span class="lang-fr lang-inline">Installateur, gestionnaire et TUI pour le serveur dédié Arma Reforger sur Ubuntu.</span>
+                    </p>
+                </div>
+
+                <div class="terminal-window">
+                    <div class="terminal-header">
+                        <div class="terminal-dot dot-red"></div>
+                        <div class="terminal-dot dot-yellow"></div>
+                        <div class="terminal-dot dot-green"></div>
+                        <div class="terminal-title">operator@ubuntu: ~</div>
+                    </div>
+                    <div class="terminal-body">
+                        <div class="cmd-line">
+                            <span class="cmd-path">operator@ubuntu:~$</span> sudo armactl status
+                        </div>
+                        <div class="cmd-line cmd-line-heading">
+                            <span class="lang-en lang-inline">[+] Arma Reforger Server Daemon Status</span>
+                            <span class="lang-ua lang-inline">[+] Статус Демона Сервера Arma Reforger</span>
+                            <span class="lang-fr lang-inline">[+] État du Démon du Serveur Arma Reforger</span>
+                        </div>
+                        <div class="cmd-line">
+                            <span class="lang-en lang-inline">Service:</span><span class="lang-ua lang-inline">Сервіс:</span><span class="lang-fr lang-inline">Service :</span> 
+                            <span class="cmd-success">
+                                <span class="lang-en lang-inline">active (running)</span>
+                                <span class="lang-ua lang-inline">активний (працює)</span>
+                                <span class="lang-fr lang-inline">actif (en cours)</span>
+                            </span><br>
+                            
+                            <span class="lang-en lang-inline">Uptime: 14h 22m</span>
+                            <span class="lang-ua lang-inline">Час роботи: 14г 22хв</span>
+                            <span class="lang-fr lang-inline">Temps d'activité : 14h 22m</span><br>
+                            
+                            <span class="lang-en lang-inline">Players: 42/64</span>
+                            <span class="lang-ua lang-inline">Гравці: 42/64</span>
+                            <span class="lang-fr lang-inline">Joueurs : 42/64</span><br>
+                            
+                            <span class="lang-en lang-inline">Mods loaded: 12</span>
+                            <span class="lang-ua lang-inline">Моди завантажено: 12</span>
+                            <span class="lang-fr lang-inline">Mods chargés : 12</span>
+                        </div>
+                        <div class="cmd-line">
+                            <span class="cmd-path">operator@ubuntu:~$</span> _
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Overview Section -->
+        <section id="overview" class="overview">
+            <div class="container">
+                <div class="section-header">
+                    <h2>
+                        <span class="lang-en lang-inline">System Overview</span>
+                        <span class="lang-ua lang-inline">Огляд Системи</span>
+                        <span class="lang-fr lang-inline">Aperçu du Système</span>
+                    </h2>
+                </div>
+                <div class="overview-content">
+                    <div class="overview-box">
+                        <p class="lang-en lang-block">armactl is an open-source installer and management tool designed specifically for Arma Reforger Dedicated Servers operating on Ubuntu hosts.</p>
+                        <p class="lang-ua lang-block">armactl — це інструмент з відкритим вихідним кодом для встановлення та управління, розроблений спеціально для виділених серверів Arma Reforger на хостах Ubuntu.</p>
+                        <p class="lang-fr lang-block">armactl est un outil d'installation et de gestion open-source conçu spécifiquement pour les serveurs dédiés Arma Reforger fonctionnant sur des hôtes Ubuntu.</p>
+                        
+                        <p style="margin-bottom: 0;" class="lang-en lang-block">It provisions technical operators with a specialized terminal user interface (TUI) to handle installation, server detection, repairs, systemd management, and mod configuration within a unified, seamless environment.</p>
+                        <p style="margin-bottom: 0;" class="lang-ua lang-block">Він забезпечує технічних операторів спеціалізованим термінальним інтерфейсом (TUI) для обробки встановлення, виявлення сервера, ремонту, управління systemd та конфігурації модів у єдиному, безшовному середовищі.</p>
+                        <p style="margin-bottom: 0;" class="lang-fr lang-block">Il fournit aux opérateurs techniques une interface utilisateur de terminal (TUI) spécialisée pour gérer l'installation, la détection de serveurs, les réparations, la gestion de systemd et la configuration des mods dans un environnement unifié et transparent.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Decorative Tech Break -->
+        <div class="image-break" data-alt="Abstract macro shot of a dark matte circuit board surface reflecting glowing neon blue and green light streams, resembling digital data flows. Sharp focus on technical textures, deep shadows, terminal-native minimalist aesthetic. No text or lettering." style="background-image: url('assets/9vKdT5AUFdD8Ye9AJ7w_ze.jpg'); background-size: cover; background-position: center; background-attachment: fixed;"></div>
+
+        <!-- Features Section -->
+        <section id="features" class="features">
+            <div class="container">
+                <div class="section-header">
+                    <h2 style="border-color: var(--neon-green);">
+                        <span class="lang-en lang-inline">Core Capabilities</span>
+                        <span class="lang-ua lang-inline">Основні Можливості</span>
+                        <span class="lang-fr lang-inline">Capacités Principales</span>
+                    </h2>
+                </div>
+                
+                <div class="features-grid">
+                    <!-- Feature 1 -->
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fa-solid fa-terminal"></i>
+                        </div>
+                        <h3>
+                            <span class="lang-en lang-inline">Terminal User Interface</span>
+                            <span class="lang-ua lang-inline">Термінальний Інтерфейс (TUI)</span>
+                            <span class="lang-fr lang-inline">Interface Utilisateur Terminal</span>
+                        </h3>
+                        <p class="lang-en lang-block">Execute comprehensive server management through a structured, highly responsive TUI designed for specialized server operators.</p>
+                        <p class="lang-ua lang-block">Виконуйте комплексне управління сервером за допомогою структурованого, високочутливого TUI, розробленого для спеціалізованих операторів.</p>
+                        <p class="lang-fr lang-block">Exécutez une gestion complète du serveur via un TUI structuré et très réactif, conçu pour les opérateurs de serveurs spécialisés.</p>
+                    </div>
+
+                    <!-- Feature 2 -->
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fa-solid fa-server"></i>
+                        </div>
+                        <h3>
+                            <span class="lang-en lang-inline">Detection & Repair</span>
+                            <span class="lang-ua lang-inline">Виявлення та Ремонт</span>
+                            <span class="lang-fr lang-inline">Détection et Réparation</span>
+                        </h3>
+                        <p class="lang-en lang-block">Automated server state detection protocols with built-in mechanisms to diagnose and repair structural installation faults.</p>
+                        <p class="lang-ua lang-block">Автоматизовані протоколи виявлення стану сервера з вбудованими механізмами для діагностики та ремонту структурних помилок встановлення.</p>
+                        <p class="lang-fr lang-block">Protocoles de détection automatisée de l'état du serveur avec des mécanismes intégrés pour diagnostiquer et réparer les défauts d'installation structurels.</p>
+                    </div>
+
+                    <!-- Feature 3 -->
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fa-solid fa-microchip"></i>
+                        </div>
+                        <h3>
+                            <span class="lang-en lang-inline">systemd Management</span>
+                            <span class="lang-ua lang-inline">Управління systemd</span>
+                            <span class="lang-fr lang-inline">Gestion systemd</span>
+                        </h3>
+                        <p class="lang-en lang-block">Seamless system integration. Manage daemon states, monitor resource consumption, and ensure high-availability via native systemd hooks.</p>
+                        <p class="lang-ua lang-block">Безшовна системна інтеграція. Керуйте станами демона, моніторте споживання ресурсів та забезпечуйте високу доступність через нативні хуки systemd.</p>
+                        <p class="lang-fr lang-block">Intégration système transparente. Gérez les états des démons, surveillez la consommation des ressources et assurez une haute disponibilité via des hooks systemd natifs.</p>
+                    </div>
+
+                    <!-- Feature 4 -->
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fa-solid fa-cubes"></i>
+                        </div>
+                        <h3>
+                            <span class="lang-en lang-inline">Mod Configuration</span>
+                            <span class="lang-ua lang-inline">Конфігурація Модів</span>
+                            <span class="lang-fr lang-inline">Configuration des Mods</span>
+                        </h3>
+                        <p class="lang-en lang-block">Unified environment for parsing, structuring, and deploying mod configurations to maintain customized server integrity.</p>
+                        <p class="lang-ua lang-block">Єдине середовище для парсингу, структурування та розгортання конфігурацій модів для підтримки цілісності кастомізованого сервера.</p>
+                        <p class="lang-fr lang-block">Environnement unifié pour l'analyse, la structuration et le déploiement de configurations de mods afin de maintenir l'intégrité du serveur personnalisé.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Decorative Tech Break 2 -->
+        <div class="image-break" data-alt="Close up of a raw perforated black metal server rack panel illuminated by stark, tiny neon orange and blue LED indicator lights. Focus on the industrial metal texture and utilitarian design. Moody, dark, structured modernism. No text." style="background-image: url('assets/b0Mscz0brl44v1PRbSf4Hl.jpg'); background-size: cover; background-position: center; background-attachment: fixed; height: 300px;"></div>
+
+        <!-- Philosophy/Values Section -->
+        <section id="philosophy" class="values">
+            <div class="container">
+                <div class="section-header">
+                    <h2 style="border-color: var(--neon-orange);">
+                        <span class="lang-en lang-inline">Operational Philosophy</span>
+                        <span class="lang-ua lang-inline">Операційна Філософія</span>
+                        <span class="lang-fr lang-inline">Philosophie Opérationnelle</span>
+                    </h2>
+                    <p class="lang-en lang-block">armactl is built on a foundation of utility-driven design, focusing entirely on practical efficiency for high-performance deployments.</p>
+                    <p class="lang-ua lang-block">armactl побудований на основі утилітарного дизайну, повністю зосереджуючись на практичній ефективності для високопродуктивних розгортань.</p>
+                    <p class="lang-fr lang-block">armactl est construit sur une base de conception axée sur l'utilité, se concentrant entièrement sur l'efficacité pratique pour les déploiements haute performance.</p>
+                </div>
+                
+                <div class="values-grid">
+                    <div class="value-item">
+                        <span class="value-number">01</span>
+                        <span class="value-title">
+                            <span class="lang-en lang-inline">Practical</span>
+                            <span class="lang-ua lang-inline">Практичність</span>
+                            <span class="lang-fr lang-inline">Pratique</span>
+                        </span>
+                        <p style="margin-top: 1rem; font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0; line-height: 1.5;">
+                            <span class="lang-en lang-block">Designed for real-world server environments, prioritizing speed, reliability, and automated workflows over unnecessary complexity.</span>
+                            <span class="lang-ua lang-block">Створено для реальних серверних середовищ з пріоритетом на швидкість, надійність та автоматизовані робочі процеси замість зайвої складності.</span>
+                            <span class="lang-fr lang-block">Conçu pour les environnements de serveurs réels, privilégiant la vitesse, la fiabilité et les flux de travail automatisés plutôt qu'une complexité inutile.</span>
+                        </p>
+                    </div>
+                    <div class="value-item">
+                        <span class="value-number">02</span>
+                        <span class="value-title">
+                            <span class="lang-en lang-inline">Technical Transparency</span>
+                            <span class="lang-ua lang-inline">Технічна Прозорість</span>
+                            <span class="lang-fr lang-inline">Transparence Technique</span>
+                        </span>
+                        <p style="margin-top: 1rem; font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0; line-height: 1.5;">
+                            <span class="lang-en lang-block">Every command and configuration change is clearly presented. No black-box operations, ensuring full understanding of all processes.</span>
+                            <span class="lang-ua lang-block">Кожна команда та зміна конфігурації чітко відображається. Жодних прихованих операцій, що гарантує операторам повне розуміння процесів.</span>
+                            <span class="lang-fr lang-block">Chaque commande et modification de configuration est clairement présentée. Aucune opération en boîte noire, garantissant une compréhension totale.</span>
+                        </p>
+                    </div>
+                    <div class="value-item">
+                        <span class="value-number">03</span>
+                        <span class="value-title">
+                            <span class="lang-en lang-inline">System Integrity</span>
+                            <span class="lang-ua lang-inline">Цілісність Системи</span>
+                            <span class="lang-fr lang-inline">Intégrité du Système</span>
+                        </span>
+                        <p style="margin-top: 1rem; font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0; line-height: 1.5;">
+                            <span class="lang-en lang-block">Preserving system stability by avoiding hidden changes, keeping a minimal resource footprint, and leaving the operator in full control.</span>
+                            <span class="lang-ua lang-block">Збереження стабільності системи: уникнення прихованих змін, мінімальне споживання ресурсів та збереження повного контролю за оператором.</span>
+                            <span class="lang-fr lang-block">Préservation de la stabilité du système en évitant les modifications cachées, en maintenant une empreinte minimale sur les ressources et en laissant l'opérateur aux commandes.</span>
+                        </p>
+                    </div>
+                    <div class="value-item">
+                        <span class="value-number">04</span>
+                        <span class="value-title">
+                            <span class="lang-en lang-inline">Constructive</span>
+                            <span class="lang-ua lang-inline">Конструктивність</span>
+                            <span class="lang-fr lang-inline">Constructif</span>
+                        </span>
+                        <p style="margin-top: 1rem; font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0; line-height: 1.5;">
+                            <span class="lang-en lang-block">Built to scale and adapt. Continuously improved through community feedback to provide robust solutions for complex deployments.</span>
+                            <span class="lang-ua lang-block">Створено для масштабування та адаптації. Постійно вдосконалюється завдяки відгукам спільноти для забезпечення надійних рішень у складних сценаріях.</span>
+                            <span class="lang-fr lang-block">Conçu pour évoluer et s'adapter. Continuellement amélioré grâce aux retours de la communauté pour fournir des solutions robustes pour des déploiements complexes.</span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer>
+            <div class="container">
+                <div class="footer-content">
+                    <div class="footer-logo">
+                        <img src="assets/aS-i3f1smFC4-ep6nXk40X.png" alt="armactl logo" class="logo-img">
+                        <span class="logo-text" style="color: var(--text-muted); font-size: 1.2rem;">ARMActl</span>
+                    </div>
+                    <ul class="nav-links" style="gap: 1.5rem;">
+                        <li><a href="#overview">
+                            <span class="lang-en lang-inline">Overview</span>
+                            <span class="lang-ua lang-inline">Огляд</span>
+                            <span class="lang-fr lang-inline">Aperçu</span>
+                        </a></li>
+                        <li><a href="#features">
+                            <span class="lang-en lang-inline">Capabilities</span>
+                            <span class="lang-ua lang-inline">Можливості</span>
+                            <span class="lang-fr lang-inline">Capacités</span>
+                        </a></li>
+                        <li><a href="#philosophy">
+                            <span class="lang-en lang-inline">Philosophy</span>
+                            <span class="lang-ua lang-inline">Філософія</span>
+                            <span class="lang-fr lang-inline">Philosophie</span>
+                        </a></li>
+                    </ul>
+                    <div class="social-links">
+                        <a href="https://www.facebook.com/profile.php?id=61574075908335" target="_blank" aria-label="Facebook"><i class="fa-brands fa-facebook"></i></a>
+                        <a href="https://www.linkedin.com/in/denysturovskiy" target="_blank" aria-label="LinkedIn"><i class="fa-brands fa-linkedin"></i></a>
+                    </div>
+                </div>
+                <div class="footer-bottom">
+                    <p class="lang-en lang-block">&copy; armactl. Open-source installer and management tool for Arma Reforger Dedicated Servers.</p>
+                    <p class="lang-ua lang-block">&copy; armactl. Інструмент з відкритим вихідним кодом для встановлення та управління виділеними серверами Arma Reforger.</p>
+                    <p class="lang-fr lang-block">&copy; armactl. Outil d'installation et de gestion open-source pour les serveurs dédiés Arma Reforger.</p>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+</body>
+</html>
