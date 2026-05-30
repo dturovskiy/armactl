@@ -16,6 +16,8 @@ from armactl.addon_cleanup import (
 from armactl.config_manager import ConfigError, load_config, save_config
 from armactl.i18n import _, tr
 
+DISABLED_MODS_KEY = "disabledMods"
+
 
 @dataclass
 class ModUpdateResult:
@@ -27,11 +29,51 @@ class ModUpdateResult:
     removed_ids: set[str] = field(default_factory=set)
 
 
+def _merge_cleanup_results(target: CleanupResult | None, source: CleanupResult) -> CleanupResult:
+    """Merge cleanup metadata into a single result object."""
+    if target is None:
+        target = CleanupResult()
+    target.deleted.extend(source.deleted)
+    target.skipped.extend(source.skipped)
+    target.errors.extend(source.errors)
+    target.bytes_deleted += source.bytes_deleted
+    return target
+
+
+def _mod_id_matches(mod: dict[str, Any], target_id: str | None, raw_mod_id: str) -> bool:
+    if target_id is not None:
+        return normalize_mod_id(mod.get("modId")) == target_id
+    return str(mod.get("modId") or "") == raw_mod_id
+
+
+def _pop_mod_by_id(
+    mods: list[dict[str, Any]],
+    mod_id: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    target_id = normalize_mod_id(mod_id)
+    remaining: list[dict[str, Any]] = []
+    removed: dict[str, Any] | None = None
+    for mod in mods:
+        if _mod_id_matches(mod, target_id, mod_id):
+            if removed is None:
+                removed = mod
+            continue
+        remaining.append(mod)
+    return remaining, removed
+
+
 def get_mods(config_path: Path | str) -> list[dict[str, Any]]:
     """Return the list of mods from config."""
     config = load_config(config_path)
     game = config.get("game", {})
     return game.get("mods", [])
+
+
+def get_disabled_mods(config_path: Path | str) -> list[dict[str, Any]]:
+    """Return the disabled mod list from config."""
+    config = load_config(config_path)
+    game = config.get("game", {})
+    return game.get(DISABLED_MODS_KEY, [])
 
 
 def _mod_ids(mods: list[dict[str, Any]]) -> set[str]:
@@ -42,6 +84,12 @@ def _mod_ids(mods: list[dict[str, Any]]) -> set[str]:
         if mod_id is not None:
             ids.add(mod_id)
     return ids
+
+
+def _mod_key(mod_id: Any) -> str:
+    """Return a stable comparison key for valid and legacy mod IDs."""
+    value = str(mod_id or "").strip()
+    return normalize_mod_id(value) or value
 
 
 def save_mods_with_removed_addon_cleanup(
@@ -55,9 +103,10 @@ def save_mods_with_removed_addon_cleanup(
     """Save a mod list and safely clean addons for IDs no longer present."""
     old_ids = _mod_ids(old_mods)
     new_ids = _mod_ids(new_mods)
-    removed_ids = old_ids - new_ids
 
     game = config.setdefault("game", {})
+    disabled_ids = _mod_ids(list(game.get(DISABLED_MODS_KEY, [])))
+    removed_ids = (old_ids - new_ids) - disabled_ids
     game["mods"] = new_mods
 
     cleanup_result: CleanupResult | None = None
@@ -134,14 +183,80 @@ def add_mod(
     version: str = "",
 ) -> bool:
     """Add a mod to config. Returns True if added, False if already exists."""
-    mods = get_mods(config_path)
+    config = load_config(config_path)
+    game = config.setdefault("game", {})
+    mods = list(game.get("mods", []))
+    disabled_mods = list(game.get(DISABLED_MODS_KEY, []))
+    disabled_mods, disabled_entry = _pop_mod_by_id(disabled_mods, mod_id)
+    target_id = normalize_mod_id(mod_id)
 
     for mod in mods:
-        if mod.get("modId") == mod_id:
+        if _mod_id_matches(mod, target_id, mod_id):
+            if name:
+                mod["name"] = name
+            if version:
+                mod["version"] = version
+            game[DISABLED_MODS_KEY] = disabled_mods
+            save_config(config_path, config)
             return False
 
+    if disabled_entry is not None:
+        if name:
+            disabled_entry["name"] = name
+        if version:
+            disabled_entry["version"] = version
+        disabled_entry["modId"] = str(disabled_entry.get("modId") or mod_id).upper()
+        mods.append(disabled_entry)
+        game["mods"] = mods
+        game[DISABLED_MODS_KEY] = disabled_mods
+        save_config(config_path, config)
+        return True
+
     mods.append({"modId": mod_id, "name": name, "version": version})
-    set_mods(config_path, mods)
+    game["mods"] = mods
+    save_config(config_path, config)
+    return True
+
+
+def disable_mod(config_path: Path | str, mod_id: str) -> bool:
+    """Move a mod from active game.mods to disabledMods without deleting local files."""
+    config = load_config(config_path)
+    game = config.setdefault("game", {})
+    active_mods = list(game.get("mods", []))
+    disabled_mods = list(game.get(DISABLED_MODS_KEY, []))
+
+    active_mods, removed = _pop_mod_by_id(active_mods, mod_id)
+    if removed is None:
+        return False
+
+    removed_id = normalize_mod_id(removed.get("modId"))
+    if removed_id not in _mod_ids(disabled_mods):
+        disabled_mods.append(removed)
+
+    game["mods"] = active_mods
+    game[DISABLED_MODS_KEY] = disabled_mods
+    save_config(config_path, config)
+    return True
+
+
+def enable_mod(config_path: Path | str, mod_id: str) -> bool:
+    """Move a mod from disabledMods back to active game.mods."""
+    config = load_config(config_path)
+    game = config.setdefault("game", {})
+    active_mods = list(game.get("mods", []))
+    disabled_mods = list(game.get(DISABLED_MODS_KEY, []))
+
+    disabled_mods, restored = _pop_mod_by_id(disabled_mods, mod_id)
+    if restored is None:
+        return False
+
+    restored_id = normalize_mod_id(restored.get("modId"))
+    if restored_id not in _mod_ids(active_mods):
+        active_mods.append(restored)
+
+    game["mods"] = active_mods
+    game[DISABLED_MODS_KEY] = disabled_mods
+    save_config(config_path, config)
     return True
 
 
@@ -156,19 +271,37 @@ def remove_mod(config_path: Path | str, mod_id: str) -> bool:
 def remove_mod_detailed(config_path: Path | str, mod_id: str) -> ModUpdateResult:
     """Remove a mod from config by ID and return cleanup metadata."""
     config = load_config(config_path)
-    mods = list(config.get("game", {}).get("mods", []))
+    game = config.setdefault("game", {})
+    mods = list(game.get("mods", []))
+    disabled_mods = list(game.get(DISABLED_MODS_KEY, []))
     target_id = normalize_mod_id(mod_id)
     if target_id is None:
         new_mods = [mod for mod in mods if mod.get("modId") != mod_id]
+        new_disabled_mods = [
+            mod for mod in disabled_mods if mod.get("modId") != mod_id
+        ]
     else:
         new_mods = [
             mod for mod in mods if normalize_mod_id(mod.get("modId")) != target_id
         ]
+        new_disabled_mods = [
+            mod for mod in disabled_mods if normalize_mod_id(mod.get("modId")) != target_id
+        ]
 
-    if len(new_mods) == len(mods):
+    if len(new_mods) == len(mods) and len(new_disabled_mods) == len(disabled_mods):
         return ModUpdateResult(config_changed=False)
 
-    return save_mods_with_removed_addon_cleanup(config_path, config, mods, new_mods)
+    game[DISABLED_MODS_KEY] = new_disabled_mods
+    result = save_mods_with_removed_addon_cleanup(config_path, config, mods, new_mods)
+
+    disabled_removed_ids = _mod_ids(disabled_mods) - _mod_ids(new_disabled_mods)
+    extra_cleanup_ids = disabled_removed_ids - result.removed_ids
+    if extra_cleanup_ids:
+        cleanup_result = cleanup_addons_by_mod_ids(config_path, extra_cleanup_ids)
+        result.cleanup_result = _merge_cleanup_results(result.cleanup_result, cleanup_result)
+        result.removed_ids.update(extra_cleanup_ids)
+
+    return result
 
 
 def clear_mods(config_path: Path | str) -> int:
@@ -177,40 +310,69 @@ def clear_mods(config_path: Path | str) -> int:
     Returns the number of removed mods.
     """
     mods = get_mods(config_path)
-    if not mods:
+    disabled_mods = get_disabled_mods(config_path)
+    if not mods and not disabled_mods:
         return 0
-    # set_mods computes removed IDs and cleans addon directories.
-    set_mods(config_path, [])
-    return len(mods)
+    clear_mods_detailed(config_path)
+    return len(mods) + len(disabled_mods)
 
 
 def clear_mods_detailed(config_path: Path | str) -> ModUpdateResult:
     """Remove all mods and return cleanup metadata."""
     config = load_config(config_path)
-    mods = list(config.get("game", {}).get("mods", []))
-    if not mods:
+    game = config.setdefault("game", {})
+    mods = list(game.get("mods", []))
+    disabled_mods = list(game.get(DISABLED_MODS_KEY, []))
+    if not mods and not disabled_mods:
         return ModUpdateResult(config_changed=False)
-    return save_mods_with_removed_addon_cleanup(config_path, config, mods, [])
+    game[DISABLED_MODS_KEY] = []
+    result = save_mods_with_removed_addon_cleanup(config_path, config, mods, [])
+    extra_cleanup_ids = _mod_ids(disabled_mods) - result.removed_ids
+    if extra_cleanup_ids:
+        result.cleanup_result = _merge_cleanup_results(
+            result.cleanup_result,
+            cleanup_addons_by_mod_ids(config_path, extra_cleanup_ids),
+        )
+        result.removed_ids.update(extra_cleanup_ids)
+    return result
 
 
 def dedupe_mods(config_path: Path | str) -> int:
-    """Remove duplicate mods (by modId). Returns number of duplicates removed."""
-    mods = get_mods(config_path)
+    """Remove duplicate mods across active and disabled lists."""
+    config = load_config(config_path)
+    game = config.setdefault("game", {})
+    mods = list(game.get("mods", []))
+    disabled_mods = list(game.get(DISABLED_MODS_KEY, []))
     seen: set[str] = set()
-    deduped: list[dict[str, Any]] = []
+    deduped_mods: list[dict[str, Any]] = []
+    deduped_disabled_mods: list[dict[str, Any]] = []
 
     for mod in mods:
-        mod_id = mod.get("modId")
-        if mod_id and mod_id not in seen:
-            seen.add(mod_id)
-            deduped.append(mod)
+        mod_key = _mod_key(mod.get("modId"))
+        if not mod_key or mod_key in seen:
+            continue
+        seen.add(mod_key)
+        deduped_mods.append(mod)
 
-    duplicates_removed = len(mods) - len(deduped)
+    for mod in disabled_mods:
+        mod_key = _mod_key(mod.get("modId"))
+        if not mod_key or mod_key in seen:
+            continue
+        seen.add(mod_key)
+        deduped_disabled_mods.append(mod)
+
+    duplicates_removed = (
+        len(mods)
+        + len(disabled_mods)
+        - len(deduped_mods)
+        - len(deduped_disabled_mods)
+    )
     if duplicates_removed > 0:
-        set_mods(config_path, deduped)
+        game["mods"] = deduped_mods
+        game[DISABLED_MODS_KEY] = deduped_disabled_mods
+        save_config(config_path, config)
 
     return duplicates_removed
-
 
 def export_mods(config_path: Path | str, export_file: Path | str) -> int:
     """Export currently configured mods to a JSON file."""
@@ -294,18 +456,23 @@ def import_mods_detailed(
     import_file: Path | str,
     append: bool = False,
 ) -> tuple[int, int, ModUpdateResult]:
-    """Import mods from a JSON file and return cleanup metadata."""
+    """Import mods from a JSON file and reconcile disabled entries."""
     imported_mods = _load_import_mods(import_file)
     config = load_config(config_path)
-    old_mods = list(config.get("game", {}).get("mods", []))
+    game = config.setdefault("game", {})
+    old_mods = list(game.get("mods", []))
+    disabled_mods = list(game.get(DISABLED_MODS_KEY, []))
     current_mods = list(old_mods) if append else []
-    seen_ids = {mod.get("modId") for mod in current_mods}
+    seen_ids = {_mod_key(mod.get("modId")) for mod in current_mods}
+    activated_ids: set[str] = set()
 
     added_count = 0
     skipped_count = 0
     for mod in imported_mods:
         mod_id = mod.get("modId")
-        if mod_id in seen_ids:
+        mod_key = _mod_key(mod_id)
+        activated_ids.add(mod_key)
+        if mod_key in seen_ids:
             skipped_count += 1
             continue
 
@@ -316,8 +483,12 @@ def import_mods_detailed(
                 "version": mod.get("version", ""),
             }
         )
-        seen_ids.add(mod_id)
+        seen_ids.add(mod_key)
         added_count += 1
+
+    game[DISABLED_MODS_KEY] = [
+        mod for mod in disabled_mods if _mod_key(mod.get("modId")) not in activated_ids
+    ]
 
     update_result = save_mods_with_removed_addon_cleanup(
         config_path,

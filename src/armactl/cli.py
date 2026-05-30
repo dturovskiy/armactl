@@ -909,14 +909,15 @@ def schedule_restart_now(ctx: click.Context) -> None:
 def mods(ctx: click.Context) -> None:
     """Manage server mods."""
     if ctx.invoked_subcommand is None:
-        ctx.invoke(mods_list)
+        ctx.invoke(mods_list, show_all=False)
 
 
 @mods.command("list")
+@click.option("--all", "show_all", is_flag=True, help="Show active and disabled mods.")
 @click.pass_context
-def mods_list(ctx: click.Context) -> None:
+def mods_list(ctx: click.Context, show_all: bool) -> None:
     """List all installed mods."""
-    from armactl.mods_manager import get_mods
+    from armactl.mods_manager import get_disabled_mods, get_mods
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -925,21 +926,33 @@ def mods_list(ctx: click.Context) -> None:
         sys.exit(1)
 
     mods_arr = get_mods(state.config_path)
+    disabled_mods = get_disabled_mods(state.config_path) if show_all else []
 
     if ctx.obj["json"]:
-        click.echo(json.dumps(mods_arr))
+        if show_all:
+            click.echo(json.dumps({"active": mods_arr, "disabled": disabled_mods}))
+        else:
+            click.echo(json.dumps(mods_arr))
         return
 
-    if not mods_arr:
+    if not mods_arr and not disabled_mods:
         click.echo(f"[{instance}] No mods configured.")
         return
 
-    click.echo(f"[{instance}] Installed mods ({len(mods_arr)}):")
+    click.echo(f"[{instance}] Active mods ({len(mods_arr)}):")
     for idx, mod in enumerate(mods_arr, 1):
         mod_id = mod.get("modId", "UNKNOWN")
         name = mod.get("name", "Unnamed")
         ver = mod.get("version", "latest")
         click.echo(f"  {idx:2d}. {mod_id:<18} | {name:<30} | {ver}")
+
+    if show_all:
+        click.echo(f"[{instance}] Disabled mods ({len(disabled_mods)}):")
+        for idx, mod in enumerate(disabled_mods, 1):
+            mod_id = mod.get("modId", "UNKNOWN")
+            name = mod.get("name", "Unnamed")
+            ver = mod.get("version", "latest")
+            click.echo(f"  {idx:2d}. {mod_id:<18} | {name:<30} | {ver}")
 
 
 @mods.command("add")
@@ -999,6 +1012,46 @@ def mods_remove(ctx: click.Context, mod_id: str) -> None:
                 click.echo(f"[{instance}] ! Addon cleanup warning: {error}", err=True)
     else:
         click.echo(f"[{instance}] ! Mod {mod_id} not found in the list.")
+
+
+@mods.command("disable")
+@click.argument("mod_id")
+@click.pass_context
+def mods_disable(ctx: click.Context, mod_id: str) -> None:
+    """Disable a mod without deleting local addon files."""
+    from armactl.mods_manager import disable_mod
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config not found.", err=True)
+        sys.exit(1)
+
+    if disable_mod(state.config_path, mod_id):
+        click.echo(f"[{instance}] OK Mod {mod_id} disabled. Local addon files were kept.")
+    else:
+        click.echo(f"[{instance}] ! Active mod {mod_id} not found.")
+
+
+@mods.command("enable")
+@click.argument("mod_id")
+@click.pass_context
+def mods_enable(ctx: click.Context, mod_id: str) -> None:
+    """Enable a previously disabled mod."""
+    from armactl.mods_manager import enable_mod
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+
+    if not state.config_exists:
+        click.echo(f"[{instance}] Config not found.", err=True)
+        sys.exit(1)
+
+    if enable_mod(state.config_path, mod_id):
+        click.echo(f"[{instance}] OK Mod {mod_id} enabled.")
+    else:
+        click.echo(f"[{instance}] ! Disabled mod {mod_id} not found.")
 
 
 @mods.command("count")

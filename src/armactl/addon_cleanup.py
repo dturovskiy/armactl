@@ -62,7 +62,8 @@ def active_mod_ids_from_config_data(config: dict[str, Any]) -> set[str]:
     """Return valid active mod IDs from parsed config data, uppercased."""
     game = config.get("game", {})
     mods = game.get("mods", [])
-    return _normalized_mod_ids(mods)
+    disabled_mods = game.get("disabledMods", [])
+    return _normalized_mod_ids(mods) | _normalized_mod_ids(disabled_mods)
 
 
 def _normalized_mod_ids(mods: Iterable[dict[str, Any]]) -> set[str]:

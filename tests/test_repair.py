@@ -1,7 +1,6 @@
 """Tests for repair orchestration."""
 
 from pathlib import Path
-from subprocess import CompletedProcess
 from unittest.mock import patch
 
 import pytest
@@ -37,13 +36,9 @@ def test_run_repair_defaults_empty_paths_and_refreshes_package_manifest(
         patch("armactl.repair.paths.start_script", return_value=start_script),
         patch("armactl.repair.discover_manual", return_value=state),
         patch(
-            "armactl.repair.build_steamcmd_update_command",
-            return_value=["steamcmd", "validate"],
-        ) as command_mock,
-        patch(
-            "armactl.repair.subprocess.run",
-            return_value=CompletedProcess(args=[], returncode=0),
-        ),
+            "armactl.repair.stream_server_update",
+            return_value=iter(["  steamcmd progress"]),
+        ) as stream_mock,
         patch(
             "armactl.repair.generate_services",
             return_value=[service_manager.ServiceResult(True, "generated service")],
@@ -55,7 +50,7 @@ def test_run_repair_defaults_empty_paths_and_refreshes_package_manifest(
     ):
         messages = list(run_repair("default", "", ""))
 
-    command_mock.assert_called_once_with(
+    stream_mock.assert_called_once_with(
         server_dir.resolve(strict=False),
         instance="default",
     )

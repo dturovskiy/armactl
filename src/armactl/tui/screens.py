@@ -28,6 +28,7 @@ from textual.widgets import (
 
 from armactl import paths, ports
 from armactl.addon_cleanup import cleanup_unconfigured_addons
+from armactl.admins_manager import add_admin, get_admins, remove_admin
 from armactl.bot_config import (
     BotConfig,
     BotConfigError,
@@ -65,12 +66,17 @@ from armactl.metrics import (
     query_server_operational_status,
     query_service_runtime_metrics,
 )
-from armactl.mods import add_mod, dedupe_mods, remove_mod_detailed
 from armactl.mods_manager import (
+    add_mod,
+    dedupe_mods,
+    disable_mod,
+    enable_mod,
     export_mods,
+    get_disabled_mods,
     get_mods,
     import_mods_detailed,
     preview_import_mods,
+    remove_mod_detailed,
 )
 from armactl.player_view import PlayerView, query_player_view
 from armactl.redaction import redact_sensitive_text
@@ -94,18 +100,20 @@ from armactl.tui.dashboard import format_player_count, format_usage_bar
 from armactl.tui.display import get_instance_display_label, get_instance_server_name
 
 
-def _build_mod_list_item(index: int, mod: dict[str, object]) -> ListItem:
+def _build_mod_list_item(index: int, mod: dict[str, object], *, enabled: bool) -> ListItem:
     """Build a mods list row without a stable DOM id."""
     raw_mod_id = str(mod.get("modId") or "").strip()
     mod_id = raw_mod_id.upper() if raw_mod_id else _("Unknown")
     name = str(mod.get("name") or "")
 
-    display = f"[{index}] {mod_id}"
+    state_label = _("active") if enabled else _("disabled")
+    display = f"[{index}] {mod_id} [{state_label}]"
     if name:
         display += f" - {name}"
 
     item = ListItem(Label(display))
     item.mod_id = mod_id  # type: ignore[attr-defined]
+    item.mod_enabled = enabled  # type: ignore[attr-defined]
     return item
 
 
@@ -510,6 +518,7 @@ class ManageScreen(Screen):
         return [
             ("overview", "nav_overview", _("Overview")),
             ("config", "nav_config", _("Config")),
+            ("admins", "nav_admins", _("Admins")),
             ("mods", "nav_mods", _("Mods")),
             ("schedule", "nav_schedule", _("Schedule")),
             ("bot", "nav_bot", _("Bot")),
@@ -523,6 +532,7 @@ class ManageScreen(Screen):
         titles = {
             "overview": _("Overview"),
             "config": _("Configuration"),
+            "admins": _("Admins"),
             "mods": _("Mods Manager"),
             "schedule": _("Restart Schedule"),
             "bot": _("Telegram Bot"),
@@ -558,13 +568,13 @@ class ManageScreen(Screen):
             runtime_badge.update(_("Running"))
             runtime_badge.styles.color = "green"
             status_text = _("[bold green]SERVER IS RUNNING[/bold green]")
-            btn_toggle.label = _("Stop")
+            btn_toggle.label = _("Stop Server")
             btn_toggle.variant = "error"
         else:
             runtime_badge.update(_("Stopped"))
             runtime_badge.styles.color = "red"
             status_text = _("[bold red]SERVER IS STOPPED[/bold red]")
-            btn_toggle.label = _("Start")
+            btn_toggle.label = _("Start Server")
             btn_toggle.variant = "success"
 
         btn_toggle.refresh(layout=True)
@@ -1192,6 +1202,35 @@ class ManageScreen(Screen):
             lines.append(tr("+ {count} more mod(s)", count=mods_summary.remaining_count))
         return "\n".join(lines)
 
+    def _build_admins_text(self) -> str:
+        state = discover(self.instance, save=False)
+        if not state.config_exists or not state.config_path:
+            return "\n".join([_("[bold cyan]Admins[/bold cyan]"), _("Config missing.")])
+
+        try:
+            admins = get_admins(state.config_path)
+        except Exception as error:
+            return "\n".join(
+                [
+                    _("[bold cyan]Admins[/bold cyan]"),
+                    tr("Failed to load admins: {error}", error=redact_sensitive_text(error)),
+                ]
+            )
+
+        lines = [
+            _("[bold cyan]Admins[/bold cyan]"),
+            tr("Configured admins: {count}", count=len(admins)),
+        ]
+        for admin in admins:
+            identity = (
+                admin.get("identityId")
+                or admin.get("playerId")
+                or admin.get("id")
+                or _("Unknown")
+            )
+            lines.append(f"- {identity}")
+        return "\n".join(lines)
+
     def _display_timer_value(self, value: str) -> str:
         cleaned = value.strip()
         if not cleaned or cleaned.lower() == "n/a":
@@ -1337,18 +1376,21 @@ class ManageScreen(Screen):
     def _context_actions(self) -> list[tuple[str, str, str]]:
         actions = {
             "overview": [
-                ("open_live_logs", _("Live Logs"), "primary"),
-                ("open_config", _("Config"), "default"),
+                ("open_live_logs", _("Open Live Logs"), "primary"),
+                ("open_config", _("Edit Config"), "default"),
             ],
             "config": [
-                ("open_config", _("Edit Configuration"), "primary"),
+                ("open_config", _("Edit Config"), "primary"),
                 ("open_raw_config", _("Raw Config JSON"), "default"),
+            ],
+            "admins": [
+                ("open_admins", _("Manage Admins"), "primary"),
             ],
             "mods": [
                 ("open_mods", _("Mods Manager"), "primary"),
             ],
             "schedule": [
-                ("open_schedule", _("Restart Schedule"), "primary"),
+                ("open_schedule", _("Edit Restart Schedule"), "primary"),
             ],
             "bot": [
                 ("open_bot", _("Telegram Bot"), "primary"),
@@ -1357,13 +1399,13 @@ class ManageScreen(Screen):
                 ("open_cleanup", _("Maintenance / Cleanup"), "warning"),
             ],
             "logs": [
-                ("open_live_logs", _("Live Logs"), "primary"),
+                ("open_live_logs", _("Open Live Logs"), "primary"),
             ],
             "status": [
-                ("open_schedule", _("Restart Schedule"), "primary"),
+                ("open_schedule", _("Edit Restart Schedule"), "primary"),
             ],
             "ports": [
-                ("open_config", _("Config"), "primary"),
+                ("open_config", _("Edit Config"), "primary"),
             ],
         }
         return actions.get(self._active_panel, actions["overview"])
@@ -1401,6 +1443,8 @@ class ManageScreen(Screen):
             self.app.push_screen(ConfigEditorScreen(self.instance))
         elif action_key == "open_raw_config":
             self.app.push_screen(RawConfigScreen(self.instance))
+        elif action_key == "open_admins":
+            self.app.push_screen(AdminManagerScreen(self.instance))
         elif action_key == "open_schedule":
             self.app.push_screen(ScheduleScreen(self.instance))
         elif action_key == "open_bot":
@@ -1423,6 +1467,8 @@ class ManageScreen(Screen):
             log.write(self._build_ports_text())
         elif self._active_panel == "config":
             log.write(self._build_config_text())
+        elif self._active_panel == "admins":
+            log.write(self._build_admins_text())
         elif self._active_panel == "mods":
             log.write(self._build_mods_text())
         elif self._active_panel == "schedule":
@@ -1464,11 +1510,13 @@ class ManageScreen(Screen):
 
             with HorizontalScroll(id="manage-action-row"):
                 yield Button("...", id="btn_toggle", variant="primary")
-                yield Button(_("Restart"), id="btn_restart", variant="warning")
-                yield Button(_("Refresh Status"), id="btn_refresh_manage", variant="default")
-                yield Button(_("Live Logs"), id="btn_context_primary", variant="primary")
-                yield Button(_("Config"), id="btn_context_secondary", variant="default")
+                yield Button(_("Restart Server"), id="btn_restart", variant="warning")
+                yield Button(_("Refresh"), id="btn_refresh_manage", variant="default")
                 yield Button(_("Back to Main Menu"), id="btn_back", variant="default")
+
+            with HorizontalScroll(id="manage-context-row"):
+                yield Button(_("Open Live Logs"), id="btn_context_primary", variant="primary")
+                yield Button(_("Edit Config"), id="btn_context_secondary", variant="default")
 
             with VerticalScroll(id="manage-content"):
                 yield Label(_("Overview"), id="manage-panel-title")
@@ -2620,6 +2668,106 @@ class ModPackFileScreen(Screen):
             self.dismiss(("replace", file_path))
 
 
+class AdminManagerScreen(Screen):
+    """Screen for adding and removing admin identities."""
+
+    BINDINGS = [
+        ("b", "pop_screen", _("Back")),
+        ("ctrl+r", "refresh_admins", _("Refresh List")),
+    ]
+
+    def __init__(self, instance: str, **kwargs):
+        super().__init__(**kwargs)
+        self.instance = instance
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with VerticalGroup(id="info-container"):
+            yield Label(
+                f"{_('Admins')}: {get_instance_display_label(self.instance)}",
+                id="screen-title",
+            )
+            yield Input(
+                id="inp_admin_id",
+                placeholder=_("Paste admin identity / player ID here..."),
+            )
+            yield Button(_("Add Admin"), id="btn_add_admin", variant="success")
+            yield Label(_("Configured Admins:"), id="admins-list-title")
+            yield ListView(id="admins-list")
+            with HorizontalGroup():
+                yield Button(_("Remove Selected"), id="btn_remove_admin", variant="error")
+                yield Button(_("Refresh"), id="btn_refresh_admins", variant="default")
+                yield Button(_("Back"), id="btn_back", variant="default")
+        yield Footer()
+
+    async def on_mount(self) -> None:
+        await self.action_refresh_admins()
+
+    async def action_refresh_admins(self) -> None:
+        cfg = paths.config_file(self.instance)
+        list_view = self.query_one("#admins-list", ListView)
+        await list_view.clear()
+        try:
+            admins = get_admins(cfg)
+        except Exception as error:
+            self.app.notify(
+                tr("Error loading admins: {error}", error=redact_sensitive_text(error)),
+                severity="error",
+            )
+            return
+
+        if not admins:
+            await list_view.append(ListItem(Label(_("No admins configured."))))
+            return
+
+        for index, admin in enumerate(admins, 1):
+            identity = str(
+                admin.get("identityId") or admin.get("playerId") or admin.get("id") or ""
+            )
+            label = f"[{index}] {identity}"
+            item = ListItem(Label(label))
+            item.admin_id = identity  # type: ignore[attr-defined]
+            await list_view.append(item)
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        cfg = paths.config_file(self.instance)
+        if event.button.id == "btn_back":
+            self.app.pop_screen()
+        elif event.button.id == "btn_refresh_admins":
+            await self.action_refresh_admins()
+        elif event.button.id == "btn_add_admin":
+            admin_id = self.query_one("#inp_admin_id", Input).value.strip()
+            if not admin_id:
+                self.app.notify(_("Admin ID is required."), severity="error")
+                return
+            try:
+                added = add_admin(cfg, admin_id)
+            except Exception as error:
+                self.app.notify(
+                    tr("Failed to save admin: {error}", error=redact_sensitive_text(error)),
+                    severity="error",
+                )
+                return
+            self.app.notify(
+                _("Admin added.") if added else _("Admin is already configured.")
+            )
+            self.query_one("#inp_admin_id", Input).value = ""
+            await self.action_refresh_admins()
+        elif event.button.id == "btn_remove_admin":
+            list_view = self.query_one("#admins-list", ListView)
+            if list_view.highlighted_child is None:
+                self.app.notify(_("Select an admin to remove first."), severity="warning")
+                return
+            admin_id = getattr(list_view.highlighted_child, "admin_id", "")
+            if not admin_id:
+                return
+            if remove_admin(cfg, admin_id):
+                self.app.notify(_("Admin removed."))
+                await self.action_refresh_admins()
+            else:
+                self.app.notify(_("Admin not found."), severity="error")
+
+
 class ModManagerScreen(Screen):
     """Screen for managing Arma Reforger mods in config.json."""
 
@@ -2649,6 +2797,9 @@ class ModManagerScreen(Screen):
             yield Label(_("Installed Mods: 0"), id="mods-summary")
             yield ListView(id="mods-list")
 
+            with HorizontalGroup():
+                yield Button(_("Disable Selected"), id="btn_disable_mod", variant="warning")
+                yield Button(_("Enable Selected"), id="btn_enable_mod", variant="success")
             with HorizontalGroup():
                 yield Button(_("Remove Selected"), id="btn_remove_mod", variant="error")
                 yield Button(_("Deduplicate"), id="btn_dedupe_mods", variant="warning")
@@ -2808,23 +2959,31 @@ class ModManagerScreen(Screen):
             cfg = paths.config_file(self.instance)
             try:
                 mods = get_mods(cfg)
+                disabled_mods = get_disabled_mods(cfg)
             except Exception as e:
                 self.app.notify(tr("Error loading mods: {error}", error=e), severity="error")
                 return
 
             self.query_one("#mods-summary", Label).update(
-                tr("Installed Mods: {count}", count=len(mods))
+                tr(
+                    "Active Mods: {active} | Disabled Mods: {disabled}",
+                    active=len(mods),
+                    disabled=len(disabled_mods),
+                )
             )
 
             list_view = self.query_one("#mods-list", ListView)
             await list_view.clear()
 
-            if not mods:
-                await list_view.append(ListItem(Label(_("No mods installed."))))
+            if not mods and not disabled_mods:
+                await list_view.append(ListItem(Label(_("No mods configured."))))
                 return
 
             for idx, mod in enumerate(mods, 1):
-                await list_view.append(_build_mod_list_item(idx, mod))
+                await list_view.append(_build_mod_list_item(idx, mod, enabled=True))
+
+            for idx, mod in enumerate(disabled_mods, 1):
+                await list_view.append(_build_mod_list_item(idx, mod, enabled=False))
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         cfg = paths.config_file(self.instance)
@@ -2889,6 +3048,47 @@ class ModManagerScreen(Screen):
             inp_name.value = ""
             await self.action_refresh_mods()
 
+        elif event.button.id == "btn_disable_mod":
+            list_view = self.query_one("#mods-list", ListView)
+            if list_view.highlighted_child is None:
+                self.app.notify(_("Select a mod to disable first."), severity="warning")
+                return
+
+            mod_id = getattr(list_view.highlighted_child, "mod_id", None)
+            mod_enabled = getattr(list_view.highlighted_child, "mod_enabled", False)
+            if not mod_id or not mod_enabled:
+                self.app.notify(_("Selected mod is already disabled."), severity="warning")
+                return
+
+            if disable_mod(cfg, mod_id):
+                self.app.notify(
+                    tr(
+                        "Disabled mod {mod_id}. Local addon files were kept.",
+                        mod_id=mod_id,
+                    )
+                )
+                await self.action_refresh_mods()
+            else:
+                self.app.notify(tr("Mod {mod_id} not found.", mod_id=mod_id), severity="error")
+
+        elif event.button.id == "btn_enable_mod":
+            list_view = self.query_one("#mods-list", ListView)
+            if list_view.highlighted_child is None:
+                self.app.notify(_("Select a mod to enable first."), severity="warning")
+                return
+
+            mod_id = getattr(list_view.highlighted_child, "mod_id", None)
+            mod_enabled = getattr(list_view.highlighted_child, "mod_enabled", True)
+            if not mod_id or mod_enabled:
+                self.app.notify(_("Selected mod is already active."), severity="warning")
+                return
+
+            if enable_mod(cfg, mod_id):
+                self.app.notify(tr("Enabled mod {mod_id}.", mod_id=mod_id))
+                await self.action_refresh_mods()
+            else:
+                self.app.notify(tr("Mod {mod_id} not found.", mod_id=mod_id), severity="error")
+
         elif event.button.id == "btn_remove_mod":
             list_view = self.query_one("#mods-list", ListView)
             if list_view.highlighted_child is None:
@@ -2951,7 +3151,11 @@ class ModManagerScreen(Screen):
 
                 self.app.push_screen(
                     ConfirmScreen(
-                        tr("Are you sure you want to remove Mod '{mod_id}'?", mod_id=mod_id)
+                        tr(
+                            "Permanently remove Mod '{mod_id}' from config and "
+                            "delete local addon files if present?",
+                            mod_id=mod_id,
+                        )
                     ),
                     confirm_remove,
                 )
@@ -2963,4 +3167,3 @@ class ModManagerScreen(Screen):
             )
             if count > 0:
                 await self.action_refresh_mods()
-
