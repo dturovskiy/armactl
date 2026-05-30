@@ -25,6 +25,31 @@ from armactl.tui.display import get_instance_server_name
 
 MainMenuWidgetKind = Literal["button", "status", "warning"]
 
+MOUSE_SELECTION_ENV_VALUES = {"1", "true", "yes", "on"}
+TERMINAL_MOUSE_RESET_SEQUENCES = (
+    "\033[?1000l"  # X10 mouse tracking
+    "\033[?1001l"  # VT200 highlight mouse tracking
+    "\033[?1002l"  # Button-event mouse tracking
+    "\033[?1003l"  # Any-event mouse tracking
+    "\033[?1004l"  # Focus in/out events
+    "\033[?1005l"  # UTF-8 mouse mode
+    "\033[?1006l"  # SGR mouse mode
+    "\033[?1007l"  # Alternate scroll mode
+    "\033[?1015l"  # urxvt mouse mode
+    "\033[?1016l"  # Pixel mouse mode
+)
+
+TERMINAL_MOUSE_ENABLE_SEQUENCES = (
+    "\033[?1000h"  # X10 mouse tracking
+    "\033[?1003h"  # Any-event mouse tracking
+    "\033[?1006h"  # SGR mouse mode
+)
+
+
+
+def _mouse_selection_requested() -> bool:
+    return os.getenv("ARMACTL_TUI_MOUSE_SELECTION", "").lower() in MOUSE_SELECTION_ENV_VALUES
+
 
 @dataclass(frozen=True)
 class MainMenuEntry:
@@ -58,22 +83,23 @@ def build_main_menu_entries(state: ServerState) -> tuple[MainMenuEntry, ...]:
     return tuple(entries)
 
 
+def _disable_terminal_mouse_tracking() -> None:
+    sys.stdout.write(TERMINAL_MOUSE_RESET_SEQUENCES)
+    sys.stdout.flush()
+
+def _enable_terminal_mouse_tracking() -> None:
+    sys.stdout.write(TERMINAL_MOUSE_ENABLE_SEQUENCES)
+    sys.stdout.flush()
+
+
+
 def _restore_terminal_state() -> None:
     """Best-effort cleanup for terminals after Textual exits."""
     reset_sequences = (
         "\033[?1l"     # Normal cursor keys
         "\033>"        # Normal keypad mode
         "\033[?25h"    # Show cursor
-        "\033[?1000l"  # X10 mouse tracking
-        "\033[?1001l"  # VT200 highlight mouse tracking
-        "\033[?1002l"  # Button-event mouse tracking
-        "\033[?1003l"  # Any-event mouse tracking
-        "\033[?1004l"  # Focus in/out events
-        "\033[?1005l"  # UTF-8 mouse mode
-        "\033[?1006l"  # SGR mouse mode
-        "\033[?1007l"  # Alternate scroll mode
-        "\033[?1015l"  # urxvt mouse mode
-        "\033[?1016l"  # Pixel mouse mode
+        f"{TERMINAL_MOUSE_RESET_SEQUENCES}"
         "\033[?1049l"  # Alternate screen buffer
         "\033[?2004l"  # Bracketed paste
     )
@@ -156,14 +182,15 @@ class ArmaCtlApp(App):
         margin-top: 1;
         color: $text-muted;
     }
-    #main-action-bar, #manage-nav, #manage-action-row {
+    #main-action-bar, #manage-nav, #manage-action-row, #manage-context-row {
         width: 100%;
         height: auto;
         margin-bottom: 1;
         overflow-x: auto;
         overflow-y: hidden;
     }
-    #main-action-bar Button, #manage-nav Button, #manage-action-row Button {
+    #main-action-bar Button, #manage-nav Button, #manage-action-row Button,
+    #manage-context-row Button {
         width: auto;
         min-width: 10;
         height: auto;
@@ -319,6 +346,7 @@ class ArmaCtlApp(App):
     BINDINGS = [
         Binding("q", "quit", _("Quit"), show=True),
         Binding("r", "refresh_root_menu", _("Refresh"), show=True),
+        Binding("ctrl+o", "toggle_mouse_selection", _("Mouse Copy"), show=True),
     ]
 
     def __init__(self, instance: str = paths.DEFAULT_INSTANCE_NAME, **kwargs):
@@ -329,6 +357,7 @@ class ArmaCtlApp(App):
         self._main_menu_content: VerticalScroll | None = None
         self._main_menu_refresh_lock = Lock()
         self._generated_sync_notification_shown = False
+        self._mouse_selection_enabled = False
 
     def on_mount(self) -> None:
         """Kick off small background health checks once the main menu is shown."""
@@ -336,6 +365,30 @@ class ArmaCtlApp(App):
         self._sync_generated_runtime_files(state)
         self._update_main_menu_header(state)
         self.ensure_bot_runtime_task()
+        if _mouse_selection_requested():
+            self.action_toggle_mouse_selection()
+
+    def action_toggle_mouse_selection(self) -> None:
+        if self._mouse_selection_enabled:
+            _enable_terminal_mouse_tracking()
+            self._mouse_selection_enabled = False
+            self.notify(
+                _("TUI mouse clicks are enabled."),
+                title=_("Mouse Copy"),
+                timeout=5,
+            )
+            return
+
+        _disable_terminal_mouse_tracking()
+        self._mouse_selection_enabled = True
+        self.notify(
+            _(
+                "Mouse text selection is enabled. "
+                "Press Ctrl+O again to restore mouse clicks."
+            ),
+            title=_("Mouse Copy"),
+            timeout=8,
+        )
 
     @work(exclusive=True, thread=True)
     def ensure_bot_runtime_task(self) -> None:

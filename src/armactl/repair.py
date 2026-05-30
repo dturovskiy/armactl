@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import secrets
-import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -12,7 +11,7 @@ from jinja2 import Environment, FileSystemLoader
 from armactl import paths
 from armactl.discovery import discover_manual
 from armactl.i18n import _, tr
-from armactl.installer import InstallError, build_steamcmd_update_command
+from armactl.installer import InstallError, stream_server_update
 from armactl.integrity import (
     IntegrityError,
     check_package_integrity,
@@ -20,7 +19,6 @@ from armactl.integrity import (
     mark_install_started,
     write_package_manifest,
 )
-from armactl.redaction import safe_subprocess_error
 from armactl.service_manager import (
     generate_services,
     install_privileged_systemctl_channel,
@@ -65,14 +63,10 @@ def run_repair(
         yield _("  - Server is already stopped")
 
     yield tr("[{instance}] Step 2: Validating game files via SteamCMD...", instance=instance)
-    try:
-        cmd = build_steamcmd_update_command(install_dir, instance=instance)
-    except InstallError as e:
-        raise RepairError(str(e)) from e
     previous_integrity = check_package_integrity(install_dir)
     mark_install_started(install_dir)
     try:
-        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        yield from stream_server_update(install_dir, instance=instance)
         write_package_manifest(install_dir)
         clear_install_marker(install_dir)
         integrity = check_package_integrity(install_dir, verify_hashes=False)
@@ -85,19 +79,10 @@ def run_repair(
             )
         yield _("  OK Server files validated and updated")
         yield _("  OK Package integrity manifest refreshed")
-    except subprocess.CalledProcessError as e:
+    except InstallError as e:
         if previous_integrity.complete:
             clear_install_marker(install_dir)
-        raise RepairError(
-            tr(
-                "SteamCMD failed:\n{details}",
-                details=safe_subprocess_error(e.stderr, e.stdout),
-            )
-        ) from e
-    except FileNotFoundError:
-        if previous_integrity.complete:
-            clear_install_marker(install_dir)
-        raise RepairError(_("SteamCMD not found in PATH. Make sure it is installed."))
+        raise RepairError(str(e)) from e
     except (IntegrityError, OSError) as e:
         if previous_integrity.complete:
             clear_install_marker(install_dir)

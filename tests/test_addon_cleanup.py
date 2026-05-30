@@ -19,10 +19,21 @@ from armactl.addon_cleanup import (
 )
 from armactl.config_manager import ConfigError
 from armactl.mods import remove_mod_detailed as legacy_remove_mod_detailed
-from armactl.mods_manager import import_mods_detailed, remove_mod_detailed, set_mods_detailed
+from armactl.mods_manager import (
+    clear_mods,
+    disable_mod,
+    enable_mod,
+    import_mods_detailed,
+    remove_mod_detailed,
+    set_mods_detailed,
+)
 
 
-def _write_config(config_path: Path, mods: list[dict[str, str]] | None = None) -> None:
+def _write_config(
+    config_path: Path,
+    mods: list[dict[str, str]] | None = None,
+    disabled_mods: list[dict[str, str]] | None = None,
+) -> None:
     config_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "bindAddress": "0.0.0.0",
@@ -36,6 +47,8 @@ def _write_config(config_path: Path, mods: list[dict[str, str]] | None = None) -
             "mods": mods or [],
         },
     }
+    if disabled_mods is not None:
+        payload["game"]["disabledMods"] = disabled_mods
     config_path.write_text(json.dumps(payload, indent=4), encoding="utf-8")
 
 
@@ -278,6 +291,71 @@ def test_single_mod_removal_does_not_delete_unrelated_stale_addons(tmp_path: Pat
     assert not removed.exists()
     assert kept.exists()
     assert unrelated_stale.exists()
+
+
+def test_disable_mod_moves_to_disabled_without_deleting_addon(tmp_path: Path) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    addons = tmp_path / "instance" / "config" / "addons"
+    _write_config(config_path, [{"modId": "AAAAAAAAAAAAAAAA", "name": "Disable"}])
+    addon_dir = _create_addon_dir(addons, "Disable_AAAAAAAAAAAAAAAA")
+
+    assert disable_mod(config_path, "aaaaaaaaaaaaaaaa")
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["game"]["mods"] == []
+    assert saved["game"]["disabledMods"] == [
+        {"modId": "AAAAAAAAAAAAAAAA", "name": "Disable"}
+    ]
+    assert addon_dir.exists()
+
+
+def test_enable_mod_restores_disabled_mod(tmp_path: Path) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    disabled = [{"modId": "AAAAAAAAAAAAAAAA", "name": "Restore"}]
+    _write_config(config_path, [], disabled_mods=disabled)
+
+    assert enable_mod(config_path, "AAAAAAAAAAAAAAAA")
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["game"]["mods"] == disabled
+    assert saved["game"]["disabledMods"] == []
+
+
+def test_remove_mod_detailed_deletes_disabled_mod_addons(tmp_path: Path) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    addons = tmp_path / "instance" / "config" / "addons"
+    _write_config(
+        config_path,
+        [],
+        disabled_mods=[{"modId": "AAAAAAAAAAAAAAAA", "name": "Disabled"}],
+    )
+    addon_dir = _create_addon_dir(addons, "Disabled_AAAAAAAAAAAAAAAA")
+
+    result = remove_mod_detailed(config_path, "AAAAAAAAAAAAAAAA")
+
+    assert result.config_changed
+    assert result.removed_ids == {"AAAAAAAAAAAAAAAA"}
+    assert result.cleanup_result is not None
+    assert result.cleanup_result.deleted == [addon_dir.resolve()]
+    assert not addon_dir.exists()
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["game"]["mods"] == []
+    assert saved["game"]["disabledMods"] == []
+
+
+def test_clear_mods_removes_active_and_disabled_mods(tmp_path: Path) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    _write_config(
+        config_path,
+        [{"modId": "AAAAAAAAAAAAAAAA", "name": "Active"}],
+        disabled_mods=[{"modId": "BBBBBBBBBBBBBBBB", "name": "Disabled"}],
+    )
+
+    assert clear_mods(config_path) == 2
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["game"]["mods"] == []
+    assert saved["game"]["disabledMods"] == []
 
 
 def test_set_mods_handles_enospc_by_cleaning_removed_ids_and_retrying_once(
