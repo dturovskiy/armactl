@@ -27,8 +27,8 @@ from textual.widgets import (
 )
 
 from armactl import paths, ports
-from armactl.admins_manager import add_admin, get_admins, remove_admin
 from armactl.addon_cleanup import cleanup_unconfigured_addons
+from armactl.admins_manager import add_admin, get_admins, remove_admin
 from armactl.bot_config import (
     BotConfig,
     BotConfigError,
@@ -1217,9 +1217,17 @@ class ManageScreen(Screen):
                 ]
             )
 
-        lines = [_("[bold cyan]Admins[/bold cyan]"), tr("Configured admins: {count}", count=len(admins))]
+        lines = [
+            _("[bold cyan]Admins[/bold cyan]"),
+            tr("Configured admins: {count}", count=len(admins)),
+        ]
         for admin in admins:
-            identity = admin.get("identityId") or admin.get("playerId") or admin.get("id") or _("Unknown")
+            identity = (
+                admin.get("identityId")
+                or admin.get("playerId")
+                or admin.get("id")
+                or _("Unknown")
+            )
             lines.append(f"- {identity}")
         return "\n".join(lines)
 
@@ -2679,7 +2687,10 @@ class AdminManagerScreen(Screen):
                 f"{_('Admins')}: {get_instance_display_label(self.instance)}",
                 id="screen-title",
             )
-            yield Input(id="inp_admin_id", placeholder=_("Paste admin identity / player ID here..."))
+            yield Input(
+                id="inp_admin_id",
+                placeholder=_("Paste admin identity / player ID here..."),
+            )
             yield Button(_("Add Admin"), id="btn_add_admin", variant="success")
             yield Label(_("Configured Admins:"), id="admins-list-title")
             yield ListView(id="admins-list")
@@ -3141,7 +3152,8 @@ class ModManagerScreen(Screen):
                 self.app.push_screen(
                     ConfirmScreen(
                         tr(
-                            "Permanently remove Mod '{mod_id}' from config and delete local addon files if present?",
+                            "Permanently remove Mod '{mod_id}' from config and "
+                            "delete local addon files if present?",
                             mod_id=mod_id,
                         )
                     ),
