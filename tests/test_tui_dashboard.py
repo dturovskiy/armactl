@@ -118,6 +118,7 @@ def test_manage_navigation_uses_unified_dashboard_tabs() -> None:
     assert [item[0] for item in screen._nav_items()] == [
         "overview",
         "config",
+        "admins",
         "mods",
         "schedule",
         "bot",
@@ -251,11 +252,11 @@ def test_manage_action_row_keeps_one_global_refresh_button() -> None:
                     await pilot.pause()
 
                     labels = [_button_label(button) for button in _visible_action_buttons(screen)]
-                    assert labels.count(_("Refresh Status")) == 1
+                    assert labels.count(_("Refresh")) == 1
 
                     refresh_button = screen.query_one("#btn_refresh_manage", Button)
                     assert refresh_button.display
-                    assert _button_label(refresh_button) == _("Refresh Status")
+                    assert _button_label(refresh_button) == _("Refresh")
                     assert not refresh_button.disabled
 
                     secondary = screen.query_one("#btn_context_secondary", Button)
