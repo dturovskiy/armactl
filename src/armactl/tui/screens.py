@@ -490,6 +490,7 @@ class ManageScreen(Screen):
         self.instance = instance
         self._active_panel = "overview"
         self._context_action_keys: dict[str, str] = {}
+        self._last_config_validation_signature = ""
 
     @staticmethod
     def _yes_no(value: object) -> str:
@@ -550,8 +551,20 @@ class ManageScreen(Screen):
         """Auto-refresh state when returning from a sub-screen like ConfigEditor."""
         self.action_refresh_state()
 
+    def _notify_config_validation_errors(self, config_path: str) -> None:
+        errors = validate_config(config_path=config_path) if config_path else []
+        signature = "\n".join(errors)
+        if errors and signature != self._last_config_validation_signature:
+            self.app.notify(
+                tr("Config validation failed: {error}", error="; ".join(errors[:3])),
+                title=_("Config Validation"),
+                severity="error",
+            )
+        self._last_config_validation_signature = signature
+
     def action_refresh_state(self) -> None:
         state = discover(self.instance, save=False)
+        self._notify_config_validation_errors(state.config_path)
         service_status = get_service_status(self._service_name())
         title = self.query_one("#manage-screen-title", Label)
         server_name = self.query_one("#manage-server-name", Label)
@@ -1205,30 +1218,30 @@ class ManageScreen(Screen):
     def _build_admins_text(self) -> str:
         state = discover(self.instance, save=False)
         if not state.config_exists or not state.config_path:
-            return "\n".join([_("[bold cyan]Admins[/bold cyan]"), _("Config missing.")])
+            return "\n".join([_("[bold cyan]Server Admins[/bold cyan]"), _("Config missing.")])
 
         try:
             admins = get_admins(state.config_path)
         except Exception as error:
             return "\n".join(
                 [
-                    _("[bold cyan]Admins[/bold cyan]"),
-                    tr("Failed to load admins: {error}", error=redact_sensitive_text(error)),
+                    _("[bold cyan]Server Admins[/bold cyan]"),
+                    tr("Failed to load operators: {error}", error=redact_sensitive_text(error)),
                 ]
             )
 
         lines = [
-            _("[bold cyan]Admins[/bold cyan]"),
-            tr("Configured admins: {count}", count=len(admins)),
+            _("[bold cyan]Server Admins[/bold cyan]"),
+            _(
+                "Stored in official game.admins. Listed admins can use #login "
+                "without a password; optional labels remain local."
+            ),
+            tr("Configured server admins: {count}", count=len(admins)),
         ]
         for admin in admins:
-            identity = (
-                admin.get("identityId")
-                or admin.get("playerId")
-                or admin.get("id")
-                or _("Unknown")
-            )
-            lines.append(f"- {identity}")
+            identity = admin.get("identityId") or _("Unknown")
+            label = str(admin.get("name") or "").strip()
+            lines.append(f"- {label} ({identity})" if label else f"- {identity}")
         return "\n".join(lines)
 
     def _display_timer_value(self, value: str) -> str:
@@ -2669,7 +2682,7 @@ class ModPackFileScreen(Screen):
 
 
 class AdminManagerScreen(Screen):
-    """Screen for adding and removing admin identities."""
+    """Screen for official game.admins entries with optional local display labels."""
 
     BINDINGS = [
         ("b", "pop_screen", _("Back")),
@@ -2684,15 +2697,28 @@ class AdminManagerScreen(Screen):
         yield Header()
         with VerticalGroup(id="info-container"):
             yield Label(
-                f"{_('Admins')}: {get_instance_display_label(self.instance)}",
+                f"{_('Server Admins')}: {get_instance_display_label(self.instance)}",
                 id="screen-title",
+            )
+            yield Label(
+                _(
+                    "Enter SteamID64, a Steam profile URL, or a vanity slug. "
+                    "A display nickname is not guaranteed to be unique. "
+                    "The resolved ID is stored in official game.admins so listed admins can use "
+                    "#login without a password. The optional label remains local."
+                ),
+                id="admins-help",
             )
             yield Input(
                 id="inp_admin_id",
-                placeholder=_("Paste admin identity / player ID here..."),
+                placeholder=_("SteamID64, steamcommunity.com profile URL, or vanity slug..."),
             )
-            yield Button(_("Add Admin"), id="btn_add_admin", variant="success")
-            yield Label(_("Configured Admins:"), id="admins-list-title")
+            yield Input(
+                id="inp_admin_name",
+                placeholder=_("Optional label, for example Owner or Host operator..."),
+            )
+            yield Button(_("Add / Update Server Admin"), id="btn_add_admin", variant="success")
+            yield Label(_("Configured Server Admins:"), id="admins-list-title")
             yield ListView(id="admins-list")
             with HorizontalGroup():
                 yield Button(_("Remove Selected"), id="btn_remove_admin", variant="error")
@@ -2711,21 +2737,20 @@ class AdminManagerScreen(Screen):
             admins = get_admins(cfg)
         except Exception as error:
             self.app.notify(
-                tr("Error loading admins: {error}", error=redact_sensitive_text(error)),
+                tr("Error loading server admins: {error}", error=redact_sensitive_text(error)),
                 severity="error",
             )
             return
 
         if not admins:
-            await list_view.append(ListItem(Label(_("No admins configured."))))
+            await list_view.append(ListItem(Label(_("No server admins configured."))))
             return
 
         for index, admin in enumerate(admins, 1):
-            identity = str(
-                admin.get("identityId") or admin.get("playerId") or admin.get("id") or ""
-            )
-            label = f"[{index}] {identity}"
-            item = ListItem(Label(label))
+            identity = str(admin.get("identityId") or "")
+            label = str(admin.get("name") or "").strip()
+            rendered = f"[{index}] {label} ({identity})" if label else f"[{index}] {identity}"
+            item = ListItem(Label(rendered))
             item.admin_id = identity  # type: ignore[attr-defined]
             await list_view.append(item)
 
@@ -2736,36 +2761,40 @@ class AdminManagerScreen(Screen):
         elif event.button.id == "btn_refresh_admins":
             await self.action_refresh_admins()
         elif event.button.id == "btn_add_admin":
-            admin_id = self.query_one("#inp_admin_id", Input).value.strip()
-            if not admin_id:
-                self.app.notify(_("Admin ID is required."), severity="error")
+            admin_reference = self.query_one("#inp_admin_id", Input).value.strip()
+            label = self.query_one("#inp_admin_name", Input).value.strip()
+            if not admin_reference:
+                self.app.notify(_("Steam profile reference is required."), severity="error")
                 return
             try:
-                added = add_admin(cfg, admin_id)
+                added = add_admin(cfg, admin_reference, label)
             except Exception as error:
                 self.app.notify(
-                    tr("Failed to save admin: {error}", error=redact_sensitive_text(error)),
+                    tr("Failed to save server admin: {error}", error=redact_sensitive_text(error)),
                     severity="error",
                 )
                 return
             self.app.notify(
-                _("Admin added.") if added else _("Admin is already configured.")
+                _("Server admin added. This ID can use #login without a password.")
+                if added
+                else _("Server admin is already configured and its local label was updated.")
             )
             self.query_one("#inp_admin_id", Input).value = ""
+            self.query_one("#inp_admin_name", Input).value = ""
             await self.action_refresh_admins()
         elif event.button.id == "btn_remove_admin":
             list_view = self.query_one("#admins-list", ListView)
             if list_view.highlighted_child is None:
-                self.app.notify(_("Select an admin to remove first."), severity="warning")
+                self.app.notify(_("Select a server admin to remove first."), severity="warning")
                 return
             admin_id = getattr(list_view.highlighted_child, "admin_id", "")
             if not admin_id:
                 return
             if remove_admin(cfg, admin_id):
-                self.app.notify(_("Admin removed."))
+                self.app.notify(_("Server admin removed."))
                 await self.action_refresh_admins()
             else:
-                self.app.notify(_("Admin not found."), severity="error")
+                self.app.notify(_("Server admin not found."), severity="error")
 
 
 class ModManagerScreen(Screen):

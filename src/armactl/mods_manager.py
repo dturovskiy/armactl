@@ -15,8 +15,11 @@ from armactl.addon_cleanup import (
 )
 from armactl.config_manager import ConfigError, load_config, save_config
 from armactl.i18n import _, tr
-
-DISABLED_MODS_KEY = "disabledMods"
+from armactl.mods_state import (
+    load_disabled_mods,
+    migrate_legacy_disabled_mods,
+    save_disabled_mods,
+)
 
 
 @dataclass
@@ -70,10 +73,9 @@ def get_mods(config_path: Path | str) -> list[dict[str, Any]]:
 
 
 def get_disabled_mods(config_path: Path | str) -> list[dict[str, Any]]:
-    """Return the disabled mod list from config."""
-    config = load_config(config_path)
-    game = config.get("game", {})
-    return game.get(DISABLED_MODS_KEY, [])
+    """Return armactl-only disabled mods from the instance sidecar."""
+    migrate_legacy_disabled_mods(config_path)
+    return load_disabled_mods(config_path)
 
 
 def _mod_ids(mods: list[dict[str, Any]]) -> set[str]:
@@ -100,12 +102,14 @@ def save_mods_with_removed_addon_cleanup(
     *,
     cleanup_removed: bool = True,
 ) -> ModUpdateResult:
-    """Save a mod list and safely clean addons for IDs no longer present."""
+    """Save active mods and safely clean addons no longer referenced anywhere."""
+    migrate_legacy_disabled_mods(config_path)
     old_ids = _mod_ids(old_mods)
     new_ids = _mod_ids(new_mods)
 
     game = config.setdefault("game", {})
-    disabled_ids = _mod_ids(list(game.get(DISABLED_MODS_KEY, [])))
+    game.pop("disabledMods", None)
+    disabled_ids = _mod_ids(load_disabled_mods(config_path))
     removed_ids = (old_ids - new_ids) - disabled_ids
     game["mods"] = new_mods
 
@@ -164,7 +168,8 @@ def set_mods_detailed(
     *,
     _cleanup_removed: bool = True,
 ) -> ModUpdateResult:
-    """Save a new list of mods and return cleanup metadata."""
+    """Save a new active list and return cleanup metadata."""
+    migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
     old_mods = list(config.get("game", {}).get("mods", []))
     return save_mods_with_removed_addon_cleanup(
@@ -182,11 +187,12 @@ def add_mod(
     name: str = "",
     version: str = "",
 ) -> bool:
-    """Add a mod to config. Returns True if added, False if already exists."""
+    """Add or reactivate a mod. Returns True if added, False if already active."""
+    migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
     game = config.setdefault("game", {})
     mods = list(game.get("mods", []))
-    disabled_mods = list(game.get(DISABLED_MODS_KEY, []))
+    disabled_mods = load_disabled_mods(config_path)
     disabled_mods, disabled_entry = _pop_mod_by_id(disabled_mods, mod_id)
     target_id = normalize_mod_id(mod_id)
 
@@ -196,7 +202,7 @@ def add_mod(
                 mod["name"] = name
             if version:
                 mod["version"] = version
-            game[DISABLED_MODS_KEY] = disabled_mods
+            save_disabled_mods(config_path, disabled_mods)
             save_config(config_path, config)
             return False
 
@@ -208,8 +214,8 @@ def add_mod(
         disabled_entry["modId"] = str(disabled_entry.get("modId") or mod_id).upper()
         mods.append(disabled_entry)
         game["mods"] = mods
-        game[DISABLED_MODS_KEY] = disabled_mods
         save_config(config_path, config)
+        save_disabled_mods(config_path, disabled_mods)
         return True
 
     mods.append({"modId": mod_id, "name": name, "version": version})
@@ -219,11 +225,12 @@ def add_mod(
 
 
 def disable_mod(config_path: Path | str, mod_id: str) -> bool:
-    """Move a mod from active game.mods to disabledMods without deleting local files."""
+    """Move a mod from game.mods into the armactl-only sidecar."""
+    migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
     game = config.setdefault("game", {})
     active_mods = list(game.get("mods", []))
-    disabled_mods = list(game.get(DISABLED_MODS_KEY, []))
+    disabled_mods = load_disabled_mods(config_path)
 
     active_mods, removed = _pop_mod_by_id(active_mods, mod_id)
     if removed is None:
@@ -233,18 +240,21 @@ def disable_mod(config_path: Path | str, mod_id: str) -> bool:
     if removed_id not in _mod_ids(disabled_mods):
         disabled_mods.append(removed)
 
+    # Save sidecar first so local addon cleanup never sees the disabled mod as orphaned.
+    save_disabled_mods(config_path, disabled_mods)
     game["mods"] = active_mods
-    game[DISABLED_MODS_KEY] = disabled_mods
+    game.pop("disabledMods", None)
     save_config(config_path, config)
     return True
 
 
 def enable_mod(config_path: Path | str, mod_id: str) -> bool:
-    """Move a mod from disabledMods back to active game.mods."""
+    """Move a disabled mod from the sidecar back into game.mods."""
+    migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
     game = config.setdefault("game", {})
     active_mods = list(game.get("mods", []))
-    disabled_mods = list(game.get(DISABLED_MODS_KEY, []))
+    disabled_mods = load_disabled_mods(config_path)
 
     disabled_mods, restored = _pop_mod_by_id(disabled_mods, mod_id)
     if restored is None:
@@ -255,8 +265,9 @@ def enable_mod(config_path: Path | str, mod_id: str) -> bool:
         active_mods.append(restored)
 
     game["mods"] = active_mods
-    game[DISABLED_MODS_KEY] = disabled_mods
+    game.pop("disabledMods", None)
     save_config(config_path, config)
+    save_disabled_mods(config_path, disabled_mods)
     return True
 
 
@@ -269,21 +280,18 @@ def remove_mod(config_path: Path | str, mod_id: str) -> bool:
 
 
 def remove_mod_detailed(config_path: Path | str, mod_id: str) -> ModUpdateResult:
-    """Remove a mod from config by ID and return cleanup metadata."""
+    """Remove an active or disabled mod and clean up its local addon directory."""
+    migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
     game = config.setdefault("game", {})
     mods = list(game.get("mods", []))
-    disabled_mods = list(game.get(DISABLED_MODS_KEY, []))
+    disabled_mods = load_disabled_mods(config_path)
     target_id = normalize_mod_id(mod_id)
     if target_id is None:
         new_mods = [mod for mod in mods if mod.get("modId") != mod_id]
-        new_disabled_mods = [
-            mod for mod in disabled_mods if mod.get("modId") != mod_id
-        ]
+        new_disabled_mods = [mod for mod in disabled_mods if mod.get("modId") != mod_id]
     else:
-        new_mods = [
-            mod for mod in mods if normalize_mod_id(mod.get("modId")) != target_id
-        ]
+        new_mods = [mod for mod in mods if normalize_mod_id(mod.get("modId")) != target_id]
         new_disabled_mods = [
             mod for mod in disabled_mods if normalize_mod_id(mod.get("modId")) != target_id
         ]
@@ -291,7 +299,7 @@ def remove_mod_detailed(config_path: Path | str, mod_id: str) -> ModUpdateResult
     if len(new_mods) == len(mods) and len(new_disabled_mods) == len(disabled_mods):
         return ModUpdateResult(config_changed=False)
 
-    game[DISABLED_MODS_KEY] = new_disabled_mods
+    save_disabled_mods(config_path, new_disabled_mods)
     result = save_mods_with_removed_addon_cleanup(config_path, config, mods, new_mods)
 
     disabled_removed_ids = _mod_ids(disabled_mods) - _mod_ids(new_disabled_mods)
@@ -305,10 +313,7 @@ def remove_mod_detailed(config_path: Path | str, mod_id: str) -> ModUpdateResult
 
 
 def clear_mods(config_path: Path | str) -> int:
-    """Remove all mods and clean up their addon directories.
-
-    Returns the number of removed mods.
-    """
+    """Remove all active and disabled mods and clean up their addon directories."""
     mods = get_mods(config_path)
     disabled_mods = get_disabled_mods(config_path)
     if not mods and not disabled_mods:
@@ -319,13 +324,14 @@ def clear_mods(config_path: Path | str) -> int:
 
 def clear_mods_detailed(config_path: Path | str) -> ModUpdateResult:
     """Remove all mods and return cleanup metadata."""
+    migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
     game = config.setdefault("game", {})
     mods = list(game.get("mods", []))
-    disabled_mods = list(game.get(DISABLED_MODS_KEY, []))
+    disabled_mods = load_disabled_mods(config_path)
     if not mods and not disabled_mods:
         return ModUpdateResult(config_changed=False)
-    game[DISABLED_MODS_KEY] = []
+    save_disabled_mods(config_path, [])
     result = save_mods_with_removed_addon_cleanup(config_path, config, mods, [])
     extra_cleanup_ids = _mod_ids(disabled_mods) - result.removed_ids
     if extra_cleanup_ids:
@@ -338,11 +344,12 @@ def clear_mods_detailed(config_path: Path | str) -> ModUpdateResult:
 
 
 def dedupe_mods(config_path: Path | str) -> int:
-    """Remove duplicate mods across active and disabled lists."""
+    """Remove duplicate mods across active config and disabled sidecar."""
+    migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
     game = config.setdefault("game", {})
     mods = list(game.get("mods", []))
-    disabled_mods = list(game.get(DISABLED_MODS_KEY, []))
+    disabled_mods = load_disabled_mods(config_path)
     seen: set[str] = set()
     deduped_mods: list[dict[str, Any]] = []
     deduped_disabled_mods: list[dict[str, Any]] = []
@@ -369,10 +376,12 @@ def dedupe_mods(config_path: Path | str) -> int:
     )
     if duplicates_removed > 0:
         game["mods"] = deduped_mods
-        game[DISABLED_MODS_KEY] = deduped_disabled_mods
+        game.pop("disabledMods", None)
         save_config(config_path, config)
+        save_disabled_mods(config_path, deduped_disabled_mods)
 
     return duplicates_removed
+
 
 def export_mods(config_path: Path | str, export_file: Path | str) -> int:
     """Export currently configured mods to a JSON file."""
@@ -456,12 +465,13 @@ def import_mods_detailed(
     import_file: Path | str,
     append: bool = False,
 ) -> tuple[int, int, ModUpdateResult]:
-    """Import mods from a JSON file and reconcile disabled entries."""
+    """Import active mods and reactivate matching disabled sidecar entries."""
     imported_mods = _load_import_mods(import_file)
+    migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
     game = config.setdefault("game", {})
     old_mods = list(game.get("mods", []))
-    disabled_mods = list(game.get(DISABLED_MODS_KEY, []))
+    disabled_mods = load_disabled_mods(config_path)
     current_mods = list(old_mods) if append else []
     seen_ids = {_mod_key(mod.get("modId")) for mod in current_mods}
     activated_ids: set[str] = set()
@@ -486,7 +496,7 @@ def import_mods_detailed(
         seen_ids.add(mod_key)
         added_count += 1
 
-    game[DISABLED_MODS_KEY] = [
+    remaining_disabled = [
         mod for mod in disabled_mods if _mod_key(mod.get("modId")) not in activated_ids
     ]
 
@@ -496,4 +506,5 @@ def import_mods_detailed(
         old_mods,
         current_mods,
     )
+    save_disabled_mods(config_path, remaining_disabled)
     return added_count, skipped_count, update_result

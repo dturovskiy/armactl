@@ -155,6 +155,22 @@ def logs_dir(
     return instance_root(instance, data_root) / "logs"
 
 
+def mods_state_file(
+    instance: str = DEFAULT_INSTANCE_NAME,
+    data_root: Path = DEFAULT_DATA_ROOT,
+) -> Path:
+    """armactl-only metadata for reversibly disabled Workshop mods."""
+    return instance_root(instance, data_root) / "mods-state.json"
+
+
+def admins_state_file(
+    instance: str = DEFAULT_INSTANCE_NAME,
+    data_root: Path = DEFAULT_DATA_ROOT,
+) -> Path:
+    """armactl-only local Steam operator metadata."""
+    return instance_root(instance, data_root) / "admins-state.json"
+
+
 def modpacks_dir(
     instance: str = DEFAULT_INSTANCE_NAME,
     data_root: Path = DEFAULT_DATA_ROOT,

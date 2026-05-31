@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""Normalize official game.admins and restore IDs removed by older armactl builds."""
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from armactl.admins_manager import migrate_legacy_admins  # noqa: E402
+from armactl.config_manager import validate_config  # noqa: E402
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data-root", default=str(Path.home() / "armactl-data"))
+    args = parser.parse_args()
+    data_root = Path(args.data_root).expanduser()
+    configs = sorted(data_root.glob("*/config/config.json"))
+    if not configs:
+        print(f"No runtime configs found under {data_root}")
+        return 0
+    failed = False
+    for config_path in configs:
+        try:
+            result = migrate_legacy_admins(config_path)
+            print(f"[{config_path}]")
+            if result.migrated:
+                print(f"  normalized {result.legacy_entries} server admin entry/entries")
+                print(f"  restored {result.restored_from_sidecar} admin ID(s) from {result.sidecar_path}")
+                print("  official game.admins server ACL synchronized")
+            else:
+                print("  official game.admins server ACL already synchronized")
+            errors = validate_config(config_path=config_path)
+            if errors:
+                failed = True
+                for error in errors:
+                    print(f"  validation error: {error}")
+            else:
+                print("  config validation OK")
+        except Exception as exc:
+            failed = True
+            print(f"[{config_path}] ERROR: {exc}")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

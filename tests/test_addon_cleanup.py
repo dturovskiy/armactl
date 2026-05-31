@@ -27,6 +27,7 @@ from armactl.mods_manager import (
     remove_mod_detailed,
     set_mods_detailed,
 )
+from armactl.mods_state import load_disabled_mods, save_disabled_mods
 
 
 def _write_config(
@@ -47,9 +48,9 @@ def _write_config(
             "mods": mods or [],
         },
     }
-    if disabled_mods is not None:
-        payload["game"]["disabledMods"] = disabled_mods
     config_path.write_text(json.dumps(payload, indent=4), encoding="utf-8")
+    if disabled_mods is not None:
+        save_disabled_mods(config_path, disabled_mods)
 
 
 def _create_addon_dir(addons_dir: Path, name: str, size: int = 512) -> Path:
@@ -303,7 +304,8 @@ def test_disable_mod_moves_to_disabled_without_deleting_addon(tmp_path: Path) ->
 
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["game"]["mods"] == []
-    assert saved["game"]["disabledMods"] == [
+    assert "disabledMods" not in saved["game"]
+    assert load_disabled_mods(config_path) == [
         {"modId": "AAAAAAAAAAAAAAAA", "name": "Disable"}
     ]
     assert addon_dir.exists()
@@ -318,7 +320,8 @@ def test_enable_mod_restores_disabled_mod(tmp_path: Path) -> None:
 
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["game"]["mods"] == disabled
-    assert saved["game"]["disabledMods"] == []
+    assert "disabledMods" not in saved["game"]
+    assert load_disabled_mods(config_path) == []
 
 
 def test_remove_mod_detailed_deletes_disabled_mod_addons(tmp_path: Path) -> None:
@@ -340,7 +343,8 @@ def test_remove_mod_detailed_deletes_disabled_mod_addons(tmp_path: Path) -> None
     assert not addon_dir.exists()
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["game"]["mods"] == []
-    assert saved["game"]["disabledMods"] == []
+    assert "disabledMods" not in saved["game"]
+    assert load_disabled_mods(config_path) == []
 
 
 def test_clear_mods_removes_active_and_disabled_mods(tmp_path: Path) -> None:
@@ -355,7 +359,8 @@ def test_clear_mods_removes_active_and_disabled_mods(tmp_path: Path) -> None:
 
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["game"]["mods"] == []
-    assert saved["game"]["disabledMods"] == []
+    assert "disabledMods" not in saved["game"]
+    assert load_disabled_mods(config_path) == []
 
 
 def test_set_mods_handles_enospc_by_cleaning_removed_ids_and_retrying_once(
