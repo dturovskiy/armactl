@@ -59,11 +59,10 @@ def extract_mod_id_from_addon_dir_name(name: str) -> str | None:
 
 
 def active_mod_ids_from_config_data(config: dict[str, Any]) -> set[str]:
-    """Return valid active mod IDs from parsed config data, uppercased."""
+    """Return valid active server-facing mod IDs from config data, uppercased."""
     game = config.get("game", {})
     mods = game.get("mods", [])
-    disabled_mods = game.get("disabledMods", [])
-    return _normalized_mod_ids(mods) | _normalized_mod_ids(disabled_mods)
+    return _normalized_mod_ids(mods)
 
 
 def _normalized_mod_ids(mods: Iterable[dict[str, Any]]) -> set[str]:
@@ -289,9 +288,16 @@ def cleanup_unconfigured_addons(
 
     if active_mod_ids is None:
         from armactl.config_manager import load_config
+        from armactl.mods_state import load_disabled_mods
 
         config_data = load_config(config_path)
-        active_upper = active_mod_ids_from_config_data(config_data)
+        game = config_data.get("game", {})
+        legacy_disabled = game.get("disabledMods", []) if isinstance(game, dict) else []
+        active_upper = (
+            active_mod_ids_from_config_data(config_data)
+            | _normalized_mod_ids(load_disabled_mods(config_path))
+            | _normalized_mod_ids(legacy_disabled)
+        )
     else:
         active_upper = {
             normalized

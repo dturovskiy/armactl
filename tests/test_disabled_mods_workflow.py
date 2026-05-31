@@ -1,17 +1,12 @@
-"""Regression tests for disabled Workshop mod handling."""
-
+"""Regression tests for disabled Workshop mod sidecar handling."""
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
 from armactl.addon_cleanup import cleanup_unconfigured_addons
-from armactl.mods_manager import (
-    dedupe_mods,
-    disable_mod,
-    enable_mod,
-    import_mods_detailed,
-)
+from armactl.mods_manager import dedupe_mods, disable_mod, enable_mod, import_mods_detailed
+from armactl.mods_state import load_disabled_mods, save_disabled_mods
 
 
 def _write_config(
@@ -29,10 +24,11 @@ def _write_config(
             "scenarioId": "test",
             "maxPlayers": 16,
             "mods": mods or [],
-            "disabledMods": disabled_mods or [],
         },
     }
     config_path.write_text(json.dumps(payload, indent=4), encoding="utf-8")
+    if disabled_mods is not None:
+        save_disabled_mods(config_path, disabled_mods)
 
 
 def _create_addon_dir(addons: Path, name: str) -> Path:
@@ -60,17 +56,18 @@ def test_disabled_mod_is_kept_by_unused_addon_cleanup(tmp_path: Path) -> None:
 def test_disable_and_enable_mod_preserve_local_addon(tmp_path: Path) -> None:
     config_path = tmp_path / "instance" / "config" / "config.json"
     addons = tmp_path / "instance" / "config" / "addons"
-    _write_config(
-        config_path,
-        mods=[{"modId": "AAAAAAAAAAAAAAAA", "name": "Toggle"}],
-    )
+    _write_config(config_path, mods=[{"modId": "AAAAAAAAAAAAAAAA", "name": "Toggle"}])
     addon_dir = _create_addon_dir(addons, "Toggle_AAAAAAAAAAAAAAAA")
 
     assert disable_mod(config_path, "aaaaaaaaaaaaaaaa")
     assert addon_dir.exists()
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert "disabledMods" not in saved["game"]
+    assert load_disabled_mods(config_path) == [{"modId": "AAAAAAAAAAAAAAAA", "name": "Toggle"}]
 
     assert enable_mod(config_path, "AAAAAAAAAAAAAAAA")
     assert addon_dir.exists()
+    assert load_disabled_mods(config_path) == []
 
 
 def test_dedupe_prefers_active_mod_over_disabled_duplicate(tmp_path: Path) -> None:
@@ -85,14 +82,10 @@ def test_dedupe_prefers_active_mod_over_disabled_duplicate(tmp_path: Path) -> No
     )
 
     assert dedupe_mods(config_path) == 1
-
     saved = json.loads(config_path.read_text(encoding="utf-8"))
-    assert saved["game"]["mods"] == [
-        {"modId": "AAAAAAAAAAAAAAAA", "name": "Active"}
-    ]
-    assert saved["game"]["disabledMods"] == [
-        {"modId": "BBBBBBBBBBBBBBBB", "name": "Disabled"}
-    ]
+    assert saved["game"]["mods"] == [{"modId": "AAAAAAAAAAAAAAAA", "name": "Active"}]
+    assert "disabledMods" not in saved["game"]
+    assert load_disabled_mods(config_path) == [{"modId": "BBBBBBBBBBBBBBBB", "name": "Disabled"}]
 
 
 def test_import_reactivates_disabled_mod(tmp_path: Path) -> None:
@@ -114,4 +107,5 @@ def test_import_reactivates_disabled_mod(tmp_path: Path) -> None:
     assert saved["game"]["mods"] == [
         {"modId": "aaaaaaaaaaaaaaaa", "name": "Imported", "version": ""}
     ]
-    assert saved["game"]["disabledMods"] == []
+    assert "disabledMods" not in saved["game"]
+    assert load_disabled_mods(config_path) == []

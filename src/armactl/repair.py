@@ -9,6 +9,8 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 from armactl import paths
+from armactl.admins_manager import migrate_legacy_admins
+from armactl.config_manager import ConfigError, validate_config
 from armactl.discovery import discover_manual
 from armactl.i18n import _, tr
 from armactl.installer import InstallError, stream_server_update
@@ -19,6 +21,7 @@ from armactl.integrity import (
     mark_install_started,
     write_package_manifest,
 )
+from armactl.mods_state import migrate_legacy_disabled_mods
 from armactl.service_manager import (
     generate_services,
     install_privileged_systemctl_channel,
@@ -108,6 +111,44 @@ def run_repair(
         yield _("  OK Default config generated")
     else:
         yield _("  OK Config exists (skipping overwrite)")
+
+    try:
+        migration = migrate_legacy_disabled_mods(config_path)
+    except ConfigError as e:
+        raise RepairError(tr("Config migration failed: {error}", error=e)) from e
+    if migration.migrated:
+        yield tr(
+            "  OK Migrated {count} disabled mod(s) to {path}",
+            count=migration.legacy_entries,
+            path=migration.sidecar_path,
+        )
+        yield _("  OK Removed unsupported game.disabledMods from server config")
+
+    try:
+        admins_migration = migrate_legacy_admins(config_path)
+    except ConfigError as e:
+        raise RepairError(tr("Admin operator migration failed: {error}", error=e)) from e
+    if admins_migration.migrated:
+        yield tr(
+            "  OK Normalized {count} server admin entry/entries and restored "
+            "{restored} ID(s) from {path}",
+            count=admins_migration.legacy_entries,
+            restored=admins_migration.restored_from_sidecar,
+            path=admins_migration.sidecar_path,
+        )
+        yield _("  OK Official game.admins server ACL synchronized")
+
+    config_errors = validate_config(config_path=config_path)
+    if config_errors:
+        for error in config_errors:
+            yield tr("  ! Config validation: {error}", error=error)
+        raise RepairError(
+            _(
+                "Configuration validation failed. Fix config.json before "
+                "starting the server."
+            )
+        )
+    yield _("  OK Config validation passed")
 
     yield tr("[{instance}] Step 4: Repairing systemd services...", instance=instance)
     results = generate_services(instance=instance)

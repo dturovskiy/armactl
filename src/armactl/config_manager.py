@@ -36,14 +36,22 @@ def load_config(config_path: Path | str) -> dict[str, Any]:
         raise ConfigError(tr("Failed to read config file: {error}", error=e))
 
 
-def save_config(config_path: Path | str, data: dict[str, Any], backup: bool = True) -> None:
-    """Save config.json to disk safely with optional backup.
-
-    1. Creates a backup if requested.
-    2. Writes to a .tmp file.
-    3. Atomically renames .tmp to config.json.
-    """
+def save_config(
+    config_path: Path | str,
+    data: dict[str, Any],
+    backup: bool = True,
+    *,
+    validate: bool = True,
+) -> None:
+    """Save config.json atomically after validating server-facing content."""
     config_path = Path(config_path)
+    if validate:
+        errors = validate_config(data=data)
+        if errors:
+            raise ConfigError(
+                "Refusing to save invalid config: " + "; ".join(errors)
+            )
+
     if backup and config_path.exists():
         _create_backup(config_path)
 
@@ -111,14 +119,24 @@ def _rotate_backups(backups_dir: Path, max_backups: int = 10) -> None:
                 pass
 
 
+def _is_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _validate_port(errors: list[str], path: str, value: Any, *, required: bool = False) -> None:
+    if value is None:
+        if required:
+            errors.append(tr("Missing '{path}'.", path=path))
+        return
+    if not _is_int(value) or not 1 <= value <= 65535:
+        errors.append(tr("'{path}' must be an integer between 1 and 65535.", path=path))
+
+
 def validate_config(
     config_path: Path | str | None = None,
     data: dict[str, Any] | None = None,
 ) -> list[str]:
-    """Validate config content.
-
-    Returns a list of error strings. Empty list means the config is valid.
-    """
+    """Validate the server-facing config without rejecting future upstream keys."""
     if data is None and config_path:
         try:
             data = load_config(Path(config_path))
@@ -126,34 +144,104 @@ def validate_config(
             return [str(e)]
 
     if data is None:
-        return [_("No data provided to validate.")]
-
-    errors = []
-
+        return [_('No data provided to validate.')]
     if not isinstance(data, dict):
-        return [_("Config root must be a JSON object (dict).")]
+        return [_('Config root must be a JSON object (dict).')]
 
-    # Check for core sections according to typical Arma Reforger config
-    if "bindAddress" not in data:
+    errors: list[str] = []
+
+    bind_address = data.get("bindAddress")
+    if bind_address is None:
         errors.append(_("Missing 'bindAddress' in config."))
-    if "bindPort" not in data:
-        errors.append(_("Missing 'bindPort' in config."))
+    elif not isinstance(bind_address, str):
+        errors.append(_("'bindAddress' must be a string."))
 
-    if "game" not in data:
+    _validate_port(errors, "bindPort", data.get("bindPort"), required=True)
+    _validate_port(errors, "publicPort", data.get("publicPort"))
+
+    if "publicAddress" in data and not isinstance(data["publicAddress"], str):
+        errors.append(_("'publicAddress' must be a string."))
+
+    game = data.get("game")
+    if game is None:
         errors.append(_("Missing 'game' section in config."))
-    elif not isinstance(data["game"], dict):
+    elif not isinstance(game, dict):
         errors.append(_("'game' section must be an object."))
     else:
-        # Check game properties
-        game = data["game"]
-        if "name" not in game:
-            errors.append(_("Missing 'game.name' (server name)."))
-        if "scenarioId" not in game:
-            errors.append(_("Missing 'game.scenarioId'."))
-        if "maxPlayers" not in game:
+        if "disabledMods" in game:
+            errors.append(
+                _(
+                    "'game.disabledMods' is armactl metadata and must not be "
+                    "written to server config. Run repair or the disabled-mods "
+                    "migration."
+                )
+            )
+        admins = game.get("admins", [])
+        if not isinstance(admins, list):
+            errors.append(_("'game.admins' must be a list."))
+        else:
+            if len(admins) > 20:
+                errors.append(_("'game.admins' supports at most 20 unique IDs."))
+            seen_admin_ids: set[str] = set()
+            for index, admin_id in enumerate(admins):
+                if not isinstance(admin_id, str) or not admin_id.strip():
+                    errors.append(
+                        tr(
+                            "'game.admins[{index}]' must be a non-empty "
+                            "IdentityId or SteamID string.",
+                            index=index,
+                        )
+                    )
+                    continue
+                key = admin_id.strip().upper()
+                if key in seen_admin_ids:
+                    errors.append(
+                        tr(
+                            "Duplicate admin ID in 'game.admins': {admin_id}.",
+                            admin_id=admin_id,
+                        )
+                    )
+                seen_admin_ids.add(key)
+
+        for key in ("name", "scenarioId"):
+            value = game.get(key)
+            if value is None:
+                errors.append(tr("Missing 'game.{key}'.", key=key))
+            elif not isinstance(value, str):
+                errors.append(tr("'game.{key}' must be a string.", key=key))
+
+        max_players = game.get("maxPlayers")
+        if max_players is None:
             errors.append(_("Missing 'game.maxPlayers'."))
-        elif not isinstance(game["maxPlayers"], int):
-            errors.append(_("'game.maxPlayers' must be an integer."))
+        elif not _is_int(max_players) or max_players <= 0:
+            errors.append(_("'game.maxPlayers' must be a positive integer."))
+
+        mods = game.get("mods", [])
+        if not isinstance(mods, list):
+            errors.append(_("'game.mods' must be a list."))
+        else:
+            seen_mod_ids: set[str] = set()
+            for index, mod in enumerate(mods):
+                if not isinstance(mod, dict):
+                    errors.append(tr("'game.mods[{index}]' must be an object.", index=index))
+                    continue
+                mod_id = str(mod.get("modId") or "").strip()
+                if not mod_id:
+                    errors.append(tr("'game.mods[{index}].modId' is required.", index=index))
+                    continue
+                key = mod_id.upper()
+                if key in seen_mod_ids:
+                    errors.append(tr("Duplicate mod ID in 'game.mods': {mod_id}.", mod_id=mod_id))
+                seen_mod_ids.add(key)
+
+    for section in ("a2s", "rcon"):
+        value = data.get(section)
+        if value is None:
+            continue
+        if not isinstance(value, dict):
+            errors.append(tr("'{section}' must be an object.", section=section))
+            continue
+        _validate_port(errors, f"{section}.port", value.get("port"))
 
     return errors
 

@@ -16,7 +16,7 @@ def test_save_config_keeps_backups_next_to_nonstandard_config(tmp_path: Path):
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps({"game": {"name": "Test"}}), encoding="utf-8")
 
-    save_config(config_path, {"game": {"name": "Updated"}}, backup=True)
+    save_config(config_path, {"game": {"name": "Updated"}}, backup=True, validate=False)
 
     backup_files = list((tmp_path / "target" / "backups").glob("config.json.*.bak"))
     assert len(backup_files) == 1
@@ -39,7 +39,7 @@ def test_create_backup_rotates_before_copy(tmp_path: Path, monkeypatch: pytest.M
     monkeypatch.setattr(config_manager, "_rotate_backups", fake_rotate)
     monkeypatch.setattr(config_manager.shutil, "copy2", fake_copy)
 
-    save_config(config_path, {"game": {"name": "Updated"}}, backup=True)
+    save_config(config_path, {"game": {"name": "Updated"}}, backup=True, validate=False)
 
     assert events[:2] == [("rotate", 9), ("copy", None)]
     assert events[-1] == ("rotate", 10)
@@ -61,7 +61,7 @@ def test_failed_backup_copy_removes_partial_backup_and_preserves_config(
     monkeypatch.setattr(config_manager.shutil, "copy2", fail_copy)
 
     with pytest.raises(ConfigError) as exc_info:
-        save_config(config_path, {"game": {"name": "Updated"}}, backup=True)
+        save_config(config_path, {"game": {"name": "Updated"}}, backup=True, validate=False)
 
     assert isinstance(exc_info.value.__cause__, OSError)
     assert json.loads(config_path.read_text(encoding="utf-8")) == original
@@ -84,7 +84,7 @@ def test_failed_tmp_write_removes_tmp_and_preserves_config(
     monkeypatch.setattr(config_manager.json, "dump", fail_dump)
 
     with pytest.raises(ConfigError) as exc_info:
-        save_config(config_path, {"game": {"name": "Updated"}}, backup=False)
+        save_config(config_path, {"game": {"name": "Updated"}}, backup=False, validate=False)
 
     assert isinstance(exc_info.value.__cause__, OSError)
     assert json.loads(config_path.read_text(encoding="utf-8")) == original

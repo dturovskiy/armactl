@@ -33,7 +33,7 @@ def test_player_view_prefers_available_rcon_roster_count_over_a2s_ghost_count() 
                 configured=True,
                 host="127.0.0.1",
                 port=19999,
-                entries=[PlayerEntry(name="deus", player_id="1")],
+                entries=[PlayerEntry(name="PlayerOne", player_id="1")],
             ),
         ),
     ):
@@ -42,7 +42,7 @@ def test_player_view_prefers_available_rcon_roster_count_over_a2s_ghost_count() 
     assert view.current == 1
     assert view.max_players == 128
     assert view.count_source == "rcon"
-    assert view.player_lines == ["deus"]
+    assert view.player_lines == ["PlayerOne"]
     assert view.a2s_count == 2
     assert view.warning == "A2S reports 2 player(s), but RCON roster has 1."
 

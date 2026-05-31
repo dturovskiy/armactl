@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""Migrate legacy game.disabledMods values into instance-scoped sidecars."""
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from armactl.config_manager import validate_config  # noqa: E402
+from armactl.mods_state import migrate_legacy_disabled_mods  # noqa: E402
+
+
+def iter_configs(data_root: Path):
+    if not data_root.exists():
+        return []
+    return sorted(data_root.glob("*/config/config.json"))
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data-root", type=Path, default=Path.home() / "armactl-data")
+    parser.add_argument("--config", action="append", type=Path, default=[])
+    args = parser.parse_args()
+
+    configs = list(args.config) or iter_configs(args.data_root)
+    if not configs:
+        print(f"No runtime configs found under {args.data_root}")
+        return 0
+
+    failed = False
+    for config_path in configs:
+        print(f"[{config_path}]")
+        try:
+            result = migrate_legacy_disabled_mods(config_path)
+            if result.migrated:
+                print(
+                    f"  migrated {result.legacy_entries} legacy disabled mod(s) "
+                    f"to {result.sidecar_path}"
+                )
+                print("  removed game.disabledMods from server-facing config.json")
+            else:
+                print("  no legacy game.disabledMods key found")
+            errors = validate_config(config_path=config_path)
+            if errors:
+                failed = True
+                print("  config validation FAILED:")
+                for error in errors:
+                    print(f"    - {error}")
+            else:
+                print("  config validation OK")
+        except Exception as exc:  # operator-facing migration utility
+            failed = True
+            print(f"  ERROR: {exc}")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
