@@ -9,6 +9,7 @@ The sidecar never replaces the official server-facing ACL.
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -173,10 +174,61 @@ def save_admins(config_path: Path | str, admins: list[dict[str, str]]) -> Path:
     return state_path
 
 
+def _restore_admins_sidecar(
+    state_path: Path,
+    original_admins: list[dict[str, str]],
+    *,
+    originally_existed: bool,
+) -> None:
+    if originally_existed:
+        payload = {
+            "version": 1,
+            "scope": "armactl-admin-labels",
+            "admins": merge_admins(original_admins),
+        }
+        tmp = state_path.with_suffix(state_path.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=4) + "\n", encoding="utf-8")
+        tmp.chmod(0o600)
+        os.replace(tmp, state_path)
+        state_path.chmod(0o600)
+        return
+
+    state_path.unlink(missing_ok=True)
+
+
+def _rollback_config(
+    config_path: Path | str,
+    original_config: dict[str, Any],
+    original_error: Exception,
+) -> None:
+    try:
+        save_config(config_path, original_config, backup=False)
+    except Exception as rollback_error:
+        raise ConfigError(
+            f"Failed to roll back config after admin sidecar save error: {rollback_error}"
+        ) from original_error
+
+
+def _save_config_then_admins(
+    config_path: Path | str,
+    config: dict[str, Any],
+    admins: list[dict[str, str]],
+    *,
+    original_config: dict[str, Any],
+) -> None:
+    save_config(config_path, config)
+    try:
+        save_admins(config_path, admins)
+    except Exception as error:
+        _rollback_config(config_path, original_config, error)
+        raise
+
+
 def migrate_legacy_admins(config_path: Path | str) -> AdminsMigrationResult:
     """Normalize official game.admins and restore IDs removed by older armactl builds."""
     config_path = Path(config_path)
     state_path = admins_state_path_for_config(config_path)
+    sidecar_existed = state_path.exists()
     config = load_config(config_path)
     game = config.setdefault("game", {})
     if not isinstance(game, dict):
@@ -213,7 +265,15 @@ def migrate_legacy_admins(config_path: Path | str) -> AdminsMigrationResult:
         save_admins(config_path, merged)
 
     if changed_config:
-        save_config(config_path, config, backup=True)
+        try:
+            save_config(config_path, config, backup=True)
+        except Exception:
+            _restore_admins_sidecar(
+                state_path,
+                sidecar_entries,
+                originally_existed=sidecar_existed,
+            )
+            raise
 
     return AdminsMigrationResult(
         migrated=changed_config or changed_sidecar,
@@ -315,6 +375,7 @@ def add_admin(config_path: Path | str, admin_reference: str, name: str = "") -> 
     """Add or update an official game.admins entry and its optional local label."""
     migrate_legacy_admins(config_path)
     config = load_config(config_path)
+    original_config = copy.deepcopy(config)
     game = config.setdefault("game", {})
     admins = get_admins(config_path)
     resolved = resolve_steam_identity(admin_reference)
@@ -328,8 +389,12 @@ def add_admin(config_path: Path | str, admin_reference: str, name: str = "") -> 
         raise ConfigError(f"game.admins is limited to {MAX_ADMINS} unique IDs.")
 
     game[ADMINS_KEY] = _server_admin_ids(updated)
-    save_config(config_path, config)
-    save_admins(config_path, updated)
+    _save_config_then_admins(
+        config_path,
+        config,
+        updated,
+        original_config=original_config,
+    )
     return created
 
 
@@ -356,8 +421,13 @@ def remove_admin(config_path: Path | str, admin_reference: str) -> bool:
         return False
 
     config = load_config(config_path)
+    original_config = copy.deepcopy(config)
     game = config.setdefault("game", {})
     game[ADMINS_KEY] = _server_admin_ids(remaining)
-    save_config(config_path, config)
-    save_admins(config_path, remaining)
+    _save_config_then_admins(
+        config_path,
+        config,
+        remaining,
+        original_config=original_config,
+    )
     return True

@@ -3,7 +3,18 @@
 import json
 from pathlib import Path
 
-from armactl.mods_manager import export_mods, get_mods, import_mods, preview_import_mods
+import pytest
+
+from armactl.config_manager import ConfigError, validate_config
+from armactl.mods_manager import (
+    add_mods_detailed,
+    export_mods,
+    extract_mod_ids,
+    get_mods,
+    import_mods,
+    preview_import_mods,
+)
+from armactl.mods_state import load_disabled_mods, save_disabled_mods
 
 
 def _write_config(config_path: Path, mods: list[dict] | None = None) -> None:
@@ -29,8 +40,8 @@ def test_export_mods_writes_json_array(tmp_path: Path):
     config_path = tmp_path / "config" / "config.json"
     export_path = tmp_path / "exports" / "mods.json"
     mods = [
-        {"modId": "AAA111", "name": "Alpha"},
-        {"modId": "BBB222", "name": "Bravo"},
+        {"modId": "AAAAAAAAAAAAAAAA", "name": "Alpha"},
+        {"modId": "BBBBBBBBBBBBBBBB", "name": "Bravo"},
     ]
     _write_config(config_path, mods)
 
@@ -46,8 +57,8 @@ def test_import_mods_accepts_full_config_file(tmp_path: Path):
     target_config = tmp_path / "target" / "config.json"
     source_config = tmp_path / "source" / "config.json"
     source_mods = [
-        {"modId": "AAA111", "name": "Alpha"},
-        {"modId": "BBB222", "name": "Bravo"},
+        {"modId": "AAAAAAAAAAAAAAAA", "name": "Alpha"},
+        {"modId": "BBBBBBBBBBBBBBBB", "name": "Bravo"},
     ]
     _write_config(target_config, [])
     _write_config(source_config, source_mods)
@@ -57,7 +68,7 @@ def test_import_mods_accepts_full_config_file(tmp_path: Path):
 
     assert added == 2
     assert skipped == 0
-    assert [mod["modId"] for mod in imported] == ["AAA111", "BBB222"]
+    assert [mod["modId"] for mod in imported] == ["AAAAAAAAAAAAAAAA", "BBBBBBBBBBBBBBBB"]
     assert imported[0]["name"] == "Alpha"
     assert imported[0]["version"] == ""
 
@@ -66,9 +77,9 @@ def test_preview_import_mods_counts_full_config_file(tmp_path: Path):
     """Preview should count mods from a full config.json payload."""
     source_config = tmp_path / "source" / "config.json"
     source_mods = [
-        {"modId": "AAA111", "name": "Alpha"},
-        {"modId": "BBB222", "name": "Bravo"},
-        {"modId": "CCC333", "name": "Charlie"},
+        {"modId": "AAAAAAAAAAAAAAAA", "name": "Alpha"},
+        {"modId": "BBBBBBBBBBBBBBBB", "name": "Bravo"},
+        {"modId": "CCCCCCCCCCCCCCCC", "name": "Charlie"},
     ]
     _write_config(source_config, source_mods)
 
@@ -79,12 +90,12 @@ def test_import_mods_append_skips_duplicates(tmp_path: Path):
     """Append mode should keep existing mods and skip duplicate IDs."""
     target_config = tmp_path / "target" / "config.json"
     import_file = tmp_path / "mods.json"
-    _write_config(target_config, [{"modId": "AAA111", "name": "Alpha"}])
+    _write_config(target_config, [{"modId": "AAAAAAAAAAAAAAAA", "name": "Alpha"}])
     import_file.write_text(
         json.dumps(
             [
-                {"modId": "AAA111", "name": "Alpha Duplicate"},
-                {"modId": "BBB222", "name": "Bravo"},
+                {"modId": "AAAAAAAAAAAAAAAA", "name": "Alpha Duplicate"},
+                {"modId": "BBBBBBBBBBBBBBBB", "name": "Bravo"},
             ],
             indent=4,
         ),
@@ -96,7 +107,67 @@ def test_import_mods_append_skips_duplicates(tmp_path: Path):
 
     assert added == 1
     assert skipped == 1
-    assert [mod["modId"] for mod in imported] == ["AAA111", "BBB222"]
+    assert [mod["modId"] for mod in imported] == ["AAAAAAAAAAAAAAAA", "BBBBBBBBBBBBBBBB"]
+
+
+def test_extract_mod_ids_requires_exact_sixteen_hex_chars() -> None:
+    text = (
+        "https://reforger.armaplatform.com/workshop/aaaaaaaaaaaaaaaa "
+        "and BAD123 plus BBBBBBBBBBBBBBBB"
+    )
+
+    assert extract_mod_ids(text) == ["AAAAAAAAAAAAAAAA", "BBBBBBBBBBBBBBBB"]
+
+
+def test_import_mods_rejects_invalid_mod_id(tmp_path: Path) -> None:
+    target_config = tmp_path / "target" / "config.json"
+    import_file = tmp_path / "mods.json"
+    _write_config(target_config, [])
+    import_file.write_text(json.dumps([{"modId": "AAA111", "name": "Bad"}]), encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="16 hexadecimal"):
+        import_mods(target_config, import_file, append=True)
+
+
+def test_config_validation_rejects_non_workshop_mod_ids(tmp_path: Path) -> None:
+    config_path = tmp_path / "config" / "config.json"
+    _write_config(config_path, [{"modId": "AAA111", "name": "Bad"}])
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+
+    errors = validate_config(data=payload)
+
+    assert "'game.mods[0].modId' must be a 16-character hexadecimal Workshop mod ID." in errors
+
+
+def test_add_mods_detailed_handles_bulk_paste_without_repeated_saves(tmp_path: Path) -> None:
+    config_path = tmp_path / "config" / "config.json"
+    _write_config(config_path, [{"modId": "AAAAAAAAAAAAAAAA", "name": "Alpha"}])
+    save_disabled_mods(config_path, [{"modId": "BBBBBBBBBBBBBBBB", "name": "Bravo"}])
+
+    result = add_mods_detailed(
+        config_path,
+        [
+            "aaaaaaaaaaaaaaaa",
+            "bbbbbbbbbbbbbbbb",
+            "cccccccccccccccc",
+            "CCCCCCCCCCCCCCCC",
+        ],
+    )
+    imported = get_mods(config_path)
+
+    assert [item.status for item in result.items] == [
+        "unchanged",
+        "reactivated",
+        "added",
+        "duplicate_input",
+    ]
+    assert result.active_count == 3
+    assert [mod["modId"] for mod in imported] == [
+        "AAAAAAAAAAAAAAAA",
+        "BBBBBBBBBBBBBBBB",
+        "CCCCCCCCCCCCCCCC",
+    ]
+    assert load_disabled_mods(config_path) == []
 
 
 def test_template_config_roundtrip_large_mod_pack(tmp_path: Path):

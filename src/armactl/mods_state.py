@@ -105,10 +105,27 @@ def save_disabled_mods(config_path: Path | str, mods: Iterable[dict[str, Any]]) 
     return state_path
 
 
+def _restore_disabled_mods_sidecar(
+    state_path: Path,
+    original_entries: list[dict[str, Any]],
+    *,
+    originally_existed: bool,
+) -> None:
+    if originally_existed:
+        payload = {LEGACY_DISABLED_MODS_KEY: merge_disabled_mods(original_entries)}
+        tmp = state_path.with_suffix(state_path.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, indent=4, ensure_ascii=False) + "\n", encoding="utf-8")
+        os.replace(tmp, state_path)
+        return
+
+    state_path.unlink(missing_ok=True)
+
+
 def migrate_legacy_disabled_mods(config_path: Path | str) -> DisabledModsMigrationResult:
     """Move legacy game.disabledMods metadata out of server-facing config.json."""
     config_path = Path(config_path)
     state_path = mods_state_path_for_config(config_path)
+    originally_existed = state_path.exists()
     config = load_config(config_path)
     game = config.get("game")
     if not isinstance(game, dict) or LEGACY_DISABLED_MODS_KEY not in game:
@@ -118,5 +135,13 @@ def migrate_legacy_disabled_mods(config_path: Path | str) -> DisabledModsMigrati
     existing = load_disabled_mods(config_path)
     save_disabled_mods(config_path, merge_disabled_mods(existing, legacy))
     game.pop(LEGACY_DISABLED_MODS_KEY, None)
-    save_config(config_path, config, backup=True)
+    try:
+        save_config(config_path, config, backup=True)
+    except Exception:
+        _restore_disabled_mods_sidecar(
+            state_path,
+            existing,
+            originally_existed=originally_existed,
+        )
+        raise
     return DisabledModsMigrationResult(True, len(legacy), state_path)

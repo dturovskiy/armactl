@@ -29,6 +29,12 @@ from armactl.state import PortInfo, ServerState, save_state
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def ignore_parent_git_markers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep tmp_path-based discovery tests independent of parent Git markers."""
+    monkeypatch.setattr(paths, "_containing_git_marker", lambda path: None)
+
+
 def test_binary_exists_true(tmp_path: Path):
     """Should return True when ArmaReforgerServer binary exists."""
     binary = tmp_path / "ArmaReforgerServer"

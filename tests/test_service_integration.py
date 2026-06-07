@@ -26,6 +26,7 @@ def test_generate_services_writes_expected_units_and_restarts_timer(tmp_path: Pa
         patch("armactl.service_manager.paths.instance_root", return_value=instance_root),
         patch("armactl.service_manager.paths.start_script", return_value=start_script_path),
         patch("armactl.service_manager.paths.SYSTEMD_DIR", systemd_dir),
+        patch("armactl.service_manager.paths._containing_git_marker", return_value=None),
         patch("armactl.service_manager.install_systemd_unit_file", side_effect=fake_install),
         patch(
             "armactl.service_manager.daemon_reload",
@@ -78,6 +79,32 @@ def test_generate_services_writes_expected_units_and_restarts_timer(tmp_path: Pa
         for result in results
     )
     restart_timer_mock.assert_called_once_with("restart", "armareforger-restart@alpha.timer")
+
+
+def test_generate_services_stops_after_failed_unit_install(tmp_path: Path) -> None:
+    instance = "alpha"
+    instance_root = tmp_path / "armactl-data" / instance
+    systemd_dir = tmp_path / "systemd"
+    systemd_dir.mkdir(parents=True)
+
+    def fake_install(source: Path, destination: Path) -> service_manager.ServiceResult:
+        return service_manager.ServiceResult(False, f"failed {destination.name}", 7)
+
+    with (
+        patch("armactl.service_manager.paths.instance_root", return_value=instance_root),
+        patch("armactl.service_manager.paths.SYSTEMD_DIR", systemd_dir),
+        patch("armactl.service_manager.paths._containing_git_marker", return_value=None),
+        patch("armactl.service_manager.install_systemd_unit_file", side_effect=fake_install),
+        patch("armactl.service_manager.daemon_reload") as daemon_reload_mock,
+        patch("armactl.service_manager._run_systemctl") as restart_timer_mock,
+        patch.dict("os.environ", {"USER": "tester"}, clear=False),
+    ):
+        results = service_manager.generate_services(instance=instance)
+
+    assert [result.success for result in results] == [True, False]
+    assert results[-1].exit_code == 7
+    daemon_reload_mock.assert_not_called()
+    restart_timer_mock.assert_not_called()
 
 
 def test_update_restart_timer_schedule_without_helper_installs_rendered_timer(
@@ -153,6 +180,7 @@ exec "${SERVER_DIR}/ArmaReforgerServer" \
         patch("armactl.service_manager.paths.config_dir", return_value=config_dir),
         patch("armactl.service_manager.paths.config_file", return_value=config_file),
         patch("armactl.service_manager.paths.start_script", return_value=start_script_path),
+        patch("armactl.service_manager.paths._containing_git_marker", return_value=None),
     ):
         result = service_manager.sync_generated_start_script(instance)
 
@@ -164,4 +192,3 @@ exec "${SERVER_DIR}/ArmaReforgerServer" \
     assert '-profile "${CONFIG_DIR}"' in start_script_text
     assert "-logStats 10000" in start_script_text
     assert start_script_path.stat().st_mode & 0o777 == 0o755
-

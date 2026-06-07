@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import armactl.mods_state as mods_state
 from armactl.config_manager import ConfigError, save_config, validate_config
 from armactl.mods_state import load_disabled_mods, migrate_legacy_disabled_mods
 
@@ -52,3 +53,26 @@ def test_migration_moves_legacy_metadata_to_sidecar(tmp_path: Path) -> None:
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert "disabledMods" not in saved["game"]
     assert load_disabled_mods(path) == [{"modId": "AAAAAAAAAAAAAAAA", "name": "Off"}]
+
+
+def test_migration_rolls_back_sidecar_when_config_save_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "instance" / "config" / "config.json"
+    path.parent.mkdir(parents=True)
+    data = _config()
+    data["game"]["disabledMods"] = [{"modId": "AAAAAAAAAAAAAAAA", "name": "Off"}]  # type: ignore[index]
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    def fail_save_config(*args, **kwargs) -> None:
+        raise ConfigError("config save failed")
+
+    monkeypatch.setattr(mods_state, "save_config", fail_save_config)
+
+    with pytest.raises(ConfigError, match="config save failed"):
+        migrate_legacy_disabled_mods(path)
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["game"]["disabledMods"] == [{"modId": "AAAAAAAAAAAAAAAA", "name": "Off"}]
+    assert load_disabled_mods(path) == []

@@ -831,6 +831,7 @@ def daemon_reload() -> ServiceResult:
 
 def service_unit_name(instance: str = paths.DEFAULT_INSTANCE_NAME) -> str:
     """Return the main service unit name for an instance."""
+    instance = paths.validate_instance_name(instance)
     if instance != paths.DEFAULT_INSTANCE_NAME:
         return f"armareforger@{instance}.service"
     return paths.SERVICE_NAME
@@ -838,6 +839,7 @@ def service_unit_name(instance: str = paths.DEFAULT_INSTANCE_NAME) -> str:
 
 def restart_service_unit_name(instance: str = paths.DEFAULT_INSTANCE_NAME) -> str:
     """Return the helper restart service unit name for an instance."""
+    instance = paths.validate_instance_name(instance)
     if instance != paths.DEFAULT_INSTANCE_NAME:
         return f"armareforger-restart@{instance}.service"
     return paths.RESTART_SERVICE_NAME
@@ -845,6 +847,7 @@ def restart_service_unit_name(instance: str = paths.DEFAULT_INSTANCE_NAME) -> st
 
 def timer_unit_name(instance: str = paths.DEFAULT_INSTANCE_NAME) -> str:
     """Return the timer unit name for an instance."""
+    instance = paths.validate_instance_name(instance)
     if instance != paths.DEFAULT_INSTANCE_NAME:
         return f"armareforger-restart@{instance}.timer"
     return paths.TIMER_NAME
@@ -1111,7 +1114,10 @@ def generate_services(
                 (trestart, restart_service_path),
                 (ttimer, timer_path),
             ]:
-                results.append(install_systemd_unit_file(tmp_file, dest_file))
+                install_result = install_systemd_unit_file(tmp_file, dest_file)
+                results.append(install_result)
+                if not install_result.success:
+                    return results
 
         dr_res = daemon_reload()
         results.append(

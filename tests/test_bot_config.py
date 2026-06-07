@@ -49,6 +49,7 @@ def test_save_and_load_bot_config_roundtrip(tmp_path: Path):
     with patch("armactl.bot_config.paths.bot_env_file", return_value=env_path):
         reloaded = load_bot_config("default")
 
+    assert env_path.stat().st_mode & 0o777 == 0o600
     assert reloaded.enabled is True
     assert reloaded.token == "123456:ABCDEF"
     assert reloaded.admin_chat_ids == ["123456789", "-100987654321"]

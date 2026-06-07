@@ -32,6 +32,11 @@ from armactl import __version__, paths
 @click.pass_context
 def main(ctx: click.Context, instance: str, use_json: bool) -> None:
     """armactl — installer, manager and TUI for Arma Reforger Dedicated Server."""
+    try:
+        instance = paths.validate_instance_name(instance)
+    except paths.InvalidInstanceNameError as e:
+        raise click.BadParameter(str(e), param_hint="--instance") from e
+
     # Add common args to context
     ctx.ensure_object(dict)
     ctx.obj["instance"] = instance
@@ -962,6 +967,7 @@ def mods_list(ctx: click.Context, show_all: bool) -> None:
 @click.pass_context
 def mods_add(ctx: click.Context, mod_id: str, name: str, version: str) -> None:
     """Add a mod by ID to the configuration."""
+    from armactl.config_manager import ConfigError
     from armactl.mods_manager import add_mod
 
     instance = ctx.obj["instance"]
@@ -971,7 +977,12 @@ def mods_add(ctx: click.Context, mod_id: str, name: str, version: str) -> None:
         click.echo(f"[{instance}] Config not found.", err=True)
         sys.exit(1)
 
-    added = add_mod(state.config_path, mod_id, name, version)
+    try:
+        added = add_mod(state.config_path, mod_id, name, version)
+    except ConfigError as e:
+        click.echo(f"[{instance}] ✗ Failed to add mod: {e}", err=True)
+        sys.exit(1)
+
     if added:
         click.echo(f"[{instance}] ✓ Mod {mod_id} ({name}) added.")
     else:

@@ -4,7 +4,8 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_ROOT=$(dirname -- "$SCRIPT_DIR")
 VENV_PY="$PROJECT_ROOT/.venv/bin/python"
-RUFF_BIN="$PROJECT_ROOT/.venv/bin/ruff"
+TEST_PY="${ARMACTL_TEST_PYTHON:-$VENV_PY}"
+RUFF_BIN="${ARMACTL_RUFF_BIN:-$PROJECT_ROOT/.venv/bin/ruff}"
 BOOTSTRAP_SCRIPT="$PROJECT_ROOT/scripts/bootstrap.sh"
 STAMP_FILE="$PROJECT_ROOT/.venv/.armactl-pyproject.sha256"
 
@@ -25,37 +26,59 @@ venv_needs_refresh() {
     [ ! -f "$STAMP_FILE" ] || [ "$(cat "$STAMP_FILE")" != "$(pyproject_hash)" ]
 }
 
+using_test_python_override() {
+    [ "${ARMACTL_TEST_PYTHON:-}" != "" ]
+}
+
 if [ ! -f "$PROJECT_ROOT/pyproject.toml" ]; then
     fail "pyproject.toml not found; run this script from the armactl repo."
 fi
 
-if [ ! -x "$VENV_PY" ]; then
+if ! using_test_python_override && [ ! -x "$VENV_PY" ]; then
     log "==> Dev environment missing. Bootstrapping with --dev..."
     "$BOOTSTRAP_SCRIPT" --dev
-elif venv_needs_refresh; then
+elif ! using_test_python_override && venv_needs_refresh; then
     log "==> pyproject changed. Refreshing dev environment..."
     "$BOOTSTRAP_SCRIPT" --dev
 fi
 
 cd "$PROJECT_ROOT"
 
-if ! "$VENV_PY" -c "import pytest" >/dev/null 2>&1; then
-    log "==> pytest not found in .venv. Refreshing dev dependencies..."
-    "$BOOTSTRAP_SCRIPT" --dev
+if [ "$#" -gt 0 ] && [ "$1" = "--" ]; then
+    shift
+else
+    set -- tests "$@"
 fi
 
-if [ ! -x "$RUFF_BIN" ]; then
-    log "==> ruff not found in .venv. Refreshing dev dependencies..."
-    "$BOOTSTRAP_SCRIPT" --dev
+if ! "$TEST_PY" -c "import pytest" >/dev/null 2>&1; then
+    log "==> pytest not found in selected test Python. Refreshing dev dependencies..."
+    if using_test_python_override; then
+        fail "pytest is not importable with ARMACTL_TEST_PYTHON=$TEST_PY"
+    else
+        "$BOOTSTRAP_SCRIPT" --dev
+    fi
+fi
+
+if [ ! -x "$RUFF_BIN" ] && ! "$TEST_PY" -c "import ruff" >/dev/null 2>&1; then
+    log "==> ruff not found in selected test Python. Refreshing dev dependencies..."
+    if using_test_python_override; then
+        fail "ruff is not importable with ARMACTL_TEST_PYTHON=$TEST_PY"
+    else
+        "$BOOTSTRAP_SCRIPT" --dev
+    fi
 fi
 
 log "==> Running pytest..."
-"$VENV_PY" -m pytest tests "$@"
+"$TEST_PY" -m pytest "$@"
 
 if [ -x "$RUFF_BIN" ]; then
     log ""
     log "==> Running ruff..."
     "$RUFF_BIN" check src tests
+elif "$TEST_PY" -c "import ruff" >/dev/null 2>&1; then
+    log ""
+    log "==> Running ruff..."
+    "$TEST_PY" -m ruff check src tests
 else
     log ""
     log "==> Skipping ruff (not installed). Run ./scripts/bootstrap.sh --dev to enable lint checks."
