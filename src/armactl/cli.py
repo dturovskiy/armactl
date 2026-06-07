@@ -32,6 +32,11 @@ from armactl import __version__, paths
 @click.pass_context
 def main(ctx: click.Context, instance: str, use_json: bool) -> None:
     """armactl — installer, manager and TUI for Arma Reforger Dedicated Server."""
+    try:
+        instance = paths.validate_instance_name(instance)
+    except paths.InvalidInstanceNameError as e:
+        raise click.BadParameter(str(e), param_hint="--instance") from e
+
     # Add common args to context
     ctx.ensure_object(dict)
     ctx.obj["instance"] = instance

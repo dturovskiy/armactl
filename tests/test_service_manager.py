@@ -18,6 +18,7 @@ from armactl.service_manager import (
     normalize_on_calendar,
     normalize_on_calendar_entries,
     resolve_linux_user,
+    restart_service_unit_name,
     service_unit_name,
     timer_unit_name,
     update_restart_timer_schedule,
@@ -60,7 +61,18 @@ def test_unit_name_helpers_respect_instances() -> None:
     assert service_unit_name() == paths.SERVICE_NAME
     assert timer_unit_name() == paths.TIMER_NAME
     assert service_unit_name("alpha") == "armareforger@alpha.service"
+    assert restart_service_unit_name("alpha") == "armareforger-restart@alpha.service"
     assert timer_unit_name("alpha") == "armareforger-restart@alpha.timer"
+
+
+def test_unit_name_helpers_reject_unsafe_instance_names() -> None:
+    """Unsafe instance names must not turn into systemd paths."""
+    for helper in (service_unit_name, restart_service_unit_name, timer_unit_name):
+        try:
+            helper("../../escape")
+        except paths.InvalidInstanceNameError:
+            continue
+        raise AssertionError(f"{helper.__name__} should reject unsafe instance names")
 
 
 def test_get_timer_status_falls_back_to_timer_file_schedule(tmp_path: Path) -> None:

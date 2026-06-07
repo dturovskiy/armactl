@@ -604,6 +604,8 @@
     "Enter SteamID64, a Steam profile URL, or a vanity slug. A display nickname is not guaranteed to be unique. The resolved ID is stored in official game.admins so listed admins can use #login without a password. The optional label remains local.": "Введіть SteamID64, URL профілю Steam або vanity slug. Відображуваний нікнейм не обов'язково є унікальним. Визначений ID зберігається в офіційному game.admins, тому додані адміни можуть виконувати #login без пароля. Необов'язкова мітка лишається локальною.",
     "Error loading server admins: {error}": "Помилка завантаження адмінів сервера: {error}",
     "Failed to load operators: {error}": "Не вдалося завантажити операторів: {error}",
+    "Failed to roll back config after sidecar save error: {error}": "Не вдалося відкотити конфіг після помилки збереження sidecar: {error}",
+    "Failed to roll back disabled mod sidecar after config save error: {error}": "Не вдалося відкотити sidecar вимкнених модів після помилки збереження конфіга: {error}",
     "Failed to save server admin: {error}": "Не вдалося зберегти адміна сервера: {error}",
     "Missing 'game.{key}'.": "Відсутнє поле 'game.{key}'.",
     "Missing '{path}'.": "Відсутнє поле '{path}'.",

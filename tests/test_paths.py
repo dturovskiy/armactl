@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from armactl.paths import (
+    InvalidInstanceNameError,
     backups_dir,
     bot_dir,
     bot_env_file,
@@ -18,6 +19,7 @@ from armactl.paths import (
     server_dir,
     start_script,
     state_file,
+    validate_instance_name,
 )
 
 
@@ -29,6 +31,31 @@ def test_instance_root_default():
 def test_instance_root_custom():
     root = instance_root("training", data_root=Path("/tmp/test"))
     assert root == Path("/tmp/test/training")
+
+
+def test_validate_instance_name_accepts_safe_names():
+    assert validate_instance_name("default") == "default"
+    assert validate_instance_name("training-01") == "training-01"
+    assert validate_instance_name("alpha_2.prod") == "alpha_2.prod"
+
+
+def test_validate_instance_name_rejects_path_traversal():
+    for value in ("", ".", "..", "../escape", "../../escape", "alpha/beta", "alpha..beta"):
+        try:
+            validate_instance_name(value)
+        except InvalidInstanceNameError:
+            continue
+        raise AssertionError(f"{value!r} should have been rejected")
+
+
+def test_instance_root_rejects_path_traversal():
+    data_root = Path("/tmp/armactl-data")
+
+    try:
+        instance_root("../../escape", data_root=data_root)
+    except InvalidInstanceNameError:
+        return
+    raise AssertionError("instance_root() should reject unsafe instance names")
 
 
 def test_server_dir():

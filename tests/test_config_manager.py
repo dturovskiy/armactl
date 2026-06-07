@@ -68,6 +68,30 @@ def test_failed_backup_copy_removes_partial_backup_and_preserves_config(
     assert list((tmp_path / "target" / "backups").glob("config.json.*.bak")) == []
 
 
+def test_backups_do_not_overwrite_when_timestamp_collides(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    config_path = tmp_path / "target" / "config.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps({"game": {"name": "Original"}}), encoding="utf-8")
+    monkeypatch.setattr(config_manager.time, "time_ns", lambda: 123456789)
+
+    save_config(config_path, {"game": {"name": "First"}}, backup=True, validate=False)
+    save_config(config_path, {"game": {"name": "Second"}}, backup=True, validate=False)
+
+    backup_files = sorted((tmp_path / "target" / "backups").glob("config.json.*.bak"))
+    assert [backup.name for backup in backup_files] == [
+        "config.json.123456789.1.bak",
+        "config.json.123456789.bak",
+    ]
+    backup_payloads = {
+        json.loads(backup.read_text(encoding="utf-8"))["game"]["name"]
+        for backup in backup_files
+    }
+    assert backup_payloads == {"Original", "First"}
+
+
 def test_failed_tmp_write_removes_tmp_and_preserves_config(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

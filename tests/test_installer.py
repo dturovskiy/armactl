@@ -118,6 +118,7 @@ def test_download_server_includes_steamcmd_details_in_error() -> None:
 
     with (
         patch("armactl.installer.paths.server_dir", return_value=Path("/tmp/server")),
+        patch("armactl.installer.paths._containing_git_marker", return_value=None),
         patch("armactl.installer._resolve_steamcmd_binary", return_value="/usr/games/steamcmd"),
         patch("armactl.installer.subprocess.Popen", return_value=FakeProc()),
     ):
@@ -148,6 +149,7 @@ def test_download_server_streams_steamcmd_output_lines() -> None:
 
     with (
         patch("armactl.installer.paths.server_dir", return_value=Path("/tmp/server")),
+        patch("armactl.installer.paths._containing_git_marker", return_value=None),
         patch("armactl.installer._resolve_steamcmd_binary", return_value="/usr/games/steamcmd"),
         patch("armactl.installer.subprocess.Popen", return_value=FakeProc()),
     ):
@@ -195,6 +197,7 @@ def test_download_server_retries_transient_steamcmd_failure() -> None:
 
     with (
         patch("armactl.installer.paths.server_dir", return_value=Path("/tmp/server")),
+        patch("armactl.installer.paths._containing_git_marker", return_value=None),
         patch(
             "armactl.installer._resolve_steamcmd_binary",
             return_value="/usr/games/steamcmd",
@@ -223,6 +226,7 @@ def test_stream_server_update_raises_after_retry_attempts() -> None:
             return 7
 
     with (
+        patch("armactl.installer.paths._containing_git_marker", return_value=None),
         patch(
             "armactl.installer._resolve_steamcmd_binary",
             return_value="/usr/games/steamcmd",
@@ -259,6 +263,7 @@ def test_download_server_does_not_retry_permanent_steamcmd_error() -> None:
 
     with (
         patch("armactl.installer.paths.server_dir", return_value=Path("/tmp/server")),
+        patch("armactl.installer.paths._containing_git_marker", return_value=None),
         patch(
             "armactl.installer._resolve_steamcmd_binary",
             return_value="/usr/games/steamcmd",

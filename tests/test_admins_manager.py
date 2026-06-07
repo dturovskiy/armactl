@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from armactl import admins_manager
 from armactl.admins_manager import (
     add_admin,
@@ -13,6 +15,7 @@ from armactl.admins_manager import (
     remove_admin,
     resolve_steam_identity,
 )
+from armactl.config_manager import ConfigError
 
 
 def _write_config(config_path: Path, admins: list[object] | None = None) -> None:
@@ -125,3 +128,42 @@ def test_remove_admin_updates_server_acl_and_sidecar(tmp_path: Path) -> None:
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["game"]["admins"] == []
     assert get_admins(config_path) == []
+
+
+def test_add_admin_rolls_back_config_when_sidecar_save_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    _write_config(config_path)
+
+    def fail_save_admins(*args, **kwargs) -> None:
+        raise ConfigError("admin sidecar save failed")
+
+    monkeypatch.setattr(admins_manager, "save_admins", fail_save_admins)
+
+    with pytest.raises(ConfigError, match="admin sidecar save failed"):
+        add_admin(config_path, "76561198000000001", "Owner")
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert "admins" not in saved["game"]
+
+
+def test_remove_admin_rolls_back_config_when_sidecar_save_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    _write_config(config_path)
+    assert add_admin(config_path, "76561198000000001", "Owner")
+
+    def fail_save_admins(*args, **kwargs) -> None:
+        raise ConfigError("admin sidecar save failed")
+
+    monkeypatch.setattr(admins_manager, "save_admins", fail_save_admins)
+
+    with pytest.raises(ConfigError, match="admin sidecar save failed"):
+        remove_admin(config_path, "76561198000000001")
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["game"]["admins"] == ["76561198000000001"]

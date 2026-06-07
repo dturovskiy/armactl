@@ -4,7 +4,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+import armactl.mods_manager as mods_manager
 from armactl.addon_cleanup import cleanup_unconfigured_addons
+from armactl.config_manager import ConfigError
 from armactl.mods_manager import dedupe_mods, disable_mod, enable_mod, import_mods_detailed
 from armactl.mods_state import load_disabled_mods, save_disabled_mods
 
@@ -68,6 +72,48 @@ def test_disable_and_enable_mod_preserve_local_addon(tmp_path: Path) -> None:
     assert enable_mod(config_path, "AAAAAAAAAAAAAAAA")
     assert addon_dir.exists()
     assert load_disabled_mods(config_path) == []
+
+
+def test_disable_mod_rolls_back_sidecar_when_config_save_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    active = [{"modId": "AAAAAAAAAAAAAAAA", "name": "Toggle"}]
+    _write_config(config_path, mods=active)
+
+    def fail_save_config(*args, **kwargs) -> None:
+        raise ConfigError("config save failed")
+
+    monkeypatch.setattr(mods_manager, "save_config", fail_save_config)
+
+    with pytest.raises(ConfigError, match="config save failed"):
+        disable_mod(config_path, "AAAAAAAAAAAAAAAA")
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["game"]["mods"] == active
+    assert load_disabled_mods(config_path) == []
+
+
+def test_enable_mod_rolls_back_config_when_sidecar_save_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    disabled = [{"modId": "AAAAAAAAAAAAAAAA", "name": "Toggle"}]
+    _write_config(config_path, disabled_mods=disabled)
+
+    def fail_save_disabled_mods(*args, **kwargs) -> None:
+        raise ConfigError("sidecar save failed")
+
+    monkeypatch.setattr(mods_manager, "save_disabled_mods", fail_save_disabled_mods)
+
+    with pytest.raises(ConfigError, match="sidecar save failed"):
+        enable_mod(config_path, "AAAAAAAAAAAAAAAA")
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["game"]["mods"] == []
+    assert load_disabled_mods(config_path) == disabled
 
 
 def test_dedupe_prefers_active_mod_over_disabled_duplicate(tmp_path: Path) -> None:

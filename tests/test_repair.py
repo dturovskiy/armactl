@@ -34,6 +34,7 @@ def test_run_repair_defaults_empty_paths_and_refreshes_package_manifest(
         patch("armactl.repair.paths.server_dir", return_value=server_dir),
         patch("armactl.repair.paths.config_file", return_value=config_path),
         patch("armactl.repair.paths.start_script", return_value=start_script),
+        patch("armactl.repair.paths._containing_git_marker", return_value=None),
         patch("armactl.repair.discover_manual", return_value=state),
         patch(
             "armactl.repair.stream_server_update",

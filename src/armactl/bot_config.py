@@ -159,8 +159,12 @@ def save_bot_config(config: BotConfig) -> Path:
     tmp_path = env_path.with_suffix(".env.tmp")
 
     try:
-        tmp_path.write_text(render_bot_config(config), encoding="utf-8")
+        tmp_path.unlink(missing_ok=True)
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(render_bot_config(config))
         os.replace(tmp_path, env_path)
+        env_path.chmod(0o600)
     except OSError as e:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)

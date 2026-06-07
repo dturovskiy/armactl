@@ -90,7 +90,8 @@ def test_main_action_bar_buttons_fit_english_and_ukrainian_labels() -> None:
             using_lang(lang),
             patch("armactl.tui.app.discover", return_value=state),
             patch("armactl.tui.app.get_instance_server_name", return_value="Server"),
-            patch("armactl.tui.app.ensure_bot_service_runtime", return_value=[]),
+            patch.object(ArmaCtlApp, "ensure_bot_runtime_task", lambda self: None),
+            patch("armactl.tui.app.sync_generated_start_script"),
         ):
             async with ArmaCtlApp().run_test(size=(44, 24)) as pilot:
                 await pilot.pause()
@@ -99,6 +100,9 @@ def test_main_action_bar_buttons_fit_english_and_ukrainian_labels() -> None:
                 for button in pilot.app.query("#main-action-bar Button").results(Button):
                     _assert_button_label_fits(button)
 
-    for lang in ("en", "uk"):
-        asyncio.run(run_case(lang, ServerState(server_installed=False)))
-        asyncio.run(run_case(lang, ServerState(server_installed=True)))
+    async def run_all_cases() -> None:
+        for lang in ("en", "uk"):
+            await run_case(lang, ServerState(server_installed=False))
+            await run_case(lang, ServerState(server_installed=True))
+
+    asyncio.run(run_all_cases())

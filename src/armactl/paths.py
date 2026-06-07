@@ -8,6 +8,7 @@ System-level files (systemd units) live in /etc/systemd/system/.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -16,6 +17,7 @@ from pathlib import Path
 
 DEFAULT_DATA_ROOT = Path.home() / "armactl-data"
 DEFAULT_INSTANCE_NAME = "default"
+INSTANCE_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,62}[A-Za-z0-9])?$")
 
 # systemd
 SYSTEMD_DIR = Path("/etc/systemd/system")
@@ -31,6 +33,27 @@ PRIVILEGED_SUDOERS_NAME = "armactl-systemctl-helper"
 
 class UnsafeServerInstallDirError(ValueError):
     """Raised when a server install directory could pollute source control."""
+
+
+class InvalidInstanceNameError(ValueError):
+    """Raised when an instance name cannot be used safely in paths or unit names."""
+
+
+def validate_instance_name(instance: str = DEFAULT_INSTANCE_NAME) -> str:
+    """Return a safe armactl instance name or raise InvalidInstanceNameError."""
+    value = str(instance or "")
+    if value == DEFAULT_INSTANCE_NAME:
+        return value
+    if not INSTANCE_NAME_RE.fullmatch(value):
+        raise InvalidInstanceNameError(
+            "Invalid armactl instance name. Use 1-64 ASCII letters, digits, "
+            "dots, dashes, or underscores; start and end with a letter or digit."
+        )
+    if ".." in value:
+        raise InvalidInstanceNameError(
+            "Invalid armactl instance name. Consecutive dots are not allowed."
+        )
+    return value
 
 
 def project_root() -> Path:
@@ -118,7 +141,7 @@ def instance_root(
     data_root: Path = DEFAULT_DATA_ROOT,
 ) -> Path:
     """Return the root directory for a given instance."""
-    return data_root / instance
+    return data_root / validate_instance_name(instance)
 
 
 def server_dir(instance: str = DEFAULT_INSTANCE_NAME, data_root: Path = DEFAULT_DATA_ROOT) -> Path:

@@ -94,9 +94,7 @@ def _create_backup(config_path: Path) -> None:
         # This prevents ENOSPC when the disk is nearly full.
         _rotate_backups(backups_dir, max_backups=9)
 
-        timestamp = int(time.time())
-        backup_name = f"config.json.{timestamp}.bak"
-        backup_path = backups_dir / backup_name
+        backup_path = _next_backup_path(backups_dir)
 
         shutil.copy2(config_path, backup_path)
 
@@ -109,6 +107,17 @@ def _create_backup(config_path: Path) -> None:
             except OSError:
                 pass
         raise ConfigError(tr("Failed to create config backup: {error}", error=e)) from e
+
+
+def _next_backup_path(backups_dir: Path) -> Path:
+    """Return a backup path that will not overwrite an existing backup."""
+    timestamp = time.time_ns()
+    backup_path = backups_dir / f"config.json.{timestamp}.bak"
+    suffix = 1
+    while backup_path.exists():
+        backup_path = backups_dir / f"config.json.{timestamp}.{suffix}.bak"
+        suffix += 1
+    return backup_path
 
 
 def _rotate_backups(backups_dir: Path, max_backups: int = 10) -> None:
