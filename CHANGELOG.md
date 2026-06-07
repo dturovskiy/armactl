@@ -7,6 +7,34 @@ Semantic Versioning once public releases begin.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-06-07
+
+### Added
+- Added regression coverage for large TUI mod lists and sidecar rollback behavior.
+- Added an audit fix plan documenting completed reliability and safety findings.
+
+### Changed
+- Changed TUI mod input handling to collect all valid 16-character Workshop IDs from pasted text in one flow.
+- Changed mod/admin metadata updates to roll back paired `config.json` and sidecar writes when one write fails.
+
+### Fixed
+- Fixed TUI bulk mod adding for large pasted mod lists without adding a mod-count limit.
+- Fixed unsafe instance names reaching data-root paths or systemd unit-name generation.
+- Fixed service generation continuing after a failed unit install.
+- Fixed Telegram bot `.env` file writes to use owner-only permissions.
+- Fixed addon cleanup path safety by skipping symlinks and revalidating paths before deletion.
+- Fixed backup filename collisions during rapid repeated config saves.
+
+### Validation
+- `./scripts/run-host-tests -- tests -q`
+- `python3 -m pytest -q` via `./scripts/run-host-tests` (`278 passed`)
+- `python3 -m ruff check src tests` via `./scripts/run-host-tests`
+
+### Operational notes
+- Existing installations do not need a migration.
+- No mod-count limit was added; operators can paste large mod lists into the TUI add-mod flow.
+- Bot `.env` files written by this release are created with `0600` permissions.
+
 ## [0.5.2] - 2026-05-21
 
 ### Added
