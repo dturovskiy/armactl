@@ -105,7 +105,7 @@ def test_import_reactivates_disabled_mod(tmp_path: Path) -> None:
     assert (added, skipped) == (1, 0)
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["game"]["mods"] == [
-        {"modId": "aaaaaaaaaaaaaaaa", "name": "Imported", "version": ""}
+        {"modId": "AAAAAAAAAAAAAAAA", "name": "Imported", "version": ""}
     ]
     assert "disabledMods" not in saved["game"]
     assert load_disabled_mods(config_path) == []

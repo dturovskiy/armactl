@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 from asyncio import Lock
 from datetime import datetime
@@ -67,11 +66,12 @@ from armactl.metrics import (
     query_service_runtime_metrics,
 )
 from armactl.mods_manager import (
-    add_mod,
+    add_mods_detailed,
     dedupe_mods,
     disable_mod,
     enable_mod,
     export_mods,
+    extract_mod_ids,
     get_disabled_mods,
     get_mods,
     import_mods_detailed,
@@ -111,7 +111,7 @@ def _build_mod_list_item(index: int, mod: dict[str, object], *, enabled: bool) -
     if name:
         display += f" - {name}"
 
-    item = ListItem(Label(display))
+    item = ListItem(Label(display, markup=False))
     item.mod_id = mod_id  # type: ignore[attr-defined]
     item.mod_enabled = enabled  # type: ignore[attr-defined]
     return item
@@ -3060,18 +3060,51 @@ class ModManagerScreen(Screen):
                 self.app.notify(_("Mod string is required!"), severity="error")
                 return
 
-            match = re.search(r"([0-9A-Fa-f]{10,24})", raw_id)
-            if not match:
+            mod_ids = extract_mod_ids(raw_id)
+            if not mod_ids:
                 self.app.notify(_("Could not find a valid Mod ID in the input!"), severity="error")
                 return
 
-            mod_id = match.group(1).upper()
+            if len(mod_ids) > 1 and name:
+                self.app.notify(
+                    _("Name can only be set when adding a single Mod ID."),
+                    severity="error",
+                )
+                return
 
-            is_new = add_mod(cfg, mod_id, name)
-            if is_new:
-                self.app.notify(tr("Mod {mod_id} added successfully.", mod_id=mod_id))
+            try:
+                result = add_mods_detailed(cfg, mod_ids, name=name)
+            except Exception as e:
+                self.app.notify(tr("Failed to add mod(s): {error}", error=e), severity="error")
+                return
+
+            if len(mod_ids) == 1:
+                item = result.items[0]
+                if item.status == "added":
+                    self.app.notify(tr("Mod {mod_id} added successfully.", mod_id=item.mod_id))
+                elif item.status == "reactivated":
+                    self.app.notify(tr("Mod {mod_id} re-enabled successfully.", mod_id=item.mod_id))
+                elif item.status == "updated":
+                    self.app.notify(tr("Mod {mod_id} updated successfully.", mod_id=item.mod_id))
+                else:
+                    self.app.notify(
+                        tr("Mod {mod_id} is already active; no changes made.", mod_id=item.mod_id)
+                    )
             else:
-                self.app.notify(tr("Mod {mod_id} updated successfully.", mod_id=mod_id))
+                skipped = result.unchanged_count + result.duplicate_input_count
+                self.app.notify(
+                    tr(
+                        "Processed {requested} pasted Mod IDs: added {added}, "
+                        "re-enabled {reactivated}, updated {updated}, "
+                        "skipped {skipped}. Active mods: {active}.",
+                        requested=len(mod_ids),
+                        added=result.added_count,
+                        reactivated=result.reactivated_count,
+                        updated=result.updated_count,
+                        skipped=skipped,
+                        active=result.active_count,
+                    )
+                )
 
             inp_id.value = ""
             inp_name.value = ""

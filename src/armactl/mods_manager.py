@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from armactl.addon_cleanup import (
     CleanupResult,
@@ -30,6 +32,70 @@ class ModUpdateResult:
     cleanup_result: CleanupResult | None = None
     enospc_retry_performed: bool = False
     removed_ids: set[str] = field(default_factory=set)
+
+
+MOD_ID_TOKEN_RE = re.compile(r"(?i)(?<![0-9a-f])([0-9a-f]{16})(?![0-9a-f])")
+ModAddStatus = Literal["added", "reactivated", "updated", "unchanged", "duplicate_input"]
+
+
+@dataclass(frozen=True)
+class ModAddResult:
+    """Result for one requested mod add/update operation."""
+
+    mod_id: str
+    status: ModAddStatus
+
+    @property
+    def config_changed(self) -> bool:
+        return self.status in {"added", "reactivated", "updated"}
+
+
+@dataclass(frozen=True)
+class BulkModAddResult:
+    """Summary for adding one or more mods in a single config write."""
+
+    items: list[ModAddResult]
+    active_count: int
+
+    def count(self, status: ModAddStatus) -> int:
+        return sum(1 for item in self.items if item.status == status)
+
+    @property
+    def added_count(self) -> int:
+        return self.count("added")
+
+    @property
+    def reactivated_count(self) -> int:
+        return self.count("reactivated")
+
+    @property
+    def updated_count(self) -> int:
+        return self.count("updated")
+
+    @property
+    def unchanged_count(self) -> int:
+        return self.count("unchanged")
+
+    @property
+    def duplicate_input_count(self) -> int:
+        return self.count("duplicate_input")
+
+    @property
+    def changed_count(self) -> int:
+        return sum(1 for item in self.items if item.config_changed)
+
+
+def extract_mod_ids(text: str) -> list[str]:
+    """Extract exact 16-hex Workshop mod IDs from arbitrary pasted text."""
+    return [match.group(1).upper() for match in MOD_ID_TOKEN_RE.finditer(text)]
+
+
+def require_valid_mod_id(mod_id: Any) -> str:
+    """Return an uppercase 16-hex Workshop mod ID or raise ConfigError."""
+    normalized = normalize_mod_id(mod_id)
+    if normalized is None:
+        raise ConfigError(_("Mod ID must be exactly 16 hexadecimal characters."))
+    return normalized
 
 
 def _merge_cleanup_results(target: CleanupResult | None, source: CleanupResult) -> CleanupResult:
@@ -92,6 +158,15 @@ def _mod_key(mod_id: Any) -> str:
     """Return a stable comparison key for valid and legacy mod IDs."""
     value = str(mod_id or "").strip()
     return normalize_mod_id(value) or value
+
+
+def _active_index_by_key(mods: list[dict[str, Any]]) -> dict[str, int]:
+    index: dict[str, int] = {}
+    for position, mod in enumerate(mods):
+        key = _mod_key(mod.get("modId"))
+        if key and key not in index:
+            index[key] = position
+    return index
 
 
 def save_mods_with_removed_addon_cleanup(
@@ -188,40 +263,94 @@ def add_mod(
     version: str = "",
 ) -> bool:
     """Add or reactivate a mod. Returns True if added, False if already active."""
+    result = add_mod_detailed(config_path, mod_id, name, version)
+    return result.status in {"added", "reactivated"}
+
+
+def add_mod_detailed(
+    config_path: Path | str,
+    mod_id: str,
+    name: str = "",
+    version: str = "",
+) -> ModAddResult:
+    """Add or update one mod and return the exact outcome."""
+    result = add_mods_detailed(config_path, [mod_id], name=name, version=version)
+    return result.items[0]
+
+
+def add_mods_detailed(
+    config_path: Path | str,
+    mod_ids: Iterable[str],
+    *,
+    name: str = "",
+    version: str = "",
+) -> BulkModAddResult:
+    """Add/update mods in one config write and return per-ID outcomes."""
+    requested_ids = [require_valid_mod_id(mod_id) for mod_id in mod_ids]
+    if not requested_ids:
+        raise ConfigError(_("At least one valid Mod ID is required."))
+
     migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
     game = config.setdefault("game", {})
     mods = list(game.get("mods", []))
     disabled_mods = load_disabled_mods(config_path)
-    disabled_mods, disabled_entry = _pop_mod_by_id(disabled_mods, mod_id)
-    target_id = normalize_mod_id(mod_id)
+    active_index = _active_index_by_key(mods)
+    results: list[ModAddResult] = []
+    requested_seen: set[str] = set()
+    config_changed = False
+    disabled_changed = False
 
-    for mod in mods:
-        if _mod_id_matches(mod, target_id, mod_id):
-            if name:
+    for mod_id in requested_ids:
+        if mod_id in requested_seen:
+            results.append(ModAddResult(mod_id, "duplicate_input"))
+            continue
+        requested_seen.add(mod_id)
+
+        active_position = active_index.get(mod_id)
+        if active_position is not None:
+            mod = mods[active_position]
+            updated = False
+            if name and mod.get("name") != name:
                 mod["name"] = name
-            if version:
+                updated = True
+            if version and mod.get("version") != version:
                 mod["version"] = version
-            save_disabled_mods(config_path, disabled_mods)
-            save_config(config_path, config)
-            return False
+                updated = True
+            if updated:
+                config_changed = True
+                results.append(ModAddResult(mod_id, "updated"))
+            else:
+                results.append(ModAddResult(mod_id, "unchanged"))
+            continue
 
-    if disabled_entry is not None:
-        if name:
-            disabled_entry["name"] = name
-        if version:
-            disabled_entry["version"] = version
-        disabled_entry["modId"] = str(disabled_entry.get("modId") or mod_id).upper()
-        mods.append(disabled_entry)
+        disabled_mods, disabled_entry = _pop_mod_by_id(disabled_mods, mod_id)
+        if disabled_entry is not None:
+            if name:
+                disabled_entry["name"] = name
+            if version:
+                disabled_entry["version"] = version
+            disabled_entry["modId"] = mod_id
+            mods.append(disabled_entry)
+            active_index[mod_id] = len(mods) - 1
+            disabled_changed = True
+            config_changed = True
+            results.append(ModAddResult(mod_id, "reactivated"))
+            continue
+
+        mods.append({"modId": mod_id, "name": name, "version": version})
+        active_index[mod_id] = len(mods) - 1
+        config_changed = True
+        results.append(ModAddResult(mod_id, "added"))
+
+    if config_changed:
         game["mods"] = mods
+        game.pop("disabledMods", None)
         save_config(config_path, config)
+    if disabled_changed:
         save_disabled_mods(config_path, disabled_mods)
-        return True
 
-    mods.append({"modId": mod_id, "name": name, "version": version})
-    game["mods"] = mods
-    save_config(config_path, config)
-    return True
+    return BulkModAddResult(results, len(mods))
 
 
 def disable_mod(config_path: Path | str, mod_id: str) -> bool:
@@ -413,9 +542,7 @@ def _extract_import_mods(payload: Any) -> list[dict[str, str]]:
                 _("Each imported mod must be an object containing a 'modId' key.")
             )
 
-        mod_id = str(mod.get("modId", "")).strip()
-        if not mod_id:
-            raise ConfigError(_("Imported mod 'modId' cannot be empty."))
+        mod_id = require_valid_mod_id(mod.get("modId", ""))
 
         normalized.append(
             {

@@ -15,8 +15,18 @@ model as the main product.
 
 ```bash
 ./scripts/run-host-tests
-.venv/bin/pytest
-.venv/bin/ruff check src tests
+./scripts/run-host-tests -- tests/test_mods.py
+```
+
+`scripts/run-host-tests` owns the test/lint workflow. It bootstraps the
+repo-local dev environment by default, runs pytest, and then runs ruff.
+
+When working from an SFTP-mounted checkout or another environment where the
+repo-local `.venv/bin/python` is not runnable on the local host, provide an
+explicit Python runner:
+
+```bash
+ARMACTL_TEST_PYTHON=python3 PYTHONPATH=/path/to/deps:src ./scripts/run-host-tests -- tests/test_mods.py
 ```
 
 ## Server FPS telemetry development notes
@@ -56,4 +66,3 @@ grep -RiaE 'FPS:|frame time' ~/armactl-data/default/config/logs | tail -20
 - Redact secrets in logs and UI output by default.
 
 See [architecture.md](architecture.md) for more detail.
-

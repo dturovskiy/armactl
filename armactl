@@ -6,6 +6,7 @@ VENV_PY="$SCRIPT_DIR/.venv/bin/python"
 BOOTSTRAP_SCRIPT="$SCRIPT_DIR/scripts/bootstrap.sh"
 BOOTSTRAP_MODE="${ARMACTL_BOOTSTRAP_MODE:---prod}"
 STAMP_FILE="$SCRIPT_DIR/.venv/.armactl-pyproject.sha256"
+ARMACTL_PYTHON="${ARMACTL_PYTHON:-}"
 
 pyproject_hash() {
     sha256sum "$SCRIPT_DIR/pyproject.toml" | awk '{print $1}'
@@ -14,6 +15,14 @@ pyproject_hash() {
 venv_needs_refresh() {
     [ ! -f "$STAMP_FILE" ] || [ "$(cat "$STAMP_FILE")" != "$(pyproject_hash)" ]
 }
+
+venv_python_healthy() {
+    "$VENV_PY" -c "import encodings, armactl" >/dev/null 2>&1
+}
+
+if [ -n "$ARMACTL_PYTHON" ]; then
+    exec "$ARMACTL_PYTHON" -m armactl "$@"
+fi
 
 if [ ! -x "$VENV_PY" ]; then
     echo "armactl first-run setup: preparing local environment..." >&2
@@ -24,6 +33,9 @@ if [ ! -x "$VENV_PY" ]; then
     "$BOOTSTRAP_SCRIPT" "$BOOTSTRAP_MODE"
 elif venv_needs_refresh; then
     echo "armactl dependency sync: refreshing local environment..." >&2
+    "$BOOTSTRAP_SCRIPT" "$BOOTSTRAP_MODE"
+elif ! venv_python_healthy; then
+    echo "armactl dependency sync: local environment is not runnable; refreshing..." >&2
     "$BOOTSTRAP_SCRIPT" "$BOOTSTRAP_MODE"
 fi
 

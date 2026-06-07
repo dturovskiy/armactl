@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import time
 from pathlib import Path
@@ -19,6 +20,9 @@ from armactl.i18n import _, tr
 class ConfigError(Exception):
     """Raised when there's an error reading/writing/validating config."""
     pass
+
+
+MOD_ID_RE = re.compile(r"(?i)^[0-9a-f]{16}$")
 
 
 def load_config(config_path: Path | str) -> dict[str, Any]:
@@ -228,6 +232,15 @@ def validate_config(
                 mod_id = str(mod.get("modId") or "").strip()
                 if not mod_id:
                     errors.append(tr("'game.mods[{index}].modId' is required.", index=index))
+                    continue
+                if not MOD_ID_RE.fullmatch(mod_id):
+                    errors.append(
+                        tr(
+                            "'game.mods[{index}].modId' must be a 16-character "
+                            "hexadecimal Workshop mod ID.",
+                            index=index,
+                        )
+                    )
                     continue
                 key = mod_id.upper()
                 if key in seen_mod_ids:
