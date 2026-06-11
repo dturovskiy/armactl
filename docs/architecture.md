@@ -215,9 +215,9 @@ ExecStart=/home/<user>/armactl-data/default/start-armareforger.sh
 
 ```text
 ┌─────────────────────────────────────┐
-│      TUI (Textual) / Web (planned)  │  ← Тільки UI, жодної логіки
+│ CLI / TUI / Telegram / Web (planned)│  ← Адаптери, жодної бізнес-логіки
 ├─────────────────────────────────────┤
-│      Backend modules / CLI          │  ← Уся бізнес-логіка
+│          Backend modules            │  ← Уся бізнес-логіка / internal API
 ├──────────┬──────────┬───────────────┤
 │ discovery│ config   │ service/timer │  ← Модулі
 │ state    │ mods     │ installer     │
@@ -231,8 +231,8 @@ ExecStart=/home/<user>/armactl-data/default/start-armareforger.sh
 
 1. **TUI не містить бізнес-логіки** — викликає reusable backend-модулі, а не реалізує логіку в екранах
 2. **Web route handlers не містять бізнес-логіки** — planned web panel має бути тонким адаптером над тими самими backend-модулями
-3. **Internal API — це Python backend-модулі** — CLI/TUI/Telegram/web мають викликати їх напряму, а не використовувати TUI як API
-4. **CLI — стабільна точка входу для адміністрування** — але core-логіка живе в окремих модулях і працює і без TUI/web
+3. **Internal API — це Python backend-модулі** — CLI/TUI/Telegram/web мають викликати їх напряму, а не використовувати TUI або CLI як API
+4. **CLI — стабільна точка входу для адміністрування** — але це адаптер над backend-модулями; core-логіка працює і без CLI/TUI/web
 5. **Модулі незалежні** — discovery не знає про TUI, config manager не знає про installer
 6. **Templates → generated files** — конфіги та unit-файли генеруються з Jinja2-шаблонів
 7. **Backup before write** — будь-яка зміна конфігу створює backup

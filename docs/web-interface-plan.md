@@ -475,6 +475,12 @@ and diagnostics, but the web panel should not shell out to `armactl
 --json-output` for normal in-process behavior. Route handlers should call the
 same backend modules that the TUI and Telegram bot already use.
 
+Treat CLI, TUI, Telegram, and web as adapters over the same internal backend
+API. None of them should own separate source-of-truth data for server state,
+configuration, mods, schedules, or service control. The only web-specific source
+of truth should be web runtime data such as users, sessions, CSRF tokens,
+roles, jobs, and audit records in `~/armactl-data/web/`.
+
 The web backend should be a thin adapter over existing modules:
 
 - Discovery/status: `discovery`, `state`, `status_summary`, `metrics`,
