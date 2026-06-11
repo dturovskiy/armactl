@@ -63,19 +63,29 @@ explicitly a release task.
 - Keep CLI and TUI usable as fallback management paths.
 - Keep tests independent from saved operator UI language.
 
-## Recommended implementation order
+## Current implementation status
 
-1. Add `src/armactl/web/` package skeleton and tests.
-2. Add optional web dependencies and package-data/bootstrap support.
-3. Add web runtime config and local `web.db` initialization.
-4. Add auth/session/CSRF primitives.
-5. Add the web-facing facade/DTO layer for a read-only dashboard.
-6. Add the dashboard UI.
-7. Add controlled server actions with confirmations and audit logging.
-8. Add background jobs before exposing long-running operations.
-9. Add config/mods/admins/bot web flows through existing backend modules.
-10. Add the safe filesystem adapter before upload/download routes.
-11. Add `scripts/run-web`, `armactl-web.service`, and deployment docs.
+Completed foundation:
+
+1. `src/armactl/web/` package skeleton and import-safety tests.
+2. Optional web dependencies, package-data/bootstrap support, and `scripts/run-web`.
+3. Web-facing facade/DTO layer for read-only dashboard data.
+4. FastAPI app factory, `/healthz`, package-local templates/static assets, and
+   minimal read-only dashboard routes.
+
+Next recommended implementation order:
+
+1. Add web runtime config helpers and local `web.db` initialization.
+2. Add `armactl web init` for first setup, runtime config, and initial local
+   web admin creation.
+3. Add auth/session/CSRF primitives.
+4. Add web permission categories for dashboard/actions/files/backups/users.
+5. Expand dashboard read-only parity with the useful TUI status information.
+6. Add controlled server actions with confirmations and audit logging.
+7. Add background jobs before exposing long-running operations.
+8. Add config/mods/admins/bot web flows through existing backend modules.
+9. Add the safe filesystem adapter before upload/download routes.
+10. Add `armactl-web.service` and deployment docs.
 
 ## Implementation prompt template
 
