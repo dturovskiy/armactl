@@ -112,6 +112,28 @@ External access options:
 - one reverse-proxy entrypoint with separate upstreams per VM;
 - VPN/private network access for panels that should not be public.
 
+Port conflict rules:
+
+- `armactl-web` should default to `127.0.0.1:8765` inside each VM.
+- The same web port can be reused across different VMs because each VM has its
+  own network namespace and IP address.
+- If multiple armactl instances run inside the same VM, each web service needs a
+  different local port or a later multi-instance-aware web service.
+- Reverse proxy ports `80` and `443` should be owned by the public proxy/LXC/VM,
+  not by each game VM.
+- Game ports remain separate from the web panel. Typical game/A2S/RCON ports
+  are configured in `config.json` and should continue to be checked by
+  `ports.py`.
+- Direct public binding such as `0.0.0.0:8765` must be explicit and should be
+  documented as LAN/VPN-oriented, not the default internet exposure model.
+
+Example reverse proxy mapping:
+
+```text
+server-1.example.com:443 -> 10.0.0.11:8765
+server-2.example.com:443 -> 10.0.0.12:8765
+```
+
 Future option: a separate fleet controller can aggregate multiple armactl-web
 instances later. That controller should talk to per-VM armactl agents/panels via
 authenticated HTTP APIs. It should not replace the local per-VM armactl runtime
