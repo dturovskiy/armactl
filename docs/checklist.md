@@ -246,6 +246,7 @@
 - [x] Зафіксувати rollout order і існуючі environment roles
 - [x] Зафіксувати external SSHFS/mount project boundary для web file manager
 - [x] Зафіксувати one-cabinet-per-machine MVP boundary
+- [x] Зафіксувати self-hosted dashboard visual direction і post-MVP portal idea
 - [x] Додати handoff інструкції для implementation/review chats
 - [x] Додати `src/armactl/web/` package skeleton
 - [ ] Додати optional web dependencies

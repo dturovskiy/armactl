@@ -608,6 +608,11 @@ MVP views:
 The interface should be quiet and operational: dense, predictable, and focused
 on repeated server management tasks.
 
+The product feel can be inspired by self-hosted server dashboards: a personal
+cabinet with quick status, clear sections, and direct management tools
+available after login. This is a design direction, not a requirement to copy any
+specific existing product.
+
 The dashboard should feel related to the TUI in information architecture:
 clear server state first, then actionable controls, then diagnostic details.
 The browser version can use more spatial layout, richer tables, inline forms,
@@ -635,6 +640,10 @@ Recommended approach:
 - Keep controls compact and explicit.
 - Use restrained visual polish for confidence, not decoration.
 - Reserve marketing-style pages for the public `website/` only.
+
+Long-term, the public website and per-server panels may be linked through a
+single product portal or domain structure. Keep that as a distant post-MVP
+integration idea; do not make it a requirement for the first web panel.
 
 ## Deployment commands
 
