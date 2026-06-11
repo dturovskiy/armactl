@@ -90,6 +90,42 @@ Use two launch layers:
 remote-server operating mode. After setup, operators should not need SSH just to
 keep the panel available.
 
+## Remote access and local smoke scenarios
+
+Target remote scenario:
+
+```text
+Remote operator browser
+  -> https://server-1.example.com/
+  -> reverse proxy TLS termination
+  -> armactl-web.service already running in the game VM
+  -> login/session/role checks
+  -> dashboard and permitted management actions
+```
+
+The browser request should not start the panel. `armactl-web.service` should
+already be active after boot and waiting for connections in the background. The
+reverse proxy forwards requests to that service. If the service is down, the
+operator should see a clear proxy/service error and the maintainer can recover
+through SSH, CLI, or TUI.
+
+Remote access acceptance checklist:
+
+- open the public HTTPS URL from a different network;
+- log in as a web user and see the dashboard without SSH;
+- verify unauthenticated requests redirect to login or return 401/403;
+- verify the session cookie is secure for HTTPS deployments;
+- verify server actions and file access respect the user's role;
+- restart the VM and confirm `armactl-web.service` comes back automatically.
+
+Local development acceptance checklist:
+
+- run `./scripts/run-web --dev --data-root /tmp/armactl-web-dev`;
+- open `http://127.0.0.1:8765/` in a local browser;
+- run route/unit tests against a temporary data root;
+- optionally test reverse-proxy-like access with a local Caddy/Nginx config or
+  SSH tunnel before exposing a remote VM.
+
 ## Proxmox and multi-VM deployment model
 
 For MVP, run armactl and `armactl-web.service` inside the same VM that runs the

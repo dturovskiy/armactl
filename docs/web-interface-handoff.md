@@ -45,6 +45,8 @@ explicitly a release task.
 - Treat web as an always-on service: `armactl web run` is for foreground
   development/debugging, while production uses `armactl-web.service`.
 - Do not make web replace the default `./armactl` TUI startup path.
+- Preserve the target remote scenario: a user can open a public HTTPS URL from
+  another network, log in, and use the permitted panel features without SSH.
 - Keep CLI and TUI usable as fallback management paths.
 - Keep tests independent from saved operator UI language.
 

@@ -240,6 +240,7 @@
 - [x] Зафіксувати per-VM deployment model для Proxmox
 - [x] Зафіксувати дефолтні порти Arma і planned web port
 - [x] Зафіксувати always-on lifecycle model для web panel
+- [x] Зафіксувати remote-user і local-smoke сценарії для web panel
 - [x] Додати handoff інструкції для implementation/review chats
 - [x] Додати `src/armactl/web/` package skeleton
 - [ ] Додати optional web dependencies
@@ -258,6 +259,7 @@
 - [ ] Додати `armactl-web.service` template і service commands
 - [ ] Додати reverse proxy / HTTPS deployment docs
 - [ ] Додати VM smoke checklist для web panel
+- [ ] Додати remote HTTPS login smoke checklist
 
 ---
 
