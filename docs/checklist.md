@@ -245,6 +245,7 @@
 - [x] Зафіксувати central reverse-proxy upstream caveat для Proxmox
 - [x] Зафіксувати rollout order і існуючі environment roles
 - [x] Зафіксувати SSHFS/mount boundary для web file manager
+- [x] Зафіксувати one-cabinet-per-machine MVP boundary
 - [x] Додати handoff інструкції для implementation/review chats
 - [x] Додати `src/armactl/web/` package skeleton
 - [ ] Додати optional web dependencies

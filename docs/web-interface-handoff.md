@@ -58,6 +58,8 @@ explicitly a release task.
   operational helper, not as an armactl-web dependency.
 - Do not let SSHFS/NFS/SMB or other remote mounts silently expand the web file
   manager's allowed roots.
+- Scope the MVP cabinet to one local machine/server per `armactl-web`
+  installation. Do not add multi-server enrollment or cross-VM management.
 - Keep CLI and TUI usable as fallback management paths.
 - Keep tests independent from saved operator UI language.
 

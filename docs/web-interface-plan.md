@@ -340,6 +340,12 @@ result. It must not include secrets.
 The MVP can start with one local administrator account because the first target
 is a self-hosted panel on the operator's own VM.
 
+The first cabinet is scoped to one machine and one local armactl-managed server.
+It should not include "add another server", fleet enrollment, remote VM
+registration, or cross-machine file access. Those belong to a future fleet or
+product-cabinet layer. For now, one deployed `armactl-web` controls the local
+VM/server it runs beside.
+
 The design must not block a future product-style cabinet for different users.
 If armactl is distributed to multiple operators outside internal use, the web
 surface should be able to grow into:
@@ -352,6 +358,10 @@ surface should be able to grow into:
 - optional 2FA;
 - product/update/license or support information if the distribution model needs
   it later.
+
+Future multi-server cabinet features should be additive and should call
+authenticated per-VM armactl-web instances instead of letting one panel directly
+manage other machines' files or systemd units.
 
 Keep this separate from the public marketing `website/`. The cabinet belongs to
 the authenticated management panel, not the promotional site.
@@ -368,6 +378,9 @@ job metadata. Keep `audit.log` as a human-readable append-only operational log.
 
 Do not hard-code assumptions that there is only one user across the route
 handlers, templates, audit log, or permission checks.
+
+It is acceptable for MVP data models to assume one local managed server per web
+installation. Do not hard-code that there will only ever be one web user.
 
 ## Commercial feature posture
 
