@@ -252,7 +252,7 @@
 - [x] Додати optional web dependencies
 - [x] Додати `scripts/run-web` і bootstrap support
 - [x] Додати web-facing facade/DTO layer поверх existing backend modules
-- [ ] Оновити packaging/bootstrap для web templates/static і optional deps
+- [x] Оновити packaging/bootstrap для web templates/static і optional deps
 - [ ] Додати `armactl web init` і runtime config
 - [ ] Додати auth, session cookies, CSRF, role model
 - [ ] Додати web permission categories для dashboard/actions/files/backups/users

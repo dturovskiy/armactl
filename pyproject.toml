@@ -60,11 +60,19 @@ Changelog = "https://github.com/dturovskiy/armactl/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/armactl"]
+include = [
+    "src/armactl/**/*.py",
+    "src/armactl/**/*.json",
+    "src/armactl/web/templates/**/*.html",
+    "src/armactl/web/static/**/*",
+]
 
 [tool.hatch.build.targets.sdist]
 include = [
     "src/armactl/**/*.py",
     "src/armactl/**/*.json",
+    "src/armactl/web/templates/**/*.html",
+    "src/armactl/web/static/**/*",
     "templates/**/*.j2",
     "README.md"
 ]
@@ -73,6 +81,8 @@ include = [
 include = [
     "src/armactl/**/*.py",
     "src/armactl/**/*.json",
+    "src/armactl/web/templates/**/*.html",
+    "src/armactl/web/static/**/*",
     "templates/**/*.j2"
 ]
 

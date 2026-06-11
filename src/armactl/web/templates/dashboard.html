@@ -1,0 +1,92 @@
+{% extends "layout.html" %}
+{% block title %}Dashboard - armactl web{% endblock %}
+{% block heading %}{{ snapshot.config.server_name or "Dashboard" }}{% endblock %}
+{% block content %}
+<section class="summary-band">
+  <div>
+    <span class="label">Instance</span>
+    <strong>{{ snapshot.instance }}</strong>
+  </div>
+  <div>
+    <span class="label">Lifecycle</span>
+    <strong class="state state-{{ snapshot.lifecycle }}">{{ snapshot.lifecycle }}</strong>
+  </div>
+  <div>
+    <span class="label">Service</span>
+    <strong>{% if snapshot.service.active %}active{% else %}inactive{% endif %}</strong>
+  </div>
+  <div>
+    <span class="label">Players</span>
+    <strong>
+      {% if snapshot.players.available %}
+        {{ snapshot.players.current or 0 }} / {{ snapshot.players.max_players or "?" }}
+      {% else %}
+        unavailable
+      {% endif %}
+    </strong>
+  </div>
+</section>
+
+<section class="grid">
+  <section class="panel">
+    <h2>Server</h2>
+    <dl>
+      <dt>Installed</dt><dd>{{ snapshot.installed }}</dd>
+      <dt>Running</dt><dd>{{ snapshot.running }}</dd>
+      <dt>Service enabled</dt><dd>{{ snapshot.service.enabled if snapshot.service.available else "unknown" }}</dd>
+      <dt>Timer enabled</dt><dd>{{ snapshot.timer.enabled if snapshot.timer.available else "unknown" }}</dd>
+    </dl>
+  </section>
+
+  <section class="panel">
+    <h2>Telemetry</h2>
+    <dl>
+      <dt>Server FPS</dt><dd>{{ snapshot.fps_metrics.fps if snapshot.fps_metrics.available else "unavailable" }}</dd>
+      <dt>CPU</dt><dd>{{ snapshot.host_metrics.cpu_percent if snapshot.host_metrics.available else "unavailable" }}</dd>
+      <dt>Memory total</dt><dd>{{ snapshot.host_metrics.memory_total_bytes if snapshot.host_metrics.available else "unavailable" }}</dd>
+      <dt>Player source</dt><dd>{{ snapshot.players.count_source if snapshot.players.available else "unavailable" }}</dd>
+    </dl>
+  </section>
+
+  <section class="panel">
+    <h2>Config</h2>
+    <dl>
+      <dt>Name</dt><dd>{{ snapshot.config.server_name or "unknown" }}</dd>
+      <dt>Scenario</dt><dd>{{ snapshot.config.scenario_id or "unknown" }}</dd>
+      <dt>Max players</dt><dd>{{ snapshot.config.max_players or "unknown" }}</dd>
+      <dt>Mods</dt><dd>{{ snapshot.mods.count if snapshot.mods.available else "unavailable" }}</dd>
+    </dl>
+  </section>
+
+  <section class="panel">
+    <h2>Ports</h2>
+    {% if snapshot.ports.available %}
+      <table>
+        <thead><tr><th>Name</th><th>Port</th><th>Status</th></tr></thead>
+        <tbody>
+        {% for name, info in snapshot.ports.ports.items() %}
+          <tr>
+            <td>{{ name }}</td>
+            <td>{{ info.port }}</td>
+            <td>{% if info.listening %}listening{% else %}closed{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">{{ snapshot.ports.error }}</p>
+    {% endif %}
+  </section>
+</section>
+
+{% if snapshot.errors %}
+<section class="panel full-width warning">
+  <h2>Partial data</h2>
+  <ul>
+    {% for error in snapshot.errors %}
+      <li>{{ error.section }}: {{ error.message }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}

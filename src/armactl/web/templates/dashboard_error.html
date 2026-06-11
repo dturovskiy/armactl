@@ -1,0 +1,13 @@
+{% extends "layout.html" %}
+{% block title %}Dashboard unavailable - armactl web{% endblock %}
+{% block heading %}Dashboard unavailable{% endblock %}
+{% block content %}
+<section class="panel full-width error">
+  <h2>{{ error.message }}</h2>
+  <p class="muted">The web panel could not load the read-only dashboard snapshot.</p>
+  <dl>
+    <dt>Error type</dt>
+    <dd>{{ error.type }}</dd>
+  </dl>
+</section>
+{% endblock %}
