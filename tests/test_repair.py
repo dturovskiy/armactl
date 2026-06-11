@@ -7,7 +7,13 @@ import pytest
 
 import armactl.i18n as i18n
 import armactl.service_manager as service_manager
-from armactl.integrity import check_package_integrity
+from armactl.installer import InstallError
+from armactl.integrity import (
+    check_package_integrity,
+    install_marker_path,
+    mark_install_started,
+    write_package_manifest,
+)
 from armactl.repair import RepairError, run_repair
 from armactl.state import ServerState
 
@@ -67,3 +73,69 @@ def test_run_repair_refuses_project_root_install_dir(tmp_path: Path) -> None:
 
     with pytest.raises(RepairError, match="project root"):
         list(run_repair("default", repo_root, config_path))
+
+
+def test_run_repair_clears_new_install_marker_after_steamcmd_failure(
+    tmp_path: Path,
+) -> None:
+    instance_root = tmp_path / "default"
+    server_dir = instance_root / "server"
+    config_path = instance_root / "config" / "config.json"
+    server_dir.mkdir(parents=True)
+    config_path.parent.mkdir(parents=True)
+    (server_dir / "ArmaReforgerServer").write_text("fake binary", encoding="utf-8")
+    config_path.write_text("{}", encoding="utf-8")
+
+    state = ServerState(
+        server_running=False,
+        service_name="armareforger.service",
+        install_dir=str(server_dir),
+        config_path=str(config_path),
+    )
+
+    with (
+        patch("armactl.repair.paths._containing_git_marker", return_value=None),
+        patch("armactl.repair.discover_manual", return_value=state),
+        patch(
+            "armactl.repair.stream_server_update",
+            side_effect=InstallError("SteamCMD failed"),
+        ),
+    ):
+        with pytest.raises(RepairError, match="SteamCMD failed"):
+            list(run_repair("default", server_dir, config_path))
+
+    assert not install_marker_path(server_dir).exists()
+
+
+def test_run_repair_clears_stale_marker_for_previous_complete_install(
+    tmp_path: Path,
+) -> None:
+    instance_root = tmp_path / "default"
+    server_dir = instance_root / "server"
+    config_path = instance_root / "config" / "config.json"
+    server_dir.mkdir(parents=True)
+    config_path.parent.mkdir(parents=True)
+    (server_dir / "ArmaReforgerServer").write_text("fake binary", encoding="utf-8")
+    config_path.write_text("{}", encoding="utf-8")
+    write_package_manifest(server_dir)
+    mark_install_started(server_dir)
+
+    state = ServerState(
+        server_running=False,
+        service_name="armareforger.service",
+        install_dir=str(server_dir),
+        config_path=str(config_path),
+    )
+
+    with (
+        patch("armactl.repair.paths._containing_git_marker", return_value=None),
+        patch("armactl.repair.discover_manual", return_value=state),
+        patch(
+            "armactl.repair.stream_server_update",
+            side_effect=InstallError("SteamCMD failed"),
+        ),
+    ):
+        with pytest.raises(RepairError, match="SteamCMD failed"):
+            list(run_repair("default", server_dir, config_path))
+
+    assert not install_marker_path(server_dir).exists()

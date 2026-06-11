@@ -20,6 +20,7 @@ from armactl.paths import (
     start_script,
     state_file,
     validate_instance_name,
+    validate_server_install_dir,
 )
 
 
@@ -130,3 +131,20 @@ def test_privileged_sudoers_file():
 
 def test_privileged_helper_and_sudoers_paths_are_distinct():
     assert privileged_helper_file() != privileged_sudoers_file()
+
+
+def test_validate_server_install_dir_allows_expected_instance_dir_under_git_home(
+    tmp_path,
+    monkeypatch,
+):
+    data_root = tmp_path / "armactl-data"
+    install_dir = data_root / "default" / "server"
+    git_marker = tmp_path / ".git"
+    git_marker.mkdir()
+
+    monkeypatch.setattr(
+        "armactl.paths._containing_git_marker",
+        lambda path: git_marker,
+    )
+
+    assert validate_server_install_dir(install_dir, data_root=data_root) == install_dir

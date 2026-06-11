@@ -205,6 +205,7 @@ def _read_steam_complete(install_dir: Path) -> tuple[bool, bool | None]:
 def check_package_integrity(
     install_dir: Path,
     *,
+    ignore_install_marker: bool = False,
     verify_hashes: bool = False,
     report_limit: int = 25,
 ) -> PackageIntegrity:
@@ -228,7 +229,7 @@ def check_package_integrity(
         steam_complete=steam_complete,
     )
 
-    if marker_exists:
+    if marker_exists and not ignore_install_marker:
         base.status = "installing"
         return base
 
