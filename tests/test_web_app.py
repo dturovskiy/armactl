@@ -5,8 +5,9 @@ from __future__ import annotations
 import builtins
 import importlib
 import sys
+import warnings
 
-from fastapi.testclient import TestClient
+from starlette.exceptions import StarletteDeprecationWarning
 
 
 def _matches_prefix(module_name: str, prefixes: tuple[str, ...]) -> bool:
@@ -61,6 +62,14 @@ def _snapshot() -> dict:
     }
 
 
+def _client(app):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", StarletteDeprecationWarning)
+        from fastapi.testclient import TestClient
+
+        return TestClient(app)
+
+
 def test_create_app_import_does_not_import_tui_or_textual(monkeypatch):
     forbidden = ("armactl.tui", "textual")
     _forget_modules("armactl.web.app", *forbidden)
@@ -86,7 +95,7 @@ def test_create_app_import_does_not_import_tui_or_textual(monkeypatch):
 def test_healthz_returns_ok():
     from armactl.web.app import create_app
 
-    client = TestClient(create_app())
+    client = _client(create_app())
 
     response = client.get("/healthz")
 
@@ -105,7 +114,7 @@ def test_dashboard_routes_render_html(monkeypatch):
         return _snapshot()
 
     monkeypatch.setattr(dashboard, "load_dashboard_snapshot", fake_load_dashboard_snapshot)
-    client = TestClient(create_app())
+    client = _client(create_app())
 
     root_response = client.get("/")
     dashboard_response = client.get("/dashboard")
@@ -127,7 +136,7 @@ def test_dashboard_facade_error_returns_controlled_html(monkeypatch):
         raise RuntimeError("boom with traceback-looking details")
 
     monkeypatch.setattr(dashboard, "load_dashboard_snapshot", fail_dashboard)
-    client = TestClient(create_app())
+    client = _client(create_app())
 
     response = client.get("/dashboard")
 
@@ -146,7 +155,7 @@ def test_template_and_static_paths_are_package_local():
     assert (TEMPLATES_DIR / "dashboard_error.html").is_file()
     assert (STATIC_DIR / "css" / "app.css").is_file()
 
-    client = TestClient(create_app())
+    client = _client(create_app())
     response = client.get("/static/css/app.css")
 
     assert response.status_code == 200

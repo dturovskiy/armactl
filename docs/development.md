@@ -35,6 +35,11 @@ Tests are isolated from the operator's saved UI language. The test suite forces
 English as the active language so local Ukrainian UI settings do not change test
 expectations.
 
+Web route tests use FastAPI/Starlette `TestClient`. Keep the dev environment
+installed with the declared dev dependencies, including `httpx2`, so Starlette
+does not fall back to the deprecated `httpx` test-client path. Do not silence
+that deprecation warning with a pytest filter; fix the test dependency instead.
+
 When working from an SFTP-mounted checkout or another environment where the
 repo-local `.venv/bin/python` is not runnable on the local host, provide an
 explicit Python runner:
