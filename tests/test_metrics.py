@@ -14,6 +14,13 @@ SAMPLE_FPS_LINE = (
     "Player: 0, AI: 227, AIChar: 168, Veh: 0 (8), Proj "
     "(S: 0, M: 0, G: 0 | 0), Streaming(Dynam: 1433, Static: 29291)"
 )
+SAMPLE_FPS_LINE_WITH_MEAN_MEDIAN = (
+    "15:26:29.177   DEFAULT      : FPS: 60.0, frame time "
+    "(avg: 16.7 ms, min: 15.1 ms, max: 18.0 ms, mean: 16.7 ms, "
+    "median: 16.7 ms), Mem: 2571066 kB, Player: 0, AI: 232, "
+    "AIChar: 182, Veh: 0 (62), Proj (S: 0, M: 0, G: 0 | 0), "
+    "Streaming(Dynam: 1384, Static: 15780)"
+)
 
 
 def _write_console_log(
@@ -242,6 +249,30 @@ def test_query_server_fps_metrics_parses_valid_logstats_line(tmp_path: Path) -> 
     assert result.age_seconds == 8.0
 
 
+def test_query_server_fps_metrics_parses_current_logstats_line(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-06-11_151427",
+        SAMPLE_FPS_LINE_WITH_MEAN_MEDIAN,
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1008.0):
+        result = metrics.query_server_fps_metrics(config_dir)
+
+    assert result.available is True
+    assert result.fps == 60.0
+    assert result.frame_avg_ms == 16.7
+    assert result.frame_min_ms == 15.1
+    assert result.frame_max_ms == 18.0
+    assert result.engine_memory_kb == 2571066
+    assert result.ai == 232
+    assert result.ai_char == 182
+
+
 def test_query_server_fps_metrics_selects_latest_console_log_by_mtime(
     tmp_path: Path,
 ) -> None:
@@ -323,6 +354,8 @@ def test_query_server_fps_metrics_ignores_malformed_lines(tmp_path: Path) -> Non
 
     assert result.available is False
     assert result.error == "server FPS telemetry line is not available"
+
+
 def test_query_server_operational_status_reports_mod_download_retry(
     tmp_path: Path,
 ) -> None:
@@ -394,4 +427,55 @@ def test_query_server_operational_status_reports_ready_from_fps(
     assert result.available is True
     assert result.state == "ready"
     assert result.severity == "success"
+    assert result.message == "Ready"
+
+
+def test_query_server_operational_status_reports_ready_when_rcon_noise_is_latest(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-06-11_151427",
+        "\n".join(
+            [
+                SAMPLE_FPS_LINE_WITH_MEAN_MEDIAN,
+                "15:26:31.433 BACKEND : [RCON] 127.0.0.1:58126 Authorized as Client #0",
+                "15:26:34.689 BACKEND : [RCON] Client 0 logged out!",
+            ]
+        ),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.available is True
+    assert result.state == "ready"
+    assert result.severity == "success"
+    assert result.message == "Ready"
+
+
+def test_query_server_operational_status_ignores_backend_heartbeat_timeout(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-06-11_151427",
+        "\n".join(
+            [
+                SAMPLE_FPS_LINE_WITH_MEAN_MEDIAN,
+                "15:26:04.972 BACKEND   (E): Curl error=Timeout was reached",
+                "15:26:04.996 BACKEND   (E): DS Room Heartbeat fail, Timeout to recover=300 sec",
+            ]
+        ),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.available is True
+    assert result.state == "ready"
     assert result.message == "Ready"

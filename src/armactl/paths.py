@@ -99,7 +99,8 @@ def validate_server_install_dir(
     """Validate that SteamCMD/server runtime files stay outside Git/source trees."""
     resolved = Path(install_dir).expanduser().resolve(strict=False)
     source_root = project_root().expanduser().resolve(strict=False)
-    expected = _server_dir_guidance(instance, data_root)
+    expected_path = server_dir(instance, data_root).expanduser().resolve(strict=False)
+    expected = str(expected_path)
 
     if resolved == source_root:
         raise UnsafeServerInstallDirError(
@@ -122,6 +123,8 @@ def validate_server_install_dir(
 
     git_marker = _containing_git_marker(resolved)
     if git_marker is not None:
+        if resolved == expected_path:
+            return resolved
         raise UnsafeServerInstallDirError(
             "Refusing to use a directory inside a Git working tree as the "
             f"Arma Reforger server install directory: {resolved} "

@@ -16,8 +16,10 @@ from armactl.i18n import _, tr
 from armactl.installer import InstallError, stream_server_update
 from armactl.integrity import (
     IntegrityError,
+    PackageIntegrity,
     check_package_integrity,
     clear_install_marker,
+    install_marker_path,
     mark_install_started,
     write_package_manifest,
 )
@@ -31,6 +33,20 @@ from armactl.service_manager import (
 
 class RepairError(Exception):
     """Raised when repair fails fatally."""
+
+
+def _repair_failure_should_clear_marker(
+    previous_integrity: PackageIntegrity,
+    *,
+    config_path: Path,
+    had_install_marker: bool,
+) -> bool:
+    """Return whether a failed repair should remove the marker it set or found."""
+    if not had_install_marker:
+        return True
+    if previous_integrity.complete:
+        return True
+    return previous_integrity.status == "untracked" and config_path.is_file()
 
 
 def run_repair(
@@ -66,7 +82,11 @@ def run_repair(
         yield _("  - Server is already stopped")
 
     yield tr("[{instance}] Step 2: Validating game files via SteamCMD...", instance=instance)
-    previous_integrity = check_package_integrity(install_dir)
+    had_install_marker = install_marker_path(install_dir).is_file()
+    previous_integrity = check_package_integrity(
+        install_dir,
+        ignore_install_marker=had_install_marker,
+    )
     mark_install_started(install_dir)
     try:
         yield from stream_server_update(install_dir, instance=instance)
@@ -83,11 +103,19 @@ def run_repair(
         yield _("  OK Server files validated and updated")
         yield _("  OK Package integrity manifest refreshed")
     except InstallError as e:
-        if previous_integrity.complete:
+        if _repair_failure_should_clear_marker(
+            previous_integrity,
+            config_path=config_path,
+            had_install_marker=had_install_marker,
+        ):
             clear_install_marker(install_dir)
         raise RepairError(str(e)) from e
     except (IntegrityError, OSError) as e:
-        if previous_integrity.complete:
+        if _repair_failure_should_clear_marker(
+            previous_integrity,
+            config_path=config_path,
+            had_install_marker=had_install_marker,
+        ):
             clear_install_marker(install_dir)
         raise RepairError(
             tr("Failed to record package integrity manifest: {error}", error=e)

@@ -76,7 +76,7 @@ FPS_STATS_RE = re.compile(
     r"FPS:\s*(?P<fps>\d+(?:\.\d+)?),\s*"
     r"frame time\s*\(\s*avg:\s*(?P<frame_avg>\d+(?:\.\d+)?)\s*ms,\s*"
     r"min:\s*(?P<frame_min>\d+(?:\.\d+)?)\s*ms,\s*"
-    r"max:\s*(?P<frame_max>\d+(?:\.\d+)?)\s*ms\s*\),\s*"
+    r"max:\s*(?P<frame_max>\d+(?:\.\d+)?)\s*ms(?:,\s*[^)]*)?\s*\),\s*"
     r"Mem:\s*(?P<memory_kb>\d+)\s*kB,\s*"
     r"Player:\s*(?P<players>\d+),\s*"
     r"AI:\s*(?P<ai>\d+),\s*"
@@ -253,7 +253,6 @@ def _line_has_download_retry(line: str) -> bool:
         for marker in (
             "Fragmentizer: Retrying download",
             "Fragmentizer: Download error",
-            "Curl error=",
         )
     )
 
