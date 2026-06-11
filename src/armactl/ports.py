@@ -4,6 +4,85 @@ from __future__ import annotations
 
 import re
 import subprocess
+from collections.abc import Collection, Mapping
+
+WEB_PANEL_DEFAULT_PORT = 8765
+REVERSE_PROXY_PORTS = frozenset({80, 443})
+
+# Ports the web panel must not choose implicitly.
+BLOCKED_WEB_PORTS: dict[int, str] = {
+    22: "SSH",
+    80: "HTTP/reverse proxy",
+    443: "HTTPS/reverse proxy",
+    2001: "Arma game default",
+    17777: "Steam A2S default",
+    19999: "RCON default",
+}
+
+
+def is_port_number(value: object) -> bool:
+    """Return True when value is a valid TCP/UDP port number."""
+    return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 65535
+
+
+def get_blocked_web_ports(
+    *,
+    game_port: int | None = None,
+    a2s_port: int | None = None,
+    rcon_port: int | None = None,
+) -> dict[int, str]:
+    """Return ports reserved for the web panel, including instance game ports."""
+    blocked = dict(BLOCKED_WEB_PORTS)
+    configured_ports = (
+        (game_port, "configured Arma game port"),
+        (a2s_port, "configured Steam A2S port"),
+        (rcon_port, "configured RCON port"),
+    )
+
+    for port, reason in configured_ports:
+        if is_port_number(port):
+            blocked[port] = reason
+
+    return blocked
+
+
+def explain_web_port_conflict(
+    port: object,
+    *,
+    game_port: int | None = None,
+    a2s_port: int | None = None,
+    rcon_port: int | None = None,
+    listening_ports: Mapping[int, str] | Collection[int] | None = None,
+    allow_reverse_proxy_ports: bool = False,
+) -> str | None:
+    """Return a human-readable web port conflict reason, or None when allowed."""
+    if not is_port_number(port):
+        return "Port must be an integer between 1 and 65535."
+
+    port_number = int(port)
+    blocked_ports = get_blocked_web_ports(
+        game_port=game_port,
+        a2s_port=a2s_port,
+        rcon_port=rcon_port,
+    )
+
+    if port_number in blocked_ports:
+        reason = blocked_ports[port_number]
+        allowed_reverse_proxy_port = (
+            allow_reverse_proxy_ports
+            and port_number in REVERSE_PROXY_PORTS
+            and reason == BLOCKED_WEB_PORTS[port_number]
+        )
+        if not allowed_reverse_proxy_port:
+            return f"Port {port_number} is reserved for {reason}."
+
+    if listening_ports is not None and port_number in listening_ports:
+        process = listening_ports[port_number] if isinstance(listening_ports, Mapping) else ""
+        if process:
+            return f"Port {port_number} is already listening ({process})."
+        return f"Port {port_number} is already listening."
+
+    return None
 
 
 def get_listening_ports() -> dict[int, str]:

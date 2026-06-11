@@ -47,6 +47,8 @@ explicitly a release task.
 - Do not make web replace the default `./armactl` TUI startup path.
 - Preserve the target remote scenario: a user can open a public HTTPS URL from
   another network, log in, and use the permitted panel features without SSH.
+- Use the shared `ports.py` blocked web port helpers when implementing
+  `armactl web init`, `armactl web run`, or service install port validation.
 - Keep CLI and TUI usable as fallback management paths.
 - Keep tests independent from saved operator UI language.
 

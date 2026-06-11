@@ -206,6 +206,8 @@ ports. `armactl web init` / `armactl web service install` should choose
 `127.0.0.1:8765` by default and validate that the chosen web port:
 
 - is not one of the configured game/A2S/RCON ports for that instance;
+- is not one of the shared blocked web ports from `ports.py`, such as SSH,
+  default Arma/A2S/RCON, or reverse-proxy ports;
 - is not already listening in the same VM;
 - is not `80` or `443` unless the operator explicitly knows they are running
   the web app directly without a reverse proxy;
