@@ -160,6 +160,20 @@ Proxmox Debian host
        -> HTTPS routes to selected armactl-web instances
 ```
 
+Existing operator environment pattern:
+
+- multiple working game VMs can run different armactl versions during the web
+  rollout;
+- the first deployment should target a paused/maintenance VM before touching
+  stable production or rented customer servers;
+- the public website/container can list available servers and link to their
+  separate management-panel hostnames, but it remains separate from the
+  authenticated panel;
+- an existing utility VM may provide out-of-band browser file management,
+  noVNC, SFTP, or cross-machine mounts. Treat that as an operational helper,
+  not as a dependency for armactl-web. The MVP web file manager should still
+  operate against the local VM-safe roots documented in this plan.
+
 External access options:
 
 - one subdomain per game server panel, for example
@@ -229,6 +243,22 @@ Future option: a separate fleet controller can aggregate multiple armactl-web
 instances later. That controller should talk to per-VM armactl agents/panels via
 authenticated HTTP APIs. It should not replace the local per-VM armactl runtime
 for MVP.
+
+## Rollout strategy
+
+Web-panel rollout should be incremental:
+
+1. Develop and test locally against a temporary data root.
+2. Deploy first to a non-critical or paused game VM.
+3. Verify login, dashboard, service status, logs, and file containment.
+4. Add reverse-proxy routing for that one VM only.
+5. Keep CLI/TUI SSH fallback available.
+6. Only after smoke tests pass, repeat for stable production and rented
+   customer VMs.
+
+The implementation must tolerate older deployed armactl versions until those VMs
+are upgraded. The web panel should fail clearly if a target VM is missing a
+required runtime config, service template, or web database.
 
 ## Technology stack decision
 

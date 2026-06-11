@@ -52,6 +52,10 @@ explicitly a release task.
 - When documenting or testing a central reverse proxy outside the game VM,
   remember that proxy upstreams must target the game VM private address, not
   `127.0.0.1`.
+- Roll web out first on a paused/non-critical VM. Do not start with stable
+  production or rented customer servers.
+- Treat any existing noVNC/SFTP/browser file-manager VM as an out-of-band
+  operational helper, not as an armactl-web dependency.
 - Keep CLI and TUI usable as fallback management paths.
 - Keep tests independent from saved operator UI language.
 
