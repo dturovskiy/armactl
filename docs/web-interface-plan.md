@@ -134,6 +134,32 @@ server-1.example.com:443 -> 10.0.0.11:8765
 server-2.example.com:443 -> 10.0.0.12:8765
 ```
 
+Default port inventory:
+
+| Component | Default | Protocol | Source |
+|-----------|---------|----------|--------|
+| Arma game bind/public port | `2001` | UDP | `templates/config.json.j2` |
+| Steam A2S query | `17777` | UDP | `templates/config.json.j2` |
+| RCON | `19999` | TCP/UDP handling in UFW | `templates/config.json.j2`, `ports.py` |
+| armactl web panel | `8765` | TCP | planned default |
+| reverse proxy public HTTP | `80` | TCP | proxy/LXC/VM |
+| reverse proxy public HTTPS | `443` | TCP | proxy/LXC/VM |
+
+New game-server installation already creates the Arma defaults through
+`templates/config.json.j2`. Web installation should not modify those game
+ports. `armactl web init` / `armactl web service install` should choose
+`127.0.0.1:8765` by default and validate that the chosen web port:
+
+- is not one of the configured game/A2S/RCON ports for that instance;
+- is not already listening in the same VM;
+- is not `80` or `443` unless the operator explicitly knows they are running
+  the web app directly without a reverse proxy;
+- can be overridden by an explicit web config value or CLI option.
+
+If the default web port is busy inside the same VM, fail with a clear message
+and ask the operator to choose another port. Do not silently move to a random
+port because the reverse proxy configuration needs a stable upstream.
+
 Future option: a separate fleet controller can aggregate multiple armactl-web
 instances later. That controller should talk to per-VM armactl agents/panels via
 authenticated HTTP APIs. It should not replace the local per-VM armactl runtime
