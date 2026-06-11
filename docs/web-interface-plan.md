@@ -71,6 +71,52 @@ python -m armactl.web --host 127.0.0.1 --port 8765 --dev
 The local dev server should use the same backend modules but can point at a
 temporary `ARMACTL_DATA_ROOT` fixture for tests.
 
+## Proxmox and multi-VM deployment model
+
+For MVP, run armactl and `armactl-web.service` inside the same VM that runs the
+Arma Reforger Dedicated Server. Do not run armactl on the Proxmox host to manage
+game servers inside other VMs.
+
+Reasons:
+
+- armactl's current philosophy is local installation and local management of
+  the server it owns;
+- service control, config writes, log reading, and file uploads are all simpler
+  and safer when they operate on the VM-local filesystem and systemd;
+- the Proxmox host should remain infrastructure, not a privileged game-server
+  control plane;
+- running the panel beside the game server keeps each VM isolated if one panel
+  is compromised or misconfigured.
+
+Recommended topology:
+
+```text
+Proxmox Debian host
+  -> VM: reforger-1
+       -> Arma Reforger server
+       -> armactl
+       -> armactl-web on 127.0.0.1:8765 or VM-private IP
+  -> VM: reforger-2
+       -> Arma Reforger server
+       -> armactl
+       -> armactl-web on 127.0.0.1:8765 or VM-private IP
+  -> LXC/VM: public website / reverse proxy
+       -> marketing `website/`
+       -> HTTPS routes to selected armactl-web instances
+```
+
+External access options:
+
+- one subdomain per game server panel, for example
+  `server-1.example.com` and `server-2.example.com`;
+- one reverse-proxy entrypoint with separate upstreams per VM;
+- VPN/private network access for panels that should not be public.
+
+Future option: a separate fleet controller can aggregate multiple armactl-web
+instances later. That controller should talk to per-VM armactl agents/panels via
+authenticated HTTP APIs. It should not replace the local per-VM armactl runtime
+for MVP.
+
 ## Technology stack decision
 
 Keep armactl on Python. Do not rewrite the backend in Rust or C++ for the web
@@ -212,6 +258,15 @@ Rules:
 - Treat archive extraction as out of scope for the first version. Uploading an
   archive as a file is fine; server-side unpacking needs a separate threat
   model.
+
+This is not SFTP in the MVP. Because the web panel runs inside the same VM as
+the game server, file operations should be implemented as safe local filesystem
+operations behind authenticated HTTPS routes. The browser uploads/downloads
+files through armactl-web; armactl-web writes only to allowed VM-local roots.
+
+SFTP/SSH can remain an operator fallback outside armactl. A future fleet
+controller may use SSH/SFTP internally to reach remote machines, but that is a
+different architecture and should not be part of the first per-VM web panel.
 
 ## Backend surface
 
