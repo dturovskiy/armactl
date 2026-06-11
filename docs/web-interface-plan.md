@@ -732,6 +732,9 @@ debug runner.
 - Keep tests independent from saved UI language.
 - Add web dependencies and package skeleton.
 - Add `scripts/run-web` and bootstrap support for local web smoke tests.
+- Add a FastAPI app factory without starting Uvicorn inside the app module.
+- Add `/healthz`, package-local templates/static, and minimal read-only
+  dashboard routes wired to the web facade.
 - Add web runtime config loader.
 - Add auth/session/CSRF primitives.
 - Add service template for always-on `armactl-web.service`.

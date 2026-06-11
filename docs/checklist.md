@@ -253,6 +253,7 @@
 - [x] Додати `scripts/run-web` і bootstrap support
 - [x] Додати web-facing facade/DTO layer поверх existing backend modules
 - [x] Оновити packaging/bootstrap для web templates/static і optional deps
+- [x] Додати FastAPI app factory, health endpoint і minimal dashboard routes
 - [ ] Додати `armactl web init` і runtime config
 - [ ] Додати auth, session cookies, CSRF, role model
 - [ ] Додати web permission categories для dashboard/actions/files/backups/users
