@@ -7,6 +7,8 @@
 [![Ubuntu 24.04](https://img.shields.io/badge/ubuntu-24.04-E95420.svg)](README.md)
 
 Installer, manager, and TUI for **Arma Reforger Dedicated Server** on Ubuntu.
+A browser management panel is planned as the next major interface, but the
+current stable management paths remain CLI, TUI, and the optional Telegram bot.
 
 `armactl` is built for operators who want one tool that can install a server
 from scratch, detect an existing installation, repair broken state, manage
@@ -23,6 +25,7 @@ admin bot.
 - single dedicated server instance
 - single Linux user
 - operators who prefer a repo-local launcher over global package setup
+- remote operators who manage a VM over SSH today and want a browser panel later
 
 ## Quick start
 
@@ -128,12 +131,13 @@ server after updating `armactl` so the process starts with `-logStats 10000`.
 
 ## Runtime layout
 
-`armactl` separates three layers:
+`armactl` separates three current layers and one planned web-runtime layer:
 
 | Layer | Location | Purpose |
 |-------|----------|---------|
 | Source code | this repository | CLI + TUI + backend modules |
 | Runtime data | `~/armactl-data/default/` | server files, config, backups, state |
+| Planned web runtime | `~/armactl-data/web/` | web panel settings, account DB, audit log |
 | System services | `/etc/systemd/system/` | auto-start and scheduled restarts |
 
 Typical runtime structure:
@@ -176,11 +180,23 @@ Current bot capabilities include:
 
 See [docs/telegram-bot.md](docs/telegram-bot.md) for the full flow.
 
+## Planned web interface
+
+The web management panel is planned in
+[docs/web-interface-plan.md](docs/web-interface-plan.md). It is intended to run
+inside the same VM as the Arma server and reuse the existing backend modules
+instead of reimplementing install, service, config, mods, logs, or filesystem
+logic.
+
+The existing top-level `website/` directory is a marketing/static site. It is
+not the management panel and should stay separate from the authenticated web UI.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md)
 - [Localization](docs/localization.md)
 - [Telegram Bot](docs/telegram-bot.md)
+- [Web Interface Plan](docs/web-interface-plan.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Development](docs/development.md)
 - [Release Process](docs/release-process.md)
@@ -240,4 +256,3 @@ after `pyproject.toml` dependency changes.
 ## License
 
 MIT
-

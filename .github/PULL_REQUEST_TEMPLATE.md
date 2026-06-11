@@ -14,6 +14,7 @@ Closes #
 - [ ] `python3 -m ruff check src tests`
 - [ ] Relevant manual flow tested
 - [ ] TUI flow tested, if this PR changes Textual screens or user interaction
+- [ ] Web flow tested, if this PR changes browser routes, auth, or file access
 - [ ] The changed files are relevant to the linked issue
 - [ ] This PR does not introduce unrelated changes
 
@@ -26,6 +27,7 @@ Closes #
 - [ ] Mods / addon cleanup
 - [ ] TUI / UX / Textual screens
 - [ ] Telegram bot
+- [ ] Web panel / auth / filesystem access
 - [ ] Release / versioning
 - [ ] docs only
 
@@ -39,3 +41,5 @@ Closes #
 
 - List any migration, rollback, or operator-facing implications.
 - For TUI changes, list the manual screens/flows tested.
+- For web changes, list auth/session/CSRF checks, file-access checks, and
+  deployment or reverse-proxy checks.

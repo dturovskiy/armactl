@@ -2,15 +2,16 @@
 
 ## Принцип розділення
 
-В armactl чітко розділені три типи файлів:
+В armactl чітко розділені чотири типи файлів:
 
 | Тип | Що | Де живе |
 |-----|----|---------|
 | **Source code** | Код тулзи, шаблони, тести | GitHub-репо `armactl/` |
 | **Runtime data** | Бінарники сервера, конфіг, бекапи, state | `~/armactl-data/<instance>/` |
+| **Web runtime data** | Planned web settings, accounts, sessions, audit log | `~/armactl-data/web/` |
 | **System services** | systemd unit-файли для автозапуску | `/etc/systemd/system/` |
 
-Змішувати ці три шари не можна — це різні lifecycle, різні власники, різні правила оновлення.
+Змішувати ці шари не можна — це різні lifecycle, різні власники, різні правила оновлення.
 
 ---
 
@@ -56,9 +57,11 @@ armactl/
 │       ├── repair.py
 │       ├── service_manager.py
 │       ├── state.py
+│       ├── web/                 # planned browser management panel
 │       └── tui/
 │           ├── app.py
 │           └── screens.py
+├── website/                      # static marketing site, not the panel
 └── tests/
     ├── test_config_manager.py
     ├── test_discovery.py
@@ -75,6 +78,8 @@ armactl/
 |------------|-------------|
 | `src/armactl/` | Увесь код: CLI, discovery, config, mods, TUI |
 | `src/armactl/tui/` | TUI-оболонка (Textual), жодної бізнес-логіки |
+| `src/armactl/web/` | Planned web-panel routes, templates, static assets, жодної бізнес-логіки |
+| `website/` | Static marketing site, окремо від authenticated management panel |
 | `templates/` | Jinja2-шаблони для config, service, timer, start script |
 | `scripts/` | Зручні launcher-и та dev-скрипти |
 | `docs/` | Документація проєкту |
@@ -99,6 +104,7 @@ armactl/
 | `logs.py` | Читання journalctl логів |
 | `metrics.py` | Runtime метрики сервера: CPU/RAM, PID-level state, Server FPS/frame-time telemetry |
 | `ports.py` | Перевірка listening портів (ss) |
+| `web/` | Planned ASGI web adapter over backend modules |
 
 ---
 
@@ -154,6 +160,29 @@ armactl/
 
 Кожен інстанс — повністю ізольований, зі своїм конфігом, бекапами і state.
 
+### Planned web panel runtime
+
+Web-panel state is not stored in the repository and not stored inside a game
+instance. It belongs to the armactl management layer:
+
+```text
+~/armactl-data/web/
+├── web.env                         # local web runtime settings
+├── web.db                          # users, roles, sessions, jobs
+└── audit.log                       # append-only audit trail for web actions
+```
+
+The web file manager should start with the VM-local game server install root as
+its allowed write area:
+
+```text
+~/armactl-data/<instance>/server/
+```
+
+Absolute paths, symlink traversal outside allowed roots, source repository
+paths, `.git`, `.venv`, and system unit directories are out of scope for browser
+file access.
+
 ---
 
 ## 3. Системні файли (поза instance root)
@@ -164,6 +193,7 @@ armactl/
 /etc/systemd/system/armareforger.service
 /etc/systemd/system/armareforger-restart.service
 /etc/systemd/system/armareforger-restart.timer
+/etc/systemd/system/armactl-web.service      # planned web panel service
 ```
 
 ### Зв'язок service → instance root
@@ -184,9 +214,9 @@ ExecStart=/home/<user>/armactl-data/default/start-armareforger.sh
 
 ```text
 ┌─────────────────────────────────────┐
-│              TUI (Textual)          │  ← Тільки UI, жодної логіки
+│      TUI (Textual) / Web (planned)  │  ← Тільки UI, жодної логіки
 ├─────────────────────────────────────┤
-│           Backend CLI (armactl)     │  ← Уся бізнес-логіка
+│      Backend modules / CLI          │  ← Уся бізнес-логіка
 ├──────────┬──────────┬───────────────┤
 │ discovery│ config   │ service/timer │  ← Модулі
 │ state    │ mods     │ installer     │
@@ -199,10 +229,12 @@ ExecStart=/home/<user>/armactl-data/default/start-armareforger.sh
 ### Правила
 
 1. **TUI не містить бізнес-логіки** — викликає reusable backend-модулі, а не реалізує логіку в екранах
-2. **CLI — стабільна точка входу для адміністрування** — але core-логіка живе в окремих модулях і працює і без TUI
-3. **Модулі незалежні** — discovery не знає про TUI, config manager не знає про installer
-4. **Templates → generated files** — конфіги та unit-файли генеруються з Jinja2-шаблонів
-5. **Backup before write** — будь-яка зміна конфігу створює backup
+2. **Web route handlers не містять бізнес-логіки** — planned web panel має бути тонким адаптером над тими самими backend-модулями
+3. **CLI — стабільна точка входу для адміністрування** — але core-логіка живе в окремих модулях і працює і без TUI/web
+4. **Модулі незалежні** — discovery не знає про TUI, config manager не знає про installer
+5. **Templates → generated files** — конфіги та unit-файли генеруються з Jinja2-шаблонів
+6. **Backup before write** — будь-яка зміна конфігу створює backup
+7. **Marketing site is separate** — top-level `website/` не є authenticated management panel
 
 ---
 
@@ -256,3 +288,18 @@ armactl config set-name "My Server"
   → валідує JSON
   → atomic write
 ```
+
+### Planned web dashboard flow
+
+```text
+browser
+  → HTTPS reverse proxy
+  → armactl-web on 127.0.0.1:8765 inside the game VM
+  → backend modules
+  → state/config/systemd/filesystem
+```
+
+The web service should run beside the game server in the same VM. On Proxmox,
+multiple game VMs can each use the same local web port because each VM has its
+own network namespace. Public exposure should be handled by a reverse proxy with
+one subdomain or route per VM.

@@ -25,7 +25,8 @@ Thanks for helping improve `armactl`.
 
 ## Contribution guidelines
 
-- Keep business logic in backend modules, not in TUI screens.
+- Keep business logic in backend modules, not in TUI screens or web route
+  handlers.
 - Add or update tests when behavior changes.
 - Update docs when UX, install flow, or operational behavior changes.
 - Never commit real secrets, runtime `.env` files, or server data.
@@ -35,6 +36,7 @@ Thanks for helping improve `armactl`.
 
 - Explain what changed and why.
 - List any manual verification you performed.
-- Call out risk areas, especially around install, systemd, SteamCMD, config migration, or Telegram bot behavior.
+- Call out risk areas, especially around install, systemd, SteamCMD, config
+  migration, Telegram bot behavior, web authentication, or web filesystem
+  access.
 - Low-effort automated PRs that do not address the linked issue will be closed without review.
-

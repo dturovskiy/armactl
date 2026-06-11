@@ -11,6 +11,16 @@ ARMACTL_BOOTSTRAP_MODE=--dev ./armactl
 This keeps the project self-contained and uses the same repo-local launcher
 model as the main product.
 
+## Windows + WSL workflow
+
+For Windows development, prefer the Linux checkout under WSL for real project
+work. The app targets Ubuntu hosts, systemd, SteamCMD, and Linux paths, so tests
+and commits should come from the WSL checkout rather than a second Windows copy
+of the repository.
+
+Keep the Windows checkout clean unless it is intentionally being used for a
+separate local experiment. Do not split related changes across both checkouts.
+
 ## Test and lint commands
 
 ```bash
@@ -20,6 +30,10 @@ model as the main product.
 
 `scripts/run-host-tests` owns the test/lint workflow. It bootstraps the
 repo-local dev environment by default, runs pytest, and then runs ruff.
+
+Tests are isolated from the operator's saved UI language. The test suite forces
+English as the active language so local Ukrainian UI settings do not change test
+expectations.
 
 When working from an SFTP-mounted checkout or another environment where the
 repo-local `.venv/bin/python` is not runnable on the local host, provide an
@@ -53,16 +67,30 @@ grep -RiaE 'FPS:|frame time' ~/armactl-data/default/config/logs | tail -20
 
 ## Project structure
 
-- `src/armactl/` — backend modules, CLI, TUI, Telegram bot
+- `src/armactl/` — backend modules, CLI, TUI, Telegram bot, and planned web code
+- `src/armactl/web/` — planned browser management panel package
 - `templates/` — config, systemd, and helper templates
+- `website/` — separate marketing/static site, not the management panel
 - `tests/` — unit and integration-style coverage
 - `docs/` — architecture, migration, localization, troubleshooting, release docs
 
 ## Design principles
 
-- Keep TUI screens thin and delegate logic to backend modules.
+- Keep TUI screens and web route handlers thin and delegate logic to backend
+  modules.
 - Prefer explicit state and file layout over hidden magic.
 - Treat runtime data and repo code as separate layers.
 - Redact secrets in logs and UI output by default.
+
+## Web panel development notes
+
+The planned web interface is documented in
+[web-interface-plan.md](web-interface-plan.md). Until the implementation exists,
+do not add browser-only behavior that bypasses the existing backend modules.
+
+Web changes should include focused tests for auth/session behavior, CSRF on
+mutating routes, service-control authorization, and filesystem containment.
+Manual VM smoke checks should cover local binding, reverse proxy routing, and
+the default web port not conflicting with Arma game/A2S/RCON ports.
 
 See [architecture.md](architecture.md) for more detail.

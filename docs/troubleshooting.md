@@ -252,3 +252,21 @@ Use:
 
 - `Detect Existing Server`
 - `Repair Installation`
+
+## Planned web panel notes
+
+The browser management panel is planned but not part of the current stable
+operator surface yet. Until it is implemented and deployed, use CLI, TUI, or the
+optional Telegram bot for management.
+
+When debugging future web-panel deployments, keep these layers separate:
+
+- Arma game/A2S/RCON ports belong to the game VM and are configured in
+  `config.json`.
+- `armactl-web` should use a stable local TCP port inside the same VM.
+- Public HTTP/HTTPS should belong to the reverse proxy, not the game service.
+- The top-level `website/` directory is a marketing/static site, not the
+  authenticated management panel.
+
+See [web-interface-plan.md](web-interface-plan.md) for the current deployment
+and port model.

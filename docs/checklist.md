@@ -232,9 +232,31 @@
 - [ ] Перевірити встановлення з релізного архіву
 - [ ] Перевірити запуск на іншій машині
 
+## Phase 16 — Web interface (planned)
+
+- [x] Зафіксувати web architecture plan у `docs/web-interface-plan.md`
+- [x] Відділити тести від збереженої UI-мови оператора
+- [x] Зафіксувати, що `website/` є marketing/static site, не management panel
+- [x] Зафіксувати per-VM deployment model для Proxmox
+- [x] Зафіксувати дефолтні порти Arma і planned web port
+- [ ] Додати `src/armactl/web/` package skeleton
+- [ ] Додати optional web dependencies
+- [ ] Додати `armactl web init` і runtime config
+- [ ] Додати auth, session cookies, CSRF, role model
+- [ ] Додати dashboard read-only parity з TUI
+- [ ] Додати controlled start/stop/restart actions
+- [ ] Додати background job model перед long-running operations
+- [ ] Додати config/mods web flows через backend modules
+- [ ] Додати safe local filesystem browser/upload/download
+- [ ] Додати `armactl-web.service` template і service commands
+- [ ] Додати reverse proxy / HTTPS deployment docs
+- [ ] Додати VM smoke checklist для web panel
+
 ---
 
-## Стартова точка
+## Історична стартова точка
 
-Починати треба з **Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4**.
-Саме після цього вже буде сенс робити installer і TUI.
+Для початкового CLI/TUI циклу старт був **Phase 0 → Phase 1 → Phase 2 →
+Phase 3 → Phase 4**. Цей фундамент уже реалізований.
+
+Поточний наступний етап - **Phase 16: Web interface (planned)**.
