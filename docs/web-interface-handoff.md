@@ -42,6 +42,9 @@ explicitly a release task.
   authenticated management panel.
 - Do not expose arbitrary host filesystem access.
 - Do not run install/repair/update as blocking HTTP requests.
+- Treat web as an always-on service: `armactl web run` is for foreground
+  development/debugging, while production uses `armactl-web.service`.
+- Do not make web replace the default `./armactl` TUI startup path.
 - Keep CLI and TUI usable as fallback management paths.
 - Keep tests independent from saved operator UI language.
 
@@ -57,7 +60,7 @@ explicitly a release task.
 8. Add background jobs before exposing long-running operations.
 9. Add config/mods/admins/bot web flows through existing backend modules.
 10. Add the safe filesystem adapter before upload/download routes.
-11. Add `armactl-web.service` and deployment docs.
+11. Add `scripts/run-web`, `armactl-web.service`, and deployment docs.
 
 ## Implementation prompt template
 

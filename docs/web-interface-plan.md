@@ -71,6 +71,25 @@ python -m armactl.web --host 127.0.0.1 --port 8765 --dev
 The local dev server should use the same backend modules but can point at a
 temporary `ARMACTL_DATA_ROOT` fixture for tests.
 
+## Service lifecycle and launchers
+
+The web panel is a long-running service, unlike the TUI. The TUI remains the
+interactive default when an operator runs `./armactl` without subcommands; web
+startup must be explicit through `armactl web ...`.
+
+Use two launch layers:
+
+- `scripts/run-web` for local/dev smoke tests. It should mirror
+  `scripts/run-tui` and delegate to `./armactl web run "$@"` after the repo
+  launcher has handled bootstrap and `.venv` refresh.
+- `armactl-web.service` for production. `armactl web service install/start`
+  should install and enable a systemd service that starts on boot, restarts on
+  failure, and binds to the configured host/port.
+
+`armactl web run` is useful for foreground debugging. It is not the normal
+remote-server operating mode. After setup, operators should not need SSH just to
+keep the panel available.
+
 ## Proxmox and multi-VM deployment model
 
 For MVP, run armactl and `armactl-web.service` inside the same VM that runs the
@@ -535,14 +554,16 @@ armactl web service status
 `web init` should create runtime config and credentials. `service install`
 should install or refresh `armactl-web.service`.
 
-Add a local smoke command or documented flow:
+Add a repo-local smoke launcher plus documented flow:
 
 ```text
+./scripts/run-web --dev --data-root /tmp/armactl-web-dev
 armactl web run --dev --data-root /tmp/armactl-web-dev
 ```
 
 This lets us test the panel locally before installing the service on a remote
-VM.
+VM. Production deployments should use `armactl-web.service`, not the foreground
+debug runner.
 
 ## Implementation phases
 
@@ -550,9 +571,10 @@ VM.
 
 - Keep tests independent from saved UI language.
 - Add web dependencies and package skeleton.
+- Add `scripts/run-web` and bootstrap support for local web smoke tests.
 - Add web runtime config loader.
 - Add auth/session/CSRF primitives.
-- Add service template for `armactl-web.service`.
+- Add service template for always-on `armactl-web.service`.
 - Update packaging so web templates/static files are included in editable,
   wheel, and sdist installs.
 - Keep the marketing `website/` untouched and separate from the management UI.

@@ -33,6 +33,7 @@ armactl/
 │   ├── bootstrap.sh
 │   ├── run-host-tests
 │   ├── run-tui
+│   ├── run-web                 # planned local web smoke launcher
 │   └── ...
 ├── templates/
 │   ├── config.json.j2
