@@ -1,7 +1,9 @@
 # Web Interface Handoff
 
 This document is the working handoff for implementing the armactl web panel with
-one implementation chat/agent and one review chat/agent.
+one implementation chat/agent and one review chat/agent. The implementation
+agent leaves changes uncommitted. The review agent validates the diff, requests
+or applies fixes when needed, and creates the commit only after review passes.
 
 ## Source of truth
 
@@ -23,7 +25,9 @@ explicitly a release task.
   sub-branch.
 - Do not edit or commit the Windows `E:\Projects\armactl` checkout.
 - Keep changes small and reviewable.
-- Prefer one focused commit per implementation step.
+- Do not commit from the implementation chat. Leave changes in the working tree
+  for the review chat.
+- The review chat creates one focused commit per approved implementation step.
 
 ## Implementation rules
 
@@ -80,13 +84,16 @@ Constraints:
 - Do not import TUI code from web code.
 - Do not shell out to armactl --json-output for normal web behavior.
 - Add focused tests for the behavior you change.
-- Keep the diff small and commit with a concise message.
+- Keep the diff small.
+- Do not commit. Leave the working tree ready for review and suggest a concise
+  commit message.
 
 Before finishing, run the relevant tests and `git diff --check`.
 Report:
 - files changed
 - tests run
 - any known gaps or follow-up tasks
+- suggested commit message
 ```
 
 ## Review prompt template
@@ -94,7 +101,7 @@ Report:
 Use this template for a review chat:
 
 ```text
-Review the latest implementation commit(s) on
+Review the latest uncommitted implementation changes on
 `/home/deus/projects/armactl`, branch `feat/web-interface`.
 
 Use a code-review stance. Prioritize:
@@ -117,7 +124,8 @@ Check the diff against:
 
 Run relevant tests and `git diff --check` if possible.
 Return findings first with file/line references, then test coverage and a short
-summary. If there are no findings, say so clearly and mention residual risk.
+summary. If there are no findings, say so clearly, mention residual risk, and
+commit the approved changes with a concise message.
 ```
 
 ## Review gates
