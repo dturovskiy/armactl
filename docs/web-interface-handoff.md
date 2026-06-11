@@ -49,6 +49,9 @@ explicitly a release task.
   another network, log in, and use the permitted panel features without SSH.
 - Use the shared `ports.py` blocked web port helpers when implementing
   `armactl web init`, `armactl web run`, or service install port validation.
+- When documenting or testing a central reverse proxy outside the game VM,
+  remember that proxy upstreams must target the game VM private address, not
+  `127.0.0.1`.
 - Keep CLI and TUI usable as fallback management paths.
 - Keep tests independent from saved operator UI language.
 

@@ -170,6 +170,10 @@ External access options:
 Port conflict rules:
 
 - `armactl-web` should default to `127.0.0.1:8765` inside each VM.
+- If the reverse proxy runs outside the game VM, such as on the Proxmox host or
+  in a separate website/proxy container, it cannot reach the game VM through
+  `127.0.0.1`. In that topology, bind `armactl-web` to a VM-private/LAN address
+  or to `0.0.0.0` with firewall rules that allow only the proxy source IP.
 - The same web port can be reused across different VMs because each VM has its
   own network namespace and IP address.
 - If multiple armactl instances run inside the same VM, each web service needs a
@@ -188,6 +192,10 @@ Example reverse proxy mapping:
 server-1.example.com:443 -> 10.0.0.11:8765
 server-2.example.com:443 -> 10.0.0.12:8765
 ```
+
+For a Proxmox host-level reverse proxy, keep the host proxy as the public entry
+point and route each panel hostname/path to the selected game VM's private
+address. Avoid exposing `8765` directly to the internet.
 
 Default port inventory:
 
