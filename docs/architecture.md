@@ -230,11 +230,12 @@ ExecStart=/home/<user>/armactl-data/default/start-armareforger.sh
 
 1. **TUI не містить бізнес-логіки** — викликає reusable backend-модулі, а не реалізує логіку в екранах
 2. **Web route handlers не містять бізнес-логіки** — planned web panel має бути тонким адаптером над тими самими backend-модулями
-3. **CLI — стабільна точка входу для адміністрування** — але core-логіка живе в окремих модулях і працює і без TUI/web
-4. **Модулі незалежні** — discovery не знає про TUI, config manager не знає про installer
-5. **Templates → generated files** — конфіги та unit-файли генеруються з Jinja2-шаблонів
-6. **Backup before write** — будь-яка зміна конфігу створює backup
-7. **Marketing site is separate** — top-level `website/` не є authenticated management panel
+3. **Internal API — це Python backend-модулі** — CLI/TUI/Telegram/web мають викликати їх напряму, а не використовувати TUI як API
+4. **CLI — стабільна точка входу для адміністрування** — але core-логіка живе в окремих модулях і працює і без TUI/web
+5. **Модулі незалежні** — discovery не знає про TUI, config manager не знає про installer
+6. **Templates → generated files** — конфіги та unit-файли генеруються з Jinja2-шаблонів
+7. **Backup before write** — будь-яка зміна конфігу створює backup
+8. **Marketing site is separate** — top-level `website/` не є authenticated management panel
 
 ---
 

@@ -349,6 +349,15 @@ different architecture and should not be part of the first per-VM web panel.
 
 ## Backend surface
 
+The project already has an internal Python API surface: reusable backend
+modules under `src/armactl/`. The TUI uses these modules directly; it does not
+use an HTTP API, and it should not be treated as the API boundary.
+
+The CLI also has `--json-output` for some commands. That is useful for scripts
+and diagnostics, but the web panel should not shell out to `armactl
+--json-output` for normal in-process behavior. Route handlers should call the
+same backend modules that the TUI and Telegram bot already use.
+
 The web backend should be a thin adapter over existing modules:
 
 - Discovery/status: `discovery`, `state`, `status_summary`, `metrics`,
@@ -363,6 +372,36 @@ The web backend should be a thin adapter over existing modules:
 - Files: new safe filesystem adapter
 
 Avoid importing or calling TUI screens from web code.
+
+Useful existing internal contracts:
+
+- `ServerState.to_dict()` / `ServerState.from_dict()` for persisted discovery
+  state.
+- `ServiceResult.to_dict()` for service-control outcomes.
+- Structured status dictionaries from `get_service_status()` and
+  `get_timer_status()`.
+- Dataclasses from `metrics`, `player_view`, `status_summary`, `bot_config`,
+  `mods_manager`, `addon_cleanup`, and `admins_manager`.
+- `run_install()` and `run_repair()` generators for long-running progress
+  output.
+
+Before implementing many routes, add a small web-facing facade layer that
+groups multi-step workflows into stable functions. That facade should return
+plain dataclasses or dictionaries suitable for templates, JSON responses, job
+records, and tests. Keep `click`, Textual widgets, and terminal formatting out
+of that facade.
+
+Internal API readiness:
+
+| Area | Readiness for web | Needed adapter work |
+|------|-------------------|---------------------|
+| Read-only status/dashboard | High | Compose one dashboard DTO from discovery, service status, metrics, players, config summary, and mods summary |
+| Start/stop/restart | High | Add auth, confirmation, CSRF, audit log, and route-level permission checks |
+| Config/mods/admins/bot settings | Medium-high | Wrap existing functions with form validation and redacted error rendering |
+| Logs/report | Medium | Use bounded reads first; add streaming later without `os.execvp` |
+| Install/repair/update | Medium | Run via background jobs; never block a request thread |
+| File manager | Low | Implement a new safe filesystem adapter first |
+| Web users/roles/entitlements | Low | Implement new `web.db` models; do not reuse game admins as web users |
 
 ## Existing feature inventory
 
