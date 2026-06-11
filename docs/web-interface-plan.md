@@ -198,6 +198,12 @@ the operator enables the web service.
 
 First screen should be the usable dashboard, not a landing page.
 
+The web panel should provide dashboard parity with the useful information that
+already exists in the TUI, then improve the ergonomics for browser use. It is
+not a separate feature surface; it is a more convenient remote operator view
+over the same server state, controls, logs, config, mods, schedule, Telegram
+bot, and maintenance workflows.
+
 MVP views:
 
 - Login
@@ -211,6 +217,11 @@ MVP views:
 
 The interface should be quiet and operational: dense, predictable, and focused
 on repeated server management tasks.
+
+The dashboard should feel related to the TUI in information architecture:
+clear server state first, then actionable controls, then diagnostic details.
+The browser version can use more spatial layout, richer tables, inline forms,
+file upload/download controls, and better copy/paste affordances than the TUI.
 
 The web UI should have its own templates/static assets under `src/armactl/web/`.
 It should not import files from top-level `website/`, and top-level `website/`
