@@ -54,8 +54,8 @@ explicitly a release task.
   `127.0.0.1`.
 - Roll web out first on a paused/non-critical VM. Do not start with stable
   production or rented customer servers.
-- Treat any existing noVNC/SFTP/browser file-manager VM as an out-of-band
-  operational helper, not as an armactl-web dependency.
+- Treat any existing noVNC/SFTP/browser file-manager VM as a separate external
+  project, not as an armactl-web dependency or component.
 - Do not let SSHFS/NFS/SMB or other remote mounts silently expand the web file
   manager's allowed roots.
 - Scope the MVP cabinet to one local machine/server per `armactl-web`

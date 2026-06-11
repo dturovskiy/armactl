@@ -169,12 +169,12 @@ Existing operator environment pattern:
 - the public website/container can list available servers and link to their
   separate management-panel hostnames, but it remains separate from the
   authenticated panel;
-- an existing utility VM may provide out-of-band browser file management,
-  noVNC, SFTP, or cross-machine mounts. Treat that as an operational helper,
-  not as a dependency for armactl-web. The MVP web file manager should still
-  operate against the local VM-safe roots documented in this plan. SSHFS or
-  other remote mounts on a utility VM should not be treated as automatically
-  safe armactl-web roots.
+- an existing external utility project/VM may provide browser file management,
+  noVNC, SFTP, or cross-machine mounts. Treat that as a separate project outside
+  armactl, not as a dependency or architectural component of armactl-web. The
+  MVP web file manager should still operate against the local VM-safe roots
+  documented in this plan. SSHFS or other remote mounts on that external utility
+  project should not be treated as automatically safe armactl-web roots.
 
 External access options:
 
@@ -456,9 +456,9 @@ operations behind authenticated HTTPS routes. The browser uploads/downloads
 files through armactl-web; armactl-web writes only to allowed VM-local roots.
 
 Existing browser file managers, noVNC gateways, SFTPGo instances, or SSHFS
-mounts can remain separate operator tools. They are useful for emergency access
-and manual operations, but they must not expand the default armactl-web file
-manager scope.
+mounts can remain separate external projects. They are useful for emergency
+access and manual operations, but they must not expand the default armactl-web
+file manager scope.
 
 SFTP/SSH can remain an operator fallback outside armactl. A future fleet
 controller may use SSH/SFTP internally to reach remote machines, but that is a
