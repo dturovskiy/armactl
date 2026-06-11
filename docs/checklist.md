@@ -239,6 +239,7 @@
 - [x] Зафіксувати, що `website/` є marketing/static site, не management panel
 - [x] Зафіксувати per-VM deployment model для Proxmox
 - [x] Зафіксувати дефолтні порти Arma і planned web port
+- [x] Додати handoff інструкції для implementation/review chats
 - [ ] Додати `src/armactl/web/` package skeleton
 - [ ] Додати optional web dependencies
 - [ ] Додати web-facing facade/DTO layer поверх existing backend modules

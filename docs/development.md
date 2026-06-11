@@ -88,6 +88,10 @@ The planned web interface is documented in
 [web-interface-plan.md](web-interface-plan.md). Until the implementation exists,
 do not add browser-only behavior that bypasses the existing backend modules.
 
+For multi-chat implementation/review work, use
+[web-interface-handoff.md](web-interface-handoff.md) as the prompt and review
+checklist source.
+
 Web changes should include focused tests for auth/session behavior, CSRF on
 mutating routes, service-control authorization, and filesystem containment.
 Manual VM smoke checks should cover local binding, reverse proxy routing, and
