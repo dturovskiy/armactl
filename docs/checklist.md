@@ -243,11 +243,13 @@
 - [ ] Додати optional web dependencies
 - [ ] Додати `armactl web init` і runtime config
 - [ ] Додати auth, session cookies, CSRF, role model
+- [ ] Додати web permission categories для dashboard/actions/files/backups/users
 - [ ] Додати dashboard read-only parity з TUI
 - [ ] Додати controlled start/stop/restart actions
 - [ ] Додати background job model перед long-running operations
 - [ ] Додати config/mods web flows через backend modules
 - [ ] Додати safe local filesystem browser/upload/download
+- [ ] Додати optional entitlement/feature-flag model, якщо продукт матиме платні tiers
 - [ ] Додати `armactl-web.service` template і service commands
 - [ ] Додати reverse proxy / HTTPS deployment docs
 - [ ] Додати VM smoke checklist для web panel

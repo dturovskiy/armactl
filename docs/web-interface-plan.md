@@ -272,6 +272,37 @@ job metadata. Keep `audit.log` as a human-readable append-only operational log.
 Do not hard-code assumptions that there is only one user across the route
 handlers, templates, audit log, or permission checks.
 
+## Commercial feature posture
+
+The current project has no licensing, billing, subscription, entitlement, or
+paid-feature code. If armactl later ships to different customers with paid
+tiers, keep the product model separate from the core local server-management
+logic.
+
+Recommended direction:
+
+- keep the self-hosted core usable without a mandatory external billing
+  service;
+- store local feature entitlements in `~/armactl-data/web/web.db`;
+- make entitlements explicit in route guards and templates instead of hiding
+  checks deep inside backend modules;
+- audit denied premium actions the same way successful mutating actions are
+  audited;
+- keep emergency local access to CLI/TUI available even if the web cabinet or
+  license state is broken;
+- do not gate security-critical basics such as password changes, audit export,
+  and disabling the web service.
+
+Potential paid or higher-tier features should be additive, for example:
+
+- multi-user cabinet with granular permission categories;
+- team/user audit history and export;
+- scheduled task chains such as warning -> backup -> restart;
+- full backup/restore UI with retention policies;
+- performance recommendations;
+- fleet overview across multiple VMs;
+- assisted migration/import workflows.
+
 ## Filesystem access model
 
 The file manager must be scoped to explicit allowed roots. The first useful
@@ -332,6 +363,27 @@ The web backend should be a thin adapter over existing modules:
 - Files: new safe filesystem adapter
 
 Avoid importing or calling TUI screens from web code.
+
+## Existing feature inventory
+
+The current repo already implements most of the management behavior that the
+web panel should expose. The web work should reuse these modules and not copy
+logic from TUI screens.
+
+| Product area | Current status | Existing source | Web implication |
+|--------------|----------------|-----------------|-----------------|
+| Dashboard/status | Implemented in TUI and CLI | `discovery`, `state`, `status_summary`, `metrics`, `player_view`, `ports` | Build read-only dashboard first from existing functions |
+| Server controls | Implemented | `service_manager`, CLI `start/stop/restart`, TUI `ManageScreen` | Add web confirmations and audit entries around existing calls |
+| Logs/report | Implemented for journal/report and TUI live view | `logs`, `report`, `TailLogScreen` | Start with latest log lines; add browser streaming later |
+| Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Use form views plus validation; config writes stay through `config_manager` |
+| Mods manager | Implemented beyond basic parity | `mods_manager`, `mods_state`, `addon_cleanup`, `ModManagerScreen` | Expose list/add/remove/enable/disable/import/export through routes |
+| Server admins | Implemented for Arma `game.admins` | `admins_manager`, `AdminManagerScreen` | Keep separate from web users/roles; expose as server-admin management |
+| Backups/cleanup | Partially implemented | `config_manager` backups, `cleaner`, `CleanupScreen` | Config backups exist; full server backup/restore is future work |
+| Schedule | Implemented for restart timer | `service_manager`, `ScheduleScreen`, CLI `schedule` | Web can show/set/enable/disable restart schedule; task chains are future |
+| Telegram bot | Implemented | `bot_config`, `bot_manager`, `telegram_bot`, `BotConfigScreen` | Web can reuse the same `.env` and service-manager flow |
+| File manager | Not implemented | only path-safety patterns in `paths`, `cleaner`, `addon_cleanup` | Add a new safe filesystem adapter before exposing upload/download |
+| Web users/roles | Not implemented | only server admins and Telegram allowlist exist | Add `web.db` users, roles, sessions, CSRF, and permissions |
+| Paid features | Not implemented | none | Add explicit entitlement model only if productized |
 
 ## Proposed package structure
 
