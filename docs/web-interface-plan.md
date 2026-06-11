@@ -101,6 +101,38 @@ temporary `ARMACTL_DATA_ROOT` fixture for tests.
 The audit log should include timestamp, user, action, instance, target, and
 result. It must not include secrets.
 
+## Accounts and cabinet model
+
+The MVP can start with one local administrator account because the first target
+is a self-hosted panel on the operator's own VM.
+
+The design must not block a future product-style cabinet for different users.
+If armactl is distributed to multiple operators outside internal use, the web
+surface should be able to grow into:
+
+- a user profile page;
+- password change and recovery/reset flow;
+- multiple users per installation;
+- roles such as owner, operator, and read-only viewer;
+- per-user audit log attribution;
+- optional 2FA;
+- product/update/license or support information if the distribution model needs
+  it later.
+
+Keep this separate from the public marketing `website/`. The cabinet belongs to
+the authenticated management panel, not the promotional site.
+
+For the first implementation, prefer storage that can evolve:
+
+```text
+~/armactl-data/web/users.json
+~/armactl-data/web/sessions/
+~/armactl-data/web/audit.log
+```
+
+Do not hard-code assumptions that there is only one user across the route
+handlers, templates, audit log, or permission checks.
+
 ## Filesystem access model
 
 The file manager must be scoped to explicit allowed roots. The first useful
