@@ -251,7 +251,7 @@
 - [x] Додати `src/armactl/web/` package skeleton
 - [x] Додати optional web dependencies
 - [x] Додати `scripts/run-web` і bootstrap support
-- [ ] Додати web-facing facade/DTO layer поверх existing backend modules
+- [x] Додати web-facing facade/DTO layer поверх existing backend modules
 - [ ] Оновити packaging/bootstrap для web templates/static і optional deps
 - [ ] Додати `armactl web init` і runtime config
 - [ ] Додати auth, session cookies, CSRF, role model
