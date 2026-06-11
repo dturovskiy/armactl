@@ -240,7 +240,7 @@
 - [x] Зафіксувати per-VM deployment model для Proxmox
 - [x] Зафіксувати дефолтні порти Arma і planned web port
 - [x] Додати handoff інструкції для implementation/review chats
-- [ ] Додати `src/armactl/web/` package skeleton
+- [x] Додати `src/armactl/web/` package skeleton
 - [ ] Додати optional web dependencies
 - [ ] Додати web-facing facade/DTO layer поверх existing backend modules
 - [ ] Оновити packaging/bootstrap для web templates/static і optional deps
