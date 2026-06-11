@@ -172,7 +172,9 @@ Existing operator environment pattern:
 - an existing utility VM may provide out-of-band browser file management,
   noVNC, SFTP, or cross-machine mounts. Treat that as an operational helper,
   not as a dependency for armactl-web. The MVP web file manager should still
-  operate against the local VM-safe roots documented in this plan.
+  operate against the local VM-safe roots documented in this plan. SSHFS or
+  other remote mounts on a utility VM should not be treated as automatically
+  safe armactl-web roots.
 
 External access options:
 
@@ -421,6 +423,8 @@ Rules:
 - Resolve every requested path and require it to stay inside the selected
   allowed root.
 - Reject symlink traversal outside the allowed root.
+- Reject remote/mounted roots such as SSHFS/NFS/SMB by default unless a future
+  advanced admin-only flow explicitly models that risk.
 - Uploads must have a size limit.
 - Overwrites should be explicit and atomic.
 - Config writes should continue to go through `config_manager`, not raw upload
@@ -437,6 +441,11 @@ This is not SFTP in the MVP. Because the web panel runs inside the same VM as
 the game server, file operations should be implemented as safe local filesystem
 operations behind authenticated HTTPS routes. The browser uploads/downloads
 files through armactl-web; armactl-web writes only to allowed VM-local roots.
+
+Existing browser file managers, noVNC gateways, SFTPGo instances, or SSHFS
+mounts can remain separate operator tools. They are useful for emergency access
+and manual operations, but they must not expand the default armactl-web file
+manager scope.
 
 SFTP/SSH can remain an operator fallback outside armactl. A future fleet
 controller may use SSH/SFTP internally to reach remote machines, but that is a

@@ -56,6 +56,8 @@ explicitly a release task.
   production or rented customer servers.
 - Treat any existing noVNC/SFTP/browser file-manager VM as an out-of-band
   operational helper, not as an armactl-web dependency.
+- Do not let SSHFS/NFS/SMB or other remote mounts silently expand the web file
+  manager's allowed roots.
 - Keep CLI and TUI usable as fallback management paths.
 - Keep tests independent from saved operator UI language.
 
