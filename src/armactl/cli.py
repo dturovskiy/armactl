@@ -13,6 +13,7 @@ from pathlib import Path
 import click
 
 from armactl import __version__, paths
+from armactl.ports import WEB_PANEL_DEFAULT_PORT
 
 
 @click.group(invoke_without_command=True)
@@ -400,6 +401,59 @@ def ports_close(ctx: click.Context) -> None:
     click.echo(f"[{instance}] Closing ports using UFW...")
     for msg in manage_ports("close", game, a2s, rcon):
         click.echo(msg)
+
+
+# ---------------------------------------------------------------------------
+# Web commands
+# ---------------------------------------------------------------------------
+
+
+@main.group()
+def web() -> None:
+    """Manage the planned browser web panel."""
+
+
+@web.command("run")
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    show_default=True,
+    help="Bind host for the foreground web runner.",
+)
+@click.option(
+    "--port",
+    type=click.IntRange(1, 65535),
+    default=WEB_PANEL_DEFAULT_PORT,
+    show_default=True,
+    help="TCP port for the web panel.",
+)
+@click.option(
+    "--dev",
+    is_flag=True,
+    default=False,
+    help="Use development-mode settings.",
+)
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Optional runtime data root for local development.",
+)
+def web_run(host: str, port: int, dev: bool, data_root: Path | None) -> None:
+    """Run the planned web panel in the foreground."""
+    from armactl.web.launcher import (
+        WebRunOptions,
+        format_not_implemented_message,
+        validate_web_port,
+    )
+
+    try:
+        validate_web_port(port)
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+
+    options = WebRunOptions(host=host, port=port, dev=dev, data_root=data_root)
+    raise click.ClickException(format_not_implemented_message(options))
 
 
 # ---------------------------------------------------------------------------

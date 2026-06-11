@@ -12,6 +12,8 @@ FORBIDDEN_IMPORT_PREFIXES = (
     "fastapi",
     "starlette",
     "uvicorn",
+    "multipart",
+    "argon2",
 )
 
 

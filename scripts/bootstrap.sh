@@ -24,6 +24,14 @@ pyproject_hash() {
     sha256sum "$PROJECT_ROOT/pyproject.toml" | awk '{print $1}'
 }
 
+stamp_mode() {
+    if [ -n "$MODE" ]; then
+        printf '%s\n' "$MODE"
+    else
+        printf '%s\n' "--prod"
+    fi
+}
+
 python_version_ok() {
     python3 - <<'PY'
 import sys
@@ -84,15 +92,19 @@ cd "$PROJECT_ROOT"
 
 case "$MODE" in
     --dev)
-        log "==> Installing armactl with dev dependencies..."
-        "$VENV_PY" -m pip install -e ".[dev]"
+        log "==> Installing armactl with dev and web dependencies..."
+        "$VENV_PY" -m pip install -e ".[dev,web]"
+        ;;
+    --web)
+        log "==> Installing armactl with web dependencies..."
+        "$VENV_PY" -m pip install -e ".[web]"
         ;;
     ""|--prod)
         log "==> Installing armactl..."
         "$VENV_PY" -m pip install -e .
         ;;
     *)
-        fail "Unknown option: $MODE (allowed: --dev or --prod)"
+        fail "Unknown option: $MODE (allowed: --dev, --web or --prod)"
         ;;
 esac
 
@@ -102,8 +114,9 @@ fi
 
 chmod +x "$PROJECT_ROOT/armactl" 2>/dev/null || true
 chmod +x "$PROJECT_ROOT/scripts/run-tui" 2>/dev/null || true
+chmod +x "$PROJECT_ROOT/scripts/run-web" 2>/dev/null || true
 chmod +x "$PROJECT_ROOT/scripts/run-host-tests" 2>/dev/null || true
-printf '%s\n' "$(pyproject_hash)" > "$STAMP_FILE"
+printf '%s %s\n' "$(pyproject_hash)" "$(stamp_mode)" > "$STAMP_FILE"
 
 log ""
 log "Done."
@@ -116,6 +129,9 @@ log "  ./armactl install"
 log ""
 log "Or run TUI:"
 log "  ./scripts/run-tui"
+log ""
+log "Or run the web smoke launcher:"
+log "  ./scripts/run-web --dev --data-root /tmp/armactl-web-dev"
 log ""
 log "Run host checks:"
 log "  ./scripts/run-host-tests"

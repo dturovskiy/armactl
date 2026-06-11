@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PROJECT_ROOT=$(dirname -- "$SCRIPT_DIR")
+
+cd "$PROJECT_ROOT"
+
+ARMACTL_BOOTSTRAP_MODE="${ARMACTL_BOOTSTRAP_MODE:---web}"
+export ARMACTL_BOOTSTRAP_MODE
+
+exec "$PROJECT_ROOT/armactl" web run "$@"

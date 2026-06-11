@@ -12,8 +12,39 @@ pyproject_hash() {
     sha256sum "$SCRIPT_DIR/pyproject.toml" | awk '{print $1}'
 }
 
+mode_satisfies() {
+    installed_mode="${1:-}"
+    requested_mode="${2:-}"
+
+    case "$requested_mode" in
+        ""|--prod)
+            return 0
+            ;;
+        --web)
+            [ "$installed_mode" = "--web" ] || [ "$installed_mode" = "--dev" ]
+            return
+            ;;
+        --dev)
+            [ "$installed_mode" = "--dev" ]
+            return
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 venv_needs_refresh() {
-    [ ! -f "$STAMP_FILE" ] || [ "$(cat "$STAMP_FILE")" != "$(pyproject_hash)" ]
+    if [ ! -f "$STAMP_FILE" ]; then
+        return 0
+    fi
+
+    read -r stamped_hash stamped_mode < "$STAMP_FILE" || return 0
+
+    [ "$stamped_hash" != "$(pyproject_hash)" ] && return 0
+    mode_satisfies "$stamped_mode" "$BOOTSTRAP_MODE" || return 0
+
+    return 1
 }
 
 venv_python_healthy() {

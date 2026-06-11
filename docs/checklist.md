@@ -249,8 +249,8 @@
 - [x] Зафіксувати self-hosted dashboard visual direction і post-MVP portal idea
 - [x] Додати handoff інструкції для implementation/review chats
 - [x] Додати `src/armactl/web/` package skeleton
-- [ ] Додати optional web dependencies
-- [ ] Додати `scripts/run-web` і bootstrap support
+- [x] Додати optional web dependencies
+- [x] Додати `scripts/run-web` і bootstrap support
 - [ ] Додати web-facing facade/DTO layer поверх existing backend modules
 - [ ] Оновити packaging/bootstrap для web templates/static і optional deps
 - [ ] Додати `armactl web init` і runtime config
