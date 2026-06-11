@@ -9,6 +9,25 @@ The web interface must run on the same Linux host/VM as armactl and the game
 server. It should reuse the existing backend modules instead of duplicating TUI
 logic.
 
+The existing top-level `website/` directory is a marketing/static site. It is
+not the management panel. The web panel must live under the Python package and
+runtime service model described below. The marketing site can move to a
+separate repository later, but that is not a blocker for the management panel.
+
+The web panel should stay in this repository for now. It depends on armactl's
+backend modules, runtime path model, systemd helper, templates, tests, and
+release flow. Splitting it into a separate repository before the API boundary is
+stable would add packaging and deployment friction without reducing risk.
+
+The source repository and runtime data remain separate:
+
+```text
+~/projects/armactl/                 # source checkout
+~/armactl-data/<instance>/          # game server runtime data
+~/armactl-data/web/                 # web panel runtime settings and audit log
+/etc/systemd/system/armactl-web.service
+```
+
 ## Non-goals for the first version
 
 - Do not expose arbitrary host filesystem access.
@@ -16,6 +35,10 @@ logic.
   requests.
 - Do not make the static `website/` marketing page the management UI.
 - Do not require Telegram bot setup.
+- Do not require SSH for day-to-day server management after the web service is
+  deployed.
+- Do not make the web service the only management path. CLI and TUI must remain
+  usable fallback tools.
 
 ## Runtime model
 
@@ -39,6 +62,15 @@ Internet/browser
 Direct `0.0.0.0` binding can exist for trusted LAN/VPN setups, but the safe
 default should be localhost plus a reverse proxy such as Caddy or Nginx.
 
+Local development/testing should run without system installation:
+
+```text
+python -m armactl.web --host 127.0.0.1 --port 8765 --dev
+```
+
+The local dev server should use the same backend modules but can point at a
+temporary `ARMACTL_DATA_ROOT` fixture for tests.
+
 ## Security baseline
 
 - No default password.
@@ -56,6 +88,18 @@ default should be localhost plus a reverse proxy such as Caddy or Nginx.
 - Secrets must be redacted in UI, logs, and API responses.
 - Web access to systemd must use the existing narrow privileged helper pattern,
   not broad passwordless sudo.
+- The service should bind to localhost by default and require an explicit flag
+  or config value for direct external binding.
+- The panel should show a clear warning when it runs without HTTPS because the
+  operator is about to expose service control and file upload over the network.
+- Add an append-only runtime audit log for mutating web actions:
+
+```text
+~/armactl-data/web/audit.log
+```
+
+The audit log should include timestamp, user, action, instance, target, and
+result. It must not include secrets.
 
 ## Filesystem access model
 
@@ -85,6 +129,12 @@ Rules:
 - Config writes should continue to go through `config_manager`, not raw upload
   replacement, unless the user is in a deliberate advanced flow.
 - Delete/rename should be added after upload/download/list are proven safe.
+- Keep the repository root out of the allowed roots.
+- Do not allow upload into `.git`, `.venv`, system unit directories, or the
+  armactl source tree.
+- Treat archive extraction as out of scope for the first version. Uploading an
+  archive as a file is fine; server-side unpacking needs a separate threat
+  model.
 
 ## Backend surface
 
@@ -129,6 +179,21 @@ tests/
   test_web_service.py
 ```
 
+Packaging must be updated when web templates/static files are added. The
+current `pyproject.toml` includes Python/json files under `src/armactl` and
+`templates/**/*.j2`; it does not yet include web HTML/CSS/JS assets.
+
+Prefer a `web` optional dependency group first:
+
+```text
+[project.optional-dependencies]
+web = [...]
+dev = [..., web test dependencies]
+```
+
+The repo launcher/bootstrap should learn how to install web dependencies when
+the operator enables the web service.
+
 ## UI scope for MVP
 
 First screen should be the usable dashboard, not a landing page.
@@ -147,6 +212,29 @@ MVP views:
 The interface should be quiet and operational: dense, predictable, and focused
 on repeated server management tasks.
 
+The web UI should have its own templates/static assets under `src/armactl/web/`.
+It should not import files from top-level `website/`, and top-level `website/`
+should not import or depend on the management panel.
+
+## Visual direction
+
+The management panel can share the same brand language as the marketing site:
+logo, product name, typography direction, and a compatible color palette.
+
+It should not copy the marketing site's page structure. The panel is an
+operator tool, so it should prioritize fast scanning, dense status information,
+clear forms, tables, logs, and predictable navigation. Avoid hero sections,
+landing-page copy, decorative layouts, and large promotional imagery inside the
+authenticated app.
+
+Recommended approach:
+
+- Share brand cues with `website/`, but keep panel assets package-local.
+- Use a dashboard-first layout after login.
+- Keep controls compact and explicit.
+- Use restrained visual polish for confidence, not decoration.
+- Reserve marketing-style pages for the public `website/` only.
+
 ## Deployment commands
 
 Add CLI commands:
@@ -163,6 +251,15 @@ armactl web service status
 `web init` should create runtime config and credentials. `service install`
 should install or refresh `armactl-web.service`.
 
+Add a local smoke command or documented flow:
+
+```text
+armactl web run --dev --data-root /tmp/armactl-web-dev
+```
+
+This lets us test the panel locally before installing the service on a remote
+VM.
+
 ## Implementation phases
 
 ### Phase 1 - Test and web foundation
@@ -172,6 +269,9 @@ should install or refresh `armactl-web.service`.
 - Add web runtime config loader.
 - Add auth/session/CSRF primitives.
 - Add service template for `armactl-web.service`.
+- Update packaging so web templates/static files are included in editable,
+  wheel, and sdist installs.
+- Keep the marketing `website/` untouched and separate from the management UI.
 
 ### Phase 2 - Safe read-only dashboard
 
@@ -185,6 +285,14 @@ should install or refresh `armactl-web.service`.
 - Start/stop/restart via existing `service_manager`.
 - Schedule show/set/enable/disable.
 - Audit log for mutating actions.
+- Add confirmation UI for stop/restart and other disruptive operations.
+
+### Phase 3.5 - Background jobs
+
+- Add a small job model before long-running operations are exposed in web.
+- Jobs should track progress, status, stdout/stderr tail, and final result.
+- Use it for future install, repair, SteamCMD update, and large file actions.
+- Until this exists, keep install/repair/update out of web.
 
 ### Phase 4 - Config and mods
 
@@ -206,6 +314,19 @@ should install or refresh `armactl-web.service`.
 - Document LAN/VPN direct bind option.
 - Document firewall ports and service restart/update flow.
 - Add VM smoke checklist.
+- Document how to rotate/reset the web admin password.
+- Document backup/restore of `~/armactl-data/web/`.
+- Document how to disable the web service while keeping CLI/TUI available.
+
+## Local test plan
+
+- Unit-test auth, config loading, CSRF, and filesystem path handling.
+- Route-test the dashboard and API with a temporary data root.
+- Mock `service_manager` for start/stop/restart route tests.
+- Run browser smoke tests locally against `127.0.0.1` once the first UI exists.
+- Keep tests independent from saved runtime language and user settings.
+- Do not require a live Arma server for normal CI/local unit tests.
+- Keep live VM checks as manual smoke tests.
 
 ## Open decisions
 
