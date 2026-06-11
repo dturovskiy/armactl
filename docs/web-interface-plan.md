@@ -71,6 +71,49 @@ python -m armactl.web --host 127.0.0.1 --port 8765 --dev
 The local dev server should use the same backend modules but can point at a
 temporary `ARMACTL_DATA_ROOT` fixture for tests.
 
+## Technology stack decision
+
+Keep armactl on Python. Do not rewrite the backend in Rust or C++ for the web
+panel.
+
+Reasons:
+
+- the existing CLI, TUI, Telegram bot, config/mod/service managers, and tests
+  are already Python;
+- the web panel should be a thin UI over those modules, not a second
+  implementation of the same server-management logic;
+- the risky parts are permissions, path safety, service control, uploads, and
+  deployment, not raw CPU performance;
+- rewriting in Rust/C++ would add FFI/IPC boundaries and packaging work before
+  the product surface is stable.
+
+Rust or C++ can be considered later only for a narrow helper if a specific
+performance or privilege-isolation problem proves it needs that treatment.
+
+Recommended web backend stack:
+
+- Python ASGI application;
+- FastAPI as the route/API layer;
+- Starlette components for middleware, sessions, static files, templates,
+  streaming, and testing where useful;
+- Uvicorn as the local ASGI server behind systemd;
+- Jinja2 server-rendered templates;
+- python-multipart for form/file upload handling;
+- SQLite for web runtime state;
+- Argon2 password hashing via a small local auth wrapper.
+
+Recommended frontend stack for MVP:
+
+- server-rendered HTML templates;
+- package-local CSS under `src/armactl/web/static/`;
+- htmx for partial page updates and form interactions;
+- small vanilla JavaScript only where browser APIs are needed.
+
+Do not start with a React/Vue/Svelte single-page application and do not require
+a Node/Vite build pipeline for the MVP. A TypeScript/Vite layer can be added
+later if the browser-side state becomes large enough to justify it, for example
+for a richer file manager, live log viewer, or multi-instance dashboard.
+
 ## Security baseline
 
 - No default password.
@@ -125,10 +168,12 @@ the authenticated management panel, not the promotional site.
 For the first implementation, prefer storage that can evolve:
 
 ```text
-~/armactl-data/web/users.json
-~/armactl-data/web/sessions/
+~/armactl-data/web/web.db
 ~/armactl-data/web/audit.log
 ```
+
+Use SQLite for users, password hashes, roles, sessions, CSRF tokens, and future
+job metadata. Keep `audit.log` as a human-readable append-only operational log.
 
 Do not hard-code assumptions that there is only one user across the route
 handlers, templates, audit log, or permission checks.
@@ -195,7 +240,9 @@ src/armactl/web/
   auth.py
   config.py
   csrf.py
+  db.py
   files.py
+  jobs.py
   routes.py
   schemas.py
   templates/
@@ -373,9 +420,6 @@ VM.
 
 ## Open decisions
 
-- Web framework: likely a small ASGI app with server-rendered templates first,
-  then richer JS only where it helps.
-- Auth storage: single local admin user for MVP, multi-user later.
 - External access default: localhost plus reverse proxy should be the default;
   direct bind should be explicit.
 - Whether install/repair flows belong in web v1 or should stay CLI/TUI until a
