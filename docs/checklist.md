@@ -241,6 +241,8 @@
 - [x] Зафіксувати дефолтні порти Arma і planned web port
 - [ ] Додати `src/armactl/web/` package skeleton
 - [ ] Додати optional web dependencies
+- [ ] Додати web-facing facade/DTO layer поверх existing backend modules
+- [ ] Оновити packaging/bootstrap для web templates/static і optional deps
 - [ ] Додати `armactl web init` і runtime config
 - [ ] Додати auth, session cookies, CSRF, role model
 - [ ] Додати web permission categories для dashboard/actions/files/backups/users
