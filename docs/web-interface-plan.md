@@ -554,16 +554,55 @@ src/armactl/web/
   __init__.py
   __main__.py
   app.py
-  auth.py
-  config.py
-  csrf.py
-  db.py
-  files.py
-  jobs.py
-  routes.py
-  schemas.py
+  launcher.py
+  facade.py
+  runtime/
+    config.py
+    db.py
+  auth/
+    users.py
+    sessions.py
+    csrf.py
+    permissions.py
+  routes/
+    auth.py
+    dashboard.py
+    service.py
+    config.py
+    mods.py
+    schedule.py
+    logs.py
+    files.py
+    users.py
+    jobs.py
+  services/
+    dashboard.py
+    service_actions.py
+    config_editor.py
+    mods.py
+    schedule.py
+    logs.py
+    file_manager.py
+    audit.py
+    jobs.py
+  schemas/
+    dashboard.py
+    files.py
+    users.py
+    jobs.py
   templates/
+    auth/
+    dashboard/
+    service/
+    config/
+    mods/
+    schedule/
+    logs/
+    files/
+    users/
   static/
+    css/
+    js/
 
 templates/
   armactl-web.service.j2
@@ -574,6 +613,14 @@ tests/
   test_web_routes.py
   test_web_service.py
 ```
+
+Keep the web package modular by responsibility. Routes should stay thin:
+authenticate/authorize, validate request data, call a facade/service, then
+render a template or return JSON. Application workflows belong in small
+domain-focused services or facades, and existing backend modules remain the
+source of truth for server behavior. Avoid catch-all modules such as a large
+`routes.py`, `files.py`, or `web.py`; if a module starts coordinating unrelated
+areas, split it before it grows into a long maintenance file.
 
 Packaging must be updated when web templates/static files are added. The
 current `pyproject.toml` includes Python/json files under `src/armactl` and
