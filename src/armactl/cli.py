@@ -580,7 +580,7 @@ def web_init(
     "--dev",
     is_flag=True,
     default=False,
-    help="Use development-mode settings.",
+    help="Enable Uvicorn reload for local development.",
 )
 @click.option(
     "--data-root",

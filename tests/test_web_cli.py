@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import os
 import sqlite3
 import sys
 from dataclasses import replace
@@ -60,6 +61,7 @@ def test_web_run_help_describes_bind_overrides_from_env():
 
     assert result.exit_code == 0
     assert "comes from web.env" in result.output
+    assert "Enable Uvicorn reload" in result.output
     assert "[default: 127.0.0.1]" not in result.output
     assert f"[default: {WEB_PANEL_DEFAULT_PORT}]" not in result.output
 
@@ -189,6 +191,57 @@ def test_web_run_calls_uvicorn_with_app_for_data_root(
 
     assert build_calls == [tmp_path]
     assert uvicorn_calls == [{"app": app, "host": "127.0.0.1", "port": 8765}]
+
+
+def test_web_run_dev_uses_uvicorn_reload_factory(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web import launcher
+
+    uvicorn_calls: list[dict[str, object]] = []
+
+    def fail_build_web_app(data_root: Path):
+        raise AssertionError("dev reload should use the app factory import string")
+
+    def fake_uvicorn_run(app_arg, **kwargs):
+        uvicorn_calls.append({"app": app_arg, **kwargs})
+
+    monkeypatch.setattr(launcher, "build_web_app", fail_build_web_app)
+    monkeypatch.setitem(sys.modules, "uvicorn", SimpleNamespace(run=fake_uvicorn_run))
+    monkeypatch.delenv(launcher.WEB_DATA_ROOT_ENV, raising=False)
+
+    prepared = launcher.prepare_web_run(
+        launcher.WebRunRequest(
+            host="127.0.0.1",
+            port=8765,
+            dev=True,
+            data_root=tmp_path,
+        )
+    )
+    launcher.run_web_foreground(prepared)
+
+    assert os.environ[launcher.WEB_DATA_ROOT_ENV] == str(tmp_path)
+    assert len(uvicorn_calls) == 1
+    assert uvicorn_calls[0]["app"] == launcher.WEB_APP_FACTORY
+    assert uvicorn_calls[0]["host"] == "127.0.0.1"
+    assert uvicorn_calls[0]["port"] == 8765
+    assert uvicorn_calls[0]["factory"] is True
+    assert uvicorn_calls[0]["reload"] is True
+    assert uvicorn_calls[0]["reload_dirs"] == launcher.web_reload_dirs()
+    assert "*.py" in uvicorn_calls[0]["reload_includes"]
+    assert "*.html" in uvicorn_calls[0]["reload_includes"]
+    assert "*.css" in uvicorn_calls[0]["reload_includes"]
+
+
+def test_create_app_from_env_uses_runtime_data_root(tmp_path: Path, monkeypatch):
+    from armactl.web import app as web_app
+
+    monkeypatch.setenv(web_app.WEB_DATA_ROOT_ENV, str(tmp_path))
+
+    created = web_app.create_app_from_env()
+
+    assert created.state.web_data_root == tmp_path
 
 
 def _matches_prefix(module_name: str, prefixes: tuple[str, ...]) -> bool:

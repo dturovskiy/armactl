@@ -123,6 +123,8 @@ Local development acceptance checklist:
 
 - run `./scripts/run-web --dev --data-root /tmp/armactl-web-dev`;
 - open `http://127.0.0.1:8765/` in a local browser;
+- confirm `--dev` reloads Python, template, and CSS changes without a manual
+  foreground runner restart;
 - run route/unit tests against a temporary data root;
 - optionally test reverse-proxy-like access with a local Caddy/Nginx config or
   SSH tunnel before exposing a remote VM.
@@ -764,8 +766,9 @@ armactl web run --dev --data-root /tmp/armactl-web-dev
 ```
 
 This lets us test the panel locally before installing the service on a remote
-VM. Production deployments should use `armactl-web.service`, not the foreground
-debug runner.
+VM. In `--dev` mode the foreground runner uses Uvicorn reload for local Python,
+template, and CSS work. Production deployments should use `armactl-web.service`,
+not the foreground debug runner.
 
 ## Implementation phases
 

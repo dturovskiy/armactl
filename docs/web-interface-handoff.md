@@ -86,7 +86,8 @@ Completed foundation:
     usable while blocking routine cross-site POST cookie sending.
 11. Foreground `armactl web run` smoke launcher: ensures runtime, honors
     transient `--host/--port`, prints a safe startup summary, and runs the
-    FastAPI app with Uvicorn.
+    FastAPI app with Uvicorn. `--dev` enables Uvicorn reload for local Python,
+    template, and CSS work.
 12. Web permission categories foundation: owner has all declared code-level
     permissions and dashboard routes require `dashboard:view`.
 

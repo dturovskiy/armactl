@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -16,6 +17,7 @@ from armactl.web.routes.health import router as health_router
 PACKAGE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = PACKAGE_DIR / "templates"
 STATIC_DIR = PACKAGE_DIR / "static"
+WEB_DATA_ROOT_ENV = "ARMACTL_WEB_DATA_ROOT"
 
 
 def create_app(data_root: Path | None = None) -> FastAPI:
@@ -32,3 +34,9 @@ def create_app(data_root: Path | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(dashboard_router)
     return app
+
+
+def create_app_from_env() -> FastAPI:
+    """Create the ASGI app for Uvicorn import-string/factory reload mode."""
+    data_root = os.environ.get(WEB_DATA_ROOT_ENV)
+    return create_app(data_root=Path(data_root) if data_root else None)

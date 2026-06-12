@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -14,6 +15,9 @@ if TYPE_CHECKING:
     from armactl.web.runtime import WebRuntimeConfig
 
 DEFAULT_WEB_HOST = "127.0.0.1"
+WEB_APP_FACTORY = "armactl.web.app:create_app_from_env"
+WEB_DATA_ROOT_ENV = "ARMACTL_WEB_DATA_ROOT"
+WEB_RELOAD_INCLUDES = ["*.py", "*.html", "*.css"]
 
 
 class WebRunError(RuntimeError):
@@ -75,7 +79,7 @@ def format_web_run_startup_summary(prepared: PreparedWebRun) -> str:
         f"  HTTPS required: {https_required}",
     ]
     if prepared.dev:
-        lines.append("  Dev mode:       yes")
+        lines.append("  Dev reload:     yes")
     return "\n".join(lines)
 
 
@@ -86,12 +90,30 @@ def build_web_app(data_root: Path) -> FastAPI:
     return create_app(data_root=data_root)
 
 
+def web_reload_dirs() -> list[str]:
+    """Return package-local paths watched by Uvicorn in development reload mode."""
+    return [str(Path(__file__).resolve().parent)]
+
+
 def run_web_foreground(prepared: PreparedWebRun) -> None:
     """Build and run the web app in the foreground with Uvicorn."""
     try:
         import uvicorn
     except ImportError as e:
         raise WebRunError("Web runtime dependency uvicorn is not installed.") from e
+
+    if prepared.dev:
+        os.environ[WEB_DATA_ROOT_ENV] = str(prepared.config.data_root)
+        uvicorn.run(
+            WEB_APP_FACTORY,
+            host=prepared.host,
+            port=prepared.port,
+            factory=True,
+            reload=True,
+            reload_dirs=web_reload_dirs(),
+            reload_includes=WEB_RELOAD_INCLUDES,
+        )
+        return
 
     app = build_web_app(prepared.config.data_root)
     uvicorn.run(app, host=prepared.host, port=prepared.port)
