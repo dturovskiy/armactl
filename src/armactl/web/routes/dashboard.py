@@ -14,7 +14,7 @@ from armactl.web.auth.dependencies import (
     permission_denied_response,
     require_permission,
 )
-from armactl.web.auth.permissions import DASHBOARD_VIEW
+from armactl.web.auth.permissions import ACTIONS_RUN, DASHBOARD_VIEW
 from armactl.web.facade import load_dashboard_snapshot
 
 router = APIRouter()
@@ -53,6 +53,7 @@ def _render_dashboard(request: Request, current: CurrentSession) -> Response:
             "snapshot": snapshot,
             "current_user": current.user,
             "csrf_token": form_csrf.token,
+            "can_run_actions": require_permission(current, ACTIONS_RUN),
         },
     )
     if form_csrf.should_set_cookie:

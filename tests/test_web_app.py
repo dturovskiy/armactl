@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import builtins
 import importlib
+import json
 import re
 import sqlite3
 import sys
@@ -251,6 +252,73 @@ def _set_cookie_header(response, name: str) -> str:
 
 def _session_set_cookie(response) -> str:
     return _set_cookie_header(response, SESSION_COOKIE_NAME)
+
+
+
+def _action_csrf_token(client) -> str:
+    dashboard_response = client.get("/dashboard")
+    return _form_token(dashboard_response.text)
+
+
+def _audit_log_text(data_root: Path) -> str:
+    audit_path = data_root / "logs" / "web" / "audit.log"
+    return audit_path.read_text(encoding="utf-8")
+
+
+def _audit_events(data_root: Path) -> list[dict]:
+    return [json.loads(line) for line in _audit_log_text(data_root).splitlines()]
+
+
+def _service_action_state(
+    *,
+    installed: bool = True,
+    running: bool = False,
+    config_exists: bool = True,
+):
+    from armactl.state import ServerState
+
+    return ServerState(
+        server_installed=installed,
+        config_exists=config_exists,
+        server_running=running,
+        service_name="armareforger.service",
+    )
+
+
+def _stub_service_backend(
+    monkeypatch,
+    *,
+    running: bool = False,
+    success: bool = True,
+    message: str = "service ok",
+    exit_code: int = 0,
+):
+    from armactl.service_manager import ServiceResult
+    from armactl.web.services import service_actions
+
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        service_actions.discovery,
+        "discover",
+        lambda instance, save=False: _service_action_state(running=running),
+    )
+
+    def start(service_name: str) -> ServiceResult:
+        calls.append(("start", service_name))
+        return ServiceResult(success, message, exit_code)
+
+    def stop(service_name: str) -> ServiceResult:
+        calls.append(("stop", service_name))
+        return ServiceResult(success, message, exit_code)
+
+    def restart(service_name: str) -> ServiceResult:
+        calls.append(("restart", service_name))
+        return ServiceResult(success, message, exit_code)
+
+    monkeypatch.setattr(service_actions.service_manager, "start_service", start)
+    monkeypatch.setattr(service_actions.service_manager, "stop_service", stop)
+    monkeypatch.setattr(service_actions.service_manager, "restart_service", restart)
+    return calls
 
 
 def test_create_app_import_does_not_import_tui_or_textual(monkeypatch):
@@ -629,6 +697,9 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert "running" in root_response.text
     assert "3 / 64" in root_response.text
     assert "owner" in root_response.text
+    assert 'action="/service/start"' in root_response.text
+    assert 'action="/service/stop"' in root_response.text
+    assert 'action="/service/restart"' in root_response.text
     assert calls == ["default", "default"]
 
 
@@ -696,6 +767,239 @@ def test_dashboard_partial_data_renders_controlled_section(
     assert "Traceback" not in response.text
 
 
+
+
+
+def test_unauthenticated_service_action_redirects_to_login(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.post("/service/start", data={}, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_service_action_permission_denied_returns_controlled_403(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.routes import service
+    from armactl.web.services import service_actions
+
+    password = "owner action password"
+    setup_owner_user(tmp_path, "owner", password)
+
+    def fail_action(*args, **kwargs):
+        raise AssertionError("backend action should not be called")
+
+    monkeypatch.setattr(service, "require_permission", lambda current, permission: False)
+    monkeypatch.setattr(service_actions, "run_service_action_and_audit", fail_action)
+    client = _client(create_app(data_root=tmp_path))
+    login_response = _login(client, "owner", password)
+    csrf_token = login_response.cookies.get(CSRF_COOKIE_NAME)
+
+    response = client.post(
+        "/service/start",
+        data={"csrf_token": csrf_token or ""},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Permission denied."
+    assert "Traceback" not in response.text
+
+
+def test_service_action_invalid_csrf_does_not_call_backend(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services import service_actions
+
+    password = "owner action password"
+    setup_owner_user(tmp_path, "owner", password)
+
+    def fail_action(*args, **kwargs):
+        raise AssertionError("backend action should not be called")
+
+    monkeypatch.setattr(service_actions, "run_service_action_and_audit", fail_action)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.post(
+        "/service/start",
+        data={"csrf_token": "wrong-token"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Invalid CSRF token."
+    assert "Traceback" not in response.text
+
+
+def test_service_start_calls_backend_and_writes_audit(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner action password"
+    setup_owner_user(tmp_path, "owner", password)
+    _stub_dashboard(monkeypatch)
+    calls = _stub_service_backend(
+        monkeypatch,
+        running=False,
+        success=True,
+        message="started token=route-secret",
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _action_csrf_token(client)
+
+    response = client.post(
+        "/service/start",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    events = _audit_events(tmp_path)
+    assert response.status_code == 200
+    assert "Service action result" in response.text
+    assert "Start success" in response.text
+    assert "route-secret" not in response.text
+    assert calls == [("start", "armareforger.service")]
+    assert len(events) == 1
+    assert events[0]["username"] == "owner"
+    assert events[0]["action"] == "start"
+    assert events[0]["instance"] == "default"
+    assert events[0]["target"] == "armareforger.service"
+    assert events[0]["success"] is True
+    assert "route-secret" not in _audit_log_text(tmp_path)
+
+
+def test_service_stop_and_restart_require_confirmation(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services import service_actions
+
+    password = "owner action password"
+    setup_owner_user(tmp_path, "owner", password)
+    _stub_dashboard(monkeypatch)
+
+    def fail_action(*args, **kwargs):
+        raise AssertionError("backend action should not be called")
+
+    monkeypatch.setattr(service_actions, "run_service_action_and_audit", fail_action)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _action_csrf_token(client)
+
+    stop_response = client.post(
+        "/service/stop",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    restart_response = client.post(
+        "/service/restart",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert stop_response.status_code == 400
+    assert "Confirmation is required to stop the server." in stop_response.text
+    assert restart_response.status_code == 400
+    assert "Confirmation is required to restart the server." in restart_response.text
+    assert not (tmp_path / "logs" / "web" / "audit.log").exists()
+
+
+def test_service_backend_failure_renders_controlled_result_and_audit(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner action password"
+    setup_owner_user(tmp_path, "owner", password)
+    _stub_dashboard(monkeypatch)
+    calls = _stub_service_backend(
+        monkeypatch,
+        running=False,
+        success=False,
+        message="failed password=backend-secret token=route-token",
+        exit_code=7,
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _action_csrf_token(client)
+
+    response = client.post(
+        "/service/start",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    events = _audit_events(tmp_path)
+    assert response.status_code == 200
+    assert "Start failure" in response.text
+    assert "password=***" in response.text
+    assert "token=***" in response.text
+    assert "backend-secret" not in response.text
+    assert "route-token" not in response.text
+    assert "Traceback" not in response.text
+    assert calls == [("start", "armareforger.service")]
+    assert events[0]["success"] is False
+    assert events[0]["exit_code"] == 7
+    assert "backend-secret" not in _audit_log_text(tmp_path)
+    assert "route-token" not in _audit_log_text(tmp_path)
+
+
+def test_service_action_html_and_audit_do_not_expose_auth_secrets(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner action secret password"
+    setup_owner_user(tmp_path, "owner", password)
+    user = get_user_by_username(tmp_path / "web" / "web.db", "owner")
+    assert user is not None
+    _stub_dashboard(monkeypatch)
+    _stub_service_backend(
+        monkeypatch,
+        running=False,
+        success=False,
+        message="failed password=backend-secret token=backend-token",
+        exit_code=9,
+    )
+    client = _client(create_app(data_root=tmp_path))
+    login_response = _login(client, "owner", password)
+    session_token = login_response.cookies.get(SESSION_COOKIE_NAME)
+    csrf_token = _action_csrf_token(client)
+
+    response = client.post(
+        "/service/start",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    audit_text = _audit_log_text(tmp_path)
+
+    assert response.status_code == 200
+    assert session_token
+    for secret in (
+        password,
+        user.password_hash,
+        session_token,
+        "backend-secret",
+        "backend-token",
+    ):
+        assert secret not in response.text
+        assert secret not in audit_text
+
 def test_dashboard_facade_error_returns_controlled_html(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
     from armactl.web.routes import dashboard
@@ -726,6 +1030,7 @@ def test_template_and_static_paths_are_package_local():
     assert (TEMPLATES_DIR / "dashboard.html").is_file()
     assert (TEMPLATES_DIR / "dashboard_error.html").is_file()
     assert (TEMPLATES_DIR / "login.html").is_file()
+    assert (TEMPLATES_DIR / "service_result.html").is_file()
     assert (STATIC_DIR / "css" / "app.css").is_file()
 
     client = _client(create_app())

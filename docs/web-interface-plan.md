@@ -563,7 +563,7 @@ Internal API readiness:
 | Area | Readiness for web | Needed adapter work |
 |------|-------------------|---------------------|
 | Read-only status/dashboard | High | Implemented through one dashboard DTO from discovery, service/timer status, metrics, players, config summary, mods, web runtime, and safe bot summary |
-| Start/stop/restart | High | Add auth, confirmation, CSRF, audit log, and route-level permission checks |
+| Start/stop/restart | High | Default-instance web controls are implemented with auth, confirmation, CSRF, audit log, and route-level permission checks |
 | Config/mods/admins/bot settings | Medium-high | Wrap existing functions with form validation and redacted error rendering |
 | Logs/report | Medium | Use bounded reads first; add streaming later without `os.execvp` |
 | Install/repair/update | Medium | Run via background jobs; never block a request thread |
@@ -579,7 +579,7 @@ logic from TUI screens.
 | Product area | Current status | Existing source | Web implication |
 |--------------|----------------|-----------------|-----------------|
 | Dashboard/status | Implemented in TUI, CLI, and the web read-only dashboard | discovery, state, status_summary, metrics, player_view, ports, bot_config | Keep future routes thin and continue extending the facade instead of route-local aggregation |
-| Server controls | Implemented | `service_manager`, CLI `start/stop/restart`, TUI `ManageScreen` | Add web confirmations and audit entries around existing calls |
+| Server controls | Implemented | `service_manager`, CLI `start/stop/restart`, TUI `ManageScreen` | Web start/stop/restart now wraps existing calls for the default instance; schedule and job-backed operations remain future work |
 | Logs/report | Implemented for journal/report and TUI live view | `logs`, `report`, `TailLogScreen` | Start with latest log lines; add browser streaming later |
 | Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Use form views plus validation; config writes stay through `config_manager` |
 | Mods manager | Implemented beyond basic parity | `mods_manager`, `mods_state`, `addon_cleanup`, `ModManagerScreen` | Expose list/add/remove/enable/disable/import/export through routes |
@@ -800,7 +800,7 @@ not the foreground debug runner.
 
 ### Phase 3 - Controlled server actions
 
-- Start/stop/restart via existing `service_manager`.
+- Start/stop/restart via existing `service_manager` for the current default instance is implemented.
 - Schedule show/set/enable/disable.
 - Audit log for mutating actions.
 - Add confirmation UI for stop/restart and other disruptive operations.

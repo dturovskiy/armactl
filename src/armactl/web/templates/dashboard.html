@@ -43,6 +43,34 @@
 </section>
 {% endif %}
 
+{% if can_run_actions %}
+<section class="panel full-width service-controls">
+  <h2>Server Actions</h2>
+  <div class="action-grid">
+    <form method="post" action="/service/start" class="action-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit">Start</button>
+    </form>
+    <form method="post" action="/service/stop" class="action-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="inline-confirm">
+        <input type="checkbox" name="confirm" value="stop">
+        Confirm stop
+      </label>
+      <button class="danger" type="submit">Stop</button>
+    </form>
+    <form method="post" action="/service/restart" class="action-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="inline-confirm">
+        <input type="checkbox" name="confirm" value="restart">
+        Confirm restart
+      </label>
+      <button class="danger" type="submit">Restart</button>
+    </form>
+  </div>
+</section>
+{% endif %}
+
 <section class="grid">
   <section class="panel">
     <h2>Server</h2>

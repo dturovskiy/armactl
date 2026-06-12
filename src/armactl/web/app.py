@@ -13,6 +13,7 @@ from armactl import __version__
 from armactl.web.routes.auth import router as auth_router
 from armactl.web.routes.dashboard import router as dashboard_router
 from armactl.web.routes.health import router as health_router
+from armactl.web.routes.service import router as service_router
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = PACKAGE_DIR / "templates"
@@ -33,6 +34,7 @@ def create_app(data_root: Path | None = None) -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(dashboard_router)
+    app.include_router(service_router)
     return app
 
 
