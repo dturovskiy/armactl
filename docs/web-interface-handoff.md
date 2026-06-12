@@ -121,13 +121,15 @@ Next recommended implementation order:
 1. Add `armactl-web.service` template and `armactl web service ...` commands so
    the panel can run as an always-on production service instead of only a
    foreground debug process.
-2. Add VM/local smoke checklist plus reverse proxy / HTTPS deployment docs.
-3. Add bounded read-only logs/report views for operational diagnostics.
-4. Connect install, repair, and update flows to explicit background job handlers
+2. Add login rate limiting and a clear HTTPS/external-bind warning before remote
+   exposure guidance tells operators to put the panel on the Internet.
+3. Add VM/local smoke checklist plus reverse proxy / HTTPS deployment docs.
+4. Add bounded read-only logs/report views for operational diagnostics.
+5. Connect install, repair, and update flows to explicit background job handlers
    before exposing those flows in web.
-5. Add edit/save/delete flows for config, mods, admins, and bot settings through
+6. Add edit/save/delete flows for config, mods, admins, and bot settings through
    existing backend modules.
-6. Add the safe filesystem adapter before upload/download routes.
+7. Add the safe filesystem adapter before upload/download routes.
 
 ## Implementation prompt template
 

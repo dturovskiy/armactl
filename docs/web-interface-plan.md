@@ -351,6 +351,8 @@ per-request language. Do not import TUI screens or widgets to reuse labels.
 - Sessions must use HttpOnly, SameSite cookies.
 - All mutating requests need CSRF protection.
 - Login attempts should be rate-limited.
+- Before public or LAN exposure, add login rate limiting and make unsafe
+  HTTP/external-bind state visible to operators in the UI or startup summary.
 - Secrets must be redacted in UI, logs, and API responses.
 - Web access to systemd must use the existing narrow privileged helper pattern,
   not broad passwordless sudo.
