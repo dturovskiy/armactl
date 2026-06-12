@@ -823,7 +823,9 @@ not the foreground debug runner.
   Future mutating flows must reuse the established auth/session/CSRF helpers.
 - Web i18n/theme preferences are implemented with request-scoped translation
   helpers, existing locale JSON files, and web-owned cookies.
-- Add service template for always-on `armactl-web.service`.
+- Add service template and CLI service commands for always-on
+  `armactl-web.service`; this is the next production-readiness foundation after
+  the foreground smoke runner.
 - Update packaging so web templates/static files are included in editable,
   wheel, and sdist installs.
 - Keep the marketing `website/` untouched and separate from the management UI.
@@ -876,6 +878,7 @@ not the foreground debug runner.
 
 ### Phase 6 - External deployment docs
 
+- Install and manage `armactl-web.service` through `armactl web service ...`.
 - Document Caddy/Nginx reverse proxy.
 - Document LAN/VPN direct bind option.
 - Document firewall ports and service restart/update flow.

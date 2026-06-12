@@ -271,14 +271,15 @@
 - [x] Додати web i18n adapter і theme preferences поверх існуючих `src/armactl/locales/*.json`
 - [x] Додати background job metadata model перед long-running operations
 - [x] Додати background dispatcher/read-only jobs UI foundation перед install/repair/update flows
-- [ ] Підключити install/repair/update flows до background jobs без blocking HTTP requests
 - [x] Додати read-only management pages для config/mods/admins/bot через backend modules
+- [ ] Додати `armactl-web.service` template і service commands
+- [ ] Додати VM smoke checklist для web panel
+- [ ] Додати reverse proxy / HTTPS deployment docs
+- [ ] Додати read-only logs/report web views з bounded/redacted output
+- [ ] Підключити install/repair/update flows до background jobs без blocking HTTP requests
 - [ ] Додати edit/save/delete flows для config/mods/admins/bot через backend modules
 - [ ] Додати safe local filesystem browser/upload/download
 - [ ] Додати optional entitlement/feature-flag model, якщо продукт матиме платні tiers
-- [ ] Додати `armactl-web.service` template і service commands
-- [ ] Додати reverse proxy / HTTPS deployment docs
-- [ ] Додати VM smoke checklist для web panel
 - [ ] Додати remote HTTPS login smoke checklist
 
 ---
