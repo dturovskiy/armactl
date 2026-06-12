@@ -215,7 +215,7 @@ def _fail_if_called(name: str) -> Callable[..., Any]:
 
 def test_facade_import_does_not_import_tui_textual_or_click(monkeypatch):
     forbidden = ("armactl.web.facade", "armactl.tui", "textual", "click")
-    _forget_modules(*forbidden)
+    _forget_modules("armactl.web.facade", "armactl.tui", "textual")
     original_import = builtins.__import__
     blocked_imports: list[str] = []
 
