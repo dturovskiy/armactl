@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -10,13 +11,21 @@ from click.testing import CliRunner
 
 from armactl.cli import main
 from armactl.ports import WEB_PANEL_DEFAULT_PORT
+from armactl.web.auth.users import get_user_by_username, verify_user_password
 from armactl.web.runtime import load_web_runtime_config
 
 FORBIDDEN_IMPORT_PREFIXES = ("armactl.tui", "textual")
 
 
-def invoke_web(*args: str):
-    return CliRunner().invoke(main, ["web", *args])
+def invoke_web(*args: str, input_text: str | None = None):
+    return CliRunner().invoke(main, ["web", *args], input=input_text)
+
+
+def _web_user_count(db_path: Path) -> int:
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute("SELECT COUNT(*) FROM web_users").fetchone()
+    assert row is not None
+    return row[0]
 
 
 def test_web_help_exists():
@@ -80,6 +89,122 @@ def test_web_init_output_does_not_include_session_secret(tmp_path: Path):
     assert config.session_secret
     assert config.session_secret not in result.output
     assert "ARMACTL_WEB_SESSION_SECRET" not in result.output
+
+
+def test_web_init_without_owner_does_not_create_user(tmp_path: Path):
+    result = invoke_web("init", "--data-root", str(tmp_path))
+
+    assert result.exit_code == 0
+    assert _web_user_count(tmp_path / "web" / "web.db") == 0
+    assert "Owner user:" not in result.output
+    assert "Owner role:" not in result.output
+
+
+def test_web_init_with_owner_creates_runtime_and_owner_user(tmp_path: Path):
+    password = "owner password stays hidden"
+
+    result = invoke_web(
+        "init",
+        "--data-root",
+        str(tmp_path),
+        "--owner",
+        "  Admin  ",
+        input_text=f"{password}\n{password}\n",
+    )
+
+    db_path = tmp_path / "web" / "web.db"
+    user = get_user_by_username(db_path, "ADMIN")
+
+    assert result.exit_code == 0
+    assert (tmp_path / "web" / "web.env").exists()
+    assert db_path.exists()
+    assert user is not None
+    assert user.username == "admin"
+    assert user.role == "owner"
+    assert verify_user_password(db_path, " admin ", password) is True
+    assert "Web runtime initialized." in result.output
+    assert "Owner user:     admin" in result.output
+    assert "Owner role:     owner" in result.output
+    assert password not in result.output
+    assert user.password_hash not in result.output
+    assert "ARMACTL_WEB_SESSION_SECRET" not in result.output
+
+
+def test_web_init_owner_duplicate_is_controlled_error(tmp_path: Path):
+    first_password = "first owner password"
+    second_password = "second owner password"
+    first_result = invoke_web(
+        "init",
+        "--data-root",
+        str(tmp_path),
+        "--owner",
+        "owner",
+        input_text=f"{first_password}\n{first_password}\n",
+    )
+
+    second_result = invoke_web(
+        "init",
+        "--data-root",
+        str(tmp_path),
+        "--owner",
+        " OWNER ",
+        input_text=f"{second_password}\n{second_password}\n",
+    )
+
+    assert first_result.exit_code == 0
+    assert second_result.exit_code == 1
+    assert "Web owner user already exists." in second_result.output
+    assert "Traceback" not in second_result.output
+    assert first_password not in second_result.output
+    assert second_password not in second_result.output
+    assert _web_user_count(tmp_path / "web" / "web.db") == 1
+
+
+def test_web_init_owner_existing_owner_does_not_prompt_for_password(tmp_path: Path):
+    first_password = "first owner password"
+    first_result = invoke_web(
+        "init",
+        "--data-root",
+        str(tmp_path),
+        "--owner",
+        "owner",
+        input_text=f"{first_password}\n{first_password}\n",
+    )
+
+    second_result = invoke_web(
+        "init",
+        "--data-root",
+        str(tmp_path),
+        "--owner",
+        "second-owner",
+        input_text="",
+    )
+
+    assert first_result.exit_code == 0
+    assert second_result.exit_code == 1
+    assert "Web owner user already exists." in second_result.output
+    assert "Owner password" not in second_result.output
+    assert "Traceback" not in second_result.output
+    assert _web_user_count(tmp_path / "web" / "web.db") == 1
+
+
+def test_web_init_owner_rejects_empty_username_with_controlled_error(tmp_path: Path):
+    password = "owner password"
+
+    result = invoke_web(
+        "init",
+        "--data-root",
+        str(tmp_path),
+        "--owner",
+        " ",
+        input_text=f"{password}\n{password}\n",
+    )
+
+    assert result.exit_code == 1
+    assert "Username cannot be empty." in result.output
+    assert "Traceback" not in result.output
+    assert password not in result.output
+    assert _web_user_count(tmp_path / "web" / "web.db") == 0
 
 
 def test_web_init_is_idempotent_and_preserves_session_secret(tmp_path: Path):

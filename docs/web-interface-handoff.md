@@ -76,19 +76,19 @@ Completed foundation:
 6. `armactl web init` first setup command for local runtime config and DB.
 7. Auth DB/password foundation: `web_users`, Argon2 password helpers, and
    minimal active `owner` user helpers. No sessions/CSRF tables yet.
+8. Owner-user setup flow via explicit `armactl web init --owner USERNAME`
+   with hidden password confirmation and safe operator summary output.
 
 Next recommended implementation order:
 
-1. Add owner-user first-setup creation flow for `armactl web init` or a focused
-   setup command without exposing secrets.
-2. Add session and CSRF primitives.
-3. Add web permission categories for dashboard/actions/files/backups/users.
-4. Expand dashboard read-only parity with the useful TUI status information.
-5. Add controlled server actions with confirmations and audit logging.
-6. Add background jobs before exposing long-running operations.
-7. Add config/mods/admins/bot web flows through existing backend modules.
-8. Add the safe filesystem adapter before upload/download routes.
-9. Add `armactl-web.service` and deployment docs.
+1. Add session and CSRF primitives, then login/logout routes.
+2. Add web permission categories for dashboard/actions/files/backups/users.
+3. Expand dashboard read-only parity with the useful TUI status information.
+4. Add controlled server actions with confirmations and audit logging.
+5. Add background jobs before exposing long-running operations.
+6. Add config/mods/admins/bot web flows through existing backend modules.
+7. Add the safe filesystem adapter before upload/download routes.
+8. Add `armactl-web.service` and deployment docs.
 
 ## Implementation prompt template
 

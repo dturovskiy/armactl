@@ -12,6 +12,7 @@ import pytest
 
 from armactl.web.auth.models import InvalidAuthInputError, UserAlreadyExistsError
 from armactl.web.auth.passwords import hash_password, verify_password
+from armactl.web.auth.setup import setup_owner_user
 from armactl.web.auth.users import (
     create_owner_user,
     get_user_by_username,
@@ -169,6 +170,35 @@ def test_user_helpers_reject_empty_username_and_password(tmp_path: Path):
         verify_user_password(db_path, "owner", "")
 
 
+def test_setup_owner_user_creates_runtime_and_owner(tmp_path: Path):
+    password = "owner setup password"
+
+    result = setup_owner_user(tmp_path, " Owner ", password)
+
+    assert result.config.env_path == tmp_path / "web" / "web.env"
+    assert result.config.db_path == tmp_path / "web" / "web.db"
+    assert result.config.env_path.exists()
+    assert result.config.db_path.exists()
+    assert result.user.username == "owner"
+    assert result.user.role == "owner"
+    assert result.user.password_hash != password
+    assert verify_user_password(result.config.db_path, "OWNER", password) is True
+
+
+def test_setup_owner_user_rejects_second_owner(tmp_path: Path):
+    setup_owner_user(tmp_path, "owner", "first owner password")
+
+    with pytest.raises(UserAlreadyExistsError, match="owner user already exists"):
+        setup_owner_user(tmp_path, "second-owner", "second owner password")
+
+
+def test_setup_owner_user_rejects_empty_username_and_password(tmp_path: Path):
+    with pytest.raises(InvalidAuthInputError, match="Username cannot be empty"):
+        setup_owner_user(tmp_path, " ", "owner password")
+    with pytest.raises(InvalidAuthInputError, match="Password cannot be empty"):
+        setup_owner_user(tmp_path, "owner", "")
+
+
 def test_verify_user_password_returns_true_false_for_active_user(tmp_path: Path):
     db_path = tmp_path / "web" / "web.db"
     create_owner_user(db_path, "Owner", "owner password")
@@ -212,6 +242,7 @@ def test_auth_package_import_does_not_import_tui_routes_or_asgi(monkeypatch):
 
     assert module.UserRecord.__name__ == "UserRecord"
     assert "armactl.web.auth.passwords" not in sys.modules
+    assert "armactl.web.auth.setup" not in sys.modules
     assert "armactl.web.auth.users" not in sys.modules
     assert "argon2" not in sys.modules
     assert blocked_imports == []

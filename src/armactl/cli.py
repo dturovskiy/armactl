@@ -18,6 +18,7 @@ from armactl.ports import WEB_PANEL_DEFAULT_PORT
 from armactl.web.launcher import DEFAULT_WEB_HOST
 
 if TYPE_CHECKING:
+    from armactl.web.auth.models import UserRecord
     from armactl.web.runtime import WebRuntimeConfig
 
 
@@ -422,7 +423,10 @@ def _web_option_was_provided(ctx: click.Context, parameter_name: str) -> bool:
     return ctx.get_parameter_source(parameter_name) is click.core.ParameterSource.COMMANDLINE
 
 
-def _format_web_runtime_init_summary(config: WebRuntimeConfig) -> str:
+def _format_web_runtime_init_summary(
+    config: WebRuntimeConfig,
+    owner_user: UserRecord | None = None,
+) -> str:
     https_required = "yes" if config.https_required else "no"
     lines = [
         "Web runtime initialized.",
@@ -433,6 +437,13 @@ def _format_web_runtime_init_summary(config: WebRuntimeConfig) -> str:
         f"  Bind:           {config.bind_host}:{config.bind_port}",
         f"  HTTPS required: {https_required}",
     ]
+    if owner_user is not None:
+        lines.extend(
+            [
+                f"  Owner user:     {owner_user.username}",
+                f"  Owner role:     {owner_user.role}",
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -461,6 +472,13 @@ def _format_web_runtime_init_summary(config: WebRuntimeConfig) -> str:
     default=None,
     help="Require HTTPS-aware deployment settings for web sessions.",
 )
+@click.option(
+    "--owner",
+    "owner_username",
+    default=None,
+    metavar="USERNAME",
+    help="Create the initial web owner user after runtime init.",
+)
 @click.pass_context
 def web_init(
     ctx: click.Context,
@@ -468,6 +486,7 @@ def web_init(
     host: str,
     port: int,
     https_required: bool | None,
+    owner_username: str | None,
 ) -> None:
     """Initialize local web runtime config and database."""
     from dataclasses import replace
@@ -479,6 +498,8 @@ def web_init(
         load_web_runtime_config,
         save_web_runtime_config,
     )
+
+    owner_user = None
 
     try:
         if _web_option_was_provided(ctx, "port"):
@@ -517,7 +538,30 @@ def web_init(
     except WebRuntimeConfigError as e:
         raise click.ClickException(str(e)) from e
 
-    click.echo(_format_web_runtime_init_summary(config))
+    if owner_username is not None:
+        from armactl.web.auth import WebAuthError
+        from armactl.web.auth.setup import owner_user_exists, setup_owner_user
+
+        try:
+            if owner_user_exists(config.db_path):
+                raise click.ClickException("Web owner user already exists.")
+        except WebAuthError as e:
+            raise click.ClickException(str(e)) from e
+
+        password = click.prompt(
+            "Owner password",
+            hide_input=True,
+            confirmation_prompt=True,
+        )
+        try:
+            setup_result = setup_owner_user(data_root, owner_username, password)
+        except (WebAuthError, WebRuntimeConfigError) as e:
+            raise click.ClickException(str(e)) from e
+
+        config = setup_result.config
+        owner_user = setup_result.user
+
+    click.echo(_format_web_runtime_init_summary(config, owner_user))
 
 
 @web.command("run")

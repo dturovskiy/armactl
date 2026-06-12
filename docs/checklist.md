@@ -259,7 +259,8 @@
 - [x] Додати web runtime storage/config/db foundation
 - [x] Додати `armactl web init` і first setup flow
 - [x] Додати auth DB/password foundation і мінімальну owner role
-- [ ] Додати owner-user setup flow, session cookies, CSRF і login/logout
+- [x] Додати owner-user setup flow
+- [ ] Додати session cookies, CSRF і login/logout
 - [ ] Додати web permission categories для dashboard/actions/files/backups/users
 - [ ] Додати dashboard read-only parity з TUI
 - [ ] Додати controlled start/stop/restart actions
