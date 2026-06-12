@@ -72,20 +72,19 @@ Completed foundation:
 3. Web-facing facade/DTO layer for read-only dashboard data.
 4. FastAPI app factory, `/healthz`, package-local templates/static assets, and
    minimal read-only dashboard routes.
+5. Web runtime storage/config/db foundation under `~/armactl-data/web/`.
 
 Next recommended implementation order:
 
-1. Add web runtime config helpers and local `web.db` initialization.
-2. Add `armactl web init` for first setup, runtime config, and initial local
-   web admin creation.
-3. Add auth/session/CSRF primitives.
-4. Add web permission categories for dashboard/actions/files/backups/users.
-5. Expand dashboard read-only parity with the useful TUI status information.
-6. Add controlled server actions with confirmations and audit logging.
-7. Add background jobs before exposing long-running operations.
-8. Add config/mods/admins/bot web flows through existing backend modules.
-9. Add the safe filesystem adapter before upload/download routes.
-10. Add `armactl-web.service` and deployment docs.
+1. Add `armactl web init` for first setup and initial local web admin creation.
+2. Add auth/session/CSRF primitives.
+3. Add web permission categories for dashboard/actions/files/backups/users.
+4. Expand dashboard read-only parity with the useful TUI status information.
+5. Add controlled server actions with confirmations and audit logging.
+6. Add background jobs before exposing long-running operations.
+7. Add config/mods/admins/bot web flows through existing backend modules.
+8. Add the safe filesystem adapter before upload/download routes.
+9. Add `armactl-web.service` and deployment docs.
 
 ## Implementation prompt template
 
