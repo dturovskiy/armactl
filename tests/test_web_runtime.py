@@ -71,10 +71,11 @@ def test_web_runtime_paths_are_under_web_dir_not_default_instance(tmp_path: Path
     assert web_runtime_dir(tmp_path) == tmp_path / "web"
     assert web_env_file(tmp_path) == tmp_path / "web" / "web.env"
     assert web_db_file(tmp_path) == tmp_path / "web" / "web.db"
-    assert web_audit_log_file(tmp_path) == tmp_path / "web" / "audit.log"
+    assert web_audit_log_file(tmp_path) == tmp_path / "logs" / "web" / "audit.log"
 
     assert web_runtime_dir(tmp_path) != tmp_path / "default"
     assert "default" not in web_runtime_dir(tmp_path).parts
+    assert "default" not in web_audit_log_file(tmp_path).parts
 
 
 def test_ensure_web_runtime_creates_private_env_file(tmp_path: Path):

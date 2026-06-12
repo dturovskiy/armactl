@@ -4,12 +4,15 @@ from pathlib import Path
 
 from armactl.paths import (
     InvalidInstanceNameError,
+    armactl_logs_dir,
     backups_dir,
     bot_dir,
     bot_env_file,
     bot_service_file,
     config_dir,
     config_file,
+    host_test_logs_dir,
+    instance_logs_dir,
     instance_root,
     logs_dir,
     modpacks_dir,
@@ -21,6 +24,9 @@ from armactl.paths import (
     state_file,
     validate_instance_name,
     validate_server_install_dir,
+    web_audit_log_file,
+    web_logs_dir,
+    web_runtime_log_file,
 )
 
 
@@ -81,7 +87,20 @@ def test_backups_dir():
 
 def test_logs_dir():
     path = logs_dir()
-    assert path == instance_root() / "logs"
+    assert path == armactl_logs_dir() / "instances" / "default"
+
+
+def test_centralized_armactl_log_dirs():
+    data_root = Path("/tmp/armactl-data")
+
+    assert armactl_logs_dir(data_root) == data_root / "logs"
+    assert instance_logs_dir("training", data_root) == data_root / "logs" / "instances" / "training"
+    assert host_test_logs_dir("training", data_root) == (
+        data_root / "logs" / "host-tests" / "training"
+    )
+    assert web_logs_dir(data_root) == data_root / "logs" / "web"
+    assert web_audit_log_file(data_root) == data_root / "logs" / "web" / "audit.log"
+    assert web_runtime_log_file(data_root) == data_root / "logs" / "web" / "runtime.log"
 
 
 def test_modpacks_dir():

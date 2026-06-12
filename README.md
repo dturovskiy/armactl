@@ -131,13 +131,15 @@ server after updating `armactl` so the process starts with `-logStats 10000`.
 
 ## Runtime layout
 
-`armactl` separates three current layers and one planned web-runtime layer:
+`armactl` separates current runtime layers from planned web-runtime and log
+storage:
 
 | Layer | Location | Purpose |
 |-------|----------|---------|
 | Source code | this repository | CLI + TUI + backend modules |
 | Runtime data | `~/armactl-data/default/` | server files, config, backups, state |
-| Planned web runtime | `~/armactl-data/web/` | web panel settings, account DB, audit log |
+| Planned web runtime | `~/armactl-data/web/` | web panel settings and account DB |
+| armactl logs | `~/armactl-data/logs/` | centralized armactl-owned logs and audit files |
 | System services | `/etc/systemd/system/` | auto-start and scheduled restarts |
 
 Typical runtime structure:

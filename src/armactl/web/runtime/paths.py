@@ -35,8 +35,8 @@ def web_db_file(data_root: Path | None = None) -> Path:
 
 
 def web_audit_log_file(data_root: Path | None = None) -> Path:
-    """Return the web audit log path."""
-    return web_runtime_dir(data_root) / WEB_AUDIT_LOG_FILENAME
+    """Return the centralized web audit log path."""
+    return armactl_paths.web_audit_log_file(resolved_data_root(data_root))
 
 
 __all__ = [

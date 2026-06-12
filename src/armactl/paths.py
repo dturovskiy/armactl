@@ -17,6 +17,7 @@ from pathlib import Path
 
 DEFAULT_DATA_ROOT = Path.home() / "armactl-data"
 DEFAULT_INSTANCE_NAME = "default"
+ARMACTL_LOGS_DIR_NAME = "logs"
 INSTANCE_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,62}[A-Za-z0-9])?$")
 
 # systemd
@@ -173,12 +174,48 @@ def backups_dir(
     return instance_root(instance, data_root) / "backups"
 
 
+def armactl_logs_dir(data_root: Path = DEFAULT_DATA_ROOT) -> Path:
+    """Central directory for armactl-owned log files."""
+    return data_root / ARMACTL_LOGS_DIR_NAME
+
+
+def instance_logs_dir(
+    instance: str = DEFAULT_INSTANCE_NAME,
+    data_root: Path = DEFAULT_DATA_ROOT,
+) -> Path:
+    """Centralized armactl log directory scoped to one server instance."""
+    return armactl_logs_dir(data_root) / "instances" / validate_instance_name(instance)
+
+
 def logs_dir(
     instance: str = DEFAULT_INSTANCE_NAME,
     data_root: Path = DEFAULT_DATA_ROOT,
 ) -> Path:
-    """Directory for textual task logs and host-side diagnostics."""
-    return instance_root(instance, data_root) / "logs"
+    """Backward-compatible alias for centralized instance armactl logs."""
+    return instance_logs_dir(instance, data_root)
+
+
+def host_test_logs_dir(
+    instance: str = DEFAULT_INSTANCE_NAME,
+    data_root: Path = DEFAULT_DATA_ROOT,
+) -> Path:
+    """Centralized directory for host-check logs."""
+    return armactl_logs_dir(data_root) / "host-tests" / validate_instance_name(instance)
+
+
+def web_logs_dir(data_root: Path = DEFAULT_DATA_ROOT) -> Path:
+    """Centralized directory for web-panel log files."""
+    return armactl_logs_dir(data_root) / "web"
+
+
+def web_audit_log_file(data_root: Path = DEFAULT_DATA_ROOT) -> Path:
+    """Append-only audit log path for mutating web actions."""
+    return web_logs_dir(data_root) / "audit.log"
+
+
+def web_runtime_log_file(data_root: Path = DEFAULT_DATA_ROOT) -> Path:
+    """Optional file path for web runtime diagnostics beyond systemd journal."""
+    return web_logs_dir(data_root) / "runtime.log"
 
 
 def mods_state_file(

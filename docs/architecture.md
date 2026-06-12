@@ -8,7 +8,8 @@
 |-----|----|---------|
 | **Source code** | Код тулзи, шаблони, тести | GitHub-репо `armactl/` |
 | **Runtime data** | Бінарники сервера, конфіг, бекапи, state | `~/armactl-data/<instance>/` |
-| **Web runtime data** | Planned web settings, accounts, sessions, audit log | `~/armactl-data/web/` |
+| **Web runtime data** | Planned web settings, accounts, sessions | `~/armactl-data/web/` |
+| **armactl logs** | Centralized armactl-owned logs and audit files | `~/armactl-data/logs/` |
 | **System services** | systemd unit-файли для автозапуску | `/etc/systemd/system/` |
 
 Змішувати ці шари не можна — це різні lifecycle, різні власники, різні правила оновлення.
@@ -169,8 +170,19 @@ instance. It belongs to the armactl management layer:
 ```text
 ~/armactl-data/web/
 ├── web.env                         # local web runtime settings
-├── web.db                          # users, roles, sessions, jobs
-└── audit.log                       # append-only audit trail for web actions
+└── web.db                          # users, roles, sessions, jobs
+```
+
+armactl-owned logs have a centralized root with separate files/directories per
+subsystem:
+
+```text
+~/armactl-data/logs/
+├── host-tests/<instance>/           # saved host-test output
+├── instances/<instance>/            # instance-scoped armactl task logs
+└── web/
+    ├── audit.log                    # append-only audit trail for web actions
+    └── runtime.log                  # optional file diagnostics beyond journal
 ```
 
 The web file manager should start with the VM-local game server install root as

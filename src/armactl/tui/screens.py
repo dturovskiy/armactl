@@ -287,7 +287,7 @@ class HostTestsScreen(LogWorkerScreen):
         project_root = Path(__file__).resolve().parents[3]
         script_path = project_root / "scripts" / "run-host-tests"
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        log_path = paths.logs_dir(self.instance) / f"host-tests-{timestamp}.log"
+        log_path = paths.host_test_logs_dir(self.instance) / f"host-tests-{timestamp}.log"
 
         if not script_path.exists():
             self.app.call_from_thread(

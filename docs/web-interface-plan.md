@@ -24,7 +24,8 @@ The source repository and runtime data remain separate:
 ```text
 ~/projects/armactl/                 # source checkout
 ~/armactl-data/<instance>/          # game server runtime data
-~/armactl-data/web/                 # web panel runtime settings and audit log
+~/armactl-data/web/                 # web panel runtime settings and database
+~/armactl-data/logs/                # centralized armactl-owned log files
 /etc/systemd/system/armactl-web.service
 ```
 
@@ -329,7 +330,7 @@ for a richer file manager, live log viewer, or multi-instance dashboard.
 - Add an append-only runtime audit log for mutating web actions:
 
 ```text
-~/armactl-data/web/audit.log
+~/armactl-data/logs/web/audit.log
 ```
 
 The audit log should include timestamp, user, action, instance, target, and
@@ -337,8 +338,20 @@ result. It must not include secrets.
 
 ## Logging and observability model
 
-armactl should keep separate logs for separate purposes instead of inventing one
-catch-all application log:
+armactl-owned log files should share one central log root while still keeping
+separate files/directories by subsystem:
+
+```text
+~/armactl-data/logs/
+├── host-tests/<instance>/host-tests-YYYYmmdd-HHMMSS.log
+├── instances/<instance>/...
+└── web/
+    ├── audit.log
+    └── runtime.log
+```
+
+The central root is for logs written by armactl itself. External logs still stay
+at their native sources:
 
 - Arma/server service logs stay in systemd journal and are read through
   `armactl logs`, TUI live logs, and future bounded web log views.
@@ -347,14 +360,15 @@ catch-all application log:
   `metrics` for Server FPS/frame-time and operational status. This requires the
   generated start script to include `-logStats 10000`.
 - Host/developer checks run through `scripts/run-host-tests`; when launched from
-  TUI, their output is saved under `~/armactl-data/<instance>/logs/`.
+  TUI, their output is saved under `~/armactl-data/logs/host-tests/<instance>/`.
 - `armactl report` is the redacted support/debug snapshot. It can include
   discovery, service/timer status, process data, start script details, telemetry
   snippets, and bounded journal sections.
 - The web app should write normal service runtime output to the
   `armactl-web.service` journal once the service exists.
 - Mutating web actions need a separate append-only audit trail at
-  `~/armactl-data/web/audit.log`; this is not a replacement for service logs.
+  `~/armactl-data/logs/web/audit.log`; this is not a replacement for service
+  logs.
 
 The web panel should expose logs in stages: first bounded read-only journal
 snippets and diagnostic report download/copy, later live streaming. It should
@@ -396,11 +410,12 @@ For the first implementation, prefer storage that can evolve:
 
 ```text
 ~/armactl-data/web/web.db
-~/armactl-data/web/audit.log
+~/armactl-data/logs/web/audit.log
 ```
 
 Use SQLite for users, password hashes, roles, sessions, CSRF tokens, and future
-job metadata. Keep `audit.log` as a human-readable append-only operational log.
+job metadata. Keep `logs/web/audit.log` as a human-readable append-only
+operational log.
 
 Do not hard-code assumptions that there is only one user across the route
 handlers, templates, audit log, or permission checks.
@@ -505,7 +520,8 @@ Treat CLI, TUI, Telegram, and web as adapters over the same internal backend
 API. None of them should own separate source-of-truth data for server state,
 configuration, mods, schedules, or service control. The only web-specific source
 of truth should be web runtime data such as users, sessions, CSRF tokens,
-roles, jobs, and audit records in `~/armactl-data/web/`.
+roles and jobs in `~/armactl-data/web/`, with audit records under
+`~/armactl-data/logs/web/`.
 
 The web backend should be a thin adapter over existing modules:
 
