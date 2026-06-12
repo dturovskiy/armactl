@@ -257,7 +257,7 @@
 - [x] Оновити packaging/bootstrap для web templates/static і optional deps
 - [x] Додати FastAPI app factory, health endpoint і minimal dashboard routes
 - [x] Додати web runtime storage/config/db foundation
-- [ ] Додати `armactl web init` і first setup flow
+- [x] Додати `armactl web init` і first setup flow
 - [ ] Додати auth, session cookies, CSRF, role model
 - [ ] Додати web permission categories для dashboard/actions/files/backups/users
 - [ ] Додати dashboard read-only parity з TUI

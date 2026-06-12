@@ -9,11 +9,16 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
 from armactl import __version__, paths
 from armactl.ports import WEB_PANEL_DEFAULT_PORT
+from armactl.web.launcher import DEFAULT_WEB_HOST
+
+if TYPE_CHECKING:
+    from armactl.web.runtime import WebRuntimeConfig
 
 
 @click.group(invoke_without_command=True)
@@ -411,6 +416,108 @@ def ports_close(ctx: click.Context) -> None:
 @main.group()
 def web() -> None:
     """Manage the planned browser web panel."""
+
+
+def _web_option_was_provided(ctx: click.Context, parameter_name: str) -> bool:
+    return ctx.get_parameter_source(parameter_name) is click.core.ParameterSource.COMMANDLINE
+
+
+def _format_web_runtime_init_summary(config: WebRuntimeConfig) -> str:
+    https_required = "yes" if config.https_required else "no"
+    lines = [
+        "Web runtime initialized.",
+        f"  Runtime dir:    {config.runtime_dir}",
+        f"  Config file:    {config.env_path}",
+        f"  Database:       {config.db_path}",
+        f"  Audit log:      {config.audit_log_path}",
+        f"  Bind:           {config.bind_host}:{config.bind_port}",
+        f"  HTTPS required: {https_required}",
+    ]
+    return "\n".join(lines)
+
+
+@web.command("init")
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Optional runtime data root for local development.",
+)
+@click.option(
+    "--host",
+    default=DEFAULT_WEB_HOST,
+    show_default=True,
+    help="Bind host for the web runtime config.",
+)
+@click.option(
+    "--port",
+    type=click.IntRange(1, 65535),
+    default=WEB_PANEL_DEFAULT_PORT,
+    show_default=True,
+    help="TCP port for the web panel.",
+)
+@click.option(
+    "--https-required/--no-https-required",
+    default=None,
+    help="Require HTTPS-aware deployment settings for web sessions.",
+)
+@click.pass_context
+def web_init(
+    ctx: click.Context,
+    data_root: Path | None,
+    host: str,
+    port: int,
+    https_required: bool | None,
+) -> None:
+    """Initialize local web runtime config and database."""
+    from dataclasses import replace
+
+    from armactl.web.launcher import validate_web_port
+    from armactl.web.runtime import (
+        WebRuntimeConfigError,
+        ensure_web_runtime,
+        load_web_runtime_config,
+        save_web_runtime_config,
+    )
+
+    try:
+        if _web_option_was_provided(ctx, "port"):
+            try:
+                validate_web_port(port)
+            except ValueError as e:
+                raise WebRuntimeConfigError(str(e)) from e
+
+        config = ensure_web_runtime(data_root)
+
+        target_host = config.bind_host
+        target_port = config.bind_port
+        target_https_required = config.https_required
+
+        if _web_option_was_provided(ctx, "host"):
+            target_host = host
+        if _web_option_was_provided(ctx, "port"):
+            target_port = port
+        if https_required is not None:
+            target_https_required = https_required
+
+        if (
+            target_host != config.bind_host
+            or target_port != config.bind_port
+            or target_https_required != config.https_required
+        ):
+            save_web_runtime_config(
+                replace(
+                    config,
+                    bind_host=target_host,
+                    bind_port=target_port,
+                    https_required=target_https_required,
+                )
+            )
+            config = load_web_runtime_config(data_root)
+    except WebRuntimeConfigError as e:
+        raise click.ClickException(str(e)) from e
+
+    click.echo(_format_web_runtime_init_summary(config))
 
 
 @web.command("run")
