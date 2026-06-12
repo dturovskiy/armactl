@@ -39,27 +39,94 @@ def _snapshot() -> dict:
         "lifecycle": "running",
         "installed": True,
         "running": True,
-        "service": {"available": True, "active": True, "enabled": True},
-        "timer": {"available": True, "enabled": True},
+        "overview": {
+            "label": "running",
+            "empty_state": False,
+            "empty_title": "",
+            "empty_message": "",
+        },
+        "state": {},
+        "paths": {
+            "instance_root": "/srv/armactl-data/default",
+            "install_dir": "/srv/armactl-data/default/server",
+            "config_path": "/srv/armactl-data/default/config/config.json",
+            "config_dir": "/srv/armactl-data/default/config",
+            "logs_dir": "/srv/armactl-data/default/config/logs",
+            "service_name": "armareforger.service",
+            "timer_name": "armareforger-restart.timer",
+        },
+        "service": {
+            "available": True,
+            "active": True,
+            "enabled": True,
+            "active_state": "active",
+            "main_pid": 123,
+        },
+        "timer": {
+            "available": True,
+            "active": True,
+            "enabled": True,
+            "schedule": "*-*-* 06:00:00",
+            "next_run": "Fri 2026-06-12 06:00:00 UTC",
+        },
+        "service_runtime": {
+            "available": True,
+            "cpu_text": "2.5%",
+            "memory_text": "2.0 KiB",
+        },
+        "operational_status": {
+            "available": True,
+            "message": "Ready",
+            "age_text": "12s",
+        },
         "players": {
             "available": True,
             "current": 3,
             "max_players": 64,
+            "count_text": "3 / 64",
             "count_source": "rcon",
+            "a2s_available": False,
+            "a2s_count": None,
+            "roster_available": False,
+            "warning": "",
         },
-        "fps_metrics": {"available": True, "fps": 59.8},
+        "fps_metrics": {
+            "available": True,
+            "fps": 59.8,
+            "fps_text": "59.8",
+            "frame_avg_text": "16.7 ms",
+            "frame_max_text": "24.0 ms",
+            "age_text": "10s",
+            "freshness": "fresh",
+            "engine_memory_text": "512.0 KiB",
+            "source": "/srv/armactl-data/default/config/logs/latest/console.log",
+        },
         "host_metrics": {
             "available": True,
             "cpu_percent": 12.0,
-            "memory_total_bytes": 1024,
+            "cpu_text": "12.0%",
+            "memory_text": "512 B / 1.0 KiB",
+            "disk_text": "2.0 KiB / 4.0 KiB",
+            "load_text": "0.10 / 0.20 / 0.30",
+            "uptime_text": "1h 1m 1s",
         },
         "config": {
             "available": True,
             "server_name": "Mock Server",
             "scenario_id": "Scenario.conf",
             "max_players": 64,
+            "visible_text": "yes",
+            "battleye_text": "yes",
+            "bind_port": 2001,
+            "a2s_port": 17777,
+            "rcon_port": 19999,
         },
-        "mods": {"available": True, "count": 2},
+        "mods": {
+            "available": True,
+            "count": 2,
+            "preview_labels": ["Core Mod (mod-a)"],
+            "remaining_count": 1,
+        },
         "ports": {
             "available": True,
             "ports": {
@@ -68,8 +135,65 @@ def _snapshot() -> dict:
                 "rcon": {"port": 19999, "listening": False},
             },
         },
+        "web": {
+            "available": True,
+            "bind_host": "127.0.0.1",
+            "bind_port": 8765,
+            "https_required_text": "no",
+            "runtime_dir": "/tmp/armactl-web/web",
+            "db_path": "/tmp/armactl-web/web/web.db",
+            "audit_log_path": "/tmp/armactl-web/web/audit.log",
+        },
+        "bot": {
+            "available": True,
+            "enabled": False,
+            "token_configured": False,
+            "admin_chat_count": 0,
+            "language": "uk",
+            "env_path": "/srv/armactl-data/default/bot/.env",
+            "service": {"available": False},
+        },
         "errors": [],
     }
+
+
+def _no_server_snapshot() -> dict:
+    snapshot = _snapshot()
+    snapshot.update(
+        lifecycle="not_installed",
+        installed=False,
+        running=False,
+        overview={
+            "label": "no server",
+            "empty_state": True,
+            "empty_title": "No server found",
+            "empty_message": "Discovery did not find an installed server.",
+        },
+        paths={
+            "instance_root": "",
+            "install_dir": "",
+            "config_path": "",
+            "config_dir": "",
+            "logs_dir": "",
+            "service_name": "armareforger.service",
+            "timer_name": "armareforger-restart.timer",
+        },
+        service={"available": False, "error": "server service is not installed"},
+        timer={"available": False, "error": "restart timer is not installed"},
+        service_runtime={
+            "available": False,
+            "cpu_text": "Unknown",
+            "memory_text": "Unknown",
+        },
+        operational_status={
+            "available": False,
+            "message": "Unknown",
+            "age_text": "Unknown",
+        },
+        players={"available": False, "count_text": "unavailable"},
+        ports={"available": False, "error": "server is not installed"},
+    )
+    return snapshot
 
 
 def _client(app, base_url: str = "http://testserver"):
@@ -105,7 +229,8 @@ def _stub_dashboard(monkeypatch):
 
     calls: list[str] = []
 
-    def fake_load_dashboard_snapshot(instance: str) -> dict:
+    def fake_load_dashboard_snapshot(instance: str, *, web_config=None) -> dict:
+        assert web_config is not None
         calls.append(instance)
         return _snapshot()
 
@@ -507,6 +632,70 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert calls == ["default", "default"]
 
 
+
+def test_dashboard_no_server_empty_state_renders_controlled_html(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.routes import dashboard
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+
+    def fake_snapshot(instance: str, *, web_config=None) -> dict:
+        assert web_config is not None
+        return _no_server_snapshot()
+
+    monkeypatch.setattr(dashboard, "load_dashboard_snapshot", fake_snapshot)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "No server found" in response.text
+    assert "Discovery did not find an installed server." in response.text
+    assert "Traceback" not in response.text
+
+
+def test_dashboard_partial_data_renders_controlled_section(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.routes import dashboard
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    snapshot = _snapshot()
+    snapshot["host_metrics"] = {
+        "available": False,
+        "cpu_text": "Unknown",
+        "memory_text": "Unknown",
+        "disk_text": "Unknown",
+        "load_text": "Unknown",
+        "uptime_text": "Unknown",
+        "error": "host boom",
+    }
+    snapshot["errors"] = [{"section": "host_metrics", "message": "host boom"}]
+
+    def fake_snapshot(instance: str, *, web_config=None) -> dict:
+        assert web_config is not None
+        return snapshot
+
+    monkeypatch.setattr(dashboard, "load_dashboard_snapshot", fake_snapshot)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Partial data" in response.text
+    assert "host_metrics: host boom" in response.text
+    assert "Traceback" not in response.text
+
+
 def test_dashboard_facade_error_returns_controlled_html(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
     from armactl.web.routes import dashboard
@@ -514,7 +703,7 @@ def test_dashboard_facade_error_returns_controlled_html(tmp_path: Path, monkeypa
     password = "owner dashboard password"
     setup_owner_user(tmp_path, "owner", password)
 
-    def fail_dashboard(instance: str) -> dict:
+    def fail_dashboard(instance: str, *, web_config=None) -> dict:
         raise RuntimeError("boom with traceback-looking details")
 
     monkeypatch.setattr(dashboard, "load_dashboard_snapshot", fail_dashboard)

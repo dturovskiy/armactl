@@ -562,7 +562,7 @@ Internal API readiness:
 
 | Area | Readiness for web | Needed adapter work |
 |------|-------------------|---------------------|
-| Read-only status/dashboard | High | Compose one dashboard DTO from discovery, service status, metrics, players, config summary, and mods summary |
+| Read-only status/dashboard | High | Implemented through one dashboard DTO from discovery, service/timer status, metrics, players, config summary, mods, web runtime, and safe bot summary |
 | Start/stop/restart | High | Add auth, confirmation, CSRF, audit log, and route-level permission checks |
 | Config/mods/admins/bot settings | Medium-high | Wrap existing functions with form validation and redacted error rendering |
 | Logs/report | Medium | Use bounded reads first; add streaming later without `os.execvp` |
@@ -578,7 +578,7 @@ logic from TUI screens.
 
 | Product area | Current status | Existing source | Web implication |
 |--------------|----------------|-----------------|-----------------|
-| Dashboard/status | Implemented in TUI and CLI | `discovery`, `state`, `status_summary`, `metrics`, `player_view`, `ports` | Build read-only dashboard first from existing functions |
+| Dashboard/status | Implemented in TUI, CLI, and the web read-only dashboard | discovery, state, status_summary, metrics, player_view, ports, bot_config | Keep future routes thin and continue extending the facade instead of route-local aggregation |
 | Server controls | Implemented | `service_manager`, CLI `start/stop/restart`, TUI `ManageScreen` | Add web confirmations and audit entries around existing calls |
 | Logs/report | Implemented for journal/report and TUI live view | `logs`, `report`, `TailLogScreen` | Start with latest log lines; add browser streaming later |
 | Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Use form views plus validation; config writes stay through `config_manager` |
@@ -694,7 +694,9 @@ bot, and maintenance workflows.
 MVP views:
 
 - Login
-- Dashboard: running state, ports, players, CPU/RAM, server FPS telemetry
+- Dashboard: lifecycle, service/timer state, paths, ports, players, CPU/RAM/disk,
+  server FPS telemetry, config/mod summaries, web runtime, and safe Telegram
+  summary
 - Server controls: start, stop, restart, refresh status
 - Logs: latest journal lines, later live streaming
 - Config: safe structured fields plus validation

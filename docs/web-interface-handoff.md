@@ -89,17 +89,20 @@ Completed foundation:
     FastAPI app with Uvicorn. `--dev` enables Uvicorn reload for local Python,
     template, and CSS work.
 12. Web permission categories foundation: owner has all declared code-level
-    permissions and dashboard routes require `dashboard:view`.
+    permissions and dashboard routes require dashboard:view.
+13. Expanded read-only dashboard parity: the dashboard now shows safe
+    lifecycle, service/timer, paths, config, players, telemetry, host, ports,
+    mods, web runtime, Telegram-bot summary, empty-state, and partial-data
+    sections via the web facade.
 
 Next recommended implementation order:
 
-1. Expand dashboard read-only parity with the useful TUI status information.
-2. Add controlled server actions with confirmations and audit logging.
-3. Add background jobs before exposing long-running operations.
-4. Add config/mods/admins/bot web flows through existing backend modules.
-5. Add the safe filesystem adapter before upload/download routes.
-6. Add `armactl-web.service` and deployment docs.
-7. Add reverse proxy / HTTPS deployment docs.
+1. Add controlled server actions with confirmations and audit logging.
+2. Add background jobs before exposing long-running operations.
+3. Add config/mods/admins/bot web flows through existing backend modules.
+4. Add the safe filesystem adapter before upload/download routes.
+5. Add armactl-web.service and deployment docs.
+6. Add reverse proxy / HTTPS deployment docs.
 
 ## Implementation prompt template
 

@@ -6,7 +6,16 @@ from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path
 from typing import Any
 
-from armactl import discovery, metrics, player_view, ports, service_manager, status_summary
+from armactl import (
+    bot_config,
+    discovery,
+    metrics,
+    paths,
+    player_view,
+    ports,
+    service_manager,
+    status_summary,
+)
 from armactl.state import ServerState
 
 DEFAULT_GAME_PORT = 2001
@@ -26,15 +35,21 @@ class DashboardSnapshot:
     lifecycle: str
     installed: bool
     running: bool
+    overview: dict[str, Any]
     state: dict[str, Any]
+    paths: dict[str, Any]
     service: dict[str, Any]
     timer: dict[str, Any]
+    service_runtime: dict[str, Any]
+    operational_status: dict[str, Any]
     config: dict[str, Any]
     mods: dict[str, Any]
     host_metrics: dict[str, Any]
     fps_metrics: dict[str, Any]
     players: dict[str, Any]
     ports: dict[str, Any]
+    web: dict[str, Any]
+    bot: dict[str, Any]
     errors: tuple[DashboardError, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
@@ -101,6 +116,158 @@ def _port_value(*values: int | None, default: int) -> int:
     return default
 
 
+def _bool_text(value: Any) -> str:
+    if value is True:
+        return "yes"
+    if value is False:
+        return "no"
+    return "unknown"
+
+
+def _format_memory_kb(value: Any) -> str:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return metrics.format_bytes(value * 1024)
+    return "Unknown"
+
+
+def _format_used_total(used: Any, total: Any) -> str:
+    used_value = used if isinstance(used, int) and not isinstance(used, bool) else None
+    total_value = total if isinstance(total, int) and not isinstance(total, bool) else None
+    if used_value is None and total_value is None:
+        return "Unknown"
+    return f"{metrics.format_bytes(used_value)} / {metrics.format_bytes(total_value)}"
+
+
+def _overview(state: ServerState, lifecycle: str) -> dict[str, Any]:
+    if lifecycle == "not_installed":
+        return {
+            "label": "no server",
+            "empty_state": True,
+            "empty_title": "No server found",
+            "empty_message": (
+                "Discovery did not find an installed Arma Reforger server for this "
+                "instance yet."
+            ),
+        }
+    if lifecycle == "incomplete":
+        return {
+            "label": "incomplete",
+            "empty_state": True,
+            "empty_title": "Installation incomplete",
+            "empty_message": (
+                "Some server evidence exists, but the install or config is incomplete."
+            ),
+        }
+    return {
+        "label": lifecycle,
+        "empty_state": False,
+        "empty_title": "",
+        "empty_message": "",
+        "install_evidence": state.has_install_evidence(),
+    }
+
+
+def _paths(state: ServerState) -> dict[str, Any]:
+    config_dir = _config_dir_from_state(state)
+    return {
+        "available": bool(state.instance_root or state.install_dir or state.config_path),
+        "instance_root": state.instance_root,
+        "install_dir": state.install_dir,
+        "config_path": state.config_path,
+        "config_dir": str(config_dir) if config_dir is not None else "",
+        "logs_dir": str(config_dir / "logs") if config_dir is not None else "",
+        "service_name": state.service_name,
+        "timer_name": state.timer_name,
+    }
+
+
+def _decorate_config(config: dict[str, Any]) -> dict[str, Any]:
+    decorated = dict(config)
+    decorated["visible_text"] = _bool_text(decorated.get("visible"))
+    decorated["battleye_text"] = _bool_text(decorated.get("battleye"))
+    return decorated
+
+
+def _decorate_mods(mods: dict[str, Any]) -> dict[str, Any]:
+    decorated = dict(mods)
+    preview_labels: list[str] = []
+    for item in decorated.get("preview") or []:
+        if not isinstance(item, dict):
+            continue
+        mod_id = str(item.get("mod_id") or "").strip()
+        name = str(item.get("name") or "").strip()
+        if name and mod_id:
+            preview_labels.append(f"{name} ({mod_id})")
+        elif name or mod_id:
+            preview_labels.append(name or mod_id)
+    decorated["preview_labels"] = preview_labels
+    return decorated
+
+
+def _decorate_host_metrics(host_metrics: dict[str, Any]) -> dict[str, Any]:
+    decorated = dict(host_metrics)
+    decorated["cpu_text"] = metrics.format_cpu_percent(decorated.get("cpu_percent"))
+    decorated["memory_text"] = _format_used_total(
+        decorated.get("memory_used_bytes"),
+        decorated.get("memory_total_bytes"),
+    )
+    decorated["disk_text"] = _format_used_total(
+        decorated.get("disk_used_bytes"),
+        decorated.get("disk_total_bytes"),
+    )
+    decorated["load_text"] = metrics.format_load_average(
+        decorated.get("load_average_1m"),
+        decorated.get("load_average_5m"),
+        decorated.get("load_average_15m"),
+    )
+    decorated["uptime_text"] = metrics.format_duration(decorated.get("uptime_seconds"))
+    return decorated
+
+
+def _decorate_fps_metrics(fps_metrics: dict[str, Any]) -> dict[str, Any]:
+    decorated = dict(fps_metrics)
+    decorated["fps_text"] = metrics.format_fps(decorated.get("fps"))
+    decorated["frame_avg_text"] = metrics.format_frame_time_ms(
+        decorated.get("frame_avg_ms")
+    )
+    decorated["frame_max_text"] = metrics.format_frame_time_ms(
+        decorated.get("frame_max_ms")
+    )
+    decorated["age_text"] = metrics.format_duration(decorated.get("age_seconds"))
+    decorated["engine_memory_text"] = _format_memory_kb(
+        decorated.get("engine_memory_kb")
+    )
+    if decorated.get("available"):
+        decorated["freshness"] = "stale" if decorated.get("stale") else "fresh"
+    else:
+        decorated["freshness"] = "unavailable"
+    return decorated
+
+
+def _decorate_players(players: dict[str, Any]) -> dict[str, Any]:
+    decorated = dict(players)
+    current = decorated.get("current")
+    max_players = decorated.get("max_players")
+    if decorated.get("available"):
+        decorated["count_text"] = f"{current or 0} / {max_players or '?'}"
+    else:
+        decorated["count_text"] = "unavailable"
+    return decorated
+
+
+def _decorate_service_runtime(runtime: dict[str, Any]) -> dict[str, Any]:
+    decorated = dict(runtime)
+    decorated["cpu_text"] = metrics.format_cpu_percent(decorated.get("cpu_percent"))
+    decorated["memory_text"] = metrics.format_bytes(decorated.get("memory_rss_bytes"))
+    return decorated
+
+
+def _decorate_operational_status(status: dict[str, Any]) -> dict[str, Any]:
+    decorated = dict(status)
+    decorated["age_text"] = metrics.format_duration(decorated.get("age_seconds"))
+    return decorated
+
+
 def _load_summaries(
     state: ServerState,
     errors: list[DashboardError],
@@ -110,13 +277,17 @@ def _load_summaries(
         return _unavailable(message), _unavailable(message)
 
     try:
-        config_summary, mods_summary = status_summary.load_status_summaries(state.config_path)
+        config_summary, mods_summary = status_summary.load_status_summaries(
+            state.config_path
+        )
     except Exception as error:
         message = str(error) or error.__class__.__name__
         errors.append(DashboardError(section="status_summaries", message=message))
         return _unavailable(message), _unavailable(message)
 
-    return _plain_dict(config_summary), _plain_dict(mods_summary)
+    return _decorate_config(_plain_dict(config_summary)), _decorate_mods(
+        _plain_dict(mods_summary)
+    )
 
 
 def _load_ports(
@@ -157,7 +328,124 @@ def _load_ports(
     return port_data
 
 
-def load_dashboard_snapshot(instance: str) -> dict[str, Any]:
+def _load_service_runtime(
+    service: dict[str, Any],
+    errors: list[DashboardError],
+) -> dict[str, Any]:
+    if service.get("available") is False:
+        return _unavailable("service status is not available")
+
+    return _decorate_service_runtime(
+        _safe_section(
+            "service_runtime",
+            errors,
+            _unavailable("service runtime metrics are not available"),
+            metrics.query_service_runtime_metrics,
+            service,
+        )
+    )
+
+
+def _load_operational_status(
+    state: ServerState,
+    errors: list[DashboardError],
+) -> dict[str, Any]:
+    config_dir = _config_dir_from_state(state)
+    if config_dir is None:
+        return _unavailable("config path is not available")
+
+    return _decorate_operational_status(
+        _safe_section(
+            "operational_status",
+            errors,
+            _unavailable("server operational status is not available"),
+            metrics.query_server_operational_status,
+            config_dir,
+        )
+    )
+
+
+def _load_web_runtime(web_config: Any | None) -> dict[str, Any]:
+    if web_config is None:
+        return _unavailable("web runtime config is not available")
+
+    return {
+        "available": True,
+        "data_root": str(web_config.data_root),
+        "runtime_dir": str(web_config.runtime_dir),
+        "env_path": str(web_config.env_path),
+        "db_path": str(web_config.db_path),
+        "audit_log_path": str(web_config.audit_log_path),
+        "bind_host": web_config.bind_host,
+        "bind_port": web_config.bind_port,
+        "https_required": bool(web_config.https_required),
+        "https_required_text": _bool_text(bool(web_config.https_required)),
+    }
+
+
+def _load_bot_summary(instance: str, errors: list[DashboardError]) -> dict[str, Any]:
+    try:
+        config = bot_config.load_bot_config(instance)
+    except Exception as error:
+        message = str(error) or error.__class__.__name__
+        errors.append(DashboardError(section="bot", message=message))
+        return _unavailable("Telegram bot status is not available")
+
+    summary: dict[str, Any] = {
+        "available": True,
+        "enabled": bool(config.enabled),
+        "token_configured": bool(config.token.strip()),
+        "admin_chat_count": len(config.admin_chat_ids),
+        "language": config.language,
+        "env_path": str(config.env_path) if config.env_path else "",
+        "service": _unavailable("Telegram bot service is not installed"),
+    }
+
+    try:
+        service_file = paths.bot_service_file()
+    except Exception as error:
+        message = str(error) or error.__class__.__name__
+        errors.append(DashboardError(section="bot_service", message=message))
+        return summary
+
+    if not service_file.exists():
+        return summary
+
+    try:
+        from armactl import bot_manager
+
+        service_status = bot_manager.get_bot_service_status()
+    except Exception as error:
+        message = str(error) or error.__class__.__name__
+        errors.append(DashboardError(section="bot_service", message=message))
+        summary["service"] = {
+            **_unavailable("Telegram bot service status is not available"),
+            "error": message,
+        }
+        return summary
+
+    runtime = service_status.get("runtime")
+    if not isinstance(runtime, dict):
+        runtime = {}
+    summary["service"] = {
+        "available": True,
+        "service_name": service_status.get("service_name", ""),
+        "service_file": service_status.get("service_file", ""),
+        "installed": bool(service_status.get("installed")),
+        "active": bool(service_status.get("active")),
+        "enabled": bool(service_status.get("enabled")),
+        "active_state": service_status.get("active_state", "unknown"),
+        "main_pid": service_status.get("main_pid", 0),
+        "runtime_ready": bool(runtime.get("success")) if runtime else None,
+    }
+    return summary
+
+
+def load_dashboard_snapshot(
+    instance: str,
+    *,
+    web_config: Any | None = None,
+) -> dict[str, Any]:
     errors: list[DashboardError] = []
     state = discovery.discover(instance=instance, save=False)
     state_dict = state.to_dict()
@@ -191,51 +479,63 @@ def load_dashboard_snapshot(instance: str) -> dict[str, Any]:
 
     config_summary, mods_summary = _load_summaries(state, errors)
 
-    host_metrics = _safe_section(
-        "host_metrics",
-        errors,
-        _unavailable("host metrics are not available"),
-        metrics.query_host_metrics,
+    host_metrics = _decorate_host_metrics(
+        _safe_section(
+            "host_metrics",
+            errors,
+            _unavailable("host metrics are not available"),
+            metrics.query_host_metrics,
+        )
     )
 
     config_dir = _config_dir_from_state(state)
     if config_dir is None:
-        fps_metrics = _unavailable("config path is not available")
+        fps_metrics = _decorate_fps_metrics(_unavailable("config path is not available"))
     else:
-        fps_metrics = _safe_section(
-            "fps_metrics",
-            errors,
-            _unavailable("server FPS metrics are not available"),
-            metrics.query_server_fps_metrics,
-            config_dir,
+        fps_metrics = _decorate_fps_metrics(
+            _safe_section(
+                "fps_metrics",
+                errors,
+                _unavailable("server FPS metrics are not available"),
+                metrics.query_server_fps_metrics,
+                config_dir,
+            )
         )
 
     if state.server_running:
-        players = _safe_section(
-            "players",
-            errors,
-            _unavailable("player view is not available"),
-            player_view.query_player_view,
-            instance,
-            state=state,
+        players = _decorate_players(
+            _safe_section(
+                "players",
+                errors,
+                _unavailable("player view is not available"),
+                player_view.query_player_view,
+                instance,
+                state=state,
+            )
         )
     else:
-        players = _unavailable("server is not running")
+        players = _decorate_players(_unavailable("server is not running"))
 
     snapshot = DashboardSnapshot(
         instance=instance,
         lifecycle=lifecycle,
         installed=state.server_installed,
         running=state.server_running,
+        overview=_overview(state, lifecycle),
         state=state_dict,
+        paths=_paths(state),
         service=service,
         timer=timer,
+        service_runtime=_load_service_runtime(service, errors),
+        operational_status=_load_operational_status(state, errors),
         config=config_summary,
         mods=mods_summary,
         host_metrics=host_metrics,
         fps_metrics=fps_metrics,
         players=players,
         ports=_load_ports(state, config_summary, errors),
+        web=_load_web_runtime(web_config),
+        bot=_load_bot_summary(instance, errors),
         errors=tuple(errors),
     )
     return snapshot.to_dict()

@@ -84,7 +84,7 @@ h2 {
 
 .summary-band {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 1px;
   overflow: hidden;
 }
@@ -115,6 +115,11 @@ h2 {
 .panel {
   padding: 16px;
 }
+
+.empty-state {
+  background: #fffaf0;
+}
+
 
 .auth-panel {
   width: min(420px, 100%);
@@ -196,6 +201,11 @@ dd {
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+ul {
+  margin: 12px 0 0;
+  padding-left: 20px;
 }
 
 table {

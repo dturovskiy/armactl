@@ -16,23 +16,32 @@
   </div>
   <div>
     <span class="label">Lifecycle</span>
-    <strong class="state state-{{ snapshot.lifecycle }}">{{ snapshot.lifecycle }}</strong>
+    <strong class="state state-{{ snapshot.lifecycle }}">{{ snapshot.overview.label }}</strong>
   </div>
   <div>
     <span class="label">Service</span>
-    <strong>{% if snapshot.service.active %}active{% else %}inactive{% endif %}</strong>
+    <strong>{% if snapshot.service.available %}{{ snapshot.service.active_state or ("active" if snapshot.service.active else "inactive") }}{% else %}unavailable{% endif %}</strong>
   </div>
   <div>
     <span class="label">Players</span>
-    <strong>
-      {% if snapshot.players.available %}
-        {{ snapshot.players.current or 0 }} / {{ snapshot.players.max_players or "?" }}
-      {% else %}
-        unavailable
-      {% endif %}
-    </strong>
+    <strong>{{ snapshot.players.count_text }}</strong>
+  </div>
+  <div>
+    <span class="label">FPS</span>
+    <strong>{{ snapshot.fps_metrics.fps_text }}</strong>
+  </div>
+  <div>
+    <span class="label">Host CPU</span>
+    <strong>{{ snapshot.host_metrics.cpu_text }}</strong>
   </div>
 </section>
+
+{% if snapshot.overview.empty_state %}
+<section class="panel full-width empty-state">
+  <h2>{{ snapshot.overview.empty_title }}</h2>
+  <p class="muted">{{ snapshot.overview.empty_message }}</p>
+</section>
+{% endif %}
 
 <section class="grid">
   <section class="panel">
@@ -40,18 +49,25 @@
     <dl>
       <dt>Installed</dt><dd>{{ snapshot.installed }}</dd>
       <dt>Running</dt><dd>{{ snapshot.running }}</dd>
-      <dt>Service enabled</dt><dd>{{ snapshot.service.enabled if snapshot.service.available else "unknown" }}</dd>
-      <dt>Timer enabled</dt><dd>{{ snapshot.timer.enabled if snapshot.timer.available else "unknown" }}</dd>
+      <dt>Operational state</dt><dd>{{ snapshot.operational_status.message if snapshot.operational_status.available else "unavailable" }}</dd>
+      <dt>Operational age</dt><dd>{{ snapshot.operational_status.age_text }}</dd>
+      <dt>Service unit</dt><dd>{{ snapshot.paths.service_name or "unknown" }}</dd>
+      <dt>Timer unit</dt><dd>{{ snapshot.paths.timer_name or "unknown" }}</dd>
     </dl>
   </section>
 
   <section class="panel">
-    <h2>Telemetry</h2>
+    <h2>Service and Schedule</h2>
     <dl>
-      <dt>Server FPS</dt><dd>{{ snapshot.fps_metrics.fps if snapshot.fps_metrics.available else "unavailable" }}</dd>
-      <dt>CPU</dt><dd>{{ snapshot.host_metrics.cpu_percent if snapshot.host_metrics.available else "unavailable" }}</dd>
-      <dt>Memory total</dt><dd>{{ snapshot.host_metrics.memory_total_bytes if snapshot.host_metrics.available else "unavailable" }}</dd>
-      <dt>Player source</dt><dd>{{ snapshot.players.count_source if snapshot.players.available else "unavailable" }}</dd>
+      <dt>Active</dt><dd>{{ snapshot.service.active if snapshot.service.available else "unknown" }}</dd>
+      <dt>Enabled</dt><dd>{{ snapshot.service.enabled if snapshot.service.available else "unknown" }}</dd>
+      <dt>Main PID</dt><dd>{{ snapshot.service.main_pid if snapshot.service.available else "unknown" }}</dd>
+      <dt>Process CPU</dt><dd>{{ snapshot.service_runtime.cpu_text }}</dd>
+      <dt>Process memory</dt><dd>{{ snapshot.service_runtime.memory_text }}</dd>
+      <dt>Timer active</dt><dd>{{ snapshot.timer.active if snapshot.timer.available else "unknown" }}</dd>
+      <dt>Timer enabled</dt><dd>{{ snapshot.timer.enabled if snapshot.timer.available else "unknown" }}</dd>
+      <dt>Schedule</dt><dd>{{ snapshot.timer.schedule if snapshot.timer.available and snapshot.timer.schedule else "unknown" }}</dd>
+      <dt>Next run</dt><dd>{{ snapshot.timer.next_run if snapshot.timer.available and snapshot.timer.next_run else "unknown" }}</dd>
     </dl>
   </section>
 
@@ -61,8 +77,77 @@
       <dt>Name</dt><dd>{{ snapshot.config.server_name or "unknown" }}</dd>
       <dt>Scenario</dt><dd>{{ snapshot.config.scenario_id or "unknown" }}</dd>
       <dt>Max players</dt><dd>{{ snapshot.config.max_players or "unknown" }}</dd>
-      <dt>Mods</dt><dd>{{ snapshot.mods.count if snapshot.mods.available else "unavailable" }}</dd>
+      <dt>Visible</dt><dd>{{ snapshot.config.visible_text }}</dd>
+      <dt>BattlEye</dt><dd>{{ snapshot.config.battleye_text }}</dd>
+      <dt>Game port</dt><dd>{{ snapshot.config.bind_port or "unknown" }}</dd>
+      <dt>A2S port</dt><dd>{{ snapshot.config.a2s_port or "unknown" }}</dd>
+      <dt>RCON port</dt><dd>{{ snapshot.config.rcon_port or "unknown" }}</dd>
     </dl>
+  </section>
+
+  <section class="panel">
+    <h2>Players</h2>
+    <dl>
+      <dt>Current / max</dt><dd>{{ snapshot.players.count_text }}</dd>
+      <dt>Source</dt><dd>{{ snapshot.players.count_source if snapshot.players.available else "unavailable" }}</dd>
+      <dt>A2S count</dt><dd>{{ snapshot.players.a2s_count if snapshot.players.a2s_available else "unavailable" }}</dd>
+      <dt>Roster</dt><dd>{{ "available" if snapshot.players.roster_available else "unavailable" }}</dd>
+      <dt>Warning</dt><dd>{{ snapshot.players.warning or "none" }}</dd>
+    </dl>
+  </section>
+
+  <section class="panel">
+    <h2>Telemetry</h2>
+    <dl>
+      <dt>Server FPS</dt><dd>{{ snapshot.fps_metrics.fps_text }}</dd>
+      <dt>Frame avg</dt><dd>{{ snapshot.fps_metrics.frame_avg_text }}</dd>
+      <dt>Frame max</dt><dd>{{ snapshot.fps_metrics.frame_max_text }}</dd>
+      <dt>Telemetry age</dt><dd>{{ snapshot.fps_metrics.age_text }}</dd>
+      <dt>Freshness</dt><dd>{{ snapshot.fps_metrics.freshness }}</dd>
+      <dt>Engine memory</dt><dd>{{ snapshot.fps_metrics.engine_memory_text }}</dd>
+      <dt>Telemetry source</dt><dd>{{ snapshot.fps_metrics.source or "unknown" }}</dd>
+    </dl>
+  </section>
+
+  <section class="panel">
+    <h2>Host</h2>
+    <dl>
+      <dt>CPU</dt><dd>{{ snapshot.host_metrics.cpu_text }}</dd>
+      <dt>Memory</dt><dd>{{ snapshot.host_metrics.memory_text }}</dd>
+      <dt>Disk</dt><dd>{{ snapshot.host_metrics.disk_text }}</dd>
+      <dt>Load average</dt><dd>{{ snapshot.host_metrics.load_text }}</dd>
+      <dt>Uptime</dt><dd>{{ snapshot.host_metrics.uptime_text }}</dd>
+    </dl>
+  </section>
+
+  <section class="panel">
+    <h2>Paths</h2>
+    <dl>
+      <dt>Instance root</dt><dd>{{ snapshot.paths.instance_root or "unknown" }}</dd>
+      <dt>Install dir</dt><dd>{{ snapshot.paths.install_dir or "unknown" }}</dd>
+      <dt>Config path</dt><dd>{{ snapshot.paths.config_path or "unknown" }}</dd>
+      <dt>Profile/config dir</dt><dd>{{ snapshot.paths.config_dir or "unknown" }}</dd>
+      <dt>Console logs</dt><dd>{{ snapshot.paths.logs_dir or "unknown" }}</dd>
+    </dl>
+  </section>
+
+  <section class="panel">
+    <h2>Mods</h2>
+    {% if snapshot.mods.available %}
+      <dl>
+        <dt>Count</dt><dd>{{ snapshot.mods.count or 0 }}</dd>
+        <dt>Preview</dt>
+        <dd>
+          {% if snapshot.mods.preview_labels %}
+            {{ snapshot.mods.preview_labels | join(", ") }}{% if snapshot.mods.remaining_count %} +{{ snapshot.mods.remaining_count }} more{% endif %}
+          {% else %}
+            none
+          {% endif %}
+        </dd>
+      </dl>
+    {% else %}
+      <p class="muted">{{ snapshot.mods.error }}</p>
+    {% endif %}
   </section>
 
   <section class="panel">
@@ -78,10 +163,58 @@
             <td>{% if info.listening %}listening{% else %}closed{% endif %}</td>
           </tr>
         {% endfor %}
+        {% if snapshot.web.available %}
+          <tr>
+            <td>web</td>
+            <td>{{ snapshot.web.bind_port }}</td>
+            <td>{{ snapshot.web.bind_host }}</td>
+          </tr>
+        {% endif %}
         </tbody>
       </table>
     {% else %}
       <p class="muted">{{ snapshot.ports.error }}</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h2>Web Runtime</h2>
+    {% if snapshot.web.available %}
+      <dl>
+        <dt>Bind</dt><dd>{{ snapshot.web.bind_host }}:{{ snapshot.web.bind_port }}</dd>
+        <dt>HTTPS required</dt><dd>{{ snapshot.web.https_required_text }}</dd>
+        <dt>Runtime dir</dt><dd>{{ snapshot.web.runtime_dir }}</dd>
+        <dt>Database</dt><dd>{{ snapshot.web.db_path }}</dd>
+        <dt>Audit log</dt><dd>{{ snapshot.web.audit_log_path }}</dd>
+      </dl>
+    {% else %}
+      <p class="muted">{{ snapshot.web.error }}</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h2>Telegram Bot</h2>
+    {% if snapshot.bot.available %}
+      <dl>
+        <dt>Enabled</dt><dd>{{ snapshot.bot.enabled }}</dd>
+        <dt>Token configured</dt><dd>{{ snapshot.bot.token_configured }}</dd>
+        <dt>Admin chats</dt><dd>{{ snapshot.bot.admin_chat_count }}</dd>
+        <dt>Language</dt><dd>{{ snapshot.bot.language }}</dd>
+        <dt>Config path</dt><dd>{{ snapshot.bot.env_path or "unknown" }}</dd>
+        <dt>Service active</dt><dd>{{ snapshot.bot.service.active if snapshot.bot.service.available else "unknown" }}</dd>
+        <dt>Service enabled</dt><dd>{{ snapshot.bot.service.enabled if snapshot.bot.service.available else "unknown" }}</dd>
+        <dt>Service PID</dt><dd>{{ snapshot.bot.service.main_pid if snapshot.bot.service.available else "unknown" }}</dd>
+        <dt>Runtime ready</dt>
+        <dd>
+          {% if snapshot.bot.service.available %}
+            {% if snapshot.bot.service.runtime_ready is none %}unknown{% elif snapshot.bot.service.runtime_ready %}yes{% else %}no{% endif %}
+          {% else %}
+            unknown
+          {% endif %}
+        </dd>
+      </dl>
+    {% else %}
+      <p class="muted">{{ snapshot.bot.error }}</p>
     {% endif %}
   </section>
 </section>

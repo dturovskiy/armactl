@@ -265,7 +265,7 @@
 - [x] Підключити foreground `armactl web run` smoke launcher через Uvicorn
 - [x] Додати Uvicorn reload для `armactl web run --dev`
 - [x] Додати web permission categories foundation для dashboard/actions/files/backups/users
-- [ ] Додати dashboard read-only parity з TUI
+- [x] Додати dashboard read-only parity з TUI
 - [ ] Додати controlled start/stop/restart actions
 - [ ] Додати background job model перед long-running operations
 - [ ] Додати config/mods web flows через backend modules

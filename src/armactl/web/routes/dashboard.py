@@ -31,7 +31,7 @@ def _redirect_to_login(request: Request) -> RedirectResponse:
 def _render_dashboard(request: Request, current: CurrentSession) -> Response:
     templates = request.app.state.templates
     try:
-        snapshot = load_dashboard_snapshot("default")
+        snapshot = load_dashboard_snapshot("default", web_config=current.config)
     except Exception as exc:
         return templates.TemplateResponse(
             request=request,
