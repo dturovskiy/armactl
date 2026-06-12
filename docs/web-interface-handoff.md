@@ -62,6 +62,9 @@ explicitly a release task.
   installation. Do not add multi-server enrollment or cross-VM management.
 - Keep CLI and TUI usable as fallback management paths.
 - Keep tests independent from saved operator UI language.
+- Reuse existing `src/armactl/locales/*.json` files for web localization.
+  Resolve language per web request/session/user and do not call the TUI-style
+  global `toggle_lang()` / `save_lang()` helpers during HTTP request handling.
 
 ## Current implementation status
 
@@ -100,11 +103,12 @@ Completed foundation:
 
 Next recommended implementation order:
 
-1. Add background jobs before exposing long-running operations.
-2. Add config/mods/admins/bot web flows through existing backend modules.
-3. Add the safe filesystem adapter before upload/download routes.
-4. Add armactl-web.service and deployment docs.
-5. Add reverse proxy / HTTPS deployment docs.
+1. Add the web i18n adapter before broadening templates and forms.
+2. Add background jobs before exposing long-running operations.
+3. Add config/mods/admins/bot web flows through existing backend modules.
+4. Add the safe filesystem adapter before upload/download routes.
+5. Add armactl-web.service and deployment docs.
+6. Add reverse proxy / HTTPS deployment docs.
 
 ## Implementation prompt template
 

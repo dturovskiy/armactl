@@ -308,6 +308,33 @@ a Node/Vite build pipeline for the MVP. A TypeScript/Vite layer can be added
 later if the browser-side state becomes large enough to justify it, for example
 for a richer file manager, live log viewer, or multi-instance dashboard.
 
+## Web localization
+
+Reuse the existing armactl localization files and helpers instead of creating a
+second translation system for the web panel.
+
+The current TUI language switcher stores one operator-wide language in
+`~/armactl-data/user_settings.json` and uses the global `_()` / `tr()` helpers.
+That is acceptable for the local TUI, but it is the wrong request model for an
+always-on web service with login sessions.
+
+The web panel should use `armactl.i18n.translate_for_lang()` and
+`armactl.i18n.tr_for_lang()` through a small web i18n adapter:
+
+- resolve language per request from the authenticated user preference, then
+  session or cookie, then `Accept-Language`, then English fallback;
+- expose Jinja helpers such as `t()` and `tr()` to templates;
+- add a language selector that stores the web preference in `web.db` or a
+  web-owned cookie/session value, not the global TUI settings file;
+- keep translation keys in the existing `src/armactl/locales/*.json` files;
+- never call `toggle_lang()` or `save_lang()` from normal web request handling;
+- keep tests independent from the saved operator UI language, and add web
+  template/route coverage once templates are localized.
+
+Web routes may still use backend modules that return already localized
+messages, but route and template strings should be localized with the
+per-request language. Do not import TUI screens or widgets to reuse labels.
+
 ## Security baseline
 
 - No default password.
@@ -786,6 +813,8 @@ not the foreground debug runner.
   auth/session/CSRF primitives.
 - Add login/logout routes and cookie wiring before exposing mutating web flows.
   Future mutating flows must reuse the established auth/session/CSRF helpers.
+- Add a web i18n adapter over the existing locale JSON files before broadening
+  the number of templates and forms.
 - Add service template for always-on `armactl-web.service`.
 - Update packaging so web templates/static files are included in editable,
   wheel, and sdist installs.
