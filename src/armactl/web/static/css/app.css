@@ -34,6 +34,10 @@ body {
 }
 
 .topbar > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   padding: 20px 0 18px;
 }
 
@@ -112,6 +116,66 @@ h2 {
   padding: 16px;
 }
 
+.auth-panel {
+  width: min(420px, 100%);
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.auth-form,
+.logout-form {
+  display: grid;
+  gap: 12px;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.auth-form input {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+}
+
+.logout-form {
+  grid-auto-flow: column;
+  align-items: center;
+  justify-content: end;
+}
+
+.user-label {
+  color: var(--muted);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #ffffff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.notice {
+  margin: 0;
+  color: var(--muted);
+}
+
 .full-width {
   grid-column: 1 / -1;
   margin-top: 16px;
@@ -171,6 +235,16 @@ th {
   .grid,
   dl {
     grid-template-columns: 1fr;
+  }
+
+  .topbar > div,
+  .logout-form {
+    align-items: start;
+    grid-auto-flow: row;
+  }
+
+  .topbar > div {
+    flex-direction: column;
   }
 
   .summary-band > div {

@@ -261,7 +261,7 @@
 - [x] Додати auth DB/password foundation і мінімальну owner role
 - [x] Додати owner-user setup flow
 - [x] Додати session і CSRF primitives
-- [ ] Додати login/logout routes, templates і cookie wiring
+- [x] Додати login/logout routes, templates і cookie wiring
 - [ ] Додати web permission categories для dashboard/actions/files/backups/users
 - [ ] Додати dashboard read-only parity з TUI
 - [ ] Додати controlled start/stop/restart actions

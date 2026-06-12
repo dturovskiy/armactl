@@ -1,6 +1,13 @@
 {% extends "layout.html" %}
 {% block title %}Dashboard - armactl web{% endblock %}
 {% block heading %}{{ snapshot.config.server_name or "Dashboard" }}{% endblock %}
+{% block topbar_actions %}
+<form method="post" action="/logout" class="logout-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <span class="user-label">{{ current_user.username }}</span>
+  <button type="submit">Log out</button>
+</form>
+{% endblock %}
 {% block content %}
 <section class="summary-band">
   <div>

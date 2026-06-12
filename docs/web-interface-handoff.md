@@ -80,18 +80,20 @@ Completed foundation:
    with hidden password confirmation and safe operator summary output.
 9. Session and CSRF primitives: digest-only SQLite storage, expiry checks,
    session revoke/delete helpers, and CSRF tokens bound to active sessions.
+10. Login/logout routes, login template, authenticated dashboard guard, and
+    HttpOnly SameSite=Lax cookie wiring. `Secure` is enabled when
+    `ARMACTL_WEB_HTTPS_REQUIRED=true`; Lax keeps localhost/dev form redirects
+    usable while blocking routine cross-site POST cookie sending.
 
 Next recommended implementation order:
 
-1. Add login/logout routes, templates, and cookie wiring for the existing
-   session/CSRF primitives.
-2. Add web permission categories for dashboard/actions/files/backups/users.
-3. Expand dashboard read-only parity with the useful TUI status information.
-4. Add controlled server actions with confirmations and audit logging.
-5. Add background jobs before exposing long-running operations.
-6. Add config/mods/admins/bot web flows through existing backend modules.
-7. Add the safe filesystem adapter before upload/download routes.
-8. Add `armactl-web.service` and deployment docs.
+1. Add web permission categories for dashboard/actions/files/backups/users.
+2. Expand dashboard read-only parity with the useful TUI status information.
+3. Add controlled server actions with confirmations and audit logging.
+4. Add background jobs before exposing long-running operations.
+5. Add config/mods/admins/bot web flows through existing backend modules.
+6. Add the safe filesystem adapter before upload/download routes.
+7. Add `armactl-web.service` and deployment docs.
 
 ## Implementation prompt template
 

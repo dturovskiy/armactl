@@ -9,8 +9,11 @@
 <body>
   <header class="topbar">
     <div>
-      <p class="eyebrow">armactl web</p>
-      <h1>{% block heading %}Dashboard{% endblock %}</h1>
+      <div>
+        <p class="eyebrow">armactl web</p>
+        <h1>{% block heading %}Dashboard{% endblock %}</h1>
+      </div>
+      {% block topbar_actions %}{% endblock %}
     </div>
   </header>
   <main class="page">
