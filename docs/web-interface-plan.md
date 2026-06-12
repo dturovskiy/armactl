@@ -335,6 +335,32 @@ for a richer file manager, live log viewer, or multi-instance dashboard.
 The audit log should include timestamp, user, action, instance, target, and
 result. It must not include secrets.
 
+## Logging and observability model
+
+armactl should keep separate logs for separate purposes instead of inventing one
+catch-all application log:
+
+- Arma/server service logs stay in systemd journal and are read through
+  `armactl logs`, TUI live logs, and future bounded web log views.
+- Arma engine telemetry stays in the server profile logs under
+  `~/armactl-data/<instance>/config/logs/*/console.log` and is parsed by
+  `metrics` for Server FPS/frame-time and operational status. This requires the
+  generated start script to include `-logStats 10000`.
+- Host/developer checks run through `scripts/run-host-tests`; when launched from
+  TUI, their output is saved under `~/armactl-data/<instance>/logs/`.
+- `armactl report` is the redacted support/debug snapshot. It can include
+  discovery, service/timer status, process data, start script details, telemetry
+  snippets, and bounded journal sections.
+- The web app should write normal service runtime output to the
+  `armactl-web.service` journal once the service exists.
+- Mutating web actions need a separate append-only audit trail at
+  `~/armactl-data/web/audit.log`; this is not a replacement for service logs.
+
+The web panel should expose logs in stages: first bounded read-only journal
+snippets and diagnostic report download/copy, later live streaming. It should
+not stream unlimited logs by default and must redact secrets before showing
+diagnostic output in the browser.
+
 ## Accounts and cabinet model
 
 The MVP can start with one local administrator account because the first target
