@@ -6,7 +6,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-WEB_SCHEMA_VERSION = "1"
+WEB_SCHEMA_VERSION = "2"
 PRIVATE_FILE_MODE = 0o600
 
 
@@ -24,6 +24,7 @@ def ensure_web_db(db_path: Path) -> Path:
     _ensure_private_db_file(db_path)
 
     with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS web_schema_meta (
@@ -43,6 +44,45 @@ def ensure_web_db(db_path: Path) -> Path:
                 created_at TEXT NOT NULL CHECK(length(created_at) > 0),
                 updated_at TEXT NOT NULL CHECK(length(updated_at) > 0)
             )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS web_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                token_digest TEXT NOT NULL UNIQUE CHECK(length(token_digest) > 0),
+                is_revoked INTEGER NOT NULL DEFAULT 0 CHECK(is_revoked IN (0, 1)),
+                expires_at TEXT NOT NULL CHECK(length(expires_at) > 0),
+                created_at TEXT NOT NULL CHECK(length(created_at) > 0),
+                last_seen_at TEXT NOT NULL CHECK(length(last_seen_at) > 0),
+                revoked_at TEXT,
+                FOREIGN KEY(user_id) REFERENCES web_users(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_web_sessions_user_id
+            ON web_sessions(user_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS web_csrf_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                token_digest TEXT NOT NULL UNIQUE CHECK(length(token_digest) > 0),
+                expires_at TEXT NOT NULL CHECK(length(expires_at) > 0),
+                created_at TEXT NOT NULL CHECK(length(created_at) > 0),
+                FOREIGN KEY(session_id) REFERENCES web_sessions(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_web_csrf_tokens_session_id
+            ON web_csrf_tokens(session_id)
             """
         )
         connection.execute(

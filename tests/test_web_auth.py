@@ -6,12 +6,21 @@ import builtins
 import importlib
 import sqlite3
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
+from armactl.web.auth.csrf import create_csrf_token, validate_csrf_token
 from armactl.web.auth.models import InvalidAuthInputError, UserAlreadyExistsError
 from armactl.web.auth.passwords import hash_password, verify_password
+from armactl.web.auth.sessions import (
+    create_session,
+    delete_session,
+    get_session_user,
+    revoke_session,
+    validate_session,
+)
 from armactl.web.auth.setup import setup_owner_user
 from armactl.web.auth.users import (
     create_owner_user,
@@ -80,7 +89,11 @@ def test_empty_password_is_rejected():
         hash_password("")
 
 
-def test_ensure_web_db_creates_auth_users_table_without_session_or_csrf_tables(
+def _past_timestamp() -> str:
+    return (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+
+
+def test_ensure_web_db_creates_auth_tables_without_legacy_tables(
     tmp_path: Path,
 ):
     db_path = tmp_path / "web" / "web.db"
@@ -89,6 +102,8 @@ def test_ensure_web_db_creates_auth_users_table_without_session_or_csrf_tables(
 
     tables = _sqlite_tables(db_path)
     assert "web_users" in tables
+    assert "web_sessions" in tables
+    assert "web_csrf_tokens" in tables
     assert tables.isdisjoint(
         {
             "auth",
@@ -97,8 +112,6 @@ def test_ensure_web_db_creates_auth_users_table_without_session_or_csrf_tables(
             "sessions",
             "users",
             "web_auth",
-            "web_csrf_tokens",
-            "web_sessions",
         }
     )
 
@@ -225,6 +238,206 @@ def test_disabled_user_does_not_pass_password_verification(tmp_path: Path):
     assert verify_user_password(db_path, "owner", "owner password") is False
 
 
+def test_create_session_returns_raw_token_once_and_stores_only_digest(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+    user = create_owner_user(db_path, "owner", "owner password")
+
+    created = create_session(db_path, user.id)
+
+    assert created.token
+    assert created.session.id > 0
+    assert created.session.user_id == user.id
+    assert created.session.token_digest != created.token
+    assert created.token not in repr(created)
+    assert created.session.token_digest not in repr(created.session)
+
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            """
+            SELECT token_digest, user_id, is_revoked
+            FROM web_sessions
+            WHERE id = ?
+            """,
+            (created.session.id,),
+        ).fetchone()
+
+    assert row is not None
+    assert created.token not in row
+    assert row[0] == created.session.token_digest
+    assert row[1] == user.id
+    assert row[2] == 0
+
+
+def test_valid_session_validates_and_loads_user(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+    user = create_owner_user(db_path, "owner", "owner password")
+    created = create_session(db_path, user.id)
+
+    session = validate_session(db_path, created.token)
+    session_user = get_session_user(db_path, created.token)
+
+    assert session is not None
+    assert session.id == created.session.id
+    assert session_user is not None
+    assert session_user.id == user.id
+    assert session_user.username == "owner"
+
+
+def test_wrong_or_malformed_session_token_does_not_validate(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+    user = create_owner_user(db_path, "owner", "owner password")
+    created = create_session(db_path, user.id)
+
+    assert validate_session(db_path, "wrong-token") is None
+    assert validate_session(db_path, created.token + "wrong") is None
+    assert validate_session(db_path, "") is None
+    assert validate_session(db_path, object()) is None  # type: ignore[arg-type]
+
+
+def test_expired_session_does_not_validate(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+    user = create_owner_user(db_path, "owner", "owner password")
+    created = create_session(db_path, user.id)
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE web_sessions
+            SET expires_at = ?
+            WHERE id = ?
+            """,
+            (_past_timestamp(), created.session.id),
+        )
+
+    assert validate_session(db_path, created.token) is None
+
+
+def test_revoked_or_deleted_session_does_not_validate(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+    user = create_owner_user(db_path, "owner", "owner password")
+    revoked = create_session(db_path, user.id)
+    deleted = create_session(db_path, user.id)
+
+    assert revoke_session(db_path, revoked.session.id) is True
+    assert delete_session(db_path, deleted.session.id) is True
+
+    assert validate_session(db_path, revoked.token) is None
+    assert validate_session(db_path, deleted.token) is None
+
+
+def test_inactive_user_session_does_not_validate(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+    user = create_owner_user(db_path, "owner", "owner password")
+    created = create_session(db_path, user.id)
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE web_users
+            SET is_active = 0
+            WHERE id = ?
+            """,
+            (user.id,),
+        )
+
+    assert validate_session(db_path, created.token) is None
+    assert get_session_user(db_path, created.token) is None
+
+
+def test_create_csrf_token_stores_only_digest(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+    user = create_owner_user(db_path, "owner", "owner password")
+    session = create_session(db_path, user.id)
+
+    created = create_csrf_token(db_path, session.session.id)
+
+    assert created.token
+    assert created.csrf.session_id == session.session.id
+    assert created.csrf.token_digest != created.token
+    assert created.token not in repr(created)
+    assert created.csrf.token_digest not in repr(created.csrf)
+
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            """
+            SELECT token_digest, session_id
+            FROM web_csrf_tokens
+            WHERE id = ?
+            """,
+            (created.csrf.id,),
+        ).fetchone()
+
+    assert row is not None
+    assert created.token not in row
+    assert row[0] == created.csrf.token_digest
+    assert row[1] == session.session.id
+
+
+def test_valid_csrf_token_validates_against_active_session(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+    user = create_owner_user(db_path, "owner", "owner password")
+    session = create_session(db_path, user.id)
+    csrf = create_csrf_token(db_path, session.session.id)
+
+    assert validate_csrf_token(db_path, session.session.id, csrf.token) is True
+
+
+def test_wrong_malformed_or_expired_csrf_token_does_not_validate(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+    user = create_owner_user(db_path, "owner", "owner password")
+    session = create_session(db_path, user.id)
+    csrf = create_csrf_token(db_path, session.session.id)
+
+    assert validate_csrf_token(db_path, session.session.id, "wrong-token") is False
+    assert validate_csrf_token(db_path, session.session.id, "") is False
+    assert validate_csrf_token(db_path, session.session.id, object()) is False  # type: ignore[arg-type]
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE web_csrf_tokens
+            SET expires_at = ?
+            WHERE id = ?
+            """,
+            (_past_timestamp(), csrf.csrf.id),
+        )
+
+    assert validate_csrf_token(db_path, session.session.id, csrf.token) is False
+
+
+def test_csrf_token_does_not_validate_for_other_session(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+    user = create_owner_user(db_path, "owner", "owner password")
+    first_session = create_session(db_path, user.id)
+    second_session = create_session(db_path, user.id)
+    csrf = create_csrf_token(db_path, first_session.session.id)
+
+    assert validate_csrf_token(db_path, second_session.session.id, csrf.token) is False
+
+
+def test_csrf_token_does_not_validate_for_revoked_or_expired_session(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+    user = create_owner_user(db_path, "owner", "owner password")
+    revoked_session = create_session(db_path, user.id)
+    revoked_csrf = create_csrf_token(db_path, revoked_session.session.id)
+    expired_session = create_session(db_path, user.id)
+    expired_csrf = create_csrf_token(db_path, expired_session.session.id)
+
+    revoke_session(db_path, revoked_session.session.id)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE web_sessions
+            SET expires_at = ?
+            WHERE id = ?
+            """,
+            (_past_timestamp(), expired_session.session.id),
+        )
+
+    assert validate_csrf_token(db_path, revoked_session.session.id, revoked_csrf.token) is False
+    assert validate_csrf_token(db_path, expired_session.session.id, expired_csrf.token) is False
+
+
 def test_auth_package_import_does_not_import_tui_routes_or_asgi(monkeypatch):
     _forget_modules("armactl.web.auth", "argon2", *FORBIDDEN_IMPORT_PREFIXES)
     original_import = builtins.__import__
@@ -241,8 +454,11 @@ def test_auth_package_import_does_not_import_tui_routes_or_asgi(monkeypatch):
     module = importlib.import_module("armactl.web.auth")
 
     assert module.UserRecord.__name__ == "UserRecord"
+    assert "armactl.web.auth.csrf" not in sys.modules
     assert "armactl.web.auth.passwords" not in sys.modules
+    assert "armactl.web.auth.sessions" not in sys.modules
     assert "armactl.web.auth.setup" not in sys.modules
+    assert "armactl.web.auth.tokens" not in sys.modules
     assert "armactl.web.auth.users" not in sys.modules
     assert "argon2" not in sys.modules
     assert blocked_imports == []

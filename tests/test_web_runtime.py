@@ -155,20 +155,22 @@ def test_ensure_web_db_creates_schema_metadata(tmp_path: Path):
     assert created_path == db_path
     assert db_path.exists()
     assert stat.S_IMODE(db_path.stat().st_mode) == 0o600
-    assert _schema_version(db_path) == "1"
+    assert _schema_version(db_path) == "2"
 
 
-def test_ensure_web_runtime_creates_env_db_and_auth_users_table(tmp_path: Path):
+def test_ensure_web_runtime_creates_env_db_and_auth_tables(tmp_path: Path):
     config = ensure_web_runtime(tmp_path)
 
     assert config.runtime_dir == tmp_path / "web"
     assert config.env_path.exists()
     assert config.db_path.exists()
-    assert _schema_version(config.db_path) == "1"
+    assert _schema_version(config.db_path) == "2"
 
     tables = _sqlite_tables(config.db_path)
     assert "web_schema_meta" in tables
     assert "web_users" in tables
+    assert "web_sessions" in tables
+    assert "web_csrf_tokens" in tables
     assert tables.isdisjoint(
         {
             "auth",
@@ -177,8 +179,6 @@ def test_ensure_web_runtime_creates_env_db_and_auth_users_table(tmp_path: Path):
             "sessions",
             "users",
             "web_auth",
-            "web_csrf_tokens",
-            "web_sessions",
         }
     )
 

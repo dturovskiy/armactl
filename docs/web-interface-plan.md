@@ -586,7 +586,7 @@ logic from TUI screens.
 | Schedule | Implemented for restart timer | `service_manager`, `ScheduleScreen`, CLI `schedule` | Web can show/set/enable/disable restart schedule; task chains are future |
 | Telegram bot | Implemented | `bot_config`, `bot_manager`, `telegram_bot`, `BotConfigScreen` | Web can reuse the same `.env` and service-manager flow |
 | File manager | Not implemented | only path-safety patterns in `paths`, `cleaner`, `addon_cleanup` | Add a new safe filesystem adapter before exposing upload/download |
-| Web users/roles | Not implemented | only server admins and Telegram allowlist exist | Add `web.db` users, roles, sessions, CSRF, and permissions |
+| Web users/roles | Partially implemented | `web.db` owner user, password hashes, sessions, and CSRF primitives exist | Add login/logout routes, cookie wiring, and permission categories |
 | Paid features | Not implemented | none | Add explicit entitlement model only if productized |
 
 ## Proposed package structure
@@ -777,8 +777,9 @@ debug runner.
 - Add a FastAPI app factory without starting Uvicorn inside the app module.
 - Add `/healthz`, package-local templates/static, and minimal read-only
   dashboard routes wired to the web facade.
-- Add web runtime config loader.
-- Add auth/session/CSRF primitives.
+- Add web runtime config loader, runtime init, owner setup, and
+  auth/session/CSRF primitives.
+- Add login/logout routes and cookie wiring before exposing mutating web flows.
 - Add service template for always-on `armactl-web.service`.
 - Update packaging so web templates/static files are included in editable,
   wheel, and sdist installs.

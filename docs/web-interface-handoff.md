@@ -75,13 +75,16 @@ Completed foundation:
 5. Web runtime storage/config/db foundation under `~/armactl-data/web/`.
 6. `armactl web init` first setup command for local runtime config and DB.
 7. Auth DB/password foundation: `web_users`, Argon2 password helpers, and
-   minimal active `owner` user helpers. No sessions/CSRF tables yet.
+   minimal active `owner` user helpers.
 8. Owner-user setup flow via explicit `armactl web init --owner USERNAME`
    with hidden password confirmation and safe operator summary output.
+9. Session and CSRF primitives: digest-only SQLite storage, expiry checks,
+   session revoke/delete helpers, and CSRF tokens bound to active sessions.
 
 Next recommended implementation order:
 
-1. Add session and CSRF primitives, then login/logout routes.
+1. Add login/logout routes, templates, and cookie wiring for the existing
+   session/CSRF primitives.
 2. Add web permission categories for dashboard/actions/files/backups/users.
 3. Expand dashboard read-only parity with the useful TUI status information.
 4. Add controlled server actions with confirmations and audit logging.
