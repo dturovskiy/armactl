@@ -6,7 +6,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-WEB_SCHEMA_VERSION = "2"
+WEB_SCHEMA_VERSION = "3"
 PRIVATE_FILE_MODE = 0o600
 
 
@@ -83,6 +83,49 @@ def ensure_web_db(db_path: Path) -> Path:
             """
             CREATE INDEX IF NOT EXISTS idx_web_csrf_tokens_session_id
             ON web_csrf_tokens(session_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS web_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL CHECK(length(trim(kind)) > 0),
+                status TEXT NOT NULL CHECK(status IN (
+                    'queued',
+                    'running',
+                    'succeeded',
+                    'failed',
+                    'cancelled'
+                )),
+                requested_by_user_id INTEGER,
+                requested_by_username TEXT NOT NULL CHECK(length(trim(requested_by_username)) > 0),
+                instance TEXT NOT NULL DEFAULT 'default' CHECK(length(trim(instance)) > 0),
+                progress_current INTEGER NOT NULL DEFAULT 0 CHECK(progress_current >= 0),
+                progress_total INTEGER NOT NULL DEFAULT 0 CHECK(progress_total >= 0),
+                current_step TEXT NOT NULL DEFAULT '',
+                result_message TEXT NOT NULL DEFAULT '',
+                stdout_tail TEXT NOT NULL DEFAULT '',
+                stderr_tail TEXT NOT NULL DEFAULT '',
+                error_message TEXT NOT NULL DEFAULT '',
+                error_class TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL CHECK(length(created_at) > 0),
+                updated_at TEXT NOT NULL CHECK(length(updated_at) > 0),
+                started_at TEXT,
+                finished_at TEXT,
+                FOREIGN KEY(requested_by_user_id) REFERENCES web_users(id) ON DELETE SET NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_web_jobs_created_at
+            ON web_jobs(created_at)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_web_jobs_status
+            ON web_jobs(status)
             """
         )
         connection.execute(

@@ -632,6 +632,9 @@ src/armactl/web/
   runtime/
     config.py
     db.py
+  jobs/
+    models.py
+    store.py
   auth/
     users.py
     sessions.py
@@ -838,10 +841,13 @@ not the foreground debug runner.
 
 ### Phase 3.5 - Background jobs
 
-- Add a small job model before long-running operations are exposed in web.
-- Jobs should track progress, status, stdout/stderr tail, and final result.
-- Use it for future install, repair, SteamCMD update, and large file actions.
-- Until this exists, keep install/repair/update out of web.
+- A small `web_jobs` metadata model now exists in `web.db` for web-runtime job
+  status, progress, timestamps, bounded redacted stdout/stderr tails, and safe
+  result/error metadata.
+- Add a worker/dispatcher before long-running operations are exposed in web.
+- Use the job model for future install, repair, SteamCMD update, and large file
+  actions.
+- Until the worker and routes exist, keep install/repair/update out of web.
 
 ### Phase 4 - Config and mods
 

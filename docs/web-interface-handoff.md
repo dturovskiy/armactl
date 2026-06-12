@@ -103,10 +103,15 @@ Completed foundation:
 15. Web localization and appearance preferences: request-scoped language
     resolution reuses existing locale JSON files and exposes server-rendered
     language/theme controls through web-owned cookies.
+16. Background job metadata foundation: `web_jobs` stores web-runtime job
+    status, progress, timestamps, bounded redacted stdout/stderr tails, and
+    safe result/error metadata. No worker or long-running operation routes are
+    implemented yet.
 
 Next recommended implementation order:
 
-1. Add background jobs before exposing long-running operations.
+1. Add a background worker/read-only jobs UI before exposing install, repair,
+   update, or large file operations.
 2. Add config/mods/admins/bot web flows through existing backend modules.
 3. Add the safe filesystem adapter before upload/download routes.
 4. Add armactl-web.service and deployment docs.

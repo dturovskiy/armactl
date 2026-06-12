@@ -269,7 +269,8 @@
 - [x] Додати dashboard read-only parity з TUI
 - [x] Додати controlled start/stop/restart actions
 - [x] Додати web i18n adapter і theme preferences поверх існуючих `src/armactl/locales/*.json`
-- [ ] Додати background job model перед long-running operations
+- [x] Додати background job metadata model перед long-running operations
+- [ ] Додати background worker/read-only jobs UI перед install/repair/update flows
 - [ ] Додати config/mods web flows через backend modules
 - [ ] Додати safe local filesystem browser/upload/download
 - [ ] Додати optional entitlement/feature-flag model, якщо продукт матиме платні tiers
