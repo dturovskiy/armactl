@@ -5,11 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from fastapi import Request
+from fastapi import Request, status
+from fastapi.responses import PlainTextResponse
 
 from armactl.web.auth.cookies import read_csrf_token, read_session_token
 from armactl.web.auth.csrf import create_csrf_token, validate_csrf_token
 from armactl.web.auth.models import UserRecord
+from armactl.web.auth.permissions import user_has_permission
 from armactl.web.auth.sessions import SessionRecord, get_session_user, validate_session
 from armactl.web.runtime import WebRuntimeConfig, ensure_web_runtime
 
@@ -30,6 +32,14 @@ class CsrfTokenForResponse:
 
     token: str = field(repr=False)
     should_set_cookie: bool = False
+
+
+def permission_denied_response() -> PlainTextResponse:
+    """Return a controlled permission-denied response."""
+    return PlainTextResponse(
+        "Permission denied.",
+        status_code=status.HTTP_403_FORBIDDEN,
+    )
 
 
 def get_web_runtime_config(request: Request) -> WebRuntimeConfig:
@@ -65,6 +75,11 @@ def get_current_session(request: Request) -> CurrentSession | None:
         session=session,
         session_token=session_token,
     )
+
+
+def require_permission(current: CurrentSession, permission: str) -> bool:
+    """Return whether the current authenticated session can use a feature."""
+    return user_has_permission(current.user, permission)
 
 
 def get_form_csrf_token(request: Request, current: CurrentSession) -> CsrfTokenForResponse:

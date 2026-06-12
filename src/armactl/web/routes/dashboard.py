@@ -11,7 +11,10 @@ from armactl.web.auth.dependencies import (
     get_current_session,
     get_form_csrf_token,
     get_web_runtime_config,
+    permission_denied_response,
+    require_permission,
 )
+from armactl.web.auth.permissions import DASHBOARD_VIEW
 from armactl.web.facade import load_dashboard_snapshot
 
 router = APIRouter()
@@ -63,6 +66,8 @@ def dashboard_index(request: Request) -> Response:
     current = get_current_session(request)
     if current is None:
         return _redirect_to_login(request)
+    if not require_permission(current, DASHBOARD_VIEW):
+        return permission_denied_response()
     return _render_dashboard(request, current)
 
 
@@ -72,4 +77,6 @@ def dashboard(request: Request) -> Response:
     current = get_current_session(request)
     if current is None:
         return _redirect_to_login(request)
+    if not require_permission(current, DASHBOARD_VIEW):
+        return permission_denied_response()
     return _render_dashboard(request, current)

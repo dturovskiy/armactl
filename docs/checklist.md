@@ -263,7 +263,7 @@
 - [x] Додати session і CSRF primitives
 - [x] Додати login/logout routes, templates і cookie wiring
 - [x] Підключити foreground `armactl web run` smoke launcher через Uvicorn
-- [ ] Додати web permission categories для dashboard/actions/files/backups/users
+- [x] Додати web permission categories foundation для dashboard/actions/files/backups/users
 - [ ] Додати dashboard read-only parity з TUI
 - [ ] Додати controlled start/stop/restart actions
 - [ ] Додати background job model перед long-running operations

@@ -87,17 +87,18 @@ Completed foundation:
 11. Foreground `armactl web run` smoke launcher: ensures runtime, honors
     transient `--host/--port`, prints a safe startup summary, and runs the
     FastAPI app with Uvicorn.
+12. Web permission categories foundation: owner has all declared code-level
+    permissions and dashboard routes require `dashboard:view`.
 
 Next recommended implementation order:
 
-1. Add web permission categories for dashboard/actions/files/backups/users.
-2. Expand dashboard read-only parity with the useful TUI status information.
-3. Add controlled server actions with confirmations and audit logging.
-4. Add background jobs before exposing long-running operations.
-5. Add config/mods/admins/bot web flows through existing backend modules.
-6. Add the safe filesystem adapter before upload/download routes.
-7. Add `armactl-web.service` and deployment docs.
-8. Add reverse proxy / HTTPS deployment docs.
+1. Expand dashboard read-only parity with the useful TUI status information.
+2. Add controlled server actions with confirmations and audit logging.
+3. Add background jobs before exposing long-running operations.
+4. Add config/mods/admins/bot web flows through existing backend modules.
+5. Add the safe filesystem adapter before upload/download routes.
+6. Add `armactl-web.service` and deployment docs.
+7. Add reverse proxy / HTTPS deployment docs.
 
 ## Implementation prompt template
 

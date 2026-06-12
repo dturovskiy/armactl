@@ -586,7 +586,7 @@ logic from TUI screens.
 | Schedule | Implemented for restart timer | `service_manager`, `ScheduleScreen`, CLI `schedule` | Web can show/set/enable/disable restart schedule; task chains are future |
 | Telegram bot | Implemented | `bot_config`, `bot_manager`, `telegram_bot`, `BotConfigScreen` | Web can reuse the same `.env` and service-manager flow |
 | File manager | Not implemented | only path-safety patterns in `paths`, `cleaner`, `addon_cleanup` | Add a new safe filesystem adapter before exposing upload/download |
-| Web users/roles | Partially implemented | `web.db` owner user, password hashes, sessions, CSRF primitives, and login/logout cookie wiring exist | Add permission categories |
+| Web users/roles | Partially implemented | `web.db` owner user, password hashes, sessions, CSRF primitives, login/logout cookie wiring, and code-level permission categories exist | Add editable roles/permissions only when more roles are introduced |
 | Paid features | Not implemented | none | Add explicit entitlement model only if productized |
 
 ## Proposed package structure

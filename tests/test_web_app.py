@@ -293,6 +293,28 @@ def test_session_cookie_authenticates_dashboard(tmp_path: Path, monkeypatch):
     assert calls == ["default"]
 
 
+def test_dashboard_permission_denied_returns_controlled_403(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.routes import dashboard
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    calls = _stub_dashboard(monkeypatch)
+    monkeypatch.setattr(dashboard, "require_permission", lambda current, permission: False)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 403
+    assert response.text == "Permission denied."
+    assert "Traceback" not in response.text
+    assert calls == []
+
+
 def test_invalid_expired_or_revoked_session_cookie_redirects_to_login(
     tmp_path: Path,
 ):

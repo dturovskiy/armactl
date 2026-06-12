@@ -14,6 +14,12 @@ import pytest
 from armactl.web.auth.csrf import create_csrf_token, validate_csrf_token
 from armactl.web.auth.models import InvalidAuthInputError, UserAlreadyExistsError
 from armactl.web.auth.passwords import hash_password, verify_password
+from armactl.web.auth.permissions import (
+    ALL_PERMISSIONS,
+    DASHBOARD_VIEW,
+    check_permission,
+    user_has_permission,
+)
 from armactl.web.auth.sessions import (
     create_session,
     delete_session,
@@ -64,6 +70,20 @@ def _sqlite_tables(db_path: Path) -> set[str]:
     return {row[0] for row in rows}
 
 
+def _user_record(role: str = "owner", *, is_active: bool = True):
+    from armactl.web.auth.models import UserRecord
+
+    return UserRecord(
+        id=1,
+        username="test-user",
+        password_hash="hash",
+        role=role,
+        is_active=is_active,
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+    )
+
+
 def test_hash_password_creates_non_plaintext_hash():
     password = "correct horse battery staple"
 
@@ -87,6 +107,36 @@ def test_verify_password_returns_false_for_malformed_hash():
 def test_empty_password_is_rejected():
     with pytest.raises(InvalidAuthInputError, match="Password cannot be empty"):
         hash_password("")
+
+
+def test_owner_has_every_declared_permission():
+    user = _user_record()
+
+    assert ALL_PERMISSIONS == {
+        "dashboard:view",
+        "actions:run",
+        "files:read",
+        "files:write",
+        "backups:manage",
+        "users:manage",
+        "settings:manage",
+        "logs:view",
+    }
+    assert all(user_has_permission(user, permission) for permission in ALL_PERMISSIONS)
+
+
+def test_unknown_role_and_unknown_permission_are_denied():
+    owner = _user_record()
+    unknown_role = _user_record(role="operator")
+
+    assert user_has_permission(unknown_role, DASHBOARD_VIEW) is False
+    assert user_has_permission(owner, "unknown:permission") is False
+    assert user_has_permission(None, DASHBOARD_VIEW) is False
+    assert user_has_permission(_user_record(is_active=False), DASHBOARD_VIEW) is False
+
+    result = check_permission(unknown_role, DASHBOARD_VIEW)
+    assert result.allowed is False
+    assert result.permission == DASHBOARD_VIEW
 
 
 def _past_timestamp() -> str:
@@ -456,6 +506,7 @@ def test_auth_package_import_does_not_import_tui_routes_or_asgi(monkeypatch):
     assert module.UserRecord.__name__ == "UserRecord"
     assert "armactl.web.auth.csrf" not in sys.modules
     assert "armactl.web.auth.passwords" not in sys.modules
+    assert "armactl.web.auth.permissions" not in sys.modules
     assert "armactl.web.auth.sessions" not in sys.modules
     assert "armactl.web.auth.setup" not in sys.modules
     assert "armactl.web.auth.tokens" not in sys.modules
