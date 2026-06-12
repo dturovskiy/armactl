@@ -1,23 +1,23 @@
 {% extends "layout.html" %}
-{% block title %}Service action - armactl web{% endblock %}
-{% block heading %}Service action result{% endblock %}
+{% block title %}{{ t("Service action - armactl web") }}{% endblock %}
+{% block heading %}{{ t("Service action result") }}{% endblock %}
 {% block topbar_actions %}
 <form method="post" action="/logout" class="logout-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <span class="user-label">{{ current_user.username }}</span>
-  <button type="submit">Log out</button>
+  <button type="submit">{{ t("Log out") }}</button>
 </form>
 {% endblock %}
 {% block content %}
 <section class="panel service-result result-{{ result.status_label }}">
-  <h2>{{ result.action | title }} {{ result.status_label }}</h2>
+  <h2>{{ t(result.action | title) }} {{ t(result.status_label) }}</h2>
   <dl>
-    <dt>Instance</dt><dd>{{ result.instance }}</dd>
-    <dt>Service</dt><dd>{{ result.service_name or "unknown" }}</dd>
-    <dt>Performed</dt><dd>{{ result.performed }}</dd>
-    <dt>Exit code</dt><dd>{{ result.exit_code }}</dd>
-    <dt>Message</dt><dd>{{ result.message }}</dd>
+    <dt>{{ t("Instance") }}</dt><dd>{{ result.instance }}</dd>
+    <dt>{{ t("Service") }}</dt><dd>{{ result.service_name or t("unknown") }}</dd>
+    <dt>{{ t("Performed") }}</dt><dd>{{ t("yes") if result.performed else t("no") }}</dd>
+    <dt>{{ t("Exit code") }}</dt><dd>{{ result.exit_code }}</dd>
+    <dt>{{ t("Message") }}</dt><dd>{{ t(result.message) }}</dd>
   </dl>
-  <p class="result-actions"><a class="button-link" href="/dashboard">Back to dashboard</a></p>
+  <p class="result-actions"><a class="button-link" href="/dashboard">{{ t("Back to dashboard") }}</a></p>
 </section>
 {% endblock %}

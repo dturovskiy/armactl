@@ -8,6 +8,24 @@
   --accent: #276749;
   --warning: #8a5a00;
   --error: #9b1c1c;
+  --button-text: #ffffff;
+  --empty-bg: #fffaf0;
+  --input-bg: #ffffff;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #101513;
+  --surface: #18201d;
+  --border: #34413c;
+  --text: #eef4f1;
+  --muted: #a8b8b1;
+  --accent: #5fbf86;
+  --warning: #f0bc58;
+  --error: #ff7f7f;
+  --button-text: #07100b;
+  --empty-bg: #262116;
+  --input-bg: #111815;
 }
 
 * {
@@ -117,7 +135,7 @@ h2 {
 }
 
 .empty-state {
-  background: #fffaf0;
+  background: var(--empty-bg);
 }
 
 
@@ -148,8 +166,22 @@ h2 {
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
+  background: var(--input-bg);
   color: var(--text);
   font: inherit;
+}
+
+.topbar-actions,
+.preference-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: end;
+  gap: 10px;
+}
+
+.preference-form {
+  display: inline-flex;
 }
 
 .logout-form {
@@ -170,10 +202,16 @@ button {
   border: 1px solid var(--accent);
   border-radius: 6px;
   background: var(--accent);
-  color: #ffffff;
+  color: var(--button-text);
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+}
+
+button.secondary {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text);
 }
 
 .notice {
@@ -243,7 +281,7 @@ button.danger {
   border: 1px solid var(--accent);
   border-radius: 6px;
   background: var(--accent);
-  color: #ffffff;
+  color: var(--button-text);
   font-weight: 700;
   text-decoration: none;
 }
@@ -304,12 +342,16 @@ th {
   }
 
   .topbar > div,
+  .topbar-actions,
+  .preference-controls,
   .logout-form {
     align-items: start;
     grid-auto-flow: row;
   }
 
-  .topbar > div {
+  .topbar > div,
+  .topbar-actions,
+  .preference-controls {
     flex-direction: column;
   }
 

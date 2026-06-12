@@ -1,19 +1,39 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{ web_language|default('en') }}" data-theme="{{ web_theme|default('light') }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}armactl web{% endblock %}</title>
+  <title>{% block title %}{{ t("armactl web") }}{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}">
 </head>
 <body>
   <header class="topbar">
     <div>
       <div>
-        <p class="eyebrow">armactl web</p>
-        <h1>{% block heading %}Dashboard{% endblock %}</h1>
+        <p class="eyebrow">{{ t("armactl web") }}</p>
+        <h1>{% block heading %}{{ t("Dashboard") }}{% endblock %}</h1>
       </div>
-      {% block topbar_actions %}{% endblock %}
+      <div class="topbar-actions">
+        <div class="preference-controls" aria-label="{{ t('Preferences') }}">
+          <form method="post" action="/preferences/language" class="preference-form">
+            {% if csrf_token is defined %}
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            {% endif %}
+            <input type="hidden" name="language" value="{{ web_next_language }}">
+            <input type="hidden" name="next" value="{{ request.url.path }}">
+            <button class="secondary" type="submit">{{ tr("Language: {language}", language=web_next_language_name) }}</button>
+          </form>
+          <form method="post" action="/preferences/theme" class="preference-form">
+            {% if csrf_token is defined %}
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            {% endif %}
+            <input type="hidden" name="theme" value="{{ web_next_theme }}">
+            <input type="hidden" name="next" value="{{ request.url.path }}">
+            <button class="secondary" type="submit">{{ tr("Theme: {theme}", theme=t(web_next_theme)) }}</button>
+          </form>
+        </div>
+        {% block topbar_actions %}{% endblock %}
+      </div>
     </div>
   </header>
   <main class="page">

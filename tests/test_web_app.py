@@ -18,6 +18,7 @@ from armactl.web.auth.cookies import CSRF_COOKIE_NAME, LOGIN_CSRF_COOKIE_NAME, S
 from armactl.web.auth.sessions import create_session, revoke_session, validate_session
 from armactl.web.auth.setup import setup_owner_user
 from armactl.web.auth.users import get_user_by_username
+from armactl.web.i18n import LANGUAGE_COOKIE_NAME, THEME_COOKIE_NAME
 from armactl.web.runtime import ensure_web_runtime, save_web_runtime_config
 
 
@@ -413,6 +414,79 @@ def test_login_form_sets_httponly_login_csrf_cookie(tmp_path: Path):
     assert "Secure" not in header
 
 
+
+def test_login_template_has_language_and_theme_controls(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    setup_owner_user(tmp_path, "owner", "owner password")
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.get("/login")
+
+    assert response.status_code == 200
+    assert 'action="/preferences/language"' in response.text
+    assert 'action="/preferences/theme"' in response.text
+    assert 'data-theme="light"' in response.text
+    assert "Language: Українська" in response.text
+    assert "Theme: dark" in response.text
+
+
+def test_login_renders_ukrainian_from_language_preference(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    setup_owner_user(tmp_path, "owner", "owner password")
+    client = _client(create_app(data_root=tmp_path))
+    preference_response = client.post(
+        "/preferences/language",
+        data={"language": "uk", "next": "/login"},
+        follow_redirects=False,
+    )
+
+    response = client.get("/login")
+
+    assert preference_response.status_code == 303
+    assert preference_response.cookies.get(LANGUAGE_COOKIE_NAME) == "uk"
+    assert '<html lang="uk" data-theme="light">' in response.text
+    assert "Увійти" in response.text
+    assert "Ім&#39;я користувача" in response.text
+    assert "Мова: English" in response.text
+
+
+def test_invalid_language_and_theme_preferences_are_normalized(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    language_response = client.post(
+        "/preferences/language",
+        data={"language": "not-a-language", "next": "/login"},
+        follow_redirects=False,
+    )
+    theme_response = client.post(
+        "/preferences/theme",
+        data={"theme": "solarized", "next": "/login"},
+        follow_redirects=False,
+    )
+
+    assert language_response.status_code == 303
+    assert language_response.cookies.get(LANGUAGE_COOKIE_NAME) == "en"
+    assert theme_response.status_code == 303
+    assert theme_response.cookies.get(THEME_COOKIE_NAME) == "light"
+
+
+def test_accept_language_localizes_login_without_cookie(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    setup_owner_user(tmp_path, "owner", "owner password")
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.get("/login", headers={"accept-language": "uk-UA, en;q=0.2"})
+
+    assert response.status_code == 200
+    assert '<html lang="uk" data-theme="light">' in response.text
+    assert "Увійти" in response.text
+
+
 def test_owner_not_configured_login_state_is_controlled(tmp_path: Path):
     from armactl.web.app import create_app
 
@@ -495,6 +569,8 @@ def test_session_cookie_authenticates_dashboard(tmp_path: Path, monkeypatch):
     assert response.status_code == 200
     assert "Mock Server" in response.text
     assert "Log out" in response.text
+    assert 'action="/preferences/language"' in response.text
+    assert 'action="/preferences/theme"' in response.text
     assert calls == ["default"]
 
 
@@ -714,6 +790,65 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert 'action="/service/stop"' in root_response.text
     assert 'action="/service/restart"' in root_response.text
     assert calls == ["default", "default"]
+
+
+
+def test_dashboard_renders_ukrainian_and_dark_theme_preference(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _stub_dashboard(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _action_csrf_token(client)
+
+    language_response = client.post(
+        "/preferences/language",
+        data={"language": "uk", "csrf_token": csrf_token, "next": "/dashboard"},
+        follow_redirects=False,
+    )
+    theme_response = client.post(
+        "/preferences/theme",
+        data={"theme": "dark", "csrf_token": csrf_token, "next": "/dashboard"},
+        follow_redirects=False,
+    )
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert language_response.status_code == 303
+    assert language_response.cookies.get(LANGUAGE_COOKIE_NAME) == "uk"
+    assert theme_response.status_code == 303
+    assert theme_response.cookies.get(THEME_COOKIE_NAME) == "dark"
+    assert response.status_code == 200
+    assert '<html lang="uk" data-theme="dark">' in response.text
+    assert "Дії сервера" in response.text
+    assert "Запустити" in response.text
+    assert "Вийти" in response.text
+    assert "Тема: світла" in response.text
+
+
+def test_authenticated_theme_preference_requires_valid_csrf(
+    tmp_path: Path,
+):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.post(
+        "/preferences/theme",
+        data={"theme": "dark", "csrf_token": "wrong-token", "next": "/dashboard"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Invalid CSRF token."
+    assert response.cookies.get(THEME_COOKIE_NAME) is None
 
 
 
@@ -1053,3 +1188,4 @@ def test_template_and_static_paths_are_package_local():
     assert "text/css" in response.headers["content-type"]
     assert ".summary-band" in response.text
     assert ".auth-panel" in response.text
+    assert "[data-theme=\"dark\"]" in response.text

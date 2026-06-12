@@ -268,7 +268,7 @@
 - [x] Додати web permission categories foundation для dashboard/actions/files/backups/users
 - [x] Додати dashboard read-only parity з TUI
 - [x] Додати controlled start/stop/restart actions
-- [ ] Додати web i18n adapter поверх існуючих `src/armactl/locales/*.json`
+- [x] Додати web i18n adapter і theme preferences поверх існуючих `src/armactl/locales/*.json`
 - [ ] Додати background job model перед long-running operations
 - [ ] Додати config/mods web flows через backend modules
 - [ ] Додати safe local filesystem browser/upload/download

@@ -100,15 +100,17 @@ Completed foundation:
 14. Controlled default-instance start/stop/restart actions: POST-only routes
     require auth, actions:run permission, CSRF, confirmation for stop/restart,
     and append safe JSONL audit entries before rendering controlled results.
+15. Web localization and appearance preferences: request-scoped language
+    resolution reuses existing locale JSON files and exposes server-rendered
+    language/theme controls through web-owned cookies.
 
 Next recommended implementation order:
 
-1. Add the web i18n adapter before broadening templates and forms.
-2. Add background jobs before exposing long-running operations.
-3. Add config/mods/admins/bot web flows through existing backend modules.
-4. Add the safe filesystem adapter before upload/download routes.
-5. Add armactl-web.service and deployment docs.
-6. Add reverse proxy / HTTPS deployment docs.
+1. Add background jobs before exposing long-running operations.
+2. Add config/mods/admins/bot web flows through existing backend modules.
+3. Add the safe filesystem adapter before upload/download routes.
+4. Add armactl-web.service and deployment docs.
+5. Add reverse proxy / HTTPS deployment docs.
 
 ## Implementation prompt template
 

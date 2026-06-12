@@ -326,6 +326,8 @@ The web panel should use `armactl.i18n.translate_for_lang()` and
 - expose Jinja helpers such as `t()` and `tr()` to templates;
 - add a language selector that stores the web preference in `web.db` or a
   web-owned cookie/session value, not the global TUI settings file;
+- store appearance preferences, such as light/dark theme, in the same web
+  preference model rather than TUI settings or game config;
 - keep translation keys in the existing `src/armactl/locales/*.json` files;
 - never call `toggle_lang()` or `save_lang()` from normal web request handling;
 - keep tests independent from the saved operator UI language, and add web
@@ -813,8 +815,8 @@ not the foreground debug runner.
   auth/session/CSRF primitives.
 - Add login/logout routes and cookie wiring before exposing mutating web flows.
   Future mutating flows must reuse the established auth/session/CSRF helpers.
-- Add a web i18n adapter over the existing locale JSON files before broadening
-  the number of templates and forms.
+- Web i18n/theme preferences are implemented with request-scoped translation
+  helpers, existing locale JSON files, and web-owned cookies.
 - Add service template for always-on `armactl-web.service`.
 - Update packaging so web templates/static files are included in editable,
   wheel, and sdist installs.
