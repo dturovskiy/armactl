@@ -5,7 +5,9 @@ from subprocess import CompletedProcess
 from unittest.mock import patch
 
 from armactl import paths
+from armactl.sat_admin_guard import SatAdminGuardError
 from armactl.service_manager import (
+    ServiceResult,
     _build_systemctl_command,
     _render_privileged_helper_script,
     _run_systemctl,
@@ -20,6 +22,7 @@ from armactl.service_manager import (
     resolve_linux_user,
     restart_service_unit_name,
     service_unit_name,
+    start_service,
     timer_unit_name,
     update_restart_timer_schedule,
 )
@@ -275,6 +278,75 @@ def test_build_systemctl_command_uses_noninteractive_sudo_without_tty() -> None:
         "stop",
         "armareforger.service",
     ]
+
+
+def test_start_service_runs_sat_admin_guard_before_systemctl(tmp_path: Path) -> None:
+    config_path = tmp_path / "default" / "config" / "config.json"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text("{}", encoding="utf-8")
+    calls: list[Path] = []
+
+    def guard(config: Path) -> None:
+        calls.append(config)
+
+    with (
+        patch("armactl.service_manager.paths.config_file", return_value=config_path),
+        patch("armactl.sat_admin_guard.guard_sat_admin_config", side_effect=guard),
+        patch(
+            "armactl.service_manager._run_systemctl",
+            return_value=ServiceResult(True, "started"),
+        ) as systemctl_mock,
+    ):
+        result = start_service("armareforger.service")
+
+    assert result.success is True
+    assert calls == [config_path]
+    systemctl_mock.assert_called_once_with("start", "armareforger.service")
+
+
+def test_restart_helper_service_runs_sat_admin_guard_for_instance(tmp_path: Path) -> None:
+    config_path = tmp_path / "alpha" / "config" / "config.json"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text("{}", encoding="utf-8")
+    calls: list[Path] = []
+
+    def guard(config: Path) -> None:
+        calls.append(config)
+
+    with (
+        patch("armactl.service_manager.paths.config_file", return_value=config_path) as config_mock,
+        patch("armactl.sat_admin_guard.guard_sat_admin_config", side_effect=guard),
+        patch(
+            "armactl.service_manager._run_systemctl",
+            return_value=ServiceResult(True, "restart helper started"),
+        ) as systemctl_mock,
+    ):
+        result = start_service("armareforger-restart@alpha.service")
+
+    assert result.success is True
+    config_mock.assert_called_once_with("alpha")
+    assert calls == [config_path]
+    systemctl_mock.assert_called_once_with("start", "armareforger-restart@alpha.service")
+
+
+def test_start_service_stops_when_sat_admin_guard_fails(tmp_path: Path) -> None:
+    config_path = tmp_path / "default" / "config" / "config.json"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    with (
+        patch("armactl.service_manager.paths.config_file", return_value=config_path),
+        patch(
+            "armactl.sat_admin_guard.guard_sat_admin_config",
+            side_effect=SatAdminGuardError("broken SAT config"),
+        ),
+        patch("armactl.service_manager._run_systemctl") as systemctl_mock,
+    ):
+        result = start_service("armareforger.service")
+
+    assert result.success is False
+    assert "ServerAdminTools admin guard failed" in result.message
+    systemctl_mock.assert_not_called()
 
 
 def test_update_restart_timer_schedule_uses_secure_helper_channel() -> None:

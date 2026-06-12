@@ -97,6 +97,8 @@ def _get_state(ctx: click.Context):
 def status(ctx: click.Context) -> None:
     """Show server status."""
     from armactl import metrics, paths
+    from armactl.redaction import redact_sensitive_text
+    from armactl.sat_admin_guard import SatAdminGuardError, inspect_sat_admin_config
     from armactl.service_manager import get_service_status
 
     instance = ctx.obj["instance"]
@@ -125,8 +127,20 @@ def status(ctx: click.Context) -> None:
 
     svc = get_service_status(state.service_name)
 
+    sat_status = None
+    sat_error = ""
+    try:
+        sat_status = inspect_sat_admin_config(state.config_path)
+    except SatAdminGuardError as error:
+        sat_error = redact_sensitive_text(error)
+
     if ctx.obj["json"]:
-        click.echo(json.dumps({**state.to_dict(), **svc}, indent=2))
+        payload = {**state.to_dict(), **svc}
+        if sat_status is not None:
+            payload["sat_admin_guard"] = sat_status.to_dict()
+        elif sat_error:
+            payload["sat_admin_guard"] = {"available": False, "warning": sat_error}
+        click.echo(json.dumps(payload, indent=2))
         return
 
     icon = "🟢" if state.server_running else "🔴"
@@ -159,6 +173,10 @@ def status(ctx: click.Context) -> None:
             f"  Ports:       game={state.ports.game} "
             f"a2s={state.ports.a2s} rcon={state.ports.rcon}"
         )
+    if sat_status is not None and sat_status.warning:
+        click.echo(f"  SAT:         ! {sat_status.warning}")
+    elif sat_error:
+        click.echo(f"  SAT:         ! {sat_error}")
 
 
 @main.command("sync-generated")

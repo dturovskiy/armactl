@@ -613,6 +613,7 @@
     "Optional label, for example Owner or Host operator...": "Необов'язкова мітка, наприклад Owner або Host operator...",
     "Select a server admin to remove first.": "Спочатку виберіть адміна сервера для видалення.",
     "Server Admins": "Адміни сервера",
+    "ServerAdminTools admin guard failed: {error}": "Захист адмінів ServerAdminTools завершився помилкою: {error}",
     "Server admin added. This ID can use #login without a password.": "Адміна сервера додано. Цей ID може виконувати #login без пароля.",
     "Server admin is already configured and its local label was updated.": "Адміна сервера вже налаштовано; його локальну мітку оновлено.",
     "Server admin not found.": "Адміна сервера не знайдено.",

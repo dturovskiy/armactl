@@ -61,6 +61,7 @@ When changing this area, cover at least:
 - stale telemetry
 - CLI/TUI/Telegram rendering
 - generated `start-armareforger.sh` arguments
+- ServerAdminTools admin guard behavior before start/restart
 
 Manual smoke check on a live server:
 

@@ -168,6 +168,7 @@
 - [x] Додати Raw Config JSON editor у TUI
 - [x] Додати запуск host tests з TUI
 - [x] Додати автозбереження логів host tests у файл
+- [x] Додати ServerAdminTools admin guard перед стартом сервера
 
 ## Phase 12 — TUI schedule
 

@@ -134,6 +134,8 @@ armactl/
 ├── config/
 │   └── config.json                  # конфіг сервера
 ├── backups/                         # автоматичні backup-и перед змінами
+├── admins-state.json                # локальні labels/source metadata для game.admins
+├── sat-admin-uuid-map.json          # optional Steam/name -> SAT UUID map
 ├── state.json                       # стан інстансу для discovery
 └── start-armareforger.sh            # launch script
 ```
@@ -144,10 +146,26 @@ armactl/
 |------|-------------|
 | `server/` | SteamCMD install dir — сам Arma Reforger Dedicated Server |
 | `config/config.json` | Конфіг сервера (редагується через `armactl config`) |
+| `admins-state.json` | armactl metadata для labels/source офіційних `game.admins` |
+| `sat-admin-uuid-map.json` | Optional map для ServerAdminTools UUID, коли `game.admins` містить SteamID64 |
 | `bot/.env` | Optional Telegram bot config; те саме джерело правди для TUI і ручного редагування |
 | `backups/` | Резервні копії конфігу перед кожною зміною |
 | `state.json` | Discovery/state файл armactl |
-| `start-armareforger.sh` | Стартовий скрипт, на який посилається systemd service |
+| `start-armareforger.sh` | Стартовий скрипт, на який посилається systemd service; запускає SAT admin guard перед сервером |
+
+`sat-admin-uuid-map.json` is only needed when an official server admin is stored
+as a SteamID64 or label but ServerAdminTools needs its own UUID. Keep
+`config/config.json` and `admins-state.json` as the source of truth for official
+admins; the SAT map is a narrow conversion layer:
+
+```json
+{
+  "version": 1,
+  "identities": {
+    "Bublik": "21761a7f-c9b4-4bff-8375-b4b43abb95ec"
+  }
+}
+```
 
 ### Multi-instance (майбутнє)
 

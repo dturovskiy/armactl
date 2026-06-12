@@ -245,6 +245,22 @@
       <p class="muted">{{ snapshot.bot.error }}</p>
     {% endif %}
   </section>
+
+  <section class="panel">
+    <h2>ServerAdminTools</h2>
+    {% if snapshot.sat.available %}
+      <dl>
+        <dt>Config valid</dt><dd>{{ snapshot.sat.valid_json }}</dd>
+        <dt>Admins default-only</dt><dd>{{ snapshot.sat.default_only_admins }}</dd>
+        <dt>GameMasters default-only</dt><dd>{{ snapshot.sat.default_only_game_masters }}</dd>
+        <dt>Required UUIDs</dt><dd>{{ snapshot.sat.desired_admins | length }}</dd>
+        <dt>Missing mappings</dt><dd>{{ snapshot.sat.missing_mappings | length }}</dd>
+        <dt>Warning</dt><dd>{{ snapshot.sat.warning or "none" }}</dd>
+      </dl>
+    {% else %}
+      <p class="muted">{{ snapshot.sat.error or "ServerAdminTools config is not present." }}</p>
+    {% endif %}
+  </section>
 </section>
 
 {% if snapshot.errors %}

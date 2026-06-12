@@ -53,6 +53,11 @@ def test_generate_services_writes_expected_units_and_restarts_timer(tmp_path: Pa
     assert start_script_path.exists()
     assert f'SERVER_DIR="{server_dir}"' in start_script_text
     assert f'CONFIG_FILE="{instance_root / "config" / "config.json"}"' in start_script_text
+    assert "run_sat_admin_guard" in start_script_text
+    assert "-m armactl.sat_admin_guard" in start_script_text
+    assert start_script_text.index("run_sat_admin_guard") < start_script_text.index(
+        'exec "${SERVER_DIR}/ArmaReforgerServer"'
+    )
     assert 'exec "${SERVER_DIR}/ArmaReforgerServer"' in start_script_text
     assert "  -logStats 10000 \\" in start_script_text
     assert start_script_text.index("-logStats 10000") < start_script_text.index("-maxFPS 60")
@@ -189,6 +194,7 @@ exec "${SERVER_DIR}/ArmaReforgerServer" \
     assert result.exit_code == 0
     assert "PROFILE_DIR=" not in start_script_text
     assert f'CONFIG_DIR="{config_dir}"' in start_script_text
+    assert "-m armactl.sat_admin_guard" in start_script_text
     assert '-profile "${CONFIG_DIR}"' in start_script_text
     assert "-logStats 10000" in start_script_text
     assert start_script_path.stat().st_mode & 0o777 == 0o755

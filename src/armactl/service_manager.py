@@ -30,6 +30,10 @@ SUDO_AUTH_ERROR_MARKERS = (
     "a password is required",
 )
 SUDOERS_USER_RE = re.compile(r"^\s*([A-Za-z0-9._-]+)\s+ALL=\(root\)\s+NOPASSWD:")
+INSTANCE_SERVICE_RE = re.compile(r"^armareforger@([A-Za-z0-9_.-]+)\.service$")
+RESTART_INSTANCE_SERVICE_RE = re.compile(
+    r"^armareforger-restart@([A-Za-z0-9_.-]+)\.service$"
+)
 
 
 @dataclass
@@ -275,10 +279,50 @@ def render_start_script(
         server_dir=str(server_dir),
         config_dir=str(config_dir),
         config_file=str(config_file),
+        python_executable=sys.executable,
         log_stats_interval_ms=log_stats_interval_ms,
         max_fps=max_fps,
     )
     return _normalize_generated_text(rendered)
+
+
+def _instance_from_service_name(service_name: str) -> str | None:
+    if service_name in {paths.SERVICE_NAME, paths.RESTART_SERVICE_NAME}:
+        return paths.DEFAULT_INSTANCE_NAME
+    match = INSTANCE_SERVICE_RE.fullmatch(service_name) or RESTART_INSTANCE_SERVICE_RE.fullmatch(
+        service_name
+    )
+    if not match:
+        return None
+    try:
+        return paths.validate_instance_name(match.group(1))
+    except paths.InvalidInstanceNameError:
+        return None
+
+
+def _run_pre_start_guards(service_name: str) -> ServiceResult | None:
+    instance = _instance_from_service_name(service_name)
+    if instance is None:
+        return None
+
+    config_path = paths.config_file(instance)
+    if not config_path.is_file():
+        return None
+
+    try:
+        from armactl.sat_admin_guard import SatAdminGuardError, guard_sat_admin_config
+
+        guard_sat_admin_config(config_path)
+    except SatAdminGuardError as error:
+        return ServiceResult(
+            False,
+            tr(
+                "ServerAdminTools admin guard failed: {error}",
+                error=redact_sensitive_text(error),
+            ),
+            1,
+        )
+    return None
 
 
 def sync_generated_start_script(
@@ -657,6 +701,9 @@ def update_restart_timer_schedule(
 
 def start_service(service_name: str = "armareforger.service") -> ServiceResult:
     """Start the server service."""
+    guard_result = _run_pre_start_guards(service_name)
+    if guard_result is not None:
+        return guard_result
     return _run_systemctl("start", service_name)
 
 
@@ -667,6 +714,9 @@ def stop_service(service_name: str = "armareforger.service") -> ServiceResult:
 
 def restart_service(service_name: str = "armareforger.service") -> ServiceResult:
     """Restart the server service."""
+    guard_result = _run_pre_start_guards(service_name)
+    if guard_result is not None:
+        return guard_result
     return _run_systemctl("restart", service_name)
 
 

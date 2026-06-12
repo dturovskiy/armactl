@@ -13,6 +13,7 @@ from armactl import (
     paths,
     player_view,
     ports,
+    sat_admin_guard,
     service_manager,
     status_summary,
 )
@@ -50,6 +51,7 @@ class DashboardSnapshot:
     ports: dict[str, Any]
     web: dict[str, Any]
     bot: dict[str, Any]
+    sat: dict[str, Any]
     errors: tuple[DashboardError, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
@@ -441,6 +443,20 @@ def _load_bot_summary(instance: str, errors: list[DashboardError]) -> dict[str, 
     return summary
 
 
+def _load_sat_summary(state: ServerState, errors: list[DashboardError]) -> dict[str, Any]:
+    if not state.config_path:
+        return _unavailable("config path is not available")
+
+    try:
+        summary = sat_admin_guard.inspect_sat_admin_config(state.config_path).to_dict()
+    except Exception as error:
+        message = str(error) or error.__class__.__name__
+        errors.append(DashboardError(section="sat_admin_guard", message=message))
+        return _unavailable("ServerAdminTools admin status is not available")
+
+    return {"available": bool(summary.get("available")), **summary}
+
+
 def load_dashboard_snapshot(
     instance: str,
     *,
@@ -536,6 +552,7 @@ def load_dashboard_snapshot(
         ports=_load_ports(state, config_summary, errors),
         web=_load_web_runtime(web_config),
         bot=_load_bot_summary(instance, errors),
+        sat=_load_sat_summary(state, errors),
         errors=tuple(errors),
     )
     return snapshot.to_dict()

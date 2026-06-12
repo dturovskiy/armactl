@@ -202,6 +202,23 @@ def _install_common_fakes(
             "rcon": {"port": rcon_port, "listening": False},
         },
     )
+    monkeypatch.setattr(
+        facade.sat_admin_guard,
+        "inspect_sat_admin_config",
+        lambda config_path: SimpleNamespace(
+            to_dict=lambda: {
+                "available": True,
+                "valid_json": True,
+                "desired_admins": ["21761a7f-c9b4-4bff-8375-b4b43abb95ec"],
+                "missing_mappings": [],
+                "default_only_admins": False,
+                "default_only_game_masters": False,
+                "missing_admins": [],
+                "missing_game_masters": [],
+                "warning": "",
+            }
+        ),
+    )
     _install_bot_fakes(monkeypatch, facade)
     return facade
 
@@ -277,6 +294,8 @@ def test_dashboard_snapshot_for_running_server(monkeypatch):
     assert snapshot["mods"]["count"] == 2
     assert snapshot["mods"]["preview_labels"] == ["Mod A (mod-a)"]
     assert snapshot["bot"]["token_configured"] is False
+    assert snapshot["sat"]["available"] is True
+    assert snapshot["sat"]["warning"] == ""
 
 
 def test_dashboard_snapshot_includes_safe_web_runtime(monkeypatch, tmp_path: Path):
@@ -325,6 +344,11 @@ def test_dashboard_snapshot_for_no_server_skips_server_sections(monkeypatch):
     )
     monkeypatch.setattr(facade.player_view, "query_player_view", _fail_if_called("players"))
     monkeypatch.setattr(facade.ports, "check_server_ports", _fail_if_called("ports"))
+    monkeypatch.setattr(
+        facade.sat_admin_guard,
+        "inspect_sat_admin_config",
+        _fail_if_called("sat"),
+    )
     _install_bot_fakes(monkeypatch, facade)
 
     snapshot = facade.load_dashboard_snapshot("default")
@@ -338,6 +362,7 @@ def test_dashboard_snapshot_for_no_server_skips_server_sections(monkeypatch):
     assert snapshot["timer"]["available"] is False
     assert snapshot["ports"]["available"] is False
     assert snapshot["players"]["available"] is False
+    assert snapshot["sat"]["available"] is False
     assert snapshot["errors"] == []
 
 

@@ -5,8 +5,25 @@ INSTANCE_ROOT="{{ instance_root }}"
 SERVER_DIR="{{ server_dir }}"
 CONFIG_DIR="{{ config_dir }}"
 CONFIG_FILE="{{ config_file }}"
+SAT_GUARD_PYTHON="{{ python_executable }}"
+
+run_sat_admin_guard() {
+  local candidate
+  for candidate in "${SAT_GUARD_PYTHON}" python3; do
+    if ! command -v "${candidate}" >/dev/null 2>&1; then
+      continue
+    fi
+    if "${candidate}" -c "import armactl.sat_admin_guard" >/dev/null 2>&1; then
+      "${candidate}" -m armactl.sat_admin_guard --config "${CONFIG_FILE}" --quiet
+      return
+    fi
+  done
+  echo "armactl SAT admin guard is unavailable; continuing without SAT role repair." >&2
+}
 
 cd "${SERVER_DIR}"
+
+run_sat_admin_guard
 
 exec "${SERVER_DIR}/ArmaReforgerServer" \
   -config "${CONFIG_FILE}" \

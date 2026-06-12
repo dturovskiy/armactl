@@ -154,6 +154,17 @@ def _snapshot() -> dict:
             "env_path": "/srv/armactl-data/default/bot/.env",
             "service": {"available": False},
         },
+        "sat": {
+            "available": True,
+            "valid_json": True,
+            "desired_admins": ["21761a7f-c9b4-4bff-8375-b4b43abb95ec"],
+            "missing_mappings": [],
+            "default_only_admins": False,
+            "default_only_game_masters": False,
+            "missing_admins": [],
+            "missing_game_masters": [],
+            "warning": "",
+        },
         "errors": [],
     }
 
@@ -193,6 +204,7 @@ def _no_server_snapshot() -> dict:
         },
         players={"available": False, "count_text": "unavailable"},
         ports={"available": False, "error": "server is not installed"},
+        sat={"available": False, "error": "config path is not available"},
     )
     return snapshot
 
@@ -697,6 +709,7 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert "running" in root_response.text
     assert "3 / 64" in root_response.text
     assert "owner" in root_response.text
+    assert "ServerAdminTools" in root_response.text
     assert 'action="/service/start"' in root_response.text
     assert 'action="/service/stop"' in root_response.text
     assert 'action="/service/restart"' in root_response.text
