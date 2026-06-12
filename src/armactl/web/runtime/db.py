@@ -19,7 +19,7 @@ def _ensure_private_db_file(db_path: Path) -> None:
 
 
 def ensure_web_db(db_path: Path) -> Path:
-    """Create/open `web.db` and ensure the schema metadata table exists."""
+    """Create/open `web.db` and ensure the web runtime schema exists."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     _ensure_private_db_file(db_path)
 
@@ -29,6 +29,19 @@ def ensure_web_db(db_path: Path) -> Path:
             CREATE TABLE IF NOT EXISTS web_schema_meta (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS web_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE CHECK(length(trim(username)) > 0),
+                password_hash TEXT NOT NULL CHECK(length(password_hash) > 0),
+                role TEXT NOT NULL CHECK(role = 'owner'),
+                is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+                created_at TEXT NOT NULL CHECK(length(created_at) > 0),
+                updated_at TEXT NOT NULL CHECK(length(updated_at) > 0)
             )
             """
         )

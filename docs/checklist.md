@@ -258,7 +258,8 @@
 - [x] Додати FastAPI app factory, health endpoint і minimal dashboard routes
 - [x] Додати web runtime storage/config/db foundation
 - [x] Додати `armactl web init` і first setup flow
-- [ ] Додати auth, session cookies, CSRF, role model
+- [x] Додати auth DB/password foundation і мінімальну owner role
+- [ ] Додати owner-user setup flow, session cookies, CSRF і login/logout
 - [ ] Додати web permission categories для dashboard/actions/files/backups/users
 - [ ] Додати dashboard read-only parity з TUI
 - [ ] Додати controlled start/stop/restart actions
