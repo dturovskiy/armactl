@@ -635,6 +635,7 @@ src/armactl/web/
   jobs/
     models.py
     store.py
+    runner.py
   auth/
     users.py
     sessions.py
@@ -844,10 +845,15 @@ not the foreground debug runner.
 - A small `web_jobs` metadata model now exists in `web.db` for web-runtime job
   status, progress, timestamps, bounded redacted stdout/stderr tails, and safe
   result/error metadata.
-- Add a worker/dispatcher before long-running operations are exposed in web.
+- A pluggable runner/dispatcher foundation now runs only explicitly registered
+  safe handlers by job kind; unknown kinds and handler failures become
+  controlled failed jobs.
+- A read-only authenticated `/jobs` page lists recent jobs and bounded output
+  tails for operators with `jobs:view`.
 - Use the job model for future install, repair, SteamCMD update, and large file
   actions.
-- Until the worker and routes exist, keep install/repair/update out of web.
+- Until explicit handlers and routes exist for those operations, keep
+  install/repair/update out of web.
 
 ### Phase 4 - Config and mods
 

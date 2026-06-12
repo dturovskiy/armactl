@@ -105,13 +105,17 @@ Completed foundation:
     language/theme controls through web-owned cookies.
 16. Background job metadata foundation: `web_jobs` stores web-runtime job
     status, progress, timestamps, bounded redacted stdout/stderr tails, and
-    safe result/error metadata. No worker or long-running operation routes are
-    implemented yet.
+    safe result/error metadata.
+17. Background dispatcher/read-only jobs UI foundation: a pluggable runner can
+    run explicitly registered safe handlers, terminal jobs do not rerun, handler
+    failures are redacted into job metadata, and authenticated users with
+    jobs:view can inspect recent jobs at `/jobs`. No install/repair/update or
+    large-file handlers are registered yet.
 
 Next recommended implementation order:
 
-1. Add a background worker/read-only jobs UI before exposing install, repair,
-   update, or large file operations.
+1. Connect install, repair, update, or large file operations to explicit
+   background job handlers before exposing those flows in web.
 2. Add config/mods/admins/bot web flows through existing backend modules.
 3. Add the safe filesystem adapter before upload/download routes.
 4. Add armactl-web.service and deployment docs.

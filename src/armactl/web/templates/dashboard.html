@@ -43,6 +43,32 @@
 </section>
 {% endif %}
 
+{% if can_view_jobs %}
+<section class="panel full-width recent-jobs">
+  <div class="section-heading-row">
+    <h2>{{ t("Recent Jobs") }}</h2>
+    <a class="button-link secondary-link" href="/jobs">{{ t("View all jobs") }}</a>
+  </div>
+  {% if recent_jobs %}
+    <table>
+      <thead><tr><th>{{ t("Kind") }}</th><th>{{ t("Status") }}</th><th>{{ t("Requested by") }}</th><th>{{ t("Updated") }}</th></tr></thead>
+      <tbody>
+      {% for job in recent_jobs %}
+        <tr>
+          <td>{{ job.kind }}</td>
+          <td><span class="job-status job-status-{{ job.status }}">{{ t(job.status) }}</span></td>
+          <td>{{ job.requested_by_username }}</td>
+          <td>{{ job.updated_at }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">{{ t("No jobs yet.") }}</p>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if can_run_actions %}
 <section class="panel full-width service-controls">
   <h2>{{ t("Server Actions") }}</h2>

@@ -14,8 +14,9 @@ from armactl.web.auth.dependencies import (
     permission_denied_response,
     require_permission,
 )
-from armactl.web.auth.permissions import ACTIONS_RUN, DASHBOARD_VIEW
+from armactl.web.auth.permissions import ACTIONS_RUN, DASHBOARD_VIEW, JOBS_VIEW
 from armactl.web.facade import load_dashboard_snapshot
+from armactl.web.jobs.store import list_recent_jobs
 
 router = APIRouter()
 
@@ -46,6 +47,8 @@ def _render_dashboard(request: Request, current: CurrentSession) -> Response:
         )
 
     form_csrf = get_form_csrf_token(request, current)
+    can_view_jobs = require_permission(current, JOBS_VIEW)
+    recent_jobs = list_recent_jobs(current.config.db_path, limit=3) if can_view_jobs else []
     response = templates.TemplateResponse(
         request=request,
         name="dashboard.html",
@@ -54,6 +57,8 @@ def _render_dashboard(request: Request, current: CurrentSession) -> Response:
             "current_user": current.user,
             "csrf_token": form_csrf.token,
             "can_run_actions": require_permission(current, ACTIONS_RUN),
+            "can_view_jobs": can_view_jobs,
+            "recent_jobs": recent_jobs,
         },
     )
     if form_csrf.should_set_cookie:

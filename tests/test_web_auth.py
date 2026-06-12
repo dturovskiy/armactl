@@ -121,6 +121,7 @@ def test_owner_has_every_declared_permission():
         "users:manage",
         "settings:manage",
         "logs:view",
+        "jobs:view",
     }
     assert all(user_has_permission(user, permission) for permission in ALL_PERMISSIONS)
 

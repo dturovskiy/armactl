@@ -14,6 +14,7 @@ BACKUPS_MANAGE = "backups:manage"
 USERS_MANAGE = "users:manage"
 SETTINGS_MANAGE = "settings:manage"
 LOGS_VIEW = "logs:view"
+JOBS_VIEW = "jobs:view"
 
 ALL_PERMISSIONS = frozenset(
     {
@@ -25,6 +26,7 @@ ALL_PERMISSIONS = frozenset(
         USERS_MANAGE,
         SETTINGS_MANAGE,
         LOGS_VIEW,
+        JOBS_VIEW,
     }
 )
 

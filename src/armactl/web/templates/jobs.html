@@ -1,0 +1,63 @@
+{% extends "layout.html" %}
+{% block title %}{{ t("Jobs - armactl web") }}{% endblock %}
+{% block heading %}{{ t("Background Jobs") }}{% endblock %}
+{% block topbar_actions %}
+<a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
+<form method="post" action="/logout" class="logout-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <span class="user-label">{{ current_user.username }}</span>
+  <button type="submit">{{ t("Log out") }}</button>
+</form>
+{% endblock %}
+{% block content %}
+<section class="panel full-width jobs-panel">
+  <h2>{{ t("Recent Background Jobs") }}</h2>
+  {% if jobs %}
+    <div class="job-list">
+      {% for job in jobs %}
+        <article class="job-card job-card-{{ job.status }}">
+          <div class="section-heading-row">
+            <h2>{{ job.kind }}</h2>
+            <span class="job-status job-status-{{ job.status }}">{{ t(job.status) }}</span>
+          </div>
+          <dl>
+            <dt>{{ t("Job ID") }}</dt><dd>#{{ job.id }}</dd>
+            <dt>{{ t("Instance") }}</dt><dd>{{ job.instance }}</dd>
+            <dt>{{ t("Requested by") }}</dt><dd>{{ job.requested_by_username }}</dd>
+            <dt>{{ t("Created") }}</dt><dd>{{ job.created_at }}</dd>
+            <dt>{{ t("Updated") }}</dt><dd>{{ job.updated_at }}</dd>
+            <dt>{{ t("Started") }}</dt><dd>{{ job.started_at or t("not started") }}</dd>
+            <dt>{{ t("Finished") }}</dt><dd>{{ job.finished_at or t("not finished") }}</dd>
+            <dt>{{ t("Progress") }}</dt><dd>{{ job.progress_current }}{% if job.progress_total %} / {{ job.progress_total }}{% endif %}</dd>
+            <dt>{{ t("Current step") }}</dt><dd>{{ job.current_step or t("none") }}</dd>
+            {% if job.result_message %}
+              <dt>{{ t("Result") }}</dt><dd>{{ t(job.result_message) }}</dd>
+            {% endif %}
+            {% if job.error_message %}
+              <dt>{{ t("Error") }}</dt><dd>{% if job.error_class %}{{ job.error_class }}: {% endif %}{{ job.error_message }}</dd>
+            {% endif %}
+          </dl>
+          {% if job.stdout_tail or job.stderr_tail %}
+            <div class="job-output-grid">
+              {% if job.stdout_tail %}
+                <section class="job-output-block">
+                  <h3>{{ t("Stdout tail") }}</h3>
+                  <pre>{{ job.stdout_tail }}</pre>
+                </section>
+              {% endif %}
+              {% if job.stderr_tail %}
+                <section class="job-output-block">
+                  <h3>{{ t("Stderr tail") }}</h3>
+                  <pre>{{ job.stderr_tail }}</pre>
+                </section>
+              {% endif %}
+            </div>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="muted">{{ t("No jobs yet.") }}</p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -17,11 +17,15 @@ from armactl.web.jobs import (
     JOB_STATUS_QUEUED,
     JOB_STATUS_RUNNING,
     JOB_STATUS_SUCCEEDED,
+    JobDispatcher,
+    JobHandlerResult,
     JobStoreError,
     JobTransitionError,
     append_job_output,
     cancel_job,
     create_job,
+    dispatch_job,
+    enqueue_job,
     get_job,
     list_recent_jobs,
     mark_job_failed,
@@ -211,6 +215,108 @@ def test_job_output_tail_is_bounded_and_redacted(tmp_path: Path):
     assert "hunter2" not in repr(updated)
     assert "secret-value" not in repr(updated)
 
+
+
+def test_registered_handler_moves_job_to_succeeded(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+    calls: list[str] = []
+
+    def handler(context):
+        calls.append(context.job.status)
+        context.append_output(stdout="step complete")
+        return JobHandlerResult(
+            result_message="Job completed.",
+            current_step="Done",
+            progress_current=1,
+            progress_total=1,
+        )
+
+    dispatcher = JobDispatcher({"safe:test": handler})
+    job = enqueue_job(db_path, kind="safe:test", requested_by_username="owner")
+
+    result = dispatch_job(db_path, job.id, dispatcher)
+
+    assert result.ran is True
+    assert result.message == "Job succeeded."
+    assert result.job.status == JOB_STATUS_SUCCEEDED
+    assert result.job.result_message == "Job completed."
+    assert result.job.current_step == "Done"
+    assert result.job.progress_current == 1
+    assert result.job.progress_total == 1
+    assert result.job.started_at is not None
+    assert result.job.finished_at is not None
+    assert result.job.stdout_tail == "step complete"
+    assert calls == [JOB_STATUS_RUNNING]
+
+
+def test_handler_exception_marks_job_failed_with_redacted_error(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+
+    def handler(context):
+        context.append_output(stderr="password=hunter2 before failure")
+        raise RuntimeError("token=secret-token exploded")
+
+    dispatcher = JobDispatcher({"safe:fail": handler})
+    job = enqueue_job(db_path, kind="safe:fail", requested_by_username="owner")
+
+    result = dispatch_job(db_path, job.id, dispatcher)
+
+    assert result.ran is True
+    assert result.job.status == JOB_STATUS_FAILED
+    assert result.job.error_class == "RuntimeError"
+    assert "secret-token" not in result.job.error_message
+    assert "token=***" in result.job.error_message
+    assert "hunter2" not in result.job.stderr_tail
+    assert "password=***" in result.job.stderr_tail
+
+
+def test_unknown_job_kind_marks_failed_controlled(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+    job = enqueue_job(db_path, kind="safe:missing", requested_by_username="owner")
+
+    result = dispatch_job(db_path, job.id, JobDispatcher())
+
+    assert result.ran is True
+    assert result.job.status == JOB_STATUS_FAILED
+    assert result.job.error_class == "UnknownJobKind"
+    assert result.job.error_message == "No registered handler for job kind."
+
+
+def test_terminal_jobs_do_not_rerun(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+    job = create_job(db_path, kind="safe:test", requested_by_username="owner")
+    mark_job_running(db_path, job.id)
+    finished = mark_job_succeeded(db_path, job.id, result_message="already done")
+
+    def handler(context):
+        raise AssertionError("terminal job should not run")
+
+    result = dispatch_job(db_path, finished.id, JobDispatcher({"safe:test": handler}))
+
+    assert result.ran is False
+    assert result.job.status == JOB_STATUS_SUCCEEDED
+    assert result.job.result_message == "already done"
+
+
+def test_handler_output_is_bounded_and_redacted(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+
+    def handler(context):
+        context.append_output(
+            stdout="A" * (MAX_JOB_OUTPUT_CHARS + 100) + " password=hunter2",
+            stderr="ARMACTL_WEB_SESSION_SECRET=secret-value",
+        )
+        return "done"
+
+    job = enqueue_job(db_path, kind="safe:output", requested_by_username="owner")
+    result = dispatch_job(db_path, job.id, JobDispatcher({"safe:output": handler}))
+
+    assert result.job.status == JOB_STATUS_SUCCEEDED
+    assert len(result.job.stdout_tail) <= MAX_JOB_OUTPUT_CHARS
+    assert "hunter2" not in result.job.stdout_tail
+    assert result.job.stdout_tail.endswith("password=***")
+    assert "secret-value" not in result.job.stderr_tail
+    assert "ARMACTL_WEB_SESSION_SECRET=***" in result.job.stderr_tail
 
 def test_web_jobs_import_does_not_import_tui_or_textual(monkeypatch):
     _forget_modules("armactl.web.jobs", "armactl.tui", "textual")

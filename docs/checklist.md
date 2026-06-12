@@ -270,7 +270,8 @@
 - [x] Додати controlled start/stop/restart actions
 - [x] Додати web i18n adapter і theme preferences поверх існуючих `src/armactl/locales/*.json`
 - [x] Додати background job metadata model перед long-running operations
-- [ ] Додати background worker/read-only jobs UI перед install/repair/update flows
+- [x] Додати background dispatcher/read-only jobs UI foundation перед install/repair/update flows
+- [ ] Підключити install/repair/update flows до background jobs без blocking HTTP requests
 - [ ] Додати config/mods web flows через backend modules
 - [ ] Додати safe local filesystem browser/upload/download
 - [ ] Додати optional entitlement/feature-flag model, якщо продукт матиме платні tiers

@@ -789,6 +789,8 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert 'action="/service/start"' in root_response.text
     assert 'action="/service/stop"' in root_response.text
     assert 'action="/service/restart"' in root_response.text
+    assert 'href="/jobs"' in root_response.text
+    assert "Recent Jobs" in root_response.text
     assert calls == ["default", "default"]
 
 
@@ -917,6 +919,110 @@ def test_dashboard_partial_data_renders_controlled_section(
 
 
 
+
+
+def test_unauthenticated_jobs_redirects_to_login(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.get("/jobs", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_authenticated_owner_sees_jobs_page(tmp_path: Path):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import create_job, mark_job_running, mark_job_succeeded
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    db_path = tmp_path / "web" / "web.db"
+    job = create_job(db_path, kind="safe:test", requested_by_username="owner")
+    mark_job_running(db_path, job.id, current_step="Working", progress_current=1, progress_total=2)
+    mark_job_succeeded(db_path, job.id, result_message="Job completed.", current_step="Done")
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/jobs", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Background Jobs" in response.text
+    assert "safe:test" in response.text
+    assert "succeeded" in response.text
+    assert "Job completed." in response.text
+    assert "owner" in response.text
+    assert 'action="/logout"' in response.text
+
+
+def test_jobs_permission_denied_returns_controlled_403(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.routes import jobs
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    monkeypatch.setattr(jobs, "require_permission", lambda current, permission: False)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/jobs", follow_redirects=False)
+
+    assert response.status_code == 403
+    assert response.text == "Permission denied."
+    assert "Traceback" not in response.text
+
+
+def test_jobs_page_renders_ukrainian_labels(tmp_path: Path):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import create_job
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    create_job(tmp_path / "web" / "web.db", kind="safe:test", requested_by_username="owner")
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    _set_cookie(client, LANGUAGE_COOKIE_NAME, "uk")
+
+    response = client.get("/jobs", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert '<html lang="uk"' in response.text
+    assert "Фонові завдання" in response.text
+    assert "Останні фонові завдання" in response.text
+    assert "Запитав" in response.text
+    assert "у черзі" in response.text
+
+
+def test_jobs_output_is_escaped_and_secrets_are_not_rendered(tmp_path: Path):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import append_job_output, create_job, mark_job_running
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    db_path = tmp_path / "web" / "web.db"
+    job = create_job(db_path, kind="safe:test", requested_by_username="owner")
+    mark_job_running(db_path, job.id)
+    append_job_output(
+        db_path,
+        job.id,
+        stdout="<script>alert(1)</script> password=hunter2",
+        stderr="ARMACTL_WEB_SESSION_SECRET=secret-value",
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/jobs", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in response.text
+    assert "<script>alert(1)</script>" not in response.text
+    assert "hunter2" not in response.text
+    assert "secret-value" not in response.text
+    assert "password=***" in response.text
+    assert "ARMACTL_WEB_SESSION_SECRET=***" in response.text
+    assert SESSION_COOKIE_NAME not in response.text
+    assert CSRF_COOKIE_NAME not in response.text
 
 def test_unauthenticated_service_action_redirects_to_login(tmp_path: Path):
     from armactl.web.app import create_app
