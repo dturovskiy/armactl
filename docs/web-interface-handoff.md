@@ -111,12 +111,16 @@ Completed foundation:
     failures are redacted into job metadata, and authenticated users with
     jobs:view can inspect recent jobs at `/jobs`. No install/repair/update or
     large-file handlers are registered yet.
+18. Read-only management pages for `/config`, `/mods`, `/admins`, and `/bot`:
+    authenticated users with the matching view permissions can inspect safe
+    server config summaries, active mods, game admins, and Telegram bot status
+    without exposing secrets or mutating game/server state.
 
 Next recommended implementation order:
 
 1. Connect install, repair, update, or large file operations to explicit
    background job handlers before exposing those flows in web.
-2. Add config/mods/admins/bot web flows through existing backend modules.
+2. Add edit/save/delete flows for config, mods, admins, and bot settings through existing backend modules.
 3. Add the safe filesystem adapter before upload/download routes.
 4. Add armactl-web.service and deployment docs.
 5. Add reverse proxy / HTTPS deployment docs.

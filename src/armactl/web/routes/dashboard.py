@@ -14,7 +14,15 @@ from armactl.web.auth.dependencies import (
     permission_denied_response,
     require_permission,
 )
-from armactl.web.auth.permissions import ACTIONS_RUN, DASHBOARD_VIEW, JOBS_VIEW
+from armactl.web.auth.permissions import (
+    ACTIONS_RUN,
+    ADMINS_VIEW,
+    BOT_VIEW,
+    CONFIG_VIEW,
+    DASHBOARD_VIEW,
+    JOBS_VIEW,
+    MODS_VIEW,
+)
 from armactl.web.facade import load_dashboard_snapshot
 from armactl.web.jobs.store import list_recent_jobs
 
@@ -58,6 +66,10 @@ def _render_dashboard(request: Request, current: CurrentSession) -> Response:
             "csrf_token": form_csrf.token,
             "can_run_actions": require_permission(current, ACTIONS_RUN),
             "can_view_jobs": can_view_jobs,
+            "can_view_config": require_permission(current, CONFIG_VIEW),
+            "can_view_mods": require_permission(current, MODS_VIEW),
+            "can_view_admins": require_permission(current, ADMINS_VIEW),
+            "can_view_bot": require_permission(current, BOT_VIEW),
             "recent_jobs": recent_jobs,
         },
     )

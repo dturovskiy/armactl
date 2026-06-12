@@ -1,0 +1,43 @@
+{% extends "layout.html" %}
+{% block title %}{{ t("Bot - armactl web") }}{% endblock %}
+{% block heading %}{{ t("Telegram Bot") }}{% endblock %}
+{% block topbar_actions %}
+<a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
+<form method="post" action="/logout" class="logout-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <span class="user-label">{{ current_user.username }}</span>
+  <button type="submit">{{ t("Log out") }}</button>
+</form>
+{% endblock %}
+{% block content %}
+<section class="panel full-width">
+  <h2>{{ t("Telegram Bot Status") }}</h2>
+  {% if page.available %}
+    <dl>
+      <dt>{{ t("Instance") }}</dt><dd>{{ page.instance }}</dd>
+      <dt>{{ t("Enabled") }}</dt><dd>{{ t("yes") if page.bot.enabled else t("no") }}</dd>
+      <dt>{{ t("Token configured") }}</dt><dd>{{ t("yes") if page.bot.token_configured else t("no") }}</dd>
+      <dt>{{ t("Admin chats") }}</dt><dd>{{ page.bot.admin_chat_count }}</dd>
+      <dt>{{ t("Language") }}</dt><dd>{{ page.bot.language or t("unknown") }}</dd>
+      <dt>{{ t("Config path") }}</dt><dd>{{ page.bot.env_path or t("unknown") }}</dd>
+      <dt>{{ t("Service") }}</dt><dd>{% if page.bot.service.available %}{{ page.bot.service.service_name or t("unknown") }}{% else %}{{ t(page.bot.service.error) }}{% endif %}</dd>
+      <dt>{{ t("Service active") }}</dt><dd>{% if page.bot.service.available %}{{ t("yes") if page.bot.service.active else t("no") }}{% else %}{{ t("unknown") }}{% endif %}</dd>
+      <dt>{{ t("Service enabled") }}</dt><dd>{% if page.bot.service.available %}{{ t("yes") if page.bot.service.enabled else t("no") }}{% else %}{{ t("unknown") }}{% endif %}</dd>
+      <dt>{{ t("Runtime ready") }}</dt><dd>{% if page.bot.service.available %}{% if page.bot.service.runtime_ready is none %}{{ t("unknown") }}{% elif page.bot.service.runtime_ready %}{{ t("yes") }}{% else %}{{ t("no") }}{% endif %}{% else %}{{ t("unknown") }}{% endif %}</dd>
+    </dl>
+    {% if page.errors %}
+      <section class="warning">
+        <h2>{{ t("Partial data") }}</h2>
+        <ul>
+          {% for error in page.errors %}
+            <li>{{ error.section }}: {{ t(error.message) }}</li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+  {% else %}
+    <p class="muted">{{ t("Bot data is unavailable.") }}</p>
+    <p class="error">{{ t(page.error) }}</p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -252,6 +252,103 @@ def _stub_dashboard(monkeypatch):
     return calls
 
 
+def _management_pages() -> dict[str, dict]:
+    return {
+        "config": {
+            "instance": "default",
+            "available": True,
+            "error": "",
+            "status": {
+                "lifecycle": "running",
+                "installed": True,
+                "running": True,
+                "label": "running",
+            },
+            "paths": {
+                "config_path": "/srv/armactl-data/default/config/config.json",
+                "instance_root": "/srv/armactl-data/default",
+                "install_dir": "/srv/armactl-data/default/server",
+            },
+            "config": {
+                "available": True,
+                "server_name": "Read Only Server",
+                "scenario_id": "Scenario.conf",
+                "max_players": 42,
+                "visible_text": "yes",
+                "battleye_text": "no",
+                "bind_port": 2400,
+                "a2s_port": 17778,
+                "rcon_port": 20000,
+                "unused_secret": "raw-rcon-secret",
+            },
+        },
+        "mods": {
+            "instance": "default",
+            "available": True,
+            "error": "",
+            "paths": {"config_path": "/srv/armactl-data/default/config/config.json"},
+            "count": 1,
+            "mods": [{"mod_id": "mod-a", "name": "Mod A", "version": "1.0"}],
+        },
+        "admins": {
+            "instance": "default",
+            "available": True,
+            "error": "",
+            "paths": {"config_path": "/srv/armactl-data/default/config/config.json"},
+            "official_count": 1,
+            "local_label_count": 1,
+            "local_labels_path": "/srv/armactl-data/default/config/admins-state.json",
+            "local_labels_error": "",
+            "official_admins": [
+                {"identity_id": "ABC123", "name": "Local Captain", "source": "local"}
+            ],
+        },
+        "bot": {
+            "instance": "default",
+            "available": True,
+            "error": "",
+            "bot": {
+                "available": True,
+                "enabled": True,
+                "token_configured": True,
+                "token": "raw-bot-token-secret",
+                "admin_chat_count": 2,
+                "language": "uk",
+                "env_path": "/srv/armactl-data/default/bot/.env",
+                "service": {
+                    "available": True,
+                    "service_name": "armactl-bot.service",
+                    "active": False,
+                    "enabled": True,
+                    "runtime_ready": None,
+                },
+            },
+            "errors": [],
+        },
+    }
+
+
+def _stub_management_pages(monkeypatch, pages: dict[str, dict] | None = None) -> list[str]:
+    from armactl.web.routes import management
+
+    page_data = pages or _management_pages()
+    calls: list[str] = []
+
+    def fake_loader(name: str):
+        def load(instance: str) -> dict:
+            calls.append(name)
+            assert instance == "default"
+            return page_data[name]
+
+        return load
+
+    monkeypatch.setattr(management, "load_config_page", fake_loader("config"))
+    monkeypatch.setattr(management, "load_mods_page", fake_loader("mods"))
+    monkeypatch.setattr(management, "load_admins_page", fake_loader("admins"))
+    monkeypatch.setattr(management, "load_bot_page", fake_loader("bot"))
+    return calls
+
+
 def _set_cookie(client, name: str, value: str) -> None:
     client.cookies.set(name, value, path="/")
 
@@ -789,6 +886,10 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert 'action="/service/start"' in root_response.text
     assert 'action="/service/stop"' in root_response.text
     assert 'action="/service/restart"' in root_response.text
+    assert 'href="/config"' in root_response.text
+    assert 'href="/mods"' in root_response.text
+    assert 'href="/admins"' in root_response.text
+    assert 'href="/bot"' in root_response.text
     assert 'href="/jobs"' in root_response.text
     assert "Recent Jobs" in root_response.text
     assert calls == ["default", "default"]
@@ -919,6 +1020,152 @@ def test_dashboard_partial_data_renders_controlled_section(
 
 
 
+
+
+
+def test_unauthenticated_management_pages_redirect_to_login(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    for path in ("/config", "/mods", "/admins", "/bot"):
+        response = client.get(path, follow_redirects=False)
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login"
+
+
+def test_authenticated_owner_can_view_management_pages(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+
+    password = "owner management password"
+    setup_owner_user(tmp_path, "owner", password)
+    calls = _stub_management_pages(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    config_response = client.get("/config", follow_redirects=False)
+    mods_response = client.get("/mods", follow_redirects=False)
+    admins_response = client.get("/admins", follow_redirects=False)
+    bot_response = client.get("/bot", follow_redirects=False)
+
+    assert config_response.status_code == 200
+    assert "Read Only Server" in config_response.text
+    assert "Scenario.conf" in config_response.text
+    assert mods_response.status_code == 200
+    assert "mod-a" in mods_response.text
+    assert "Mod A" in mods_response.text
+    assert admins_response.status_code == 200
+    assert "ABC123" in admins_response.text
+    assert "Local Captain" in admins_response.text
+    assert bot_response.status_code == 200
+    assert "Token configured" in bot_response.text
+    assert "raw-bot-token-secret" not in bot_response.text
+    assert calls == ["config", "mods", "admins", "bot"]
+
+
+def test_management_permission_denied_returns_controlled_403_and_skips_backend(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.routes import management
+
+    password = "owner management password"
+    setup_owner_user(tmp_path, "owner", password)
+    calls = _stub_management_pages(monkeypatch)
+    monkeypatch.setattr(management, "require_permission", lambda current, permission: False)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    for path in ("/config", "/mods", "/admins", "/bot"):
+        response = client.get(path, follow_redirects=False)
+
+        assert response.status_code == 403
+        assert response.text == "Permission denied."
+        assert "Traceback" not in response.text
+
+    assert calls == []
+
+
+def test_management_pages_render_controlled_empty_states(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+
+    password = "owner management password"
+    setup_owner_user(tmp_path, "owner", password)
+    pages = {
+        name: {
+            "instance": "default",
+            "available": False,
+            "error": "config path is not available",
+        }
+        for name in ("config", "mods", "admins", "bot")
+    }
+    _stub_management_pages(monkeypatch, pages)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    responses = {
+        path: client.get(path, follow_redirects=False)
+        for path in ("/config", "/mods", "/admins", "/bot")
+    }
+
+    assert responses["/config"].status_code == 200
+    assert "Config data is unavailable." in responses["/config"].text
+    assert "config path is not available" in responses["/config"].text
+    assert "Mods data is unavailable." in responses["/mods"].text
+    assert "Admins data is unavailable." in responses["/admins"].text
+    assert "Bot data is unavailable." in responses["/bot"].text
+    assert all("Traceback" not in response.text for response in responses.values())
+
+
+def test_management_pages_render_ukrainian_labels(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+
+    password = "owner management password"
+    setup_owner_user(tmp_path, "owner", password)
+    _stub_management_pages(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    _set_cookie(client, LANGUAGE_COOKIE_NAME, "uk")
+
+    config_response = client.get("/config", follow_redirects=False)
+    mods_response = client.get("/mods", follow_redirects=False)
+    admins_response = client.get("/admins", follow_redirects=False)
+    bot_response = client.get("/bot", follow_redirects=False)
+
+    assert config_response.status_code == 200
+    assert "Конфіг сервера" in config_response.text
+    assert "Активні моди" in mods_response.text
+    assert "Офіційні ігрові адміни" in admins_response.text
+    assert "Стан Telegram-бота" in bot_response.text
+
+
+def test_management_pages_do_not_render_secrets(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+
+    password = "owner management password"
+    setup_owner_user(tmp_path, "owner", password)
+    user = get_user_by_username(tmp_path / "web" / "web.db", "owner")
+    assert user is not None
+    _stub_management_pages(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    login_response = _login(client, "owner", password)
+    session_token = login_response.cookies.get(SESSION_COOKIE_NAME)
+
+    html = "\n".join(
+        client.get(path, follow_redirects=False).text
+        for path in ("/config", "/mods", "/admins", "/bot")
+    )
+
+    assert password not in html
+    assert user.password_hash not in html
+    assert session_token
+    assert session_token not in html
+    assert "raw-rcon-secret" not in html
+    assert "raw-bot-token-secret" not in html
+    assert SESSION_COOKIE_NAME not in html
+    assert CSRF_COOKIE_NAME not in html
 
 
 def test_unauthenticated_jobs_redirects_to_login(tmp_path: Path):

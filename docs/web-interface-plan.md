@@ -593,7 +593,7 @@ Internal API readiness:
 |------|-------------------|---------------------|
 | Read-only status/dashboard | High | Implemented through one dashboard DTO from discovery, service/timer status, metrics, players, config summary, mods, web runtime, and safe bot summary |
 | Start/stop/restart | High | Default-instance web controls are implemented with auth, confirmation, CSRF, audit log, and route-level permission checks |
-| Config/mods/admins/bot settings | Medium-high | Wrap existing functions with form validation and redacted error rendering |
+| Config/mods/admins/bot settings | Medium-high | Read-only detail pages are implemented; wrap future mutations with form validation, CSRF, and redacted error rendering |
 | Logs/report | Medium | Use bounded reads first; add streaming later without `os.execvp` |
 | Install/repair/update | Medium | Run via background jobs; never block a request thread |
 | File manager | Low | Implement a new safe filesystem adapter first |
@@ -610,12 +610,12 @@ logic from TUI screens.
 | Dashboard/status | Implemented in TUI, CLI, and the web read-only dashboard | discovery, state, status_summary, metrics, player_view, ports, bot_config | Keep future routes thin and continue extending the facade instead of route-local aggregation |
 | Server controls | Implemented | `service_manager`, CLI `start/stop/restart`, TUI `ManageScreen` | Web start/stop/restart now wraps existing calls for the default instance; schedule and job-backed operations remain future work |
 | Logs/report | Implemented for journal/report and TUI live view | `logs`, `report`, `TailLogScreen` | Start with latest log lines; add browser streaming later |
-| Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Use form views plus validation; config writes stay through `config_manager` |
-| Mods manager | Implemented beyond basic parity | `mods_manager`, `mods_state`, `addon_cleanup`, `ModManagerScreen` | Expose list/add/remove/enable/disable/import/export through routes |
-| Server admins | Implemented for Arma `game.admins` | `admins_manager`, `AdminManagerScreen` | Keep separate from web users/roles; expose as server-admin management |
+| Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Read-only web config page exists; future form writes stay through `config_manager` with validation |
+| Mods manager | Implemented beyond basic parity | `mods_manager`, `mods_state`, `addon_cleanup`, `ModManagerScreen` | Read-only web mods page exists; future add/remove/enable/disable/import/export routes should reuse existing modules |
+| Server admins | Implemented for Arma `game.admins` | `admins_manager`, `AdminManagerScreen` | Read-only game-admin page exists; keep game admins separate from web users/roles for future management flows |
 | Backups/cleanup | Partially implemented | `config_manager` backups, `cleaner`, `CleanupScreen` | Config backups exist; full server backup/restore is future work |
 | Schedule | Implemented for restart timer | `service_manager`, `ScheduleScreen`, CLI `schedule` | Web can show/set/enable/disable restart schedule; task chains are future |
-| Telegram bot | Implemented | `bot_config`, `bot_manager`, `telegram_bot`, `BotConfigScreen` | Web can reuse the same `.env` and service-manager flow |
+| Telegram bot | Implemented | `bot_config`, `bot_manager`, `telegram_bot`, `BotConfigScreen` | Read-only bot status page exists; future config/service flows can reuse the same `.env` and service-manager path |
 | File manager | Not implemented | only path-safety patterns in `paths`, `cleaner`, `addon_cleanup` | Add a new safe filesystem adapter before exposing upload/download |
 | Web users/roles | Partially implemented | `web.db` owner user, password hashes, sessions, CSRF primitives, login/logout cookie wiring, and code-level permission categories exist | Add editable roles/permissions only when more roles are introduced |
 | Paid features | Not implemented | none | Add explicit entitlement model only if productized |
@@ -732,8 +732,10 @@ MVP views:
   summary
 - Server controls: start, stop, restart, refresh status
 - Logs: latest journal lines, later live streaming
-- Config: safe structured fields plus validation
-- Mods: list, add, remove, import/export
+- Config: read-only safe structured summary now; future editable fields plus validation
+- Mods: read-only active list now; future add, remove, import/export
+- Admins: read-only game admin IDs and local labels now; future management forms
+- Bot: read-only Telegram status now; future safe configuration forms
 - Schedule: show, set, enable, disable, restart now
 - Files: browse allowed server root, upload, download
 
@@ -830,8 +832,9 @@ not the foreground debug runner.
 
 - Status endpoint and dashboard.
 - Metrics and player view.
+- Read-only config, mods, game admins, and Telegram bot detail pages are implemented through the web facade.
 - Read-only logs.
-- No mutating actions yet except login/logout.
+- No mutating actions in this phase except login/logout.
 
 ### Phase 3 - Controlled server actions
 
@@ -855,10 +858,12 @@ not the foreground debug runner.
 - Until explicit handlers and routes exist for those operations, keep
   install/repair/update out of web.
 
-### Phase 4 - Config and mods
+### Phase 4 - Config, mods, admins, and bot editing
 
 - Structured config editor through `config_manager`.
-- Mods list/add/remove/import/export through `mods_manager`.
+- Mods add/remove/import/export through `mods_manager`.
+- Game admin management through `admins_manager`, kept separate from web users.
+- Telegram bot configuration through `bot_config` without exposing token values.
 - Validation errors rendered in UI.
 
 ### Phase 5 - Filesystem manager

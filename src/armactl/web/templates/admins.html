@@ -1,0 +1,47 @@
+{% extends "layout.html" %}
+{% block title %}{{ t("Admins - armactl web") }}{% endblock %}
+{% block heading %}{{ t("Game Admins") }}{% endblock %}
+{% block topbar_actions %}
+<a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
+<form method="post" action="/logout" class="logout-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <span class="user-label">{{ current_user.username }}</span>
+  <button type="submit">{{ t("Log out") }}</button>
+</form>
+{% endblock %}
+{% block content %}
+<section class="panel full-width">
+  <h2>{{ t("Official Game Admins") }}</h2>
+  {% if page.available %}
+    <dl>
+      <dt>{{ t("Instance") }}</dt><dd>{{ page.instance }}</dd>
+      <dt>{{ t("Config path") }}</dt><dd>{{ page.paths.config_path or t("unknown") }}</dd>
+      <dt>{{ t("Official admin count") }}</dt><dd>{{ page.official_count }}</dd>
+      <dt>{{ t("Local label count") }}</dt><dd>{{ page.local_label_count }}</dd>
+      <dt>{{ t("Local labels path") }}</dt><dd>{{ page.local_labels_path or t("unknown") }}</dd>
+    </dl>
+    {% if page.local_labels_error %}
+      <p class="error">{{ t(page.local_labels_error) }}</p>
+    {% endif %}
+    {% if page.official_admins %}
+      <table>
+        <thead><tr><th>{{ t("Identity ID") }}</th><th>{{ t("Label") }}</th><th>{{ t("Source") }}</th></tr></thead>
+        <tbody>
+        {% for admin in page.official_admins %}
+          <tr>
+            <td>{{ admin.identity_id }}</td>
+            <td>{{ admin.name or t("none") }}</td>
+            <td>{{ admin.source or t("unknown") }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">{{ t("No game admins configured.") }}</p>
+    {% endif %}
+  {% else %}
+    <p class="muted">{{ t("Admins data is unavailable.") }}</p>
+    <p class="error">{{ t(page.error) }}</p>
+  {% endif %}
+</section>
+{% endblock %}

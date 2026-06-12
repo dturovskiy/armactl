@@ -15,6 +15,10 @@ USERS_MANAGE = "users:manage"
 SETTINGS_MANAGE = "settings:manage"
 LOGS_VIEW = "logs:view"
 JOBS_VIEW = "jobs:view"
+CONFIG_VIEW = "config:view"
+MODS_VIEW = "mods:view"
+ADMINS_VIEW = "admins:view"
+BOT_VIEW = "bot:view"
 
 ALL_PERMISSIONS = frozenset(
     {
@@ -27,6 +31,10 @@ ALL_PERMISSIONS = frozenset(
         SETTINGS_MANAGE,
         LOGS_VIEW,
         JOBS_VIEW,
+        CONFIG_VIEW,
+        MODS_VIEW,
+        ADMINS_VIEW,
+        BOT_VIEW,
     }
 )
 

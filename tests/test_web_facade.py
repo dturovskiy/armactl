@@ -435,3 +435,90 @@ def test_dashboard_snapshot_degrades_when_sections_raise(monkeypatch):
         "operational_status",
         "players",
     }
+
+
+
+def test_management_page_snapshots_are_safe_read_only(monkeypatch):
+    facade = _import_facade()
+    server_state = _state(installed=True, running=False)
+    config = {
+        "bindPort": 2400,
+        "game": {
+            "name": "Read Only Server",
+            "scenarioId": "Scenario.conf",
+            "maxPlayers": 42,
+            "visible": True,
+            "passwordAdmin": "admin-password-secret",
+            "admins": ["ABC123"],
+        },
+        "a2s": {"port": 17778},
+        "rcon": {"port": 20000, "password": "rcon-password-secret"},
+    }
+
+    monkeypatch.setattr(facade.discovery, "discover", lambda instance, save=False: server_state)
+    monkeypatch.setattr(facade.config_manager, "load_config", lambda config_path: config)
+    monkeypatch.setattr(
+        facade.mods_manager,
+        "get_mods",
+        lambda config_path: [
+            {"modId": "mod-a", "name": "Mod A", "version": "1.0"},
+            {"modId": "mod-b", "name": "Mod B"},
+        ],
+    )
+    monkeypatch.setattr(
+        facade.admins_manager,
+        "admins_state_path_for_config",
+        lambda config_path: Path("/srv/armactl-data/default/config/admins-state.json"),
+    )
+    monkeypatch.setattr(
+        facade.admins_manager,
+        "load_admins",
+        lambda config_path: [
+            {"identityId": "ABC123", "name": "Local Captain", "source": "local"}
+        ],
+    )
+    monkeypatch.setattr(facade.admins_manager, "get_admins", _fail_if_called("get_admins"))
+    _install_bot_fakes(monkeypatch, facade, enabled=True)
+
+    config_page = facade.load_config_page("default")
+    mods_page = facade.load_mods_page("default")
+    admins_page = facade.load_admins_page("default")
+    bot_page = facade.load_bot_page("default")
+    payload = json.dumps([config_page, mods_page, admins_page, bot_page])
+
+    assert config_page["config"]["server_name"] == "Read Only Server"
+    assert config_page["config"]["rcon_port"] == 20000
+    assert mods_page["count"] == 2
+    assert mods_page["mods"][0] == {
+        "mod_id": "mod-a",
+        "name": "Mod A",
+        "version": "1.0",
+    }
+    assert admins_page["official_admins"] == [
+        {"identity_id": "ABC123", "name": "Local Captain", "source": "local"}
+    ]
+    assert bot_page["bot"]["token_configured"] is True
+    assert "admin-password-secret" not in payload
+    assert "rcon-password-secret" not in payload
+    assert "configured-token" not in payload
+    assert "password_hash" not in payload
+
+
+def test_management_pages_handle_missing_config_without_loading_backends(monkeypatch):
+    facade = _import_facade()
+    server_state = _state(installed=True, running=False, config_exists=False, config_path="")
+    monkeypatch.setattr(facade.discovery, "discover", lambda instance, save=False: server_state)
+    monkeypatch.setattr(facade.config_manager, "load_config", _fail_if_called("load_config"))
+    monkeypatch.setattr(facade.mods_manager, "get_mods", _fail_if_called("get_mods"))
+    monkeypatch.setattr(facade.admins_manager, "load_admins", _fail_if_called("load_admins"))
+
+    config_page = facade.load_config_page("default")
+    mods_page = facade.load_mods_page("default")
+    admins_page = facade.load_admins_page("default")
+
+    assert config_page["available"] is False
+    assert mods_page["available"] is False
+    assert admins_page["available"] is False
+    assert config_page["error"] == "config path is not available"
+    assert mods_page["error"] == "config path is not available"
+    assert admins_page["error"] == "config path is not available"

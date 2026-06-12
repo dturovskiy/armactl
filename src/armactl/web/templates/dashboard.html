@@ -43,6 +43,38 @@
 </section>
 {% endif %}
 
+{% if can_view_config or can_view_mods or can_view_admins or can_view_bot %}
+<section class="panel full-width management-links">
+  <h2>{{ t("Management Pages") }}</h2>
+  <div class="nav-card-grid">
+    {% if can_view_config %}
+      <a class="nav-card" href="/config">
+        <strong>{{ t("Config") }}</strong>
+        <span>{{ t("Server settings summary") }}</span>
+      </a>
+    {% endif %}
+    {% if can_view_mods %}
+      <a class="nav-card" href="/mods">
+        <strong>{{ t("Mods") }}</strong>
+        <span>{{ t("Active mod list") }}</span>
+      </a>
+    {% endif %}
+    {% if can_view_admins %}
+      <a class="nav-card" href="/admins">
+        <strong>{{ t("Admins") }}</strong>
+        <span>{{ t("Game admin IDs and labels") }}</span>
+      </a>
+    {% endif %}
+    {% if can_view_bot %}
+      <a class="nav-card" href="/bot">
+        <strong>{{ t("Bot") }}</strong>
+        <span>{{ t("Telegram bot status") }}</span>
+      </a>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
 {% if can_view_jobs %}
 <section class="panel full-width recent-jobs">
   <div class="section-heading-row">

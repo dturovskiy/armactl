@@ -1,0 +1,38 @@
+{% extends "layout.html" %}
+{% block title %}{{ t("Config - armactl web") }}{% endblock %}
+{% block heading %}{{ t("Config") }}{% endblock %}
+{% block topbar_actions %}
+<a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
+<form method="post" action="/logout" class="logout-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <span class="user-label">{{ current_user.username }}</span>
+  <button type="submit">{{ t("Log out") }}</button>
+</form>
+{% endblock %}
+{% block content %}
+<section class="panel full-width">
+  <h2>{{ t("Server Config") }}</h2>
+  {% if page.available %}
+    <dl>
+      <dt>{{ t("Instance") }}</dt><dd>{{ page.instance }}</dd>
+      <dt>{{ t("Lifecycle") }}</dt><dd>{{ t(page.status.lifecycle) }}</dd>
+      <dt>{{ t("Installed") }}</dt><dd>{{ t("yes") if page.status.installed else t("no") }}</dd>
+      <dt>{{ t("Running") }}</dt><dd>{{ t("yes") if page.status.running else t("no") }}</dd>
+      <dt>{{ t("Name") }}</dt><dd>{{ page.config.server_name or t("unknown") }}</dd>
+      <dt>{{ t("Scenario") }}</dt><dd>{{ page.config.scenario_id or t("unknown") }}</dd>
+      <dt>{{ t("Max players") }}</dt><dd>{{ page.config.max_players or t("unknown") }}</dd>
+      <dt>{{ t("Visible") }}</dt><dd>{{ t(page.config.visible_text) }}</dd>
+      <dt>{{ t("BattlEye") }}</dt><dd>{{ t(page.config.battleye_text) }}</dd>
+      <dt>{{ t("Game port") }}</dt><dd>{{ page.config.bind_port or t("unknown") }}</dd>
+      <dt>{{ t("A2S port") }}</dt><dd>{{ page.config.a2s_port or t("unknown") }}</dd>
+      <dt>{{ t("RCON port") }}</dt><dd>{{ page.config.rcon_port or t("unknown") }}</dd>
+      <dt>{{ t("Config path") }}</dt><dd>{{ page.paths.config_path or t("unknown") }}</dd>
+      <dt>{{ t("Instance root") }}</dt><dd>{{ page.paths.instance_root or t("unknown") }}</dd>
+      <dt>{{ t("Install dir") }}</dt><dd>{{ page.paths.install_dir or t("unknown") }}</dd>
+    </dl>
+  {% else %}
+    <p class="muted">{{ t("Config data is unavailable.") }}</p>
+    <p class="error">{{ t(page.error) }}</p>
+  {% endif %}
+</section>
+{% endblock %}

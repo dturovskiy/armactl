@@ -272,7 +272,8 @@
 - [x] Додати background job metadata model перед long-running operations
 - [x] Додати background dispatcher/read-only jobs UI foundation перед install/repair/update flows
 - [ ] Підключити install/repair/update flows до background jobs без blocking HTTP requests
-- [ ] Додати config/mods web flows через backend modules
+- [x] Додати read-only management pages для config/mods/admins/bot через backend modules
+- [ ] Додати edit/save/delete flows для config/mods/admins/bot через backend modules
 - [ ] Додати safe local filesystem browser/upload/download
 - [ ] Додати optional entitlement/feature-flag model, якщо продукт матиме платні tiers
 - [ ] Додати `armactl-web.service` template і service commands

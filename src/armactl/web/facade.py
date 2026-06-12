@@ -7,9 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from armactl import (
+    admins_manager,
     bot_config,
+    config_manager,
     discovery,
     metrics,
+    mods_manager,
     paths,
     player_view,
     ports,
@@ -17,6 +20,7 @@ from armactl import (
     service_manager,
     status_summary,
 )
+from armactl.redaction import redact_sensitive_text
 from armactl.state import ServerState
 
 DEFAULT_GAME_PORT = 2001
@@ -456,6 +460,213 @@ def _load_sat_summary(state: ServerState, errors: list[DashboardError]) -> dict[
 
     return {"available": bool(summary.get("available")), **summary}
 
+
+
+def _safe_error_message(error: Exception) -> str:
+    return redact_sensitive_text(str(error) or error.__class__.__name__)
+
+
+def _state_status(state: ServerState) -> dict[str, Any]:
+    lifecycle = _lifecycle(state)
+    return {
+        "lifecycle": lifecycle,
+        "installed": state.server_installed,
+        "running": state.server_running,
+        "label": lifecycle,
+    }
+
+
+def _discover_management_state(instance: str) -> tuple[ServerState | None, dict[str, Any] | None]:
+    try:
+        return discovery.discover(instance=instance, save=False), None
+    except Exception as error:
+        return None, {
+            "instance": instance,
+            "available": False,
+            "error": _safe_error_message(error),
+            "status": _unavailable("server discovery is not available"),
+            "paths": _unavailable("server discovery is not available"),
+        }
+
+
+def _missing_config_page(instance: str, state: ServerState, message: str) -> dict[str, Any]:
+    return {
+        "instance": instance,
+        "available": False,
+        "error": message,
+        "status": _state_status(state),
+        "paths": _paths(state),
+    }
+
+
+def load_config_page(instance: str) -> dict[str, Any]:
+    """Return safe read-only config details for a web page."""
+    state, error_page = _discover_management_state(instance)
+    if error_page is not None:
+        return error_page
+    assert state is not None
+    if not state.config_path:
+        return _missing_config_page(instance, state, "config path is not available")
+
+    try:
+        config = config_manager.load_config(state.config_path)
+        summary = _decorate_config(_plain_dict(status_summary.summarize_config(config)))
+    except Exception as error:
+        return _missing_config_page(instance, state, _safe_error_message(error))
+
+    return {
+        "instance": instance,
+        "available": bool(summary.get("available")),
+        "error": "",
+        "status": _state_status(state),
+        "paths": _paths(state),
+        "config": summary,
+    }
+
+
+def _mod_entry(raw: Any) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        return {"mod_id": str(raw or "").strip(), "name": "", "version": ""}
+    return {
+        "mod_id": str(raw.get("modId") or raw.get("mod_id") or "").strip(),
+        "name": str(raw.get("name") or "").strip(),
+        "version": str(raw.get("version") or "").strip(),
+    }
+
+
+def load_mods_page(instance: str) -> dict[str, Any]:
+    """Return active mod list details without mutating config or sidecars."""
+    state, error_page = _discover_management_state(instance)
+    if error_page is not None:
+        return error_page
+    assert state is not None
+    if not state.config_path:
+        return _missing_config_page(instance, state, "config path is not available")
+
+    try:
+        raw_mods = mods_manager.get_mods(state.config_path)
+        if not isinstance(raw_mods, list):
+            raw_mods = []
+        mods = [_mod_entry(raw) for raw in raw_mods]
+    except Exception as error:
+        return _missing_config_page(instance, state, _safe_error_message(error))
+
+    return {
+        "instance": instance,
+        "available": True,
+        "error": "",
+        "status": _state_status(state),
+        "paths": _paths(state),
+        "count": len(mods),
+        "mods": mods,
+    }
+
+
+def _admin_identity(raw: Any) -> dict[str, str]:
+    if isinstance(raw, dict):
+        identity = (
+            raw.get("identityId")
+            or raw.get("steamId64")
+            or raw.get("steamid")
+            or raw.get("playerId")
+            or raw.get("uid")
+            or raw.get("id")
+            or ""
+        )
+        return {
+            "identity_id": str(identity or "").strip(),
+            "name": str(raw.get("name") or raw.get("displayName") or "").strip(),
+            "source": str(raw.get("source") or "game.admins").strip(),
+        }
+    return {
+        "identity_id": str(raw or "").strip(),
+        "name": "",
+        "source": "game.admins",
+    }
+
+
+def _admin_key(entry: dict[str, str]) -> str:
+    return entry.get("identity_id", "").upper()
+
+
+def load_admins_page(instance: str) -> dict[str, Any]:
+    """Return official game admin IDs plus optional local labels without migration."""
+    state, error_page = _discover_management_state(instance)
+    if error_page is not None:
+        return error_page
+    assert state is not None
+    if not state.config_path:
+        return _missing_config_page(instance, state, "config path is not available")
+
+    try:
+        config = config_manager.load_config(state.config_path)
+        game = config.get("game", {}) if isinstance(config.get("game"), dict) else {}
+        raw_admins = game.get("admins", [])
+        if raw_admins in (None, ""):
+            raw_admins = []
+        if not isinstance(raw_admins, list):
+            raise ValueError("game.admins must be a list")
+        official = [_admin_identity(item) for item in raw_admins]
+    except Exception as error:
+        return _missing_config_page(instance, state, _safe_error_message(error))
+
+    sidecar_path = ""
+    local_labels: list[dict[str, str]] = []
+    label_error = ""
+    try:
+        sidecar_path = str(admins_manager.admins_state_path_for_config(state.config_path))
+        local_labels = [
+            {
+                "identity_id": str(item.get("identityId") or "").strip(),
+                "name": str(item.get("name") or "").strip(),
+                "source": str(item.get("source") or "").strip(),
+            }
+            for item in admins_manager.load_admins(state.config_path)
+        ]
+    except Exception as error:
+        label_error = _safe_error_message(error)
+
+    labels_by_key = {_admin_key(item): item for item in local_labels if _admin_key(item)}
+    enriched: list[dict[str, str]] = []
+    for entry in official:
+        label = labels_by_key.get(_admin_key(entry))
+        if label is not None:
+            entry = {
+                **entry,
+                "name": label.get("name") or entry.get("name", ""),
+                "source": label.get("source") or entry.get("source", ""),
+            }
+        enriched.append(entry)
+
+    return {
+        "instance": instance,
+        "available": True,
+        "error": "",
+        "status": _state_status(state),
+        "paths": _paths(state),
+        "official_admins": enriched,
+        "official_count": len(enriched),
+        "local_labels": local_labels,
+        "local_label_count": len(local_labels),
+        "local_labels_path": sidecar_path,
+        "local_labels_error": label_error,
+    }
+
+
+def load_bot_page(instance: str) -> dict[str, Any]:
+    """Return safe read-only Telegram bot status without exposing token values."""
+    errors: list[DashboardError] = []
+    summary = _load_bot_summary(instance, errors)
+    return {
+        "instance": instance,
+        "available": bool(summary.get("available")),
+        "error": summary.get("error", ""),
+        "bot": summary,
+        "errors": [
+            {"section": error.section, "message": redact_sensitive_text(error.message)}
+            for error in errors
+        ],
+    }
 
 def load_dashboard_snapshot(
     instance: str,

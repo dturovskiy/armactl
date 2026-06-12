@@ -1,0 +1,42 @@
+{% extends "layout.html" %}
+{% block title %}{{ t("Mods - armactl web") }}{% endblock %}
+{% block heading %}{{ t("Mods") }}{% endblock %}
+{% block topbar_actions %}
+<a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
+<form method="post" action="/logout" class="logout-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <span class="user-label">{{ current_user.username }}</span>
+  <button type="submit">{{ t("Log out") }}</button>
+</form>
+{% endblock %}
+{% block content %}
+<section class="panel full-width">
+  <h2>{{ t("Active Mods") }}</h2>
+  {% if page.available %}
+    <dl>
+      <dt>{{ t("Instance") }}</dt><dd>{{ page.instance }}</dd>
+      <dt>{{ t("Config path") }}</dt><dd>{{ page.paths.config_path or t("unknown") }}</dd>
+      <dt>{{ t("Count") }}</dt><dd>{{ page.count }}</dd>
+    </dl>
+    {% if page.mods %}
+      <table>
+        <thead><tr><th>{{ t("Mod ID") }}</th><th>{{ t("Name") }}</th><th>{{ t("Version") }}</th></tr></thead>
+        <tbody>
+        {% for mod in page.mods %}
+          <tr>
+            <td>{{ mod.mod_id or t("unknown") }}</td>
+            <td>{{ mod.name or t("unknown") }}</td>
+            <td>{{ mod.version or t("unknown") }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">{{ t("No mods configured.") }}</p>
+    {% endif %}
+  {% else %}
+    <p class="muted">{{ t("Mods data is unavailable.") }}</p>
+    <p class="error">{{ t(page.error) }}</p>
+  {% endif %}
+</section>
+{% endblock %}

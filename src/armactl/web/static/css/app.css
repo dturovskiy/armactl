@@ -260,6 +260,28 @@ ul {
   gap: 10px;
 }
 
+.nav-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.nav-card {
+  display: grid;
+  gap: 4px;
+  min-height: 84px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.nav-card span {
+  color: var(--muted);
+}
+
 .inline-confirm {
   display: flex;
   align-items: center;
