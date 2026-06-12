@@ -5,14 +5,20 @@ from __future__ import annotations
 import builtins
 import sqlite3
 import sys
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 from click.testing import CliRunner
 
 from armactl.cli import main
 from armactl.ports import WEB_PANEL_DEFAULT_PORT
 from armactl.web.auth.users import get_user_by_username, verify_user_password
-from armactl.web.runtime import load_web_runtime_config
+from armactl.web.runtime import (
+    ensure_web_runtime,
+    load_web_runtime_config,
+    save_web_runtime_config,
+)
 
 FORBIDDEN_IMPORT_PREFIXES = ("armactl.tui", "textual")
 
@@ -28,6 +34,18 @@ def _web_user_count(db_path: Path) -> int:
     return row[0]
 
 
+def _capture_web_run(monkeypatch):
+    from armactl.web import launcher
+
+    calls = []
+
+    def fake_run_web_foreground(prepared):
+        calls.append(prepared)
+
+    monkeypatch.setattr(launcher, "run_web_foreground", fake_run_web_foreground)
+    return calls
+
+
 def test_web_help_exists():
     result = invoke_web("--help")
 
@@ -37,20 +55,140 @@ def test_web_help_exists():
     assert "init" in result.output
 
 
-def test_web_run_rejects_reserved_arma_game_port():
-    result = invoke_web("run", "--port", "2001")
+def test_web_run_help_describes_bind_overrides_from_env():
+    result = invoke_web("run", "--help")
+
+    assert result.exit_code == 0
+    assert "comes from web.env" in result.output
+    assert "[default: 127.0.0.1]" not in result.output
+    assert f"[default: {WEB_PANEL_DEFAULT_PORT}]" not in result.output
+
+
+def test_web_run_rejects_reserved_arma_game_port(tmp_path: Path, monkeypatch):
+    calls = _capture_web_run(monkeypatch)
+
+    result = invoke_web("run", "--data-root", str(tmp_path), "--port", "2001")
 
     assert result.exit_code == 1
     assert "Port 2001 is reserved for Arma game default." in result.output
+    assert not (tmp_path / "web" / "web.env").exists()
+    assert calls == []
 
 
-def test_web_run_default_port_reaches_placeholder():
-    result = invoke_web("run")
+def test_web_run_uses_runtime_config_without_explicit_host_port(
+    tmp_path: Path,
+    monkeypatch,
+):
+    config = ensure_web_runtime(tmp_path)
+    save_web_runtime_config(
+        replace(
+            config,
+            bind_host="0.0.0.0",
+            bind_port=8766,
+            https_required=True,
+        )
+    )
+    reloaded = load_web_runtime_config(tmp_path)
+    calls = _capture_web_run(monkeypatch)
 
-    assert result.exit_code == 1
-    assert f"Port {WEB_PANEL_DEFAULT_PORT} is reserved" not in result.output
-    assert "Web runtime is not implemented yet." in result.output
-    assert f"127.0.0.1:{WEB_PANEL_DEFAULT_PORT}" in result.output
+    result = invoke_web("run", "--data-root", str(tmp_path))
+
+    assert result.exit_code == 0
+    assert len(calls) == 1
+    assert calls[0].host == "0.0.0.0"
+    assert calls[0].port == 8766
+    assert calls[0].config.db_path == reloaded.db_path
+    assert "Starting armactl web." in result.output
+    assert "http://0.0.0.0:8766" in result.output
+    assert "HTTPS required: yes" in result.output
+    assert reloaded.session_secret not in result.output
+    assert "ARMACTL_WEB_SESSION_SECRET" not in result.output
+
+
+def test_web_run_explicit_bind_is_transient_and_does_not_rewrite_env(
+    tmp_path: Path,
+    monkeypatch,
+):
+    config = ensure_web_runtime(tmp_path)
+    save_web_runtime_config(
+        replace(
+            config,
+            bind_host="0.0.0.0",
+            bind_port=8766,
+            https_required=True,
+        )
+    )
+    calls = _capture_web_run(monkeypatch)
+
+    result = invoke_web(
+        "run",
+        "--data-root",
+        str(tmp_path),
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8765",
+    )
+    reloaded = load_web_runtime_config(tmp_path)
+
+    assert result.exit_code == 0
+    assert len(calls) == 1
+    assert calls[0].host == "127.0.0.1"
+    assert calls[0].port == 8765
+    assert "http://127.0.0.1:8765" in result.output
+    assert reloaded.bind_host == "0.0.0.0"
+    assert reloaded.bind_port == 8766
+    assert reloaded.https_required is True
+
+
+def test_web_run_creates_runtime_when_missing(tmp_path: Path, monkeypatch):
+    calls = _capture_web_run(monkeypatch)
+
+    result = invoke_web(
+        "run",
+        "--data-root",
+        str(tmp_path),
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8765",
+    )
+
+    assert result.exit_code == 0
+    assert len(calls) == 1
+    assert (tmp_path / "web" / "web.env").exists()
+    assert (tmp_path / "web" / "web.db").exists()
+    assert "Runtime dir:" in result.output
+    assert str(tmp_path / "web") in result.output
+
+
+def test_web_run_calls_uvicorn_with_app_for_data_root(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web import launcher
+
+    app = object()
+    build_calls: list[Path] = []
+    uvicorn_calls: list[dict[str, object]] = []
+
+    def fake_build_web_app(data_root: Path):
+        build_calls.append(data_root)
+        return app
+
+    def fake_uvicorn_run(app_arg, *, host: str, port: int):
+        uvicorn_calls.append({"app": app_arg, "host": host, "port": port})
+
+    monkeypatch.setattr(launcher, "build_web_app", fake_build_web_app)
+    monkeypatch.setitem(sys.modules, "uvicorn", SimpleNamespace(run=fake_uvicorn_run))
+
+    prepared = launcher.prepare_web_run(
+        launcher.WebRunRequest(host="127.0.0.1", port=8765, data_root=tmp_path)
+    )
+    launcher.run_web_foreground(prepared)
+
+    assert build_calls == [tmp_path]
+    assert uvicorn_calls == [{"app": app, "host": "127.0.0.1", "port": 8765}]
 
 
 def _matches_prefix(module_name: str, prefixes: tuple[str, ...]) -> bool:
@@ -283,6 +421,29 @@ def test_web_init_does_not_import_tui_or_textual(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(builtins, "__import__", guarded_import)
 
     result = invoke_web("init", "--data-root", str(tmp_path))
+
+    assert result.exit_code == 0
+    assert blocked_imports == []
+    assert not any(
+        _matches_prefix(module_name, FORBIDDEN_IMPORT_PREFIXES) for module_name in sys.modules
+    )
+
+
+def test_web_run_does_not_import_tui_or_textual(tmp_path: Path, monkeypatch):
+    _forget_modules("armactl.tui", "textual")
+    _capture_web_run(monkeypatch)
+    original_import = builtins.__import__
+    blocked_imports: list[str] = []
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if _matches_prefix(name, FORBIDDEN_IMPORT_PREFIXES):
+            blocked_imports.append(name)
+            raise AssertionError(f"web run imported forbidden dependency {name!r}")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    result = invoke_web("run", "--data-root", str(tmp_path), "--port", "8765")
 
     assert result.exit_code == 0
     assert blocked_imports == []

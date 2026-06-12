@@ -1,23 +1,43 @@
-"""Helpers for the planned foreground web runner."""
+"""Helpers for the foreground web runner."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from armactl.ports import WEB_PANEL_DEFAULT_PORT, explain_web_port_conflict
+from armactl.ports import explain_web_port_conflict
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
+
+    from armactl.web.runtime import WebRuntimeConfig
 
 DEFAULT_WEB_HOST = "127.0.0.1"
 
 
-@dataclass(frozen=True)
-class WebRunOptions:
-    """Options accepted by the future foreground web runner."""
+class WebRunError(RuntimeError):
+    """Raised when the foreground web runner cannot start."""
 
-    host: str = DEFAULT_WEB_HOST
-    port: int = WEB_PANEL_DEFAULT_PORT
+
+@dataclass(frozen=True)
+class WebRunRequest:
+    """Requested foreground web runner settings."""
+
+    host: str | None = None
+    port: int | None = None
     dev: bool = False
     data_root: Path | None = None
+
+
+@dataclass(frozen=True)
+class PreparedWebRun:
+    """Resolved foreground web runner settings."""
+
+    config: WebRuntimeConfig
+    host: str
+    port: int
+    dev: bool = False
 
 
 def validate_web_port(port: int) -> None:
@@ -27,14 +47,51 @@ def validate_web_port(port: int) -> None:
         raise ValueError(conflict)
 
 
-def format_not_implemented_message(options: WebRunOptions) -> str:
-    """Return the placeholder message for the not-yet-implemented web runtime."""
-    details = [
-        "Web runtime is not implemented yet."
-        f" Requested bind: {options.host}:{options.port}."
+def prepare_web_run(request: WebRunRequest) -> PreparedWebRun:
+    """Ensure runtime exists and resolve transient foreground bind settings."""
+    from armactl.web.runtime import ensure_web_runtime
+
+    if request.port is not None:
+        validate_web_port(request.port)
+
+    config = ensure_web_runtime(request.data_root)
+    host = request.host if request.host is not None else config.bind_host
+    port = request.port if request.port is not None else config.bind_port
+    validate_web_port(port)
+
+    return PreparedWebRun(config=config, host=host, port=port, dev=request.dev)
+
+
+def format_web_run_startup_summary(prepared: PreparedWebRun) -> str:
+    """Return a safe foreground startup summary."""
+    https_required = "yes" if prepared.config.https_required else "no"
+    lines = [
+        "Starting armactl web.",
+        f"  URL:            http://{prepared.host}:{prepared.port}",
+        f"  Data root:      {prepared.config.data_root}",
+        f"  Runtime dir:    {prepared.config.runtime_dir}",
+        f"  Config file:    {prepared.config.env_path}",
+        f"  Database:       {prepared.config.db_path}",
+        f"  HTTPS required: {https_required}",
     ]
-    if options.dev:
-        details.append(" Development mode requested.")
-    if options.data_root is not None:
-        details.append(f" Data root: {options.data_root}.")
-    return "".join(details)
+    if prepared.dev:
+        lines.append("  Dev mode:       yes")
+    return "\n".join(lines)
+
+
+def build_web_app(data_root: Path) -> FastAPI:
+    """Build the FastAPI app lazily so importing the launcher has no ASGI side effects."""
+    from armactl.web.app import create_app
+
+    return create_app(data_root=data_root)
+
+
+def run_web_foreground(prepared: PreparedWebRun) -> None:
+    """Build and run the web app in the foreground with Uvicorn."""
+    try:
+        import uvicorn
+    except ImportError as e:
+        raise WebRunError("Web runtime dependency uvicorn is not installed.") from e
+
+    app = build_web_app(prepared.config.data_root)
+    uvicorn.run(app, host=prepared.host, port=prepared.port)

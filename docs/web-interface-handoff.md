@@ -84,6 +84,9 @@ Completed foundation:
     HttpOnly SameSite=Lax cookie wiring. `Secure` is enabled when
     `ARMACTL_WEB_HTTPS_REQUIRED=true`; Lax keeps localhost/dev form redirects
     usable while blocking routine cross-site POST cookie sending.
+11. Foreground `armactl web run` smoke launcher: ensures runtime, honors
+    transient `--host/--port`, prints a safe startup summary, and runs the
+    FastAPI app with Uvicorn.
 
 Next recommended implementation order:
 
@@ -94,6 +97,7 @@ Next recommended implementation order:
 5. Add config/mods/admins/bot web flows through existing backend modules.
 6. Add the safe filesystem adapter before upload/download routes.
 7. Add `armactl-web.service` and deployment docs.
+8. Add reverse proxy / HTTPS deployment docs.
 
 ## Implementation prompt template
 

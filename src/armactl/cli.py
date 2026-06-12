@@ -567,16 +567,14 @@ def web_init(
 @web.command("run")
 @click.option(
     "--host",
-    default="127.0.0.1",
-    show_default=True,
-    help="Bind host for the foreground web runner.",
+    default=None,
+    help="Override bind host for this foreground run; default comes from web.env.",
 )
 @click.option(
     "--port",
     type=click.IntRange(1, 65535),
-    default=WEB_PANEL_DEFAULT_PORT,
-    show_default=True,
-    help="TCP port for the web panel.",
+    default=None,
+    help="Override TCP port for this foreground run; default comes from web.env.",
 )
 @click.option(
     "--dev",
@@ -590,21 +588,42 @@ def web_init(
     default=None,
     help="Optional runtime data root for local development.",
 )
-def web_run(host: str, port: int, dev: bool, data_root: Path | None) -> None:
-    """Run the planned web panel in the foreground."""
+@click.pass_context
+def web_run(
+    ctx: click.Context,
+    host: str | None,
+    port: int | None,
+    dev: bool,
+    data_root: Path | None,
+) -> None:
+    """Run the web panel in the foreground."""
     from armactl.web.launcher import (
-        WebRunOptions,
-        format_not_implemented_message,
-        validate_web_port,
+        WebRunError,
+        WebRunRequest,
+        format_web_run_startup_summary,
+        prepare_web_run,
+        run_web_foreground,
+    )
+    from armactl.web.runtime import WebRuntimeConfigError
+
+    request = WebRunRequest(
+        host=host,
+        port=port,
+        dev=dev,
+        data_root=data_root,
     )
 
     try:
-        validate_web_port(port)
-    except ValueError as e:
+        prepared = prepare_web_run(request)
+    except (ValueError, WebRuntimeConfigError) as e:
         raise click.ClickException(str(e)) from e
 
-    options = WebRunOptions(host=host, port=port, dev=dev, data_root=data_root)
-    raise click.ClickException(format_not_implemented_message(options))
+    click.echo(format_web_run_startup_summary(prepared))
+
+    try:
+        run_web_foreground(prepared)
+    except WebRunError as e:
+        raise click.ClickException(str(e)) from e
 
 
 # ---------------------------------------------------------------------------
