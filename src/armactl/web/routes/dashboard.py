@@ -20,6 +20,7 @@ from armactl.web.auth.permissions import (
     BOT_VIEW,
     CONFIG_VIEW,
     DASHBOARD_VIEW,
+    FILES_READ,
     JOBS_VIEW,
     LOGS_VIEW,
     MODS_VIEW,
@@ -59,6 +60,7 @@ def _render_dashboard(request: Request, current: CurrentSession) -> Response:
     form_csrf = get_form_csrf_token(request, current)
     can_run_actions = require_permission(current, ACTIONS_RUN)
     can_view_jobs = require_permission(current, JOBS_VIEW)
+    can_view_files = require_permission(current, FILES_READ)
     can_view_logs = require_permission(current, LOGS_VIEW)
     can_view_config = require_permission(current, CONFIG_VIEW)
     can_view_mods = require_permission(current, MODS_VIEW)
@@ -72,6 +74,7 @@ def _render_dashboard(request: Request, current: CurrentSession) -> Response:
         can_view_admins=can_view_admins,
         can_view_bot=can_view_bot,
         can_view_jobs=can_view_jobs,
+        can_view_files=can_view_files,
         can_view_logs=can_view_logs,
     )
     recent_jobs = list_recent_jobs(current.config.db_path, limit=3) if can_view_jobs else []

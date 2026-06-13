@@ -281,7 +281,11 @@
 - [x] Додати read-only logs/report web views з bounded/redacted output
 - [ ] Підключити install/repair/update flows до background jobs без blocking HTTP requests
 - [ ] Додати edit/save/delete flows для config/mods/admins/bot через backend modules
-- [ ] Додати safe local filesystem browser/upload/download
+- [x] Додати safe read-only filesystem browser foundation
+- [ ] Додати download single file для web file browser
+- [ ] Додати upload/atomic overwrite для web file browser
+- [ ] Додати delete/rename для web file browser
+- [ ] Додати archive extraction flow після окремого threat model
 - [ ] Додати optional entitlement/feature-flag model, якщо продукт матиме платні tiers
 - [ ] Додати remote HTTPS login smoke checklist
 

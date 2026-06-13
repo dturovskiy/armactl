@@ -928,6 +928,7 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert 'href="/admins"' in root_response.text
     assert 'href="/bot"' in root_response.text
     assert 'href="/jobs"' in root_response.text
+    assert 'href="/files"' in root_response.text
     assert 'href="/logs"' in root_response.text
     assert "Recent Jobs" in root_response.text
     assert calls == ["default", "default"]
@@ -1072,6 +1073,7 @@ def test_dashboard_no_server_empty_state_renders_controlled_html(
     assert 'href="/mods"' not in response.text
     assert 'href="/admins"' not in response.text
     assert 'href="/bot"' not in response.text
+    assert 'href="/files"' not in response.text
     assert ">Players<" not in response.text
     assert ">Telemetry<" not in response.text
     assert ">Ports<" not in response.text

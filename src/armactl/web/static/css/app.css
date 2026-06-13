@@ -596,3 +596,58 @@ th {
   color: var(--text);
   font-size: 0.9rem;
 }
+
+
+.file-root-grid .nav-card.active {
+  border-color: var(--accent);
+}
+
+.nav-card.unavailable {
+  opacity: 0.75;
+}
+
+.file-state {
+  margin: 14px 0;
+}
+
+.file-browser-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.breadcrumbs a,
+.breadcrumbs strong {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+}
+
+.breadcrumbs a {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.breadcrumbs a::after {
+  content: "/";
+  margin-left: 6px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.file-preview-block {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}

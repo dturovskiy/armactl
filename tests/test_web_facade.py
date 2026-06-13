@@ -605,6 +605,7 @@ def test_dashboard_view_model_actions_follow_lifecycle():
         "can_view_admins": True,
         "can_view_bot": True,
         "can_view_jobs": True,
+        "can_view_files": True,
         "can_view_logs": True,
     }
 

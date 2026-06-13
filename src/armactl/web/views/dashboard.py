@@ -132,6 +132,7 @@ def _management_links(
     can_view_mods: bool,
     can_view_admins: bool,
     can_view_bot: bool,
+    can_view_files: bool,
     can_view_logs: bool,
 ) -> tuple[list[dict[str, str]], str]:
     if lifecycle not in ACTIVE_LIFECYCLES:
@@ -160,6 +161,14 @@ def _management_links(
         )
     if can_view_bot:
         links.append({"href": "/bot", "label": "Bot", "description": "Telegram bot status"})
+    if can_view_files:
+        links.append(
+            {
+                "href": "/files",
+                "label": "Files",
+                "description": "Read-only file browser",
+            }
+        )
     if can_view_logs:
         links.append(
             {
@@ -343,7 +352,8 @@ def build_dashboard_view(
     can_view_admins: bool,
     can_view_bot: bool,
     can_view_jobs: bool,
-    can_view_logs: bool,
+    can_view_files: bool = False,
+    can_view_logs: bool = False,
 ) -> dict[str, Any]:
     """Shape a raw dashboard snapshot into a lifecycle-aware template model."""
     lifecycle = _text(snapshot.get("lifecycle"), "unknown")
@@ -357,6 +367,7 @@ def build_dashboard_view(
         can_view_mods=can_view_mods,
         can_view_admins=can_view_admins,
         can_view_bot=can_view_bot,
+        can_view_files=can_view_files,
         can_view_logs=can_view_logs,
     )
     return {
