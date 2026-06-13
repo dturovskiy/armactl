@@ -463,3 +463,8 @@ th {
     border-bottom: 0;
   }
 }
+
+.runtime-warning {
+  color: var(--warning);
+  font-weight: 700;
+}

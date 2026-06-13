@@ -22,7 +22,7 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _normalize_username(username: str) -> str:
+def normalize_username(username: str) -> str:
     if not isinstance(username, str):
         raise InvalidAuthInputError("Username cannot be empty.")
 
@@ -30,6 +30,10 @@ def _normalize_username(username: str) -> str:
     if not normalized:
         raise InvalidAuthInputError("Username cannot be empty.")
     return normalized
+
+
+def _normalize_username(username: str) -> str:
+    return normalize_username(username)
 
 
 def _require_password(password: str) -> str:

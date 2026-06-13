@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from armactl.ports import explain_web_port_conflict
+from armactl.web.security.exposure import get_exposure_warning
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -78,6 +79,9 @@ def format_web_run_startup_summary(prepared: PreparedWebRun) -> str:
         f"  Database:       {prepared.config.db_path}",
         f"  HTTPS required: {https_required}",
     ]
+    warning = get_exposure_warning(prepared.host, prepared.config.https_required)
+    if warning is not None:
+        lines.append(f"  Exposure warning: {warning.message}")
     if prepared.dev:
         lines.append("  Dev reload:     yes")
     return "\n".join(lines)

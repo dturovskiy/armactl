@@ -17,6 +17,11 @@ from armactl.web.auth.cookies import (
 from armactl.web.auth.csrf import create_csrf_token, validate_csrf_token
 from armactl.web.auth.dependencies import get_current_session, get_web_runtime_config
 from armactl.web.auth.models import InvalidAuthInputError, WebAuthError
+from armactl.web.auth.rate_limit import (
+    check_login_allowed,
+    clear_login_failures,
+    record_login_failure,
+)
 from armactl.web.auth.sessions import create_session, revoke_session
 from armactl.web.auth.setup import owner_user_exists
 from armactl.web.auth.tokens import generate_token
@@ -25,6 +30,7 @@ from armactl.web.auth.users import get_user_by_username, verify_user_password
 router = APIRouter()
 
 GENERIC_LOGIN_ERROR = "Username or password is invalid."
+TOO_MANY_LOGIN_ATTEMPTS_ERROR = "Too many login attempts. Try again later."
 OWNER_NOT_CONFIGURED_MESSAGE = "Web owner is not configured yet."
 
 
@@ -64,6 +70,12 @@ def _redirect_to_login(config) -> RedirectResponse:
     return response
 
 
+def _client_ip(request: Request) -> str:
+    if request.client is None:
+        return "unknown"
+    return request.client.host or "unknown"
+
+
 @router.get("/login", response_class=HTMLResponse)
 def login_form(request: Request) -> Response:
     """Render the login form."""
@@ -96,6 +108,30 @@ def login_submit(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
+    client_ip = _client_ip(request)
+    try:
+        limit_status = check_login_allowed(
+            config.db_path,
+            config.session_secret,
+            client_ip,
+            username,
+        )
+    except WebAuthError:
+        return _login_template(
+            request,
+            error="Login is unavailable.",
+            username=username,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    if not limit_status.allowed:
+        return _login_template(
+            request,
+            error=TOO_MANY_LOGIN_ATTEMPTS_ERROR,
+            username=username,
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
     try:
         credentials_ok = verify_user_password(config.db_path, username, password)
     except InvalidAuthInputError:
@@ -109,6 +145,20 @@ def login_submit(
         )
 
     if not credentials_ok:
+        try:
+            record_login_failure(
+                config.db_path,
+                config.session_secret,
+                client_ip,
+                username,
+            )
+        except WebAuthError:
+            return _login_template(
+                request,
+                error="Login is unavailable.",
+                username=username,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
         return _login_template(
             request,
             error=GENERIC_LOGIN_ERROR,
@@ -120,6 +170,12 @@ def login_submit(
         user = get_user_by_username(config.db_path, username)
         if user is None:
             raise WebAuthError("Authenticated web user was not found.")
+        clear_login_failures(
+            config.db_path,
+            config.session_secret,
+            client_ip,
+            username,
+        )
         session = create_session(config.db_path, user.id)
         csrf = create_csrf_token(config.db_path, session.session.id)
     except WebAuthError:

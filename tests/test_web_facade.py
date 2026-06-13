@@ -317,6 +317,30 @@ def test_dashboard_snapshot_includes_safe_web_runtime(monkeypatch, tmp_path: Pat
 
     assert snapshot["web"]["available"] is True
     assert snapshot["web"]["bind_port"] == 8765
+    assert snapshot["web"]["exposure_warning"] is None
+    assert "do-not-render-this-secret" not in payload
+    assert "session_secret" not in payload
+
+
+def test_dashboard_snapshot_includes_external_bind_warning(monkeypatch, tmp_path: Path):
+    facade = _install_common_fakes(monkeypatch, _state(installed=True, running=True))
+    web_config = SimpleNamespace(
+        data_root=tmp_path,
+        runtime_dir=tmp_path / "web",
+        env_path=tmp_path / "web" / "web.env",
+        db_path=tmp_path / "web" / "web.db",
+        audit_log_path=tmp_path / "web" / "audit.log",
+        bind_host="0.0.0.0",
+        bind_port=8765,
+        https_required=False,
+        session_secret="do-not-render-this-secret",
+    )
+
+    snapshot = facade.load_dashboard_snapshot("default", web_config=web_config)
+    payload = json.dumps(snapshot)
+
+    assert snapshot["web"]["exposure_warning"]["severity"] == "danger"
+    assert "External bind without HTTPS-required cookies" in payload
     assert "do-not-render-this-secret" not in payload
     assert "session_secret" not in payload
 

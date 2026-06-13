@@ -441,6 +441,17 @@ def _web_option_was_provided(ctx: click.Context, parameter_name: str) -> bool:
     return ctx.get_parameter_source(parameter_name) is click.core.ParameterSource.COMMANDLINE
 
 
+def _format_web_exposure_warning(bind_host: str | None, https_required: bool) -> str | None:
+    if not bind_host:
+        return None
+    from armactl.web.security.exposure import get_exposure_warning
+
+    warning = get_exposure_warning(bind_host, https_required)
+    if warning is None:
+        return None
+    return f"  Exposure warning: {warning.message}"
+
+
 def _format_web_runtime_init_summary(
     config: WebRuntimeConfig,
     owner_user: UserRecord | None = None,
@@ -455,6 +466,9 @@ def _format_web_runtime_init_summary(
         f"  Bind:           {config.bind_host}:{config.bind_port}",
         f"  HTTPS required: {https_required}",
     ]
+    warning_line = _format_web_exposure_warning(config.bind_host, config.https_required)
+    if warning_line is not None:
+        lines.append(warning_line)
     if owner_user is not None:
         lines.extend(
             [
@@ -662,6 +676,9 @@ def _format_web_service_install_summary(result) -> str:
         "  Auto-start:     enabled after install",
         "  Start now:      no",
     ]
+    warning_line = _format_web_exposure_warning(config.bind_host, config.https_required)
+    if warning_line is not None:
+        lines.append(warning_line)
     for service_result in result.results:
         marker = "✓" if service_result.success else "✗"
         lines.append(f"  {marker} {service_result.message}")
@@ -781,6 +798,19 @@ def web_service_status(data_root: Path | None) -> None:
         click.echo(f"  Config file:    {env_path}")
         click.echo(f"  Bind:           {bind_host}:{bind_port}")
         click.echo(f"  HTTPS required: {https_required}")
+        exposure_warning = config.get("exposure_warning")
+        warning_message = ""
+        if isinstance(exposure_warning, dict):
+            warning_message = str(exposure_warning.get("message") or "")
+        if not warning_message:
+            warning_line = _format_web_exposure_warning(
+                str(bind_host or ""),
+                bool(config.get("https_required")),
+            )
+            if warning_line is not None:
+                warning_message = warning_line.replace("  Exposure warning: ", "", 1)
+        if warning_message:
+            click.echo(f"  Exposure warning: {warning_message}")
     elif config.get("error"):
         config_error = config.get("error")
         click.echo(f"  Runtime config: {config_error}")

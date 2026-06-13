@@ -159,6 +159,7 @@ def test_ensure_web_db_creates_auth_tables_without_legacy_tables(
     assert "web_users" in tables
     assert "web_sessions" in tables
     assert "web_csrf_tokens" in tables
+    assert "web_login_rate_limits" in tables
     assert tables.isdisjoint(
         {
             "auth",

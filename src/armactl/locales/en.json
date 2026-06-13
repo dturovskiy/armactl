@@ -217,6 +217,10 @@
     "Telegram Bot Status": "Telegram Bot Status",
     "Bot data is unavailable.": "Bot data is unavailable.",
     "config path is not available": "config path is not available",
-    "server discovery is not available": "server discovery is not available"
+    "server discovery is not available": "server discovery is not available",
+    "Too many login attempts. Try again later.": "Too many login attempts. Try again later.",
+    "Exposure warning": "Exposure warning",
+    "External bind without HTTPS-required cookies. Use an HTTPS reverse proxy, VPN, firewall, or set ARMACTL_WEB_HTTPS_REQUIRED=true.": "External bind without HTTPS-required cookies. Use an HTTPS reverse proxy, VPN, firewall, or set ARMACTL_WEB_HTTPS_REQUIRED=true.",
+    "External bind detected. Ensure access is protected by TLS, a reverse proxy, VPN, or firewall.": "External bind detected. Ensure access is protected by TLS, a reverse proxy, VPN, or firewall."
   }
 }

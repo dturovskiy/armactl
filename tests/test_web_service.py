@@ -222,6 +222,7 @@ def test_web_service_status_uses_service_manager_and_redacts_config(
     assert status["enabled"] is True
     assert status["runtime"]["success"] is True
     assert status["config"]["bind_port"] == config.bind_port
+    assert status["config"]["exposure_warning"] is None
     assert config.session_secret not in str(status)
     assert "session_secret" not in str(status)
 

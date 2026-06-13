@@ -32,6 +32,7 @@ from armactl.web.runtime import (
     ensure_web_runtime,
     load_web_runtime_config,
 )
+from armactl.web.security.exposure import get_exposure_warning
 
 
 @dataclass(frozen=True)
@@ -238,6 +239,7 @@ def disable_web_service() -> ServiceResult:
 def _safe_config_status(config: WebRuntimeConfig | None, error: str = "") -> dict[str, Any]:
     if config is None:
         return {"available": False, "error": error}
+    warning = get_exposure_warning(config.bind_host, config.https_required)
     return {
         "available": True,
         "data_root": str(config.data_root),
@@ -248,6 +250,7 @@ def _safe_config_status(config: WebRuntimeConfig | None, error: str = "") -> dic
         "bind_host": config.bind_host,
         "bind_port": config.bind_port,
         "https_required": config.https_required,
+        "exposure_warning": warning.to_dict() if warning is not None else None,
     }
 
 

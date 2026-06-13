@@ -22,6 +22,7 @@ from armactl import (
 )
 from armactl.redaction import redact_sensitive_text
 from armactl.state import ServerState
+from armactl.web.security.exposure import get_exposure_warning
 
 DEFAULT_GAME_PORT = 2001
 DEFAULT_A2S_PORT = 17777
@@ -375,6 +376,8 @@ def _load_web_runtime(web_config: Any | None) -> dict[str, Any]:
     if web_config is None:
         return _unavailable("web runtime config is not available")
 
+    https_required = bool(web_config.https_required)
+    warning = get_exposure_warning(web_config.bind_host, https_required)
     return {
         "available": True,
         "data_root": str(web_config.data_root),
@@ -384,8 +387,9 @@ def _load_web_runtime(web_config: Any | None) -> dict[str, Any]:
         "audit_log_path": str(web_config.audit_log_path),
         "bind_host": web_config.bind_host,
         "bind_port": web_config.bind_port,
-        "https_required": bool(web_config.https_required),
-        "https_required_text": _bool_text(bool(web_config.https_required)),
+        "https_required": https_required,
+        "https_required_text": _bool_text(https_required),
+        "exposure_warning": warning.to_dict() if warning is not None else None,
     }
 
 

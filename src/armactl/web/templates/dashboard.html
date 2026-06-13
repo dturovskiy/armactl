@@ -269,6 +269,9 @@
       <dl>
         <dt>{{ t("Bind") }}</dt><dd>{{ snapshot.web.bind_host }}:{{ snapshot.web.bind_port }}</dd>
         <dt>{{ t("HTTPS required") }}</dt><dd>{{ t(snapshot.web.https_required_text) }}</dd>
+        {% if snapshot.web.exposure_warning %}
+          <dt>{{ t("Exposure warning") }}</dt><dd class="runtime-warning runtime-warning-{{ snapshot.web.exposure_warning.severity }}">{{ t(snapshot.web.exposure_warning.message) }}</dd>
+        {% endif %}
         <dt>{{ t("Runtime dir") }}</dt><dd>{{ snapshot.web.runtime_dir }}</dd>
         <dt>{{ t("Database") }}</dt><dd>{{ snapshot.web.db_path }}</dd>
         <dt>{{ t("Audit log") }}</dt><dd>{{ snapshot.web.audit_log_path }}</dd>

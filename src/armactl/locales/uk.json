@@ -815,6 +815,10 @@
     "Telegram Bot Status": "Стан Telegram-бота",
     "Bot data is unavailable.": "Дані бота недоступні.",
     "config path is not available": "шлях до конфігу недоступний",
-    "server discovery is not available": "виявлення сервера недоступне"
+    "server discovery is not available": "виявлення сервера недоступне",
+    "Too many login attempts. Try again later.": "Забагато спроб входу. Спробуйте пізніше.",
+    "Exposure warning": "Попередження доступності",
+    "External bind without HTTPS-required cookies. Use an HTTPS reverse proxy, VPN, firewall, or set ARMACTL_WEB_HTTPS_REQUIRED=true.": "Зовнішня адреса bind без HTTPS-required cookies. Використайте HTTPS reverse proxy, VPN, firewall або встановіть ARMACTL_WEB_HTTPS_REQUIRED=true.",
+    "External bind detected. Ensure access is protected by TLS, a reverse proxy, VPN, or firewall.": "Виявлено зовнішню адресу bind. Переконайтеся, що доступ захищено TLS, reverse proxy, VPN або firewall."
   }
 }

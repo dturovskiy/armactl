@@ -1542,3 +1542,81 @@ def test_template_and_static_paths_are_package_local():
     assert ".summary-band" in response.text
     assert ".auth-panel" in response.text
     assert "[data-theme=\"dark\"]" in response.text
+
+
+def test_repeated_wrong_login_attempts_return_rate_limit(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    password = "owner login password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+
+    for _ in range(5):
+        response = _login(client, "owner", "wrong password")
+        assert response.status_code == 401
+        assert SESSION_COOKIE_NAME not in response.cookies
+
+    limited_response = _login(client, "owner", "wrong password")
+
+    assert limited_response.status_code == 429
+    assert SESSION_COOKIE_NAME not in limited_response.cookies
+    assert "Too many login attempts. Try again later." in limited_response.text
+    assert "wrong password" not in limited_response.text
+    assert password not in limited_response.text
+    assert "Traceback" not in limited_response.text
+
+
+def test_correct_password_is_blocked_during_login_lockout(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    password = "owner login password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+
+    for _ in range(5):
+        _login(client, "owner", "wrong password")
+
+    response = _login(client, "owner", password)
+
+    assert response.status_code == 429
+    assert SESSION_COOKIE_NAME not in response.cookies
+    assert "Too many login attempts. Try again later." in response.text
+    assert password not in response.text
+    assert "Traceback" not in response.text
+
+
+def test_dashboard_renders_external_bind_warning(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.routes import dashboard
+    from armactl.web.security.exposure import (
+        EXTERNAL_BIND_WITHOUT_HTTPS_WARNING,
+        get_exposure_warning,
+    )
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    snapshot = _snapshot()
+    warning = get_exposure_warning("0.0.0.0", https_required=False)
+    assert warning is not None
+    snapshot["web"].update(
+        bind_host="0.0.0.0",
+        https_required=False,
+        https_required_text="no",
+        exposure_warning=warning.to_dict(),
+    )
+
+    def fake_snapshot(instance: str, *, web_config=None) -> dict:
+        assert web_config is not None
+        return snapshot
+
+    monkeypatch.setattr(dashboard, "load_dashboard_snapshot", fake_snapshot)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Exposure warning" in response.text
+    assert EXTERNAL_BIND_WITHOUT_HTTPS_WARNING in response.text
+    assert password not in response.text
+    assert "ARMACTL_WEB_SESSION_SECRET" not in response.text

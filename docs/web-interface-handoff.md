@@ -122,12 +122,17 @@ Completed foundation:
     This foundation assumes the current source-checkout deployment model with
     the repo-local `.venv`; a future wheel-only deployment path should revisit
     template/interpreter discovery.
+20. Web security hardening foundation: login attempts are throttled through
+    digest-only SQLite state keyed by HMAC(session secret, client IP, normalized
+    username), and external-bind/HTTPS exposure warnings appear in safe CLI,
+    service, foreground-run, and dashboard summaries. Optional IP allowlist and
+    trusted proxy handling are explicitly future work and are not implemented.
 
 Next recommended implementation order:
 
-1. Add login rate limiting and a clear HTTPS/external-bind warning before remote
-   exposure guidance tells operators to put the panel on the Internet.
-2. Add VM/local smoke checklist plus reverse proxy / HTTPS deployment docs.
+1. Add VM/local smoke checklist plus reverse proxy / HTTPS deployment docs.
+2. Add optional IP allowlist / trusted proxy handling if operators need direct
+   external bind deployments; this is not implemented yet.
 3. Add bounded read-only logs/report views for operational diagnostics.
 4. Connect install, repair, and update flows to explicit background job handlers
    before exposing those flows in web.

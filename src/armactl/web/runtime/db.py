@@ -6,7 +6,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-WEB_SCHEMA_VERSION = "3"
+WEB_SCHEMA_VERSION = "4"
 PRIVATE_FILE_MODE = 0o600
 
 
@@ -126,6 +126,24 @@ def ensure_web_db(db_path: Path) -> Path:
             """
             CREATE INDEX IF NOT EXISTS idx_web_jobs_status
             ON web_jobs(status)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS web_login_rate_limits (
+                key_digest TEXT PRIMARY KEY CHECK(length(key_digest) > 0),
+                failure_count INTEGER NOT NULL DEFAULT 0 CHECK(failure_count >= 0),
+                window_started_at TEXT NOT NULL CHECK(length(window_started_at) > 0),
+                locked_until TEXT NOT NULL DEFAULT '',
+                last_failed_at TEXT NOT NULL CHECK(length(last_failed_at) > 0),
+                updated_at TEXT NOT NULL CHECK(length(updated_at) > 0)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_web_login_rate_limits_updated_at
+            ON web_login_rate_limits(updated_at)
             """
         )
         connection.execute(

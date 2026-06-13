@@ -350,16 +350,23 @@ per-request language. Do not import TUI screens or widgets to reuse labels.
 - Passwords must be stored as modern password hashes, not plaintext.
 - Sessions must use HttpOnly, SameSite cookies.
 - All mutating requests need CSRF protection.
-- Login attempts should be rate-limited.
-- Before public or LAN exposure, add login rate limiting and make unsafe
-  HTTP/external-bind state visible to operators in the UI or startup summary.
+- Login attempts are rate-limited through web.db using digest-only throttle
+  state; raw passwords, IP addresses, usernames, session tokens, and CSRF tokens
+  are not stored in the throttle table.
+- Unsafe HTTP/external-bind state is visible to operators in CLI/runtime/service
+  summaries and the dashboard before remote exposure guidance is considered
+  complete.
+- Optional IP allowlist and trusted proxy handling are future work; the current
+  login throttle intentionally uses `request.client.host` and does not trust
+  `X-Forwarded-For`.
 - Secrets must be redacted in UI, logs, and API responses.
 - Web access to systemd must use the existing narrow privileged helper pattern,
   not broad passwordless sudo.
 - The service should bind to localhost by default and require an explicit flag
   or config value for direct external binding.
-- The panel should show a clear warning when it runs without HTTPS because the
-  operator is about to expose service control and file upload over the network.
+- The panel shows a clear warning when it is externally bound without
+  HTTPS-required cookies, and a softer warning when externally bound behind an
+  HTTPS/reverse-proxy/firewall model.
 - Add an append-only runtime audit log for mutating web actions:
 
 ```text
@@ -643,6 +650,9 @@ src/armactl/web/
     sessions.py
     csrf.py
     permissions.py
+    rate_limit.py
+  security/
+    exposure.py
   routes/
     auth.py
     dashboard.py

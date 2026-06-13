@@ -273,8 +273,9 @@
 - [x] Додати background dispatcher/read-only jobs UI foundation перед install/repair/update flows
 - [x] Додати read-only management pages для config/mods/admins/bot через backend modules
 - [x] Додати `armactl-web.service` template і service commands
-- [ ] Додати login rate limiting / auth abuse throttling для web login
-- [ ] Додати явне HTTPS/external-bind warning у web UI/runtime summary
+- [x] Додати login rate limiting / auth abuse throttling для web login
+- [x] Додати явне HTTPS/external-bind warning у web UI/runtime summary
+- [ ] Додати optional IP allowlist / trusted proxy handling для remote deployments
 - [ ] Додати VM smoke checklist для web panel
 - [ ] Додати reverse proxy / HTTPS deployment docs
 - [ ] Додати read-only logs/report web views з bounded/redacted output
