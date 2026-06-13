@@ -546,3 +546,79 @@ def test_management_pages_handle_missing_config_without_loading_backends(monkeyp
     assert config_page["error"] == "config path is not available"
     assert mods_page["error"] == "config path is not available"
     assert admins_page["error"] == "config path is not available"
+
+
+def _view_snapshot(lifecycle: str) -> dict[str, Any]:
+    return {
+        "instance": "default",
+        "lifecycle": lifecycle,
+        "overview": {
+            "label": "no server" if lifecycle == "not_installed" else lifecycle,
+            "empty_state": lifecycle in {"not_installed", "incomplete"},
+            "empty_title": (
+                "No server found"
+                if lifecycle == "not_installed"
+                else "Installation incomplete"
+            ),
+            "empty_message": "Discovery did not find an installed server.",
+        },
+        "service": {"active_state": "active" if lifecycle == "running" else "inactive"},
+        "operational_status": {"message": "Ready", "age_text": "12s"},
+        "players": {"count_text": "3 / 64"},
+        "fps_metrics": {"fps_text": "60.0", "age_text": "10s"},
+        "host_metrics": {
+            "cpu_text": "12%",
+            "memory_text": "512 MiB / 1 GiB",
+            "disk_text": "2 GiB / 4 GiB",
+            "uptime_text": "1h",
+        },
+        "web": {
+            "bind_host": "127.0.0.1",
+            "bind_port": 8765,
+            "https_required_text": "no",
+            "runtime_dir": "/tmp/web",
+            "db_path": "/tmp/web/web.db",
+        },
+        "config": {
+            "server_name": "Lifecycle Test Server",
+            "scenario_id": "Scenario.conf",
+            "max_players": 64,
+        },
+        "mods": {"count": 2, "preview_labels": ["Core Mod"]},
+        "sat": {"available": True, "warning": ""},
+        "paths": {
+            "instance_root": "/srv/default",
+            "install_dir": "/srv/default/server",
+            "config_path": "/srv/default/config/config.json",
+        },
+        "errors": [],
+    }
+
+
+def test_dashboard_view_model_actions_follow_lifecycle():
+    from armactl.web.views.dashboard import build_dashboard_view
+
+    common_permissions = {
+        "can_run_actions": True,
+        "can_view_config": True,
+        "can_view_mods": True,
+        "can_view_admins": True,
+        "can_view_bot": True,
+        "can_view_jobs": True,
+    }
+
+    not_installed = build_dashboard_view(_view_snapshot("not_installed"), **common_permissions)
+    incomplete = build_dashboard_view(_view_snapshot("incomplete"), **common_permissions)
+    stopped = build_dashboard_view(_view_snapshot("stopped"), **common_permissions)
+    running = build_dashboard_view(_view_snapshot("running"), **common_permissions)
+
+    assert not_installed["heading"] == "Dashboard"
+    assert not_installed["actions"] == []
+    assert not_installed["server_cards"] == []
+    assert not_installed["management_links"] == []
+    assert not_installed["quick_action_note"] == "Install from web is planned."
+    assert incomplete["actions"] == []
+    assert incomplete["quick_action_note"] == "Repair from web is planned."
+    assert [action["name"] for action in stopped["actions"]] == ["start"]
+    assert [action["name"] for action in running["actions"]] == ["stop", "restart"]
+    assert running["heading"] == "Lifecycle Test Server"

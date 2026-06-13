@@ -138,6 +138,68 @@ h2 {
   background: var(--empty-bg);
 }
 
+.dashboard-section {
+  margin-top: 18px;
+}
+
+.dashboard-section:first-child {
+  margin-top: 0;
+}
+
+.dashboard-section > h2,
+.dashboard-section > .section-heading-row {
+  margin-bottom: 10px;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.summary-card h3,
+.diagnostic h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.notice-panel {
+  margin: 0;
+  padding: 14px 16px;
+}
+
+.action-tile {
+  min-height: 86px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.text-link {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.diagnostic-list {
+  display: grid;
+  gap: 12px;
+}
+
+.diagnostic-warning,
+.diagnostic-danger {
+  border-left: 4px solid var(--warning);
+}
+
+.diagnostic-danger {
+  border-left-color: var(--error);
+}
+
+.diagnostic-notice {
+  border-left: 4px solid var(--border);
+}
+
 
 .auth-panel {
   width: min(420px, 100%);

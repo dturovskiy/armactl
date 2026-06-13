@@ -1,6 +1,16 @@
 {% extends "layout.html" %}
+{% macro value_item(item) -%}
+  <dt>{{ t(item.label) }}</dt><dd>{% if item.translate_value %}{{ t(item.value) }}{% else %}{{ item.value }}{% endif %}</dd>
+{%- endmacro %}
+{% macro item_list(items) -%}
+  <dl>
+    {% for item in items %}
+      {{ value_item(item) }}
+    {% endfor %}
+  </dl>
+{%- endmacro %}
 {% block title %}{{ t("Dashboard - armactl web") }}{% endblock %}
-{% block heading %}{{ snapshot.config.server_name or t("Dashboard") }}{% endblock %}
+{% block heading %}{% if dashboard.heading == "Dashboard" %}{{ t("Dashboard") }}{% else %}{{ dashboard.heading }}{% endif %}{% endblock %}
 {% block topbar_actions %}
 <form method="post" action="/logout" class="logout-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -9,74 +19,58 @@
 </form>
 {% endblock %}
 {% block content %}
-<section class="summary-band">
-  <div>
-    <span class="label">{{ t("Instance") }}</span>
-    <strong>{{ snapshot.instance }}</strong>
-  </div>
-  <div>
-    <span class="label">{{ t("Lifecycle") }}</span>
-    <strong class="state state-{{ snapshot.lifecycle }}">{{ t(snapshot.overview.label) }}</strong>
-  </div>
-  <div>
-    <span class="label">{{ t("Service") }}</span>
-    <strong>{% if snapshot.service.available %}{{ t(snapshot.service.active_state or ("active" if snapshot.service.active else "inactive")) }}{% else %}{{ t("unavailable") }}{% endif %}</strong>
-  </div>
-  <div>
-    <span class="label">{{ t("Players") }}</span>
-    <strong>{{ snapshot.players.count_text }}</strong>
-  </div>
-  <div>
-    <span class="label">{{ t("FPS") }}</span>
-    <strong>{{ snapshot.fps_metrics.fps_text }}</strong>
-  </div>
-  <div>
-    <span class="label">{{ t("Host CPU") }}</span>
-    <strong>{{ snapshot.host_metrics.cpu_text }}</strong>
+<section class="dashboard-section">
+  <h2>{{ t("Overview") }}</h2>
+  <div class="summary-band lifecycle-overview">
+    {% for item in dashboard.overview_items %}
+      <div>
+        <span class="label">{{ t(item.label) }}</span>
+        <strong{% if item.label == "Lifecycle" %} class="state state-{{ dashboard.lifecycle }}"{% endif %}>{% if item.translate_value %}{{ t(item.value) }}{% else %}{{ item.value }}{% endif %}</strong>
+      </div>
+    {% endfor %}
   </div>
 </section>
 
-{% if snapshot.overview.empty_state %}
-<section class="panel full-width empty-state">
-  <h2>{{ t(snapshot.overview.empty_title) }}</h2>
-  <p class="muted">{{ t(snapshot.overview.empty_message) }}</p>
+<section class="dashboard-section">
+  <h2>{{ t("Quick actions") }}</h2>
+  {% if dashboard.actions %}
+    <div class="action-grid">
+      {% for action in dashboard.actions %}
+        <form method="post" action="{{ action.action_path }}" class="action-form action-tile">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          {% if action.confirm_label %}
+            <label class="inline-confirm">
+              <input type="checkbox" name="confirm" value="{{ action.confirm_value }}">
+              {{ t(action.confirm_label) }}
+            </label>
+          {% endif %}
+          <button{% if action.danger %} class="danger"{% endif %} type="submit">{{ t(action.label) }}</button>
+        </form>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="panel notice-panel">{{ t(dashboard.quick_action_note) }}</p>
+  {% endif %}
 </section>
-{% endif %}
 
-{% if can_view_config or can_view_mods or can_view_admins or can_view_bot %}
-<section class="panel full-width management-links">
+<section class="dashboard-section">
   <h2>{{ t("Management Pages") }}</h2>
-  <div class="nav-card-grid">
-    {% if can_view_config %}
-      <a class="nav-card" href="/config">
-        <strong>{{ t("Config") }}</strong>
-        <span>{{ t("Server settings summary") }}</span>
-      </a>
-    {% endif %}
-    {% if can_view_mods %}
-      <a class="nav-card" href="/mods">
-        <strong>{{ t("Mods") }}</strong>
-        <span>{{ t("Active mod list") }}</span>
-      </a>
-    {% endif %}
-    {% if can_view_admins %}
-      <a class="nav-card" href="/admins">
-        <strong>{{ t("Admins") }}</strong>
-        <span>{{ t("Game admin IDs and labels") }}</span>
-      </a>
-    {% endif %}
-    {% if can_view_bot %}
-      <a class="nav-card" href="/bot">
-        <strong>{{ t("Bot") }}</strong>
-        <span>{{ t("Telegram bot status") }}</span>
-      </a>
-    {% endif %}
-  </div>
+  {% if dashboard.management_links %}
+    <div class="nav-card-grid">
+      {% for link in dashboard.management_links %}
+        <a class="nav-card" href="{{ link.href }}">
+          <strong>{{ t(link.label) }}</strong>
+          <span>{{ t(link.description) }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="panel notice-panel">{{ t(dashboard.management_note) }}</p>
+  {% endif %}
 </section>
-{% endif %}
 
-{% if can_view_jobs %}
-<section class="panel full-width recent-jobs">
+{% if dashboard.show_recent_jobs %}
+<section class="dashboard-section recent-jobs">
   <div class="section-heading-row">
     <h2>{{ t("Recent Jobs") }}</h2>
     <a class="button-link secondary-link" href="/jobs">{{ t("View all jobs") }}</a>
@@ -101,237 +95,49 @@
 </section>
 {% endif %}
 
-{% if can_run_actions %}
-<section class="panel full-width service-controls">
-  <h2>{{ t("Server Actions") }}</h2>
-  <div class="action-grid">
-    <form method="post" action="/service/start" class="action-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button type="submit">{{ t("Start") }}</button>
-    </form>
-    <form method="post" action="/service/stop" class="action-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label class="inline-confirm">
-        <input type="checkbox" name="confirm" value="stop">
-        {{ t("Confirm stop") }}
-      </label>
-      <button class="danger" type="submit">{{ t("Stop") }}</button>
-    </form>
-    <form method="post" action="/service/restart" class="action-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label class="inline-confirm">
-        <input type="checkbox" name="confirm" value="restart">
-        {{ t("Confirm restart") }}
-      </label>
-      <button class="danger" type="submit">{{ t("Restart") }}</button>
-    </form>
+{% if dashboard.server_cards %}
+<section class="dashboard-section">
+  <h2>{{ t("Server snapshot") }}</h2>
+  <div class="card-grid">
+    {% for card in dashboard.server_cards %}
+      <article class="panel summary-card">
+        <div class="section-heading-row">
+          <h3>{{ t(card.title) }}</h3>
+          {% if card.href %}<a class="text-link" href="{{ card.href }}">{{ t("Open") }}</a>{% endif %}
+        </div>
+        {{ item_list(card["items"]) }}
+      </article>
+    {% endfor %}
   </div>
 </section>
 {% endif %}
 
-<section class="grid">
-  <section class="panel">
-    <h2>{{ t("Server") }}</h2>
-    <dl>
-      <dt>{{ t("Installed") }}</dt><dd>{{ t("yes") if snapshot.installed else t("no") }}</dd>
-      <dt>{{ t("Running") }}</dt><dd>{{ t("yes") if snapshot.running else t("no") }}</dd>
-      <dt>{{ t("Operational state") }}</dt><dd>{{ t(snapshot.operational_status.message) if snapshot.operational_status.available else t("unavailable") }}</dd>
-      <dt>{{ t("Operational age") }}</dt><dd>{{ snapshot.operational_status.age_text }}</dd>
-      <dt>{{ t("Service unit") }}</dt><dd>{{ snapshot.paths.service_name or t("unknown") }}</dd>
-      <dt>{{ t("Timer unit") }}</dt><dd>{{ snapshot.paths.timer_name or t("unknown") }}</dd>
-    </dl>
-  </section>
-
-  <section class="panel">
-    <h2>{{ t("Service and Schedule") }}</h2>
-    <dl>
-      <dt>{{ t("Active") }}</dt><dd>{{ t("yes") if snapshot.service.available and snapshot.service.active else t("no") if snapshot.service.available else t("unknown") }}</dd>
-      <dt>{{ t("Enabled") }}</dt><dd>{{ t("yes") if snapshot.service.available and snapshot.service.enabled else t("no") if snapshot.service.available else t("unknown") }}</dd>
-      <dt>{{ t("Main PID") }}</dt><dd>{{ snapshot.service.main_pid if snapshot.service.available else t("unknown") }}</dd>
-      <dt>{{ t("Process CPU") }}</dt><dd>{{ snapshot.service_runtime.cpu_text }}</dd>
-      <dt>{{ t("Process memory") }}</dt><dd>{{ snapshot.service_runtime.memory_text }}</dd>
-      <dt>{{ t("Timer active") }}</dt><dd>{{ t("yes") if snapshot.timer.available and snapshot.timer.active else t("no") if snapshot.timer.available else t("unknown") }}</dd>
-      <dt>{{ t("Timer enabled") }}</dt><dd>{{ t("yes") if snapshot.timer.available and snapshot.timer.enabled else t("no") if snapshot.timer.available else t("unknown") }}</dd>
-      <dt>{{ t("Schedule") }}</dt><dd>{{ snapshot.timer.schedule if snapshot.timer.available and snapshot.timer.schedule else t("unknown") }}</dd>
-      <dt>{{ t("Next run") }}</dt><dd>{{ snapshot.timer.next_run if snapshot.timer.available and snapshot.timer.next_run else t("unknown") }}</dd>
-    </dl>
-  </section>
-
-  <section class="panel">
-    <h2>{{ t("Config") }}</h2>
-    <dl>
-      <dt>{{ t("Name") }}</dt><dd>{{ snapshot.config.server_name or t("unknown") }}</dd>
-      <dt>{{ t("Scenario") }}</dt><dd>{{ snapshot.config.scenario_id or t("unknown") }}</dd>
-      <dt>{{ t("Max players") }}</dt><dd>{{ snapshot.config.max_players or t("unknown") }}</dd>
-      <dt>{{ t("Visible") }}</dt><dd>{{ t(snapshot.config.visible_text) }}</dd>
-      <dt>{{ t("BattlEye") }}</dt><dd>{{ t(snapshot.config.battleye_text) }}</dd>
-      <dt>{{ t("Game port") }}</dt><dd>{{ snapshot.config.bind_port or t("unknown") }}</dd>
-      <dt>{{ t("A2S port") }}</dt><dd>{{ snapshot.config.a2s_port or t("unknown") }}</dd>
-      <dt>{{ t("RCON port") }}</dt><dd>{{ snapshot.config.rcon_port or t("unknown") }}</dd>
-    </dl>
-  </section>
-
-  <section class="panel">
-    <h2>{{ t("Players") }}</h2>
-    <dl>
-      <dt>{{ t("Current / max") }}</dt><dd>{{ snapshot.players.count_text }}</dd>
-      <dt>{{ t("Source") }}</dt><dd>{{ snapshot.players.count_source if snapshot.players.available else t("unavailable") }}</dd>
-      <dt>{{ t("A2S count") }}</dt><dd>{{ snapshot.players.a2s_count if snapshot.players.a2s_available else t("unavailable") }}</dd>
-      <dt>{{ t("Roster") }}</dt><dd>{{ t("available") if snapshot.players.roster_available else t("unavailable") }}</dd>
-      <dt>{{ t("Warning") }}</dt><dd>{{ snapshot.players.warning or t("none") }}</dd>
-    </dl>
-  </section>
-
-  <section class="panel">
-    <h2>{{ t("Telemetry") }}</h2>
-    <dl>
-      <dt>{{ t("Server FPS") }}</dt><dd>{{ snapshot.fps_metrics.fps_text }}</dd>
-      <dt>{{ t("Frame avg") }}</dt><dd>{{ snapshot.fps_metrics.frame_avg_text }}</dd>
-      <dt>{{ t("Frame max") }}</dt><dd>{{ snapshot.fps_metrics.frame_max_text }}</dd>
-      <dt>{{ t("Telemetry age") }}</dt><dd>{{ snapshot.fps_metrics.age_text }}</dd>
-      <dt>{{ t("Freshness") }}</dt><dd>{{ t(snapshot.fps_metrics.freshness) }}</dd>
-      <dt>{{ t("Engine memory") }}</dt><dd>{{ snapshot.fps_metrics.engine_memory_text }}</dd>
-      <dt>{{ t("Telemetry source") }}</dt><dd>{{ snapshot.fps_metrics.source or t("unknown") }}</dd>
-    </dl>
-  </section>
-
-  <section class="panel">
-    <h2>{{ t("Host") }}</h2>
-    <dl>
-      <dt>{{ t("CPU") }}</dt><dd>{{ snapshot.host_metrics.cpu_text }}</dd>
-      <dt>{{ t("Memory") }}</dt><dd>{{ snapshot.host_metrics.memory_text }}</dd>
-      <dt>{{ t("Disk") }}</dt><dd>{{ snapshot.host_metrics.disk_text }}</dd>
-      <dt>{{ t("Load average") }}</dt><dd>{{ snapshot.host_metrics.load_text }}</dd>
-      <dt>{{ t("Uptime") }}</dt><dd>{{ snapshot.host_metrics.uptime_text }}</dd>
-    </dl>
-  </section>
-
-  <section class="panel">
-    <h2>{{ t("Paths") }}</h2>
-    <dl>
-      <dt>{{ t("Instance root") }}</dt><dd>{{ snapshot.paths.instance_root or t("unknown") }}</dd>
-      <dt>{{ t("Install dir") }}</dt><dd>{{ snapshot.paths.install_dir or t("unknown") }}</dd>
-      <dt>{{ t("Config path") }}</dt><dd>{{ snapshot.paths.config_path or t("unknown") }}</dd>
-      <dt>{{ t("Profile/config dir") }}</dt><dd>{{ snapshot.paths.config_dir or t("unknown") }}</dd>
-      <dt>{{ t("Console logs") }}</dt><dd>{{ snapshot.paths.logs_dir or t("unknown") }}</dd>
-    </dl>
-  </section>
-
-  <section class="panel">
-    <h2>{{ t("Mods") }}</h2>
-    {% if snapshot.mods.available %}
-      <dl>
-        <dt>{{ t("Count") }}</dt><dd>{{ snapshot.mods.count or 0 }}</dd>
-        <dt>{{ t("Preview") }}</dt>
-        <dd>
-          {% if snapshot.mods.preview_labels %}
-            {{ snapshot.mods.preview_labels | join(", ") }}{% if snapshot.mods.remaining_count %} +{{ snapshot.mods.remaining_count }} {{ t("more") }}{% endif %}
-          {% else %}
-            {{ t("none") }}
-          {% endif %}
-        </dd>
-      </dl>
-    {% else %}
-      <p class="muted">{{ t(snapshot.mods.error) }}</p>
-    {% endif %}
-  </section>
-
-  <section class="panel">
-    <h2>{{ t("Ports") }}</h2>
-    {% if snapshot.ports.available %}
-      <table>
-        <thead><tr><th>{{ t("Name") }}</th><th>{{ t("Port") }}</th><th>{{ t("Status") }}</th></tr></thead>
-        <tbody>
-        {% for name, info in snapshot.ports.ports.items() %}
-          <tr>
-            <td>{{ name }}</td>
-            <td>{{ info.port }}</td>
-            <td>{% if info.listening %}{{ t("listening") }}{% else %}{{ t("closed") }}{% endif %}</td>
-          </tr>
-        {% endfor %}
-        {% if snapshot.web.available %}
-          <tr>
-            <td>{{ t("web") }}</td>
-            <td>{{ snapshot.web.bind_port }}</td>
-            <td>{{ snapshot.web.bind_host }}</td>
-          </tr>
-        {% endif %}
-        </tbody>
-      </table>
-    {% else %}
-      <p class="muted">{{ t(snapshot.ports.error) }}</p>
-    {% endif %}
-  </section>
-
-  <section class="panel">
-    <h2>{{ t("Web Runtime") }}</h2>
-    {% if snapshot.web.available %}
-      <dl>
-        <dt>{{ t("Bind") }}</dt><dd>{{ snapshot.web.bind_host }}:{{ snapshot.web.bind_port }}</dd>
-        <dt>{{ t("HTTPS required") }}</dt><dd>{{ t(snapshot.web.https_required_text) }}</dd>
-        {% if snapshot.web.exposure_warning %}
-          <dt>{{ t("Exposure warning") }}</dt><dd class="runtime-warning runtime-warning-{{ snapshot.web.exposure_warning.severity }}">{{ t(snapshot.web.exposure_warning.message) }}</dd>
-        {% endif %}
-        <dt>{{ t("Runtime dir") }}</dt><dd>{{ snapshot.web.runtime_dir }}</dd>
-        <dt>{{ t("Database") }}</dt><dd>{{ snapshot.web.db_path }}</dd>
-        <dt>{{ t("Audit log") }}</dt><dd>{{ snapshot.web.audit_log_path }}</dd>
-      </dl>
-    {% else %}
-      <p class="muted">{{ t(snapshot.web.error) }}</p>
-    {% endif %}
-  </section>
-
-  <section class="panel">
-    <h2>{{ t("Telegram Bot") }}</h2>
-    {% if snapshot.bot.available %}
-      <dl>
-        <dt>{{ t("Enabled") }}</dt><dd>{{ t("yes") if snapshot.bot.enabled else t("no") }}</dd>
-        <dt>{{ t("Token configured") }}</dt><dd>{{ t("yes") if snapshot.bot.token_configured else t("no") }}</dd>
-        <dt>{{ t("Admin chats") }}</dt><dd>{{ snapshot.bot.admin_chat_count }}</dd>
-        <dt>{{ t("Language") }}</dt><dd>{{ snapshot.bot.language }}</dd>
-        <dt>{{ t("Config path") }}</dt><dd>{{ snapshot.bot.env_path or t("unknown") }}</dd>
-        <dt>{{ t("Service active") }}</dt><dd>{{ t("yes") if snapshot.bot.service.available and snapshot.bot.service.active else t("no") if snapshot.bot.service.available else t("unknown") }}</dd>
-        <dt>{{ t("Service enabled") }}</dt><dd>{{ t("yes") if snapshot.bot.service.available and snapshot.bot.service.enabled else t("no") if snapshot.bot.service.available else t("unknown") }}</dd>
-        <dt>{{ t("Service PID") }}</dt><dd>{{ snapshot.bot.service.main_pid if snapshot.bot.service.available else t("unknown") }}</dd>
-        <dt>{{ t("Runtime ready") }}</dt>
-        <dd>
-          {% if snapshot.bot.service.available %}
-            {% if snapshot.bot.service.runtime_ready is none %}{{ t("unknown") }}{% elif snapshot.bot.service.runtime_ready %}{{ t("yes") }}{% else %}{{ t("no") }}{% endif %}
-          {% else %}
-            {{ t("unknown") }}
-          {% endif %}
-        </dd>
-      </dl>
-    {% else %}
-      <p class="muted">{{ t(snapshot.bot.error) }}</p>
-    {% endif %}
-  </section>
-
-  <section class="panel">
-    <h2>{{ t("ServerAdminTools") }}</h2>
-    {% if snapshot.sat.available %}
-      <dl>
-        <dt>{{ t("Config valid") }}</dt><dd>{{ t("yes") if snapshot.sat.valid_json else t("no") }}</dd>
-        <dt>{{ t("Admins default-only") }}</dt><dd>{{ t("yes") if snapshot.sat.default_only_admins else t("no") }}</dd>
-        <dt>{{ t("GameMasters default-only") }}</dt><dd>{{ t("yes") if snapshot.sat.default_only_game_masters else t("no") }}</dd>
-        <dt>{{ t("Required UUIDs") }}</dt><dd>{{ snapshot.sat.desired_admins | length }}</dd>
-        <dt>{{ t("Missing mappings") }}</dt><dd>{{ snapshot.sat.missing_mappings | length }}</dd>
-        <dt>{{ t("Warning") }}</dt><dd>{{ snapshot.sat.warning or t("none") }}</dd>
-      </dl>
-    {% else %}
-      <p class="muted">{{ t(snapshot.sat.error or "ServerAdminTools config is not present.") }}</p>
-    {% endif %}
-  </section>
+<section class="dashboard-section">
+  <h2>{{ t("Host & web runtime") }}</h2>
+  <div class="card-grid">
+    <article class="panel summary-card">
+      <h3>{{ t("Host") }}</h3>
+      {{ item_list(dashboard.host_items) }}
+    </article>
+    <article class="panel summary-card">
+      <h3>{{ t("Web Runtime") }}</h3>
+      {{ item_list(dashboard.web_items) }}
+    </article>
+  </div>
 </section>
 
-{% if snapshot.errors %}
-<section class="panel full-width warning">
-  <h2>{{ t("Partial data") }}</h2>
-  <ul>
-    {% for error in snapshot.errors %}
-      <li>{{ error.section }}: {{ t(error.message) }}</li>
+{% if dashboard.diagnostics %}
+<section class="dashboard-section diagnostics-section">
+  <h2>{{ t("Diagnostics / warnings") }}</h2>
+  <div class="diagnostic-list">
+    {% for diagnostic in dashboard.diagnostics %}
+      <article class="panel diagnostic diagnostic-{{ diagnostic.severity }}">
+        <h3>{{ t(diagnostic.title) }}</h3>
+        {% if diagnostic.message %}<p class="muted">{{ t(diagnostic.message) }}</p>{% endif %}
+        {% if diagnostic["items"] %}{{ item_list(diagnostic["items"]) }}{% endif %}
+      </article>
     {% endfor %}
-  </ul>
+  </div>
 </section>
 {% endif %}
 {% endblock %}

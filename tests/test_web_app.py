@@ -210,6 +210,40 @@ def _no_server_snapshot() -> dict:
     return snapshot
 
 
+def _stopped_snapshot() -> dict:
+    snapshot = _snapshot()
+    snapshot.update(
+        lifecycle="stopped",
+        running=False,
+        overview={
+            "label": "stopped",
+            "empty_state": False,
+            "empty_title": "",
+            "empty_message": "",
+        },
+        service={
+            "available": True,
+            "active": False,
+            "enabled": True,
+            "active_state": "inactive",
+            "main_pid": 0,
+        },
+        service_runtime={
+            "available": False,
+            "cpu_text": "Unknown",
+            "memory_text": "Unknown",
+        },
+        players={"available": False, "count_text": "unavailable"},
+        fps_metrics={
+            "available": False,
+            "fps_text": "unavailable",
+            "age_text": "unknown",
+            "freshness": "unavailable",
+        },
+    )
+    return snapshot
+
+
 def _client(app, base_url: str = "http://testserver"):
     with warnings.catch_warnings():
         warnings.simplefilter("error", StarletteDeprecationWarning)
@@ -882,8 +916,11 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert "running" in root_response.text
     assert "3 / 64" in root_response.text
     assert "owner" in root_response.text
+    assert "Quick actions" in root_response.text
+    assert "Server snapshot" in root_response.text
+    assert "Host &amp; web runtime" in root_response.text
     assert "ServerAdminTools" in root_response.text
-    assert 'action="/service/start"' in root_response.text
+    assert 'action="/service/start"' not in root_response.text
     assert 'action="/service/stop"' in root_response.text
     assert 'action="/service/restart"' in root_response.text
     assert 'href="/config"' in root_response.text
@@ -894,6 +931,50 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert "Recent Jobs" in root_response.text
     assert calls == ["default", "default"]
 
+
+
+def test_dashboard_stopped_server_shows_start_only(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.routes import dashboard
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+
+    def fake_snapshot(instance: str, *, web_config=None) -> dict:
+        assert web_config is not None
+        return _stopped_snapshot()
+
+    monkeypatch.setattr(dashboard, "load_dashboard_snapshot", fake_snapshot)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert 'action="/service/start"' in response.text
+    assert 'action="/service/stop"' not in response.text
+    assert 'action="/service/restart"' not in response.text
+    assert "Server snapshot" in response.text
+    assert 'href="/config"' in response.text
+
+
+def test_dashboard_running_server_shows_stop_restart_only(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _stub_dashboard(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert 'action="/service/start"' not in response.text
+    assert 'action="/service/stop"' in response.text
+    assert 'action="/service/restart"' in response.text
+    assert "3 / 64" in response.text
+    assert "59.8" in response.text
 
 
 def test_dashboard_renders_ukrainian_and_dark_theme_preference(
@@ -927,8 +1008,10 @@ def test_dashboard_renders_ukrainian_and_dark_theme_preference(
     assert theme_response.cookies.get(THEME_COOKIE_NAME) == "dark"
     assert response.status_code == 200
     assert '<html lang="uk" data-theme="dark">' in response.text
-    assert "Дії сервера" in response.text
-    assert "Запустити" in response.text
+    assert "Швидкі дії" in response.text
+    assert "Зупинити" in response.text
+    assert "Перезапустити" in response.text
+    assert "Хост і web runtime" in response.text
     assert "Вийти" in response.text
     assert "Тема: світла" in response.text
 
@@ -978,6 +1061,20 @@ def test_dashboard_no_server_empty_state_renders_controlled_html(
     assert response.status_code == 200
     assert "No server found" in response.text
     assert "Discovery did not find an installed server." in response.text
+    assert "Install from web is planned." in response.text
+    assert "Host &amp; web runtime" in response.text
+    assert "Mock Server" not in response.text
+    assert 'action="/service/start"' not in response.text
+    assert 'action="/service/stop"' not in response.text
+    assert 'action="/service/restart"' not in response.text
+    assert 'href="/config"' not in response.text
+    assert 'href="/mods"' not in response.text
+    assert 'href="/admins"' not in response.text
+    assert 'href="/bot"' not in response.text
+    assert ">Players<" not in response.text
+    assert ">Telemetry<" not in response.text
+    assert ">Ports<" not in response.text
+    assert ">ServerAdminTools<" not in response.text
     assert "Traceback" not in response.text
 
 
@@ -1014,7 +1111,8 @@ def test_dashboard_partial_data_renders_controlled_section(
 
     assert response.status_code == 200
     assert "Partial data" in response.text
-    assert "host_metrics: host boom" in response.text
+    assert "host_metrics" in response.text
+    assert "host boom" in response.text
     assert "Traceback" not in response.text
 
 

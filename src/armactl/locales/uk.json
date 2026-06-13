@@ -819,6 +819,26 @@
     "Too many login attempts. Try again later.": "Забагато спроб входу. Спробуйте пізніше.",
     "Exposure warning": "Попередження доступності",
     "External bind without HTTPS-required cookies. Use an HTTPS reverse proxy, VPN, firewall, or set ARMACTL_WEB_HTTPS_REQUIRED=true.": "Зовнішня адреса bind без HTTPS-required cookies. Використайте HTTPS reverse proxy, VPN, firewall або встановіть ARMACTL_WEB_HTTPS_REQUIRED=true.",
-    "External bind detected. Ensure access is protected by TLS, a reverse proxy, VPN, or firewall.": "Виявлено зовнішню адресу bind. Переконайтеся, що доступ захищено TLS, reverse proxy, VPN або firewall."
+    "External bind detected. Ensure access is protected by TLS, a reverse proxy, VPN, or firewall.": "Виявлено зовнішню адресу bind. Переконайтеся, що доступ захищено TLS, reverse proxy, VPN або firewall.",
+    "Quick actions": "Швидкі дії",
+    "Install from web is planned.": "Встановлення з web заплановано.",
+    "Repair from web is planned.": "Відновлення з web заплановано.",
+    "No server actions available.": "Дії сервера недоступні.",
+    "Management pages are available after the server is installed.": "Сторінки керування будуть доступні після встановлення сервера.",
+    "Management pages are limited until the server config is repaired.": "Сторінки керування обмежені, доки конфіг сервера не буде відновлено.",
+    "No management pages available.": "Сторінки керування недоступні.",
+    "Server snapshot": "Стан сервера",
+    "Service health": "Стан сервісу",
+    "Server config": "Конфіг сервера",
+    "Active mods": "Активні моди",
+    "Live server": "Живий сервер",
+    "Diagnostics summary": "Підсумок діагностики",
+    "Host & web runtime": "Хост і web runtime",
+    "Diagnostics / warnings": "Діагностика / попередження",
+    "Some dashboard sections are unavailable.": "Деякі секції панелі недоступні.",
+    "Repair diagnostics": "Діагностика відновлення",
+    "Web bind": "Web bind",
+    "Open": "Відкрити",
+    "State": "Стан"
   }
 }

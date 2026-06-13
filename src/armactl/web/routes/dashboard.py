@@ -25,6 +25,7 @@ from armactl.web.auth.permissions import (
 )
 from armactl.web.facade import load_dashboard_snapshot
 from armactl.web.jobs.store import list_recent_jobs
+from armactl.web.views.dashboard import build_dashboard_view
 
 router = APIRouter()
 
@@ -55,21 +56,30 @@ def _render_dashboard(request: Request, current: CurrentSession) -> Response:
         )
 
     form_csrf = get_form_csrf_token(request, current)
+    can_run_actions = require_permission(current, ACTIONS_RUN)
     can_view_jobs = require_permission(current, JOBS_VIEW)
+    can_view_config = require_permission(current, CONFIG_VIEW)
+    can_view_mods = require_permission(current, MODS_VIEW)
+    can_view_admins = require_permission(current, ADMINS_VIEW)
+    can_view_bot = require_permission(current, BOT_VIEW)
+    dashboard = build_dashboard_view(
+        snapshot,
+        can_run_actions=can_run_actions,
+        can_view_config=can_view_config,
+        can_view_mods=can_view_mods,
+        can_view_admins=can_view_admins,
+        can_view_bot=can_view_bot,
+        can_view_jobs=can_view_jobs,
+    )
     recent_jobs = list_recent_jobs(current.config.db_path, limit=3) if can_view_jobs else []
     response = templates.TemplateResponse(
         request=request,
         name="dashboard.html",
         context={
             "snapshot": snapshot,
+            "dashboard": dashboard,
             "current_user": current.user,
             "csrf_token": form_csrf.token,
-            "can_run_actions": require_permission(current, ACTIONS_RUN),
-            "can_view_jobs": can_view_jobs,
-            "can_view_config": require_permission(current, CONFIG_VIEW),
-            "can_view_mods": require_permission(current, MODS_VIEW),
-            "can_view_admins": require_permission(current, ADMINS_VIEW),
-            "can_view_bot": require_permission(current, BOT_VIEW),
             "recent_jobs": recent_jobs,
         },
     )
