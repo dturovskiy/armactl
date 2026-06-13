@@ -198,6 +198,7 @@ not the management panel and should stay separate from the authenticated web UI.
 - [Architecture](docs/architecture.md)
 - [Localization](docs/localization.md)
 - [Telegram Bot](docs/telegram-bot.md)
+- [Web smoke checks and deployment](docs/web-deployment.md)
 - [Web Interface Plan](docs/web-interface-plan.md)
 - [Web Interface Handoff](docs/web-interface-handoff.md)
 - [Troubleshooting](docs/troubleshooting.md)

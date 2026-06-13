@@ -127,10 +127,16 @@ Completed foundation:
     username), and external-bind/HTTPS exposure warnings appear in safe CLI,
     service, foreground-run, and dashboard summaries. Optional IP allowlist and
     trusted proxy handling are explicitly future work and are not implemented.
+21. Web smoke/deployment documentation: `docs/web-deployment.md` covers local
+    foreground smoke checks, source-checkout VM/systemd smoke checks, reverse
+    proxy / HTTPS topology, port guidance, and troubleshooting for the current
+    source checkout plus repo `.venv` deployment model. Real remote HTTPS smoke
+    remains a separate validation step.
 
 Next recommended implementation order:
 
-1. Add VM/local smoke checklist plus reverse proxy / HTTPS deployment docs.
+1. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
+   environment-specific outcome.
 2. Add optional IP allowlist / trusted proxy handling if operators need direct
    external bind deployments; this is not implemented yet.
 3. Add bounded read-only logs/report views for operational diagnostics.

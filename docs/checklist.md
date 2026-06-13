@@ -276,8 +276,8 @@
 - [x] Додати login rate limiting / auth abuse throttling для web login
 - [x] Додати явне HTTPS/external-bind warning у web UI/runtime summary
 - [ ] Додати optional IP allowlist / trusted proxy handling для remote deployments
-- [ ] Додати VM smoke checklist для web panel
-- [ ] Додати reverse proxy / HTTPS deployment docs
+- [x] Додати VM smoke checklist docs для web panel
+- [x] Додати reverse proxy / HTTPS deployment docs
 - [ ] Додати read-only logs/report web views з bounded/redacted output
 - [ ] Підключити install/repair/update flows до background jobs без blocking HTTP requests
 - [ ] Додати edit/save/delete flows для config/mods/admins/bot через backend modules

@@ -72,6 +72,9 @@ python -m armactl.web --host 127.0.0.1 --port 8765 --dev
 The local dev server should use the same backend modules but can point at a
 temporary `ARMACTL_DATA_ROOT` fixture for tests.
 
+Detailed local and VM smoke commands live in
+[`docs/web-deployment.md`](web-deployment.md).
+
 ## Service lifecycle and launchers
 
 The web panel is a long-running service, unlike the TUI. The TUI remains the
@@ -128,6 +131,10 @@ Local development acceptance checklist:
 - run route/unit tests against a temporary data root;
 - optionally test reverse-proxy-like access with a local Caddy/Nginx config or
   SSH tunnel before exposing a remote VM.
+
+The concrete source-checkout smoke runbook is maintained in
+[`docs/web-deployment.md`](web-deployment.md), including owner setup, login,
+logout, `not_installed` dashboard checks, and foreground runner shutdown.
 
 ## Proxmox and multi-VM deployment model
 
@@ -215,6 +222,10 @@ server-2.example.com:443 -> 10.0.0.12:8765
 For a Proxmox host-level reverse proxy, keep the host proxy as the public entry
 point and route each panel hostname/path to the selected game VM's private
 address. Avoid exposing `8765` directly to the internet.
+
+Caddy and Nginx examples, HTTPS-required cookie notes, and troubleshooting for
+external proxy/container topologies are documented in
+[`docs/web-deployment.md`](web-deployment.md).
 
 Default port inventory:
 
