@@ -90,6 +90,28 @@ def test_file_adapter_import_does_not_import_tui_textual(monkeypatch):
     assert "textual" not in sys.modules
 
 
+def test_files_route_import_does_not_import_tui_textual(monkeypatch):
+    forbidden = ("armactl.tui", "textual")
+    _forget_modules("armactl.web.routes.files", *forbidden)
+    original_import = builtins.__import__
+    blocked_imports: list[str] = []
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if _matches_prefix(name, forbidden):
+            blocked_imports.append(name)
+            raise AssertionError(f"files route imported forbidden dependency {name!r}")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    module = importlib.import_module("armactl.web.routes.files")
+
+    assert module.__name__ == "armactl.web.routes.files"
+    assert blocked_imports == []
+    assert "armactl.tui" not in sys.modules
+    assert "textual" not in sys.modules
+
+
 def test_unauthenticated_files_redirects_to_login(tmp_path: Path):
     from armactl.web.app import create_app
 
@@ -162,6 +184,8 @@ def test_listing_safe_directory_works(tmp_path: Path):
     assert "Directory" in response.text
     assert "File" in response.text
     assert 'href="/files/server/preview?path=world.txt"' in response.text
+    assert 'href="/files/server/download?path=world.txt"' in response.text
+    assert 'href="/files/server/download?path=subdir"' not in response.text
 
 
 def test_parent_directory_navigation_for_nested_directory(tmp_path: Path):
@@ -293,3 +317,155 @@ def test_preview_is_bounded_and_truncated(tmp_path: Path):
     assert "Output truncated." in response.text
     assert "start" in response.text
     assert "tail-secret" not in response.text
+
+
+def test_authenticated_owner_can_download_safe_file(tmp_path: Path):
+    server = _server_root(tmp_path)
+    (server / "safe.txt").write_text("safe file", encoding="utf-8")
+    client = _login_owner(tmp_path)
+
+    response = client.get("/files/server/download?path=safe.txt", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert response.content == b"safe file"
+    disposition = response.headers["content-disposition"]
+    assert "attachment" in disposition.lower()
+    assert "safe.txt" in disposition
+
+
+def test_unauthenticated_download_redirects_to_login(tmp_path: Path):
+    _server_root(tmp_path)
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.get("/files/server/download?path=safe.txt", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_download_permission_denied_returns_controlled_403(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+
+    password = "owner files password"
+    setup_owner_user(tmp_path, "owner", password)
+    app = create_app(data_root=tmp_path)
+    for route in app.routes:
+        if getattr(route, "path", "") == "/files/{root_id}/download":
+            monkeypatch.setitem(
+                route.endpoint.__globals__,
+                "require_permission",
+                lambda current, permission: False,
+            )
+            break
+    client = _client(app)
+    _login(client, "owner", password)
+
+    response = client.get("/files/server/download?path=safe.txt", follow_redirects=False)
+
+    assert response.status_code == 403
+    assert response.text == "Permission denied."
+    assert "Traceback" not in response.text
+
+
+def test_download_unknown_root_is_controlled(tmp_path: Path):
+    client = _login_owner(tmp_path)
+
+    response = client.get("/files/not-real/download?path=safe.txt", follow_redirects=False)
+
+    assert response.status_code == 404
+    assert response.text == "Unknown file root."
+    assert "Traceback" not in response.text
+
+
+def test_download_dotdot_traversal_is_rejected(tmp_path: Path):
+    _server_root(tmp_path)
+    client = _login_owner(tmp_path)
+
+    response = client.get("/files/server/download?path=../config", follow_redirects=False)
+
+    assert response.status_code == 400
+    assert response.text == "Unsafe file path."
+    assert "Traceback" not in response.text
+
+
+def test_download_absolute_path_is_rejected(tmp_path: Path):
+    _server_root(tmp_path)
+    client = _login_owner(tmp_path)
+
+    response = client.get("/files/server/download?path=/etc/passwd", follow_redirects=False)
+
+    assert response.status_code == 400
+    assert response.text == "Unsafe file path."
+    assert "Traceback" not in response.text
+
+
+def test_download_symlink_escape_is_rejected(tmp_path: Path):
+    server = _server_root(tmp_path)
+    outside = tmp_path / "outside-secret.txt"
+    outside.write_text("outside", encoding="utf-8")
+    try:
+        (server / "escape.txt").symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+    client = _login_owner(tmp_path)
+
+    response = client.get("/files/server/download?path=escape.txt", follow_redirects=False)
+
+    assert response.status_code == 400
+    assert response.text == "Unsafe file path."
+    assert "outside" not in response.text
+
+
+def test_directory_download_is_rejected(tmp_path: Path):
+    server = _server_root(tmp_path)
+    (server / "subdir").mkdir()
+    client = _login_owner(tmp_path)
+
+    response = client.get("/files/server/download?path=subdir", follow_redirects=False)
+
+    assert response.status_code == 400
+    assert response.text == "Download unavailable."
+    assert "Traceback" not in response.text
+
+
+def test_git_and_venv_paths_are_not_downloadable(tmp_path: Path):
+    server = _server_root(tmp_path)
+    (server / ".git").mkdir()
+    (server / ".git" / "secret.txt").write_text("git secret", encoding="utf-8")
+    (server / ".venv").mkdir()
+    (server / ".venv" / "secret.txt").write_text("venv secret", encoding="utf-8")
+    client = _login_owner(tmp_path)
+
+    git_response = client.get(
+        "/files/server/download?path=.git/secret.txt",
+        follow_redirects=False,
+    )
+    venv_response = client.get(
+        "/files/server/download?path=.venv/secret.txt",
+        follow_redirects=False,
+    )
+
+    assert git_response.status_code == 400
+    assert git_response.text == "Unsafe file path."
+    assert "git secret" not in git_response.text
+    assert venv_response.status_code == 400
+    assert venv_response.text == "Unsafe file path."
+    assert "venv secret" not in venv_response.text
+
+
+def test_download_content_disposition_uses_safe_basename(tmp_path: Path):
+    server = _server_root(tmp_path)
+    (server / "nested").mkdir()
+    (server / "nested" / "report.txt").write_text("report", encoding="utf-8")
+    client = _login_owner(tmp_path)
+
+    response = client.get("/files/server/download?path=nested/report.txt", follow_redirects=False)
+
+    assert response.status_code == 200
+    disposition = response.headers["content-disposition"]
+    assert "attachment" in disposition.lower()
+    assert "report.txt" in disposition
+    assert "nested" not in disposition
+    assert ".." not in disposition

@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Query, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 
 from armactl.web.auth.cookies import clear_csrf_cookie, clear_session_cookie, set_csrf_cookie
 from armactl.web.auth.dependencies import (
@@ -92,6 +98,10 @@ def _render_files(
     return response
 
 
+def _controlled_file_error(error: filesystem.FileBrowserError) -> PlainTextResponse:
+    return PlainTextResponse(error.public_message, status_code=error.status_code)
+
+
 def _authenticated_files(
     request: Request,
     *,
@@ -137,3 +147,26 @@ def files_preview(
 ) -> Response:
     """Render a bounded text preview for one safe file."""
     return _authenticated_files(request, root_id=root_id, preview_path=path)
+
+
+@router.get("/files/{root_id}/download")
+def files_download(
+    request: Request,
+    root_id: str,
+    path: str | None = Query(default=None),
+) -> Response:
+    """Download one safe file under a fixed root as an attachment."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, FILES_READ):
+        return permission_denied_response()
+    try:
+        download = filesystem.resolve_download_file(current.config.data_root, root_id, path)
+    except filesystem.FileBrowserError as exc:
+        return _controlled_file_error(exc)
+    return FileResponse(
+        download.path,
+        media_type="application/octet-stream",
+        filename=download.filename,
+    )

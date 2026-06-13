@@ -136,12 +136,12 @@ Completed foundation:
     can inspect the web audit log, fixed service journals, and a redacted
     diagnostic report preview through `/logs` and `/report`. Output is
     bounded, redacted, non-streaming, and does not accept arbitrary paths.
-23. Safe read-only file browser foundation: authenticated users with
-    `files:read` can inspect fixed local roots under the default instance at
-    `/files`. Browser input is root id plus relative path only; absolute
-    paths, traversal, source/system roots, `.git`/`.venv`, and symlink
-    escapes are rejected. Upload, download, delete, rename, and archive
-    extraction remain future work.
+23. Safe file browser foundation: authenticated users with `files:read` can
+    inspect fixed local roots under the default instance at `/files` and
+    download one validated file as an attachment. Browser input is root id
+    plus relative path only; absolute paths, traversal, source/system roots,
+    `.git`/`.venv`, and symlink escapes are rejected. Upload, overwrite,
+    delete, rename, and archive extraction remain future work.
 
 Next recommended implementation order:
 
@@ -153,8 +153,8 @@ Next recommended implementation order:
    before exposing those flows in web.
 4. Add edit/save/delete flows for config, mods, admins, and bot settings through
    existing backend modules.
-5. Add download/upload/delete/rename flows on top of the safe filesystem
-   adapter when the read-only browser has been reviewed.
+5. Add upload/overwrite/delete/rename flows on top of the safe filesystem
+   adapter after single-file download has been reviewed.
 
 ## Implementation prompt template
 

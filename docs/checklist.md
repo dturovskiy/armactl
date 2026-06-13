@@ -282,7 +282,7 @@
 - [ ] Підключити install/repair/update flows до background jobs без blocking HTTP requests
 - [ ] Додати edit/save/delete flows для config/mods/admins/bot через backend modules
 - [x] Додати safe read-only filesystem browser foundation
-- [ ] Додати download single file для web file browser
+- [x] Додати download single file для web file browser
 - [ ] Додати upload/atomic overwrite для web file browser
 - [ ] Додати delete/rename для web file browser
 - [ ] Додати archive extraction flow після окремого threat model

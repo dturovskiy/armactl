@@ -64,6 +64,13 @@ class PathUnavailableError(FileBrowserError):
     status_code = 404
 
 
+class DownloadUnavailableError(FileBrowserError):
+    """Raised when a safe path cannot be downloaded as a single file."""
+
+    public_message = "Download unavailable."
+    status_code = 400
+
+
 @dataclass(frozen=True)
 class FileRoot:
     """One fixed, read-only root exposed by the web file browser."""
@@ -100,6 +107,7 @@ class FileMetadata:
     modified_at: str
     href: str
     preview_href: str = ""
+    download_href: str = ""
 
 
 @dataclass(frozen=True)
@@ -123,6 +131,16 @@ class FilePreview:
     content: str = ""
     truncated: bool = False
     error: str = ""
+
+
+@dataclass(frozen=True)
+class DownloadFile:
+    """Validated single-file download target."""
+
+    root: FileRoot
+    metadata: FileMetadata
+    path: Path
+    filename: str
 
 
 @dataclass(frozen=True)
@@ -267,6 +285,10 @@ def _preview_href(root_id: str, relative_path: str) -> str:
     return f"/files/{root_id}/preview?path={_query_path(relative_path)}"
 
 
+def _download_href(root_id: str, relative_path: str) -> str:
+    return f"/files/{root_id}/download?path={_query_path(relative_path)}"
+
+
 def resolve_browser_path(
     data_root: Path | None,
     root_id: str,
@@ -333,6 +355,7 @@ def _metadata_from_path(root: FileRoot, path: Path, relative_path: str) -> FileM
         modified_at=_format_modified(stat_result.st_mtime),
         href=_files_href(root.root_id, relative_path) if is_dir else "",
         preview_href=_preview_href(root.root_id, relative_path) if is_file else "",
+        download_href=_download_href(root.root_id, relative_path) if is_file else "",
     )
 
 
@@ -434,6 +457,38 @@ def get_file_metadata(
     if not resolved.resolved_path.exists():
         raise PathUnavailableError(PathUnavailableError.public_message)
     return _metadata_from_path(resolved.root, resolved.resolved_path, resolved.relative_path)
+
+
+def _safe_download_filename(name: str) -> str:
+    """Return a conservative attachment filename from a basename only."""
+    basename = Path(name).name.replace("/", "_").replace("\\", "_")
+    safe_chars = []
+    for char in basename:
+        if ord(char) < 32 or char == "\x7f" or char in {'"', "'"}:
+            safe_chars.append("_")
+        else:
+            safe_chars.append(char)
+    return "".join(safe_chars).strip(" .") or "download"
+
+
+def resolve_download_file(
+    data_root: Path | None,
+    root_id: str,
+    relative_path: object | None,
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> DownloadFile:
+    """Resolve one safe file target for attachment download."""
+    resolved = resolve_browser_path(data_root, root_id, relative_path, instance=instance)
+    metadata = get_file_metadata(data_root, root_id, relative_path, instance=instance)
+    if not metadata.is_file:
+        raise DownloadUnavailableError(DownloadUnavailableError.public_message)
+    return DownloadFile(
+        root=resolved.root,
+        metadata=metadata,
+        path=resolved.resolved_path,
+        filename=_safe_download_filename(metadata.name),
+    )
 
 
 def _redact_preview_text(text: str) -> str:

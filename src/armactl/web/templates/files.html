@@ -14,7 +14,7 @@
   <div class="section-heading-row">
     <div>
       <h2>{{ t("Read-only file browser") }}</h2>
-      <p class="muted">{{ t("No upload/download/delete actions are available yet.") }}</p>
+      <p class="muted">{{ t("Single-file download is available; upload/delete/rename actions are not available yet.") }}</p>
     </div>
   </div>
 
@@ -64,6 +64,7 @@
             <th>{{ t("Size") }}</th>
             <th>{{ t("Modified") }}</th>
             <th>{{ t("Preview") }}</th>
+            <th>{{ t("Download") }}</th>
           </tr>
         </thead>
         <tbody>
@@ -84,6 +85,13 @@
                   <a class="text-link" href="{{ entry.preview_href }}">{{ t("Preview") }}</a>
                 {% else %}
                   <span class="muted">{{ t("Preview unavailable") }}</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if entry.download_href %}
+                  <a class="text-link" href="{{ entry.download_href }}">{{ t("Download") }}</a>
+                {% else %}
+                  <span class="muted">{{ t("Download unavailable") }}</span>
                 {% endif %}
               </td>
             </tr>
