@@ -928,6 +928,7 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert 'href="/admins"' in root_response.text
     assert 'href="/bot"' in root_response.text
     assert 'href="/jobs"' in root_response.text
+    assert 'href="/logs"' in root_response.text
     assert "Recent Jobs" in root_response.text
     assert calls == ["default", "default"]
 

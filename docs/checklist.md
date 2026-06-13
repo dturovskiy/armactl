@@ -278,7 +278,7 @@
 - [ ] Додати optional IP allowlist / trusted proxy handling для remote deployments
 - [x] Додати VM smoke checklist docs для web panel
 - [x] Додати reverse proxy / HTTPS deployment docs
-- [ ] Додати read-only logs/report web views з bounded/redacted output
+- [x] Додати read-only logs/report web views з bounded/redacted output
 - [ ] Підключити install/repair/update flows до background jobs без blocking HTTP requests
 - [ ] Додати edit/save/delete flows для config/mods/admins/bot через backend modules
 - [ ] Додати safe local filesystem browser/upload/download

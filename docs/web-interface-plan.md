@@ -422,9 +422,11 @@ at their native sources:
   logs.
 
 The web panel should expose logs in stages: first bounded read-only journal
-snippets and diagnostic report download/copy, later live streaming. It should
+snippets and diagnostic report preview/copy, later live streaming. It should
 not stream unlimited logs by default and must redact secrets before showing
-diagnostic output in the browser.
+diagnostic output in the browser. The current web slice implements fixed
+source `/logs` views and a `/report` preview without arbitrary paths,
+downloads, or streaming.
 
 ## Accounts and cabinet model
 
@@ -614,7 +616,7 @@ Internal API readiness:
 | Read-only status/dashboard | High | Implemented through one dashboard DTO from discovery, service/timer status, metrics, players, config summary, mods, web runtime, and safe bot summary |
 | Start/stop/restart | High | Default-instance web controls are implemented with auth, confirmation, CSRF, audit log, and route-level permission checks |
 | Config/mods/admins/bot settings | Medium-high | Read-only detail pages are implemented; wrap future mutations with form validation, CSRF, and redacted error rendering |
-| Logs/report | Medium | Use bounded reads first; add streaming later without `os.execvp` |
+| Logs/report | Medium-high | Bounded read-only audit, fixed journal, and redacted report preview views are implemented; add streaming/download later without `os.execvp` |
 | Install/repair/update | Medium | Run via background jobs; never block a request thread |
 | File manager | Low | Implement a new safe filesystem adapter first |
 | Web users/roles/entitlements | Low | Implement new `web.db` models; do not reuse game admins as web users |
@@ -629,7 +631,7 @@ logic from TUI screens.
 |--------------|----------------|-----------------|-----------------|
 | Dashboard/status | Implemented in TUI, CLI, and the web read-only dashboard | discovery, state, status_summary, metrics, player_view, ports, bot_config | Keep future routes thin and continue extending the facade instead of route-local aggregation |
 | Server controls | Implemented | `service_manager`, CLI `start/stop/restart`, TUI `ManageScreen` | Web start/stop/restart now wraps existing calls for the default instance; schedule and job-backed operations remain future work |
-| Logs/report | Implemented for journal/report and TUI live view | `logs`, `report`, `TailLogScreen` | Start with latest log lines; add browser streaming later |
+| Logs/report | Implemented for journal/report, TUI live view, and bounded read-only web views | `logs`, `report`, `TailLogScreen` | Web exposes fixed sources and redacted report preview; add browser streaming/download later |
 | Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Read-only web config page exists; future form writes stay through `config_manager` with validation |
 | Mods manager | Implemented beyond basic parity | `mods_manager`, `mods_state`, `addon_cleanup`, `ModManagerScreen` | Read-only web mods page exists; future add/remove/enable/disable/import/export routes should reuse existing modules |
 | Server admins | Implemented for Arma `game.admins` | `admins_manager`, `AdminManagerScreen` | Read-only game-admin page exists; keep game admins separate from web users/roles for future management flows |
@@ -868,7 +870,7 @@ not the foreground debug runner.
 - Status endpoint and dashboard.
 - Metrics and player view.
 - Read-only config, mods, game admins, and Telegram bot detail pages are implemented through the web facade.
-- Read-only logs.
+- Read-only logs/report views are implemented with fixed sources, bounded output, and redaction.
 - No mutating actions in this phase except login/logout.
 
 ### Phase 3 - Controlled server actions

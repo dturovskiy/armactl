@@ -132,6 +132,10 @@ Completed foundation:
     proxy / HTTPS topology, port guidance, and troubleshooting for the current
     source checkout plus repo `.venv` deployment model. Real remote HTTPS smoke
     remains a separate validation step.
+22. Bounded read-only logs/report views: authenticated users with `logs:view`
+    can inspect the web audit log, fixed service journals, and a redacted
+    diagnostic report preview through `/logs` and `/report`. Output is
+    bounded, redacted, non-streaming, and does not accept arbitrary paths.
 
 Next recommended implementation order:
 
@@ -139,12 +143,11 @@ Next recommended implementation order:
    environment-specific outcome.
 2. Add optional IP allowlist / trusted proxy handling if operators need direct
    external bind deployments; this is not implemented yet.
-3. Add bounded read-only logs/report views for operational diagnostics.
-4. Connect install, repair, and update flows to explicit background job handlers
+3. Connect install, repair, and update flows to explicit background job handlers
    before exposing those flows in web.
-5. Add edit/save/delete flows for config, mods, admins, and bot settings through
+4. Add edit/save/delete flows for config, mods, admins, and bot settings through
    existing backend modules.
-6. Add the safe filesystem adapter before upload/download routes.
+5. Add the safe filesystem adapter before upload/download routes.
 
 ## Implementation prompt template
 

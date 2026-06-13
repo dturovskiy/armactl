@@ -1,0 +1,50 @@
+{% extends "layout.html" %}
+{% block title %}{{ t("Logs - armactl web") }}{% endblock %}
+{% block heading %}{{ t("Logs") }}{% endblock %}
+{% block topbar_actions %}
+<a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
+<form method="post" action="/logout" class="logout-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <span class="user-label">{{ current_user.username }}</span>
+  <button type="submit">{{ t("Log out") }}</button>
+</form>
+{% endblock %}
+{% block content %}
+<section class="panel full-width logs-panel">
+  <div class="section-heading-row">
+    <div>
+      <h2>{{ t(view.title) }}</h2>
+      <p class="muted">{{ t(view.description) }}</p>
+    </div>
+    <form method="get" action="{{ view.path }}" class="log-control-form">
+      <label>
+        <span>{{ t("Lines") }}</span>
+        <input type="number" name="lines" min="1" max="{{ max_lines }}" value="{{ view.lines }}">
+      </label>
+      <button class="secondary" type="submit">{{ t("Refresh") }}</button>
+    </form>
+  </div>
+
+  <nav class="source-tabs" aria-label="{{ t('Log sources') }}">
+    {% for source in sources %}
+      <a{% if source.source_id == view.source_id %} class="active"{% endif %} href="{{ source.path }}?lines={{ view.lines }}">{{ t(source.title) }}</a>
+    {% endfor %}
+  </nav>
+
+  {% if view.error %}
+    <p class="panel notice-panel log-state">{{ t(view.error) }}</p>
+  {% elif not view.available %}
+    <p class="panel notice-panel log-state">{{ t("Log source unavailable.") }}</p>
+  {% endif %}
+
+  {% if view.truncated %}
+    <p class="runtime-warning">{{ t("Output truncated.") }}</p>
+  {% endif %}
+
+  {% if view.content %}
+    <pre class="log-output">{{ view.content }}</pre>
+  {% elif not view.error %}
+    <p class="muted">{{ t("No log output available.") }}</p>
+  {% endif %}
+</section>
+{% endblock %}

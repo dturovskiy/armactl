@@ -605,6 +605,7 @@ def test_dashboard_view_model_actions_follow_lifecycle():
         "can_view_admins": True,
         "can_view_bot": True,
         "can_view_jobs": True,
+        "can_view_logs": True,
     }
 
     not_installed = build_dashboard_view(_view_snapshot("not_installed"), **common_permissions)
