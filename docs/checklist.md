@@ -272,7 +272,7 @@
 - [x] Додати background job metadata model перед long-running operations
 - [x] Додати background dispatcher/read-only jobs UI foundation перед install/repair/update flows
 - [x] Додати read-only management pages для config/mods/admins/bot через backend modules
-- [ ] Додати `armactl-web.service` template і service commands
+- [x] Додати `armactl-web.service` template і service commands
 - [ ] Додати login rate limiting / auth abuse throttling для web login
 - [ ] Додати явне HTTPS/external-bind warning у web UI/runtime summary
 - [ ] Додати VM smoke checklist для web panel

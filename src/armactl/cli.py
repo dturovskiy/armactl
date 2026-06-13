@@ -644,6 +644,151 @@ def web_run(
         raise click.ClickException(str(e)) from e
 
 
+
+def _format_web_service_install_summary(result) -> str:
+    config = result.config
+    https_required = "yes" if config.https_required else "no"
+    lines = [
+        "Web service install prepared.",
+        f"  Service:        {result.service_name}",
+        f"  Service file:   {result.service_path}",
+        f"  Data root:      {config.data_root}",
+        f"  Runtime dir:    {config.runtime_dir}",
+        f"  Config file:    {config.env_path}",
+        f"  Database:       {config.db_path}",
+        f"  Audit log:      {config.audit_log_path}",
+        f"  Bind:           {config.bind_host}:{config.bind_port}",
+        f"  HTTPS required: {https_required}",
+        "  Auto-start:     enabled after install",
+        "  Start now:      no",
+    ]
+    for service_result in result.results:
+        marker = "✓" if service_result.success else "✗"
+        lines.append(f"  {marker} {service_result.message}")
+    return "\n".join(lines)
+
+
+def _web_service_failed(results) -> bool:
+    return any(not result.success for result in results)
+
+
+def _echo_web_service_result(action: str, result) -> None:
+    marker = "✓" if result.success else "✗"
+    click.echo(f"Web service {action}.")
+    click.echo(f"  {marker} {result.message}")
+    sys.exit(0 if result.success else result.exit_code or 1)
+
+
+@web.group("service", help="Manage the production armactl web systemd service.")
+def web_service() -> None:
+    pass
+
+
+@web_service.command("install", help="Install and enable armactl-web.service without starting it.")
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Optional web runtime data root to bake into the service unit.",
+)
+def web_service_install(data_root: Path | None) -> None:
+    from armactl.web.runtime import WebRuntimeConfigError
+    from armactl.web.service import install_web_service
+
+    try:
+        result = install_web_service(data_root)
+    except WebRuntimeConfigError as e:
+        raise click.ClickException(str(e)) from e
+
+    click.echo(_format_web_service_install_summary(result))
+    if _web_service_failed(result.results):
+        sys.exit(1)
+
+
+@web_service.command("start", help="Start armactl-web.service.")
+def web_service_start() -> None:
+    from armactl.web.service import start_web_service
+
+    _echo_web_service_result("start", start_web_service())
+
+
+@web_service.command("stop", help="Stop armactl-web.service.")
+def web_service_stop() -> None:
+    from armactl.web.service import stop_web_service
+
+    _echo_web_service_result("stop", stop_web_service())
+
+
+@web_service.command("restart", help="Restart armactl-web.service.")
+def web_service_restart() -> None:
+    from armactl.web.service import restart_web_service
+
+    _echo_web_service_result("restart", restart_web_service())
+
+
+@web_service.command("enable", help="Enable armactl-web.service on boot.")
+def web_service_enable() -> None:
+    from armactl.web.service import enable_web_service
+
+    _echo_web_service_result("enable", enable_web_service())
+
+
+@web_service.command("disable", help="Disable armactl-web.service on boot.")
+def web_service_disable() -> None:
+    from armactl.web.service import disable_web_service
+
+    _echo_web_service_result("disable", disable_web_service())
+
+
+@web_service.command("status", help="Show armactl-web.service status.")
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Optional web runtime data root used for safe config summary output.",
+)
+def web_service_status(data_root: Path | None) -> None:
+    from armactl.web.service import get_web_service_status
+
+    status = get_web_service_status(data_root)
+    config = status.get("config", {})
+    runtime = status.get("runtime", {})
+    service_name = status.get("service_name", "armactl-web.service")
+    service_file = status.get("service_file", "")
+    installed = "yes" if status.get("installed") else "no"
+    active = "yes" if status.get("active") else "no"
+    enabled = "yes" if status.get("enabled") else "no"
+    active_state = status.get("active_state", "unknown")
+    main_pid = status.get("main_pid")
+    click.echo("Web service status.")
+    click.echo(f"  Service:        {service_name}")
+    click.echo(f"  Service file:   {service_file}")
+    click.echo(f"  Installed:      {installed}")
+    click.echo(f"  Active:         {active}")
+    click.echo(f"  Enabled:        {enabled}")
+    click.echo(f"  State:          {active_state}")
+    if main_pid:
+        click.echo(f"  PID:            {main_pid}")
+    if config.get("available"):
+        https_required = "yes" if config.get("https_required") else "no"
+        data_root_text = config.get("data_root")
+        runtime_dir = config.get("runtime_dir")
+        env_path = config.get("env_path")
+        bind_host = config.get("bind_host")
+        bind_port = config.get("bind_port")
+        click.echo(f"  Data root:      {data_root_text}")
+        click.echo(f"  Runtime dir:    {runtime_dir}")
+        click.echo(f"  Config file:    {env_path}")
+        click.echo(f"  Bind:           {bind_host}:{bind_port}")
+        click.echo(f"  HTTPS required: {https_required}")
+    elif config.get("error"):
+        config_error = config.get("error")
+        click.echo(f"  Runtime config: {config_error}")
+    runtime_marker = "✓" if runtime.get("success") else "✗"
+    runtime_message = runtime.get("message", "unknown")
+    click.echo(f"  Runtime check:  {runtime_marker} {runtime_message}")
+
+
 # ---------------------------------------------------------------------------
 # Discovery / Install / Repair
 # ---------------------------------------------------------------------------

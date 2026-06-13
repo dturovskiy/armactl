@@ -66,7 +66,11 @@ include = [
     "src/armactl/**/*.json",
     "src/armactl/web/templates/**/*.html",
     "src/armactl/web/static/**/*",
+    "templates/**/*.j2",
 ]
+
+[tool.hatch.build.targets.wheel.force-include]
+"templates" = "templates"
 
 [tool.hatch.build.targets.sdist]
 include = [

@@ -54,6 +54,7 @@ def test_web_help_exists():
     assert "Manage the planned browser web panel." in result.output
     assert "run" in result.output
     assert "init" in result.output
+    assert "service" in result.output
 
 
 def test_web_run_help_describes_bind_overrides_from_env():
@@ -499,6 +500,175 @@ def test_web_run_does_not_import_tui_or_textual(tmp_path: Path, monkeypatch):
     result = invoke_web("run", "--data-root", str(tmp_path), "--port", "8765")
 
     assert result.exit_code == 0
+    assert blocked_imports == []
+    assert not any(
+        _matches_prefix(module_name, FORBIDDEN_IMPORT_PREFIXES) for module_name in sys.modules
+    )
+
+
+def test_web_service_help_exists():
+    result = invoke_web("service", "--help")
+
+    assert result.exit_code == 0
+    assert "Manage the production armactl web systemd service." in result.output
+    assert "install" in result.output
+    assert "start" in result.output
+    assert "status" in result.output
+
+
+def test_web_service_install_prints_safe_summary(tmp_path: Path, monkeypatch):
+    from armactl.service_manager import ServiceResult
+    from armactl.web import service as web_service
+
+    config = ensure_web_runtime(tmp_path)
+    install_result = web_service.WebServiceInstallResult(
+        config=config,
+        service_name="armactl-web.service",
+        service_path=tmp_path / "systemd" / "armactl-web.service",
+        results=(
+            ServiceResult(True, "runtime ready"),
+            ServiceResult(True, "installed unit"),
+            ServiceResult(True, "daemon reloaded"),
+            ServiceResult(True, "enabled armactl-web.service"),
+        ),
+    )
+
+    def fake_install(data_root: Path | None = None):
+        assert data_root == tmp_path
+        return install_result
+
+    monkeypatch.setattr(web_service, "install_web_service", fake_install)
+
+    result = invoke_web("service", "install", "--data-root", str(tmp_path))
+
+    assert result.exit_code == 0
+    assert "Web service install prepared." in result.output
+    assert "Service:        armactl-web.service" in result.output
+    assert str(tmp_path / "systemd" / "armactl-web.service") in result.output
+    assert str(tmp_path / "web" / "web.env") in result.output
+    assert f"127.0.0.1:{WEB_PANEL_DEFAULT_PORT}" in result.output
+    assert "Auto-start:     enabled after install" in result.output
+    assert "Start now:      no" in result.output
+    assert config.session_secret not in result.output
+    assert "ARMACTL_WEB_SESSION_SECRET" not in result.output
+
+
+def test_web_service_install_rejects_reserved_port_before_systemd(tmp_path: Path):
+    env_path = tmp_path / "web" / "web.env"
+    env_path.parent.mkdir(parents=True)
+    env_path.write_text(
+        "ARMACTL_WEB_BIND_HOST=127.0.0.1\n"
+        "ARMACTL_WEB_BIND_PORT=2001\n"
+        "ARMACTL_WEB_HTTPS_REQUIRED=false\n"
+        "ARMACTL_WEB_SESSION_SECRET=not-a-real-test-secret\n",
+        encoding="utf-8",
+    )
+
+    result = invoke_web("service", "install", "--data-root", str(tmp_path))
+
+    assert result.exit_code == 1
+    assert "Port 2001 is reserved for Arma game default." in result.output
+    assert "Traceback" not in result.output
+
+
+def test_web_service_lifecycle_cli_calls_service_helpers(monkeypatch):
+    from armactl.service_manager import ServiceResult
+    from armactl.web import service as web_service
+
+    calls: list[str] = []
+
+    def result_for(action: str):
+        def wrapped() -> ServiceResult:
+            calls.append(action)
+            return ServiceResult(True, f"{action} armactl-web.service")
+
+        return wrapped
+
+    monkeypatch.setattr(web_service, "start_web_service", result_for("start"))
+    monkeypatch.setattr(web_service, "stop_web_service", result_for("stop"))
+    monkeypatch.setattr(web_service, "restart_web_service", result_for("restart"))
+    monkeypatch.setattr(web_service, "enable_web_service", result_for("enable"))
+    monkeypatch.setattr(web_service, "disable_web_service", result_for("disable"))
+
+    for command in ("start", "stop", "restart", "enable", "disable"):
+        result = invoke_web("service", command)
+
+        assert result.exit_code == 0
+        assert f"Web service {command}." in result.output
+        assert f"{command} armactl-web.service" in result.output
+
+    assert calls == ["start", "stop", "restart", "enable", "disable"]
+
+
+def test_web_service_status_prints_safe_summary(tmp_path: Path, monkeypatch):
+    from armactl.web import service as web_service
+
+    config = ensure_web_runtime(tmp_path)
+
+    def fake_status(data_root: Path | None = None) -> dict:
+        assert data_root == tmp_path
+        return {
+            "service_name": "armactl-web.service",
+            "service_file": "/etc/systemd/system/armactl-web.service",
+            "installed": True,
+            "active": True,
+            "enabled": True,
+            "active_state": "active",
+            "main_pid": 321,
+            "runtime": {"success": True, "message": "runtime ready", "exit_code": 0},
+            "config": {
+                "available": True,
+                "data_root": str(config.data_root),
+                "runtime_dir": str(config.runtime_dir),
+                "env_path": str(config.env_path),
+                "bind_host": config.bind_host,
+                "bind_port": config.bind_port,
+                "https_required": config.https_required,
+            },
+        }
+
+    monkeypatch.setattr(web_service, "get_web_service_status", fake_status)
+
+    result = invoke_web("service", "status", "--data-root", str(tmp_path))
+
+    assert result.exit_code == 0
+    assert "Web service status." in result.output
+    assert "Service:        armactl-web.service" in result.output
+    assert "Installed:      yes" in result.output
+    assert "Active:         yes" in result.output
+    assert "Enabled:        yes" in result.output
+    assert "PID:            321" in result.output
+    assert f"Bind:           127.0.0.1:{WEB_PANEL_DEFAULT_PORT}" in result.output
+    assert config.session_secret not in result.output
+    assert "ARMACTL_WEB_SESSION_SECRET" not in result.output
+
+
+def test_web_service_install_does_not_import_tui_or_textual(tmp_path: Path, monkeypatch):
+    _forget_modules("armactl.tui", "textual")
+    env_path = tmp_path / "web" / "web.env"
+    env_path.parent.mkdir(parents=True)
+    env_path.write_text(
+        "ARMACTL_WEB_BIND_HOST=127.0.0.1\n"
+        "ARMACTL_WEB_BIND_PORT=2001\n"
+        "ARMACTL_WEB_HTTPS_REQUIRED=false\n"
+        "ARMACTL_WEB_SESSION_SECRET=not-a-real-test-secret\n",
+        encoding="utf-8",
+    )
+    original_import = builtins.__import__
+    blocked_imports: list[str] = []
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if _matches_prefix(name, FORBIDDEN_IMPORT_PREFIXES):
+            blocked_imports.append(name)
+            raise AssertionError(f"web service imported forbidden dependency {name!r}")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    result = invoke_web("service", "install", "--data-root", str(tmp_path))
+
+    assert result.exit_code == 1
+    assert "Port 2001 is reserved" in result.output
     assert blocked_imports == []
     assert not any(
         _matches_prefix(module_name, FORBIDDEN_IMPORT_PREFIXES) for module_name in sys.modules

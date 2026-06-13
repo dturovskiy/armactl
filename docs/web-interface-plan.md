@@ -791,11 +791,21 @@ armactl web run
 armactl web service install
 armactl web service start
 armactl web service stop
+armactl web service restart
 armactl web service status
+armactl web service enable
+armactl web service disable
 ```
 
-`web init` should create runtime config and credentials. `service install`
-should install or refresh `armactl-web.service`.
+`web init` creates runtime config and credentials. `service install` now
+installs or refreshes `armactl-web.service`, reloads systemd, and enables the
+unit on boot. It does not start the service; use `armactl web service start`
+explicitly after review or a smoke check.
+
+The first service implementation follows the current source-checkout deployment
+model: the rendered unit runs the repo-local `.venv/bin/python`. If armactl gets
+a wheel-only deployment path later, revisit service template/interpreter
+discovery instead of assuming the source tree layout.
 
 Add a repo-local smoke launcher plus documented flow:
 
@@ -825,9 +835,9 @@ not the foreground debug runner.
   Future mutating flows must reuse the established auth/session/CSRF helpers.
 - Web i18n/theme preferences are implemented with request-scoped translation
   helpers, existing locale JSON files, and web-owned cookies.
-- Add service template and CLI service commands for always-on
-  `armactl-web.service`; this is the next production-readiness foundation after
-  the foreground smoke runner.
+- The always-on `armactl-web.service` template and `armactl web service ...`
+  commands are implemented for production service installation and lifecycle
+  management.
 - Update packaging so web templates/static files are included in editable,
   wheel, and sdist installs.
 - Keep the marketing `website/` untouched and separate from the management UI.
@@ -880,7 +890,7 @@ not the foreground debug runner.
 
 ### Phase 6 - External deployment docs
 
-- Install and manage `armactl-web.service` through `armactl web service ...`.
+- Service commands for `armactl-web.service` are implemented; document operational deployment use.
 - Document Caddy/Nginx reverse proxy.
 - Document LAN/VPN direct bind option.
 - Document firewall ports and service restart/update flow.
