@@ -799,6 +799,26 @@ clear server state first, then actionable controls, then diagnostic details.
 The browser version can use more spatial layout, richer tables, inline forms,
 file upload/download controls, and better copy/paste affordances than the TUI.
 
+### Dashboard freshness model
+
+The initial dashboard can remain server-rendered HTML so login, auth, no-JS, and
+manual refresh behavior stay simple and reliable. For normal operation, the
+panel should add a lightweight authenticated JSON status endpoint and
+package-local JavaScript polling so live values such as lifecycle, service
+state, players, FPS, telemetry age, and host metrics update without a full page
+reload.
+
+Use polling first, not WebSocket. A 5-10 second interval is enough for server
+operator status and keeps the implementation smaller, easier to test, and less
+fragile behind reverse proxies. The endpoint must reuse the existing dashboard
+facade/view-model data, expose only a small safe DTO, require the same
+dashboard:view permission, and never become a second source of truth for
+server state.
+
+The no-JS fallback remains the current full page refresh. If polling fails, the
+UI should leave the last known values visible and show a subtle stale indicator
+instead of spamming errors.
+
 The web UI should have its own templates/static assets under `src/armactl/web/`.
 It should not import files from top-level `website/`, and top-level `website/`
 should not import or depend on the management panel.

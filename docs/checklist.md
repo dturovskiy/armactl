@@ -267,6 +267,7 @@
 - [x] Додати Uvicorn reload для `armactl web run --dev`
 - [x] Додати web permission categories foundation для dashboard/actions/files/backups/users
 - [x] Додати dashboard read-only parity з TUI
+- [ ] Додати lightweight dashboard live refresh через JSON endpoint і JS polling без WebSocket
 - [x] Додати controlled start/stop/restart actions
 - [x] Додати web i18n adapter і theme preferences поверх існуючих `src/armactl/locales/*.json`
 - [x] Додати fast preferences UX: миттєве перемикання теми і lightweight language switch без зайвого важкого dashboard reload
