@@ -1,4 +1,10 @@
 (() => {
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) {
+      window.location.reload();
+    }
+  });
+
   const headers = {
     Accept: "application/json",
     "X-Requested-With": "fetch",

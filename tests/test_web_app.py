@@ -606,6 +606,9 @@ def test_preferences_js_asset_is_served(tmp_path: Path):
     assert response.status_code == 200
     assert "text/javascript" in response.headers["content-type"]
     assert "document.documentElement.dataset.theme" in response.text
+    assert "pageshow" in response.text
+    assert "event.persisted" in response.text
+    assert "window.location.reload()" in response.text
     assert "armactl_web_session" not in response.text
     assert "csrf_token" not in response.text
 
@@ -989,6 +992,9 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert login_response.status_code == 303
     assert root_response.status_code == 200
     assert dashboard_response.status_code == 200
+    assert dashboard_response.headers["Cache-Control"] == "no-store, max-age=0"
+    assert dashboard_response.headers["Pragma"] == "no-cache"
+    assert dashboard_response.headers["Expires"] == "0"
     assert "text/html" in root_response.headers["content-type"]
     assert "Mock Server" in root_response.text
     assert "running" in root_response.text

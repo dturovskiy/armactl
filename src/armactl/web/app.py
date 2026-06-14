@@ -39,6 +39,19 @@ def create_app(data_root: Path | None = None) -> FastAPI:
         directory=str(TEMPLATES_DIR),
         context_processors=[web_template_context],
     )
+
+    @app.middleware("http")
+    async def no_store_operator_pages(request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            return response
+        content_type = response.headers.get("content-type", "")
+        if "text/html" in content_type.lower():
+            response.headers["Cache-Control"] = "no-store, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
+
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     app.include_router(health_router)
     app.include_router(auth_router)
