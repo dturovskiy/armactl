@@ -174,8 +174,8 @@ Completed foundation:
 28. Dashboard visual meters: the dashboard status DTO now includes safe numeric
     FPS/CPU/RAM/disk metrics, the server-rendered dashboard shows compact
     meters with a no-JS text fallback, and package-local `dashboard.js` updates
-    bars plus a short in-browser FPS sparkline through the existing polling
-    path.
+    meter bars through the existing polling path. A dedicated FPS history chart
+    is postponed until the visual design is reviewed.
 
 Next recommended implementation order:
 

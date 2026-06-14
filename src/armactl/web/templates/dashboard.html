@@ -19,11 +19,6 @@
     <div class="metric-bar" role="meter" aria-label="{{ t(meter.label) }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ meter_percent }}">
       <span class="metric-fill" data-dashboard-metric-fill="{{ meter.id }}" style="width: {{ meter_percent }}%"></span>
     </div>
-    {% if meter.kind == "sparkline" %}
-      <svg class="metric-sparkline" data-dashboard-sparkline="{{ meter.id }}" viewBox="0 0 100 36" aria-hidden="true" focusable="false">
-        <polyline points="" vector-effect="non-scaling-stroke"></polyline>
-      </svg>
-    {% endif %}
   </div>
 {%- endmacro %}
 {% macro metric_meter_list(meters) -%}

@@ -1172,7 +1172,7 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert 'data-dashboard-endpoint="/dashboard/status.json"' in root_response.text
     assert 'data-dashboard-field="host.cpu"' in root_response.text
     assert 'data-dashboard-meter="fps"' in root_response.text
-    assert 'data-dashboard-sparkline="fps"' in root_response.text
+    assert 'data-dashboard-sparkline="fps"' not in root_response.text
     assert 'data-dashboard-meter="cpu"' in root_response.text
     assert 'data-dashboard-metric-fill="disk"' in root_response.text
     assert calls == ["default", "default"]
@@ -1191,8 +1191,8 @@ def test_dashboard_js_static_asset_is_served(tmp_path: Path):
     assert "dashboard/status.json" in response.text
     assert "data-dashboard-root" in response.text
     assert "data-dashboard-meter" in response.text
-    assert "data-dashboard-sparkline" in response.text
-    assert "metricHistory" in response.text
+    assert "data-dashboard-sparkline" not in response.text
+    assert "metricHistory" not in response.text
     assert "ARMACTL_WEB_SESSION_SECRET" not in response.text
     assert "csrf_token" not in response.text
     assert "password" not in response.text.lower()

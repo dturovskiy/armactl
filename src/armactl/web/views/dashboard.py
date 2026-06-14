@@ -336,7 +336,7 @@ def _host_meters(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 def _fps_meter(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     metrics = _metric_payload(snapshot)
-    return _metric_meter("fps", "Server FPS", metrics["fps"], kind="sparkline")
+    return _metric_meter("fps", "Server FPS", metrics["fps"])
 
 
 def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str, Any]]:

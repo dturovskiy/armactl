@@ -820,8 +820,9 @@ UI should leave the last known values visible and show a subtle stale indicator
 instead of spamming errors.
 
 Compact visual meters for Server FPS and host CPU/RAM/disk ride on the same
-status endpoint. They use only safe numeric DTO fields plus short in-browser
-history for the FPS sparkline; no backend metric history is persisted yet.
+status endpoint. They use only safe numeric DTO fields and do not persist
+backend metric history. A dedicated FPS history chart should be designed as a
+separate UI step instead of being squeezed into the compact live-server card.
 
 The web UI should have its own templates/static assets under `src/armactl/web/`.
 It should not import files from top-level `website/`, and top-level `website/`
