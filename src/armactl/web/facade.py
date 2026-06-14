@@ -126,19 +126,9 @@ def _service_is_activating(service: dict[str, Any]) -> bool:
     return active_state == "activating" or sub_state in {"start", "auto-restart"}
 
 
-def _telemetry_looks_ready(
-    fps_metrics: dict[str, Any],
-    operational_status: dict[str, Any],
-) -> bool:
-    operational_state = str(operational_status.get("state") or "").strip().lower()
-    return bool(fps_metrics.get("available")) or operational_state == "ready"
-
-
 def _dashboard_lifecycle(
     state: ServerState,
     service: dict[str, Any],
-    fps_metrics: dict[str, Any],
-    operational_status: dict[str, Any],
 ) -> str:
     base = _base_lifecycle(state)
     if base != "stopped":
@@ -147,7 +137,7 @@ def _dashboard_lifecycle(
         return "stopped"
     if _service_is_activating(service):
         return "starting"
-    return "running" if _telemetry_looks_ready(fps_metrics, operational_status) else "starting"
+    return "running"
 
 
 def _config_dir_from_state(state: ServerState) -> Path | None:
@@ -773,7 +763,7 @@ def load_dashboard_snapshot(
         )
 
     operational_status = _load_operational_status(state, errors)
-    lifecycle = _dashboard_lifecycle(state, service, fps_metrics, operational_status)
+    lifecycle = _dashboard_lifecycle(state, service)
     dashboard_running = lifecycle == "running"
 
     if dashboard_running:

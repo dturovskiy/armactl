@@ -298,11 +298,16 @@ def test_dashboard_snapshot_for_running_server(monkeypatch):
     assert snapshot["sat"]["warning"] == ""
 
 
-def test_dashboard_snapshot_treats_active_service_without_ready_telemetry_as_starting(
+def test_dashboard_snapshot_treats_active_service_without_ready_telemetry_as_running(
     monkeypatch,
 ):
     server_state = _state(installed=True, running=True)
-    facade = _install_common_fakes(monkeypatch, server_state, service_active=True)
+    facade = _install_common_fakes(
+        monkeypatch,
+        server_state,
+        service_active=True,
+        players=PlayerView(False, current=None, max_players=None, a2s_error="a2s unavailable"),
+    )
     monkeypatch.setattr(
         facade.metrics,
         "query_server_fps_metrics",
@@ -320,12 +325,10 @@ def test_dashboard_snapshot_treats_active_service_without_ready_telemetry_as_sta
             source=str(config_dir),
         ),
     )
-    monkeypatch.setattr(facade.player_view, "query_player_view", _fail_if_called("players"))
-
     snapshot = facade.load_dashboard_snapshot("default")
 
-    assert snapshot["lifecycle"] == "starting"
-    assert snapshot["running"] is False
+    assert snapshot["lifecycle"] == "running"
+    assert snapshot["running"] is True
     assert snapshot["service"]["active"] is True
     assert snapshot["players"]["available"] is False
 
@@ -539,6 +542,7 @@ def test_dashboard_snapshot_degrades_when_sections_raise(monkeypatch):
         "host_metrics",
         "fps_metrics",
         "operational_status",
+        "players",
     }
 
 
