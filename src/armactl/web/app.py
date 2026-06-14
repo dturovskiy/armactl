@@ -27,6 +27,20 @@ STATIC_DIR = PACKAGE_DIR / "static"
 WEB_DATA_ROOT_ENV = "ARMACTL_WEB_DATA_ROOT"
 
 
+def _static_asset_version() -> str:
+    candidates = (
+        STATIC_DIR / "css" / "app.css",
+        STATIC_DIR / "js" / "preferences.js",
+    )
+    mtimes: list[int] = []
+    for candidate in candidates:
+        try:
+            mtimes.append(candidate.stat().st_mtime_ns)
+        except OSError:
+            continue
+    return str(max(mtimes, default=0))
+
+
 def create_app(data_root: Path | None = None) -> FastAPI:
     """Create the ASGI app without starting a server."""
     app = FastAPI(
@@ -35,6 +49,7 @@ def create_app(data_root: Path | None = None) -> FastAPI:
         description="Browser management panel for armactl.",
     )
     app.state.web_data_root = data_root
+    app.state.static_asset_version = _static_asset_version()
     app.state.templates = Jinja2Templates(
         directory=str(TEMPLATES_DIR),
         context_processors=[web_template_context],

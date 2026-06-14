@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ t("armactl web") }}{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}">
-  <script defer src="{{ url_for('static', path='/js/preferences.js') }}"></script>
+  <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}?v={{ web_static_version }}">
+  <script defer src="{{ url_for('static', path='/js/preferences.js') }}?v={{ web_static_version }}"></script>
 </head>
 <body>
   <header class="topbar">

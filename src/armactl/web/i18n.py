@@ -195,6 +195,9 @@ def web_template_context(request: Request) -> dict[str, Any]:
     next_lang = next_language(language)
     theme = preferences.theme
     next_theme_value = next_theme(theme)
+    app = getattr(request, "app", None)
+    app_state = getattr(app, "state", None)
+    static_version = str(getattr(app_state, "static_asset_version", "0"))
     context: dict[str, Any] = {
         "web_language": language,
         "web_language_name": language_name(language),
@@ -202,6 +205,7 @@ def web_template_context(request: Request) -> dict[str, Any]:
         "web_next_language_name": language_name(next_lang),
         "web_theme": theme,
         "web_next_theme": next_theme_value,
+        "web_static_version": static_version,
     }
     context.update(translation_helpers(language))
     return context
