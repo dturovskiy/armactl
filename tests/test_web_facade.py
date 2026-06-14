@@ -298,6 +298,66 @@ def test_dashboard_snapshot_for_running_server(monkeypatch):
     assert snapshot["sat"]["warning"] == ""
 
 
+def test_dashboard_snapshot_treats_active_service_without_ready_telemetry_as_starting(
+    monkeypatch,
+):
+    server_state = _state(installed=True, running=True)
+    facade = _install_common_fakes(monkeypatch, server_state, service_active=True)
+    monkeypatch.setattr(
+        facade.metrics,
+        "query_server_fps_metrics",
+        lambda config_dir: ServerFpsMetrics(False, source=str(config_dir), error="no fps"),
+    )
+    monkeypatch.setattr(
+        facade.metrics,
+        "query_server_operational_status",
+        lambda config_dir: ServerOperationalStatus(
+            True,
+            state="waiting_for_telemetry",
+            severity="warning",
+            message="Waiting for server telemetry",
+            age_seconds=0,
+            source=str(config_dir),
+        ),
+    )
+    monkeypatch.setattr(facade.player_view, "query_player_view", _fail_if_called("players"))
+
+    snapshot = facade.load_dashboard_snapshot("default")
+
+    assert snapshot["lifecycle"] == "starting"
+    assert snapshot["running"] is False
+    assert snapshot["service"]["active"] is True
+    assert snapshot["players"]["available"] is False
+
+
+def test_dashboard_snapshot_treats_activating_service_as_starting(monkeypatch):
+    server_state = _state(installed=True, running=False)
+    facade = _install_common_fakes(monkeypatch, server_state, service_active=False)
+    monkeypatch.setattr(
+        facade.service_manager,
+        "get_service_status",
+        lambda service_name: {
+            "service_name": service_name,
+            "active": False,
+            "enabled": True,
+            "active_state": "activating",
+            "sub_state": "start",
+            "main_pid": 123,
+        },
+    )
+    monkeypatch.setattr(
+        facade.metrics,
+        "query_server_fps_metrics",
+        lambda config_dir: ServerFpsMetrics(False, source=str(config_dir), error="no fps"),
+    )
+
+    snapshot = facade.load_dashboard_snapshot("default")
+
+    assert snapshot["lifecycle"] == "starting"
+    assert snapshot["running"] is False
+    assert snapshot["service"]["active_state"] == "activating"
+
+
 def test_dashboard_snapshot_uses_fast_player_probe(monkeypatch):
     state = _state(installed=True, running=True)
     facade = _install_common_fakes(monkeypatch, state, service_active=True)
@@ -479,7 +539,6 @@ def test_dashboard_snapshot_degrades_when_sections_raise(monkeypatch):
         "host_metrics",
         "fps_metrics",
         "operational_status",
-        "players",
     }
 
 
@@ -634,6 +693,7 @@ def test_dashboard_view_model_actions_follow_lifecycle():
     not_installed = build_dashboard_view(_view_snapshot("not_installed"), **common_permissions)
     incomplete = build_dashboard_view(_view_snapshot("incomplete"), **common_permissions)
     stopped = build_dashboard_view(_view_snapshot("stopped"), **common_permissions)
+    starting = build_dashboard_view(_view_snapshot("starting"), **common_permissions)
     running = build_dashboard_view(_view_snapshot("running"), **common_permissions)
 
     assert not_installed["heading"] == "Dashboard"
@@ -646,5 +706,8 @@ def test_dashboard_view_model_actions_follow_lifecycle():
     assert incomplete["actions"][0]["action_path"] == "/jobs/server/repair"
     assert incomplete["quick_action_note"] == ""
     assert [action["name"] for action in stopped["actions"]] == ["start"]
+    assert [action["name"] for action in starting["actions"]] == ["stop"]
+    assert starting["server_cards"]
+    assert all(card["title"] != "Live server" for card in starting["server_cards"])
     assert [action["name"] for action in running["actions"]] == ["stop", "restart"]
     assert running["heading"] == "Lifecycle Test Server"

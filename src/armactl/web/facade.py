@@ -102,14 +102,52 @@ def _safe_section(
         return {**fallback, "error": message}
 
 
-def _lifecycle(state: ServerState) -> str:
-    if state.server_running:
-        return "running"
+def _base_lifecycle(state: ServerState) -> str:
     if state.server_installed and state.config_exists:
         return "stopped"
     if state.server_installed or state.has_install_evidence():
         return "incomplete"
     return "not_installed"
+
+
+def _service_looks_active_or_starting(service: dict[str, Any]) -> bool:
+    active_state = str(service.get("active_state") or "").strip().lower()
+    sub_state = str(service.get("sub_state") or "").strip().lower()
+    return active_state in {"active", "activating"} or sub_state in {
+        "running",
+        "start",
+        "auto-restart",
+    }
+
+
+def _service_is_activating(service: dict[str, Any]) -> bool:
+    active_state = str(service.get("active_state") or "").strip().lower()
+    sub_state = str(service.get("sub_state") or "").strip().lower()
+    return active_state == "activating" or sub_state in {"start", "auto-restart"}
+
+
+def _telemetry_looks_ready(
+    fps_metrics: dict[str, Any],
+    operational_status: dict[str, Any],
+) -> bool:
+    operational_state = str(operational_status.get("state") or "").strip().lower()
+    return bool(fps_metrics.get("available")) or operational_state == "ready"
+
+
+def _dashboard_lifecycle(
+    state: ServerState,
+    service: dict[str, Any],
+    fps_metrics: dict[str, Any],
+    operational_status: dict[str, Any],
+) -> str:
+    base = _base_lifecycle(state)
+    if base != "stopped":
+        return base
+    if not state.server_running and not _service_looks_active_or_starting(service):
+        return "stopped"
+    if _service_is_activating(service):
+        return "starting"
+    return "running" if _telemetry_looks_ready(fps_metrics, operational_status) else "starting"
 
 
 def _config_dir_from_state(state: ServerState) -> Path | None:
@@ -473,7 +511,7 @@ def _safe_error_message(error: Exception) -> str:
 
 
 def _state_status(state: ServerState) -> dict[str, Any]:
-    lifecycle = _lifecycle(state)
+    lifecycle = "running" if state.server_running else _base_lifecycle(state)
     return {
         "lifecycle": lifecycle,
         "installed": state.server_installed,
@@ -682,7 +720,6 @@ def load_dashboard_snapshot(
     errors: list[DashboardError] = []
     state = discovery.discover(instance=instance, save=False)
     state_dict = state.to_dict()
-    lifecycle = _lifecycle(state)
 
     if state.server_installed or state.service_exists:
         service = _safe_section(
@@ -735,7 +772,11 @@ def load_dashboard_snapshot(
             )
         )
 
-    if state.server_running:
+    operational_status = _load_operational_status(state, errors)
+    lifecycle = _dashboard_lifecycle(state, service, fps_metrics, operational_status)
+    dashboard_running = lifecycle == "running"
+
+    if dashboard_running:
         players = _decorate_players(
             _safe_section(
                 "players",
@@ -756,14 +797,14 @@ def load_dashboard_snapshot(
         instance=instance,
         lifecycle=lifecycle,
         installed=state.server_installed,
-        running=state.server_running,
+        running=dashboard_running,
         overview=_overview(state, lifecycle),
         state=state_dict,
         paths=_paths(state),
         service=service,
         timer=timer,
         service_runtime=_load_service_runtime(service, errors),
-        operational_status=_load_operational_status(state, errors),
+        operational_status=operational_status,
         config=config_summary,
         mods=mods_summary,
         host_metrics=host_metrics,

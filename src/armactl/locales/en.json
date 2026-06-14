@@ -146,6 +146,8 @@
     "Confirmation is required to restart the server.": "Confirmation is required to restart the server.",
     "running": "running",
     "stopped": "stopped",
+    "starting": "starting",
+    "activating": "starting",
     "incomplete": "incomplete",
     "not_installed": "not_installed",
     "no server": "no server",

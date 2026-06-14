@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-ACTIVE_LIFECYCLES = frozenset({"stopped", "running"})
+ACTIVE_LIFECYCLES = frozenset({"stopped", "starting", "running"})
 
 
 def _section(value: Mapping[str, Any], name: str) -> Mapping[str, Any]:
@@ -59,10 +59,15 @@ def _summary_items(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str
                 _item("FPS", fps.get("fps_text", "unavailable")),
             ]
         )
-    elif lifecycle == "stopped":
+    elif lifecycle in {"stopped", "starting"}:
+        service_value = (
+            service.get("active_state")
+            if lifecycle == "starting"
+            else "stopped"
+        )
         items.extend(
             [
-                _item("Service", "stopped", translate_value=True),
+                _item("Service", service_value or lifecycle, translate_value=True),
                 _item("Name", config.get("server_name", "unknown")),
                 _item("Mods", mods.get("count", 0)),
             ]
@@ -113,6 +118,17 @@ def _action_forms(lifecycle: str, can_run_actions: bool) -> list[dict[str, Any]]
                 "danger": False,
                 "confirm_label": "",
                 "confirm_value": "",
+            }
+        ]
+    if lifecycle == "starting":
+        return [
+            {
+                "name": "stop",
+                "action_path": "/service/stop",
+                "label": "Stop",
+                "danger": True,
+                "confirm_label": "Confirm stop",
+                "confirm_value": "stop",
             }
         ]
     if lifecycle == "running":

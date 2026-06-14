@@ -749,6 +749,8 @@
     "Confirmation is required to restart the server.": "Потрібне підтвердження для перезапуску сервера.",
     "running": "запущено",
     "stopped": "зупинено",
+    "starting": "запускається",
+    "activating": "запускається",
     "incomplete": "неповний",
     "not_installed": "не встановлено",
     "no server": "немає сервера",
