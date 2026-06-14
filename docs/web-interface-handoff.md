@@ -171,22 +171,23 @@ Completed foundation:
     dashboard width, service/live/mod cards sit below as compact tiles, and
     ServerAdminTools unavailable state moved into diagnostics instead of
     appearing as unavailable plus Warning: none.
+28. Dashboard visual meters: the dashboard status DTO now includes safe numeric
+    FPS/CPU/RAM/disk metrics, the server-rendered dashboard shows compact
+    meters with a no-JS text fallback, and package-local `dashboard.js` updates
+    bars plus a short in-browser FPS sparkline through the existing polling
+    path.
 
 Next recommended implementation order:
 
-1. Add compact dashboard charts/meters for FPS, CPU, RAM, and disk usage on top
-   of the live-refresh data. Keep them lightweight and package-local; avoid a
-   frontend framework unless the charting requirements grow beyond simple
-   operator sparklines/meters.
-2. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
+1. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
    environment-specific outcome.
-3. Add optional IP allowlist / trusted proxy handling if operators need direct
+2. Add optional IP allowlist / trusted proxy handling if operators need direct
    external bind deployments; this is not implemented yet.
-4. Add update flow to explicit background job handlers if a safe backend API is
+3. Add update flow to explicit background job handlers if a safe backend API is
    introduced.
-5. Add edit/save/delete flows for mods, admins, bot settings, and extended
+4. Add edit/save/delete flows for mods, admins, bot settings, and extended
    config fields through existing backend modules.
-6. Add atomic overwrite/delete/rename flows on top of the safe filesystem
+5. Add atomic overwrite/delete/rename flows on top of the safe filesystem
    adapter after single-file upload has been reviewed.
 
 ## Implementation prompt template

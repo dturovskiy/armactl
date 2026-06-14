@@ -106,6 +106,10 @@ def _snapshot() -> dict:
         "host_metrics": {
             "available": True,
             "cpu_percent": 12.0,
+            "memory_used_bytes": 512,
+            "memory_total_bytes": 1024,
+            "disk_used_bytes": 2048,
+            "disk_total_bytes": 4096,
             "cpu_text": "12.0%",
             "memory_text": "512 B / 1.0 KiB",
             "disk_text": "2.0 KiB / 4.0 KiB",
@@ -847,6 +851,15 @@ def test_authenticated_owner_can_fetch_dashboard_status_json(
     assert payload["fields"]["live.fps"] == "59.8"
     assert payload["host"]["cpu"] == "12.0%"
     assert payload["mods"]["count"] == 2
+    assert payload["metrics"]["fps"] == {
+        "available": True,
+        "value": 59.8,
+        "percent": 99.67,
+        "text": "59.8",
+    }
+    assert payload["metrics"]["cpu"]["percent"] == 12.0
+    assert payload["metrics"]["memory"]["percent"] == 50.0
+    assert payload["metrics"]["disk"]["percent"] == 50.0
     assert [action["name"] for action in payload["actions"]] == ["stop", "restart"]
     assert calls == ["default"]
 
@@ -1108,6 +1121,10 @@ def test_password_hash_and_session_token_do_not_appear_in_dashboard_html(
     assert "data-dashboard-root" in response.text
     assert 'data-dashboard-field="overview.players"' in response.text
     assert "data-dashboard-live-status" in response.text
+    assert 'data-dashboard-meter="fps"' in response.text
+    assert 'data-dashboard-meter="cpu"' in response.text
+    assert 'data-dashboard-meter="memory"' in response.text
+    assert 'data-dashboard-meter="disk"' in response.text
 
 
 def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
@@ -1154,6 +1171,10 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert "/static/js/dashboard.js" in root_response.text
     assert 'data-dashboard-endpoint="/dashboard/status.json"' in root_response.text
     assert 'data-dashboard-field="host.cpu"' in root_response.text
+    assert 'data-dashboard-meter="fps"' in root_response.text
+    assert 'data-dashboard-sparkline="fps"' in root_response.text
+    assert 'data-dashboard-meter="cpu"' in root_response.text
+    assert 'data-dashboard-metric-fill="disk"' in root_response.text
     assert calls == ["default", "default"]
 
 
@@ -1169,6 +1190,12 @@ def test_dashboard_js_static_asset_is_served(tmp_path: Path):
     assert response.status_code == 200
     assert "dashboard/status.json" in response.text
     assert "data-dashboard-root" in response.text
+    assert "data-dashboard-meter" in response.text
+    assert "data-dashboard-sparkline" in response.text
+    assert "metricHistory" in response.text
+    assert "ARMACTL_WEB_SESSION_SECRET" not in response.text
+    assert "csrf_token" not in response.text
+    assert "password" not in response.text.lower()
 
 
 def test_dashboard_stopped_server_shows_start_only(tmp_path: Path, monkeypatch):

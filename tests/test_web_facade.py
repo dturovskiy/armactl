@@ -650,8 +650,19 @@ def _view_snapshot(lifecycle: str) -> dict[str, Any]:
         "service": {"active_state": "active" if lifecycle == "running" else "inactive"},
         "operational_status": {"message": "Ready", "age_text": "12s"},
         "players": {"count_text": "3 / 64"},
-        "fps_metrics": {"fps_text": "60.0", "age_text": "10s"},
+        "fps_metrics": {
+            "available": True,
+            "fps": 60.0,
+            "fps_text": "60.0",
+            "age_text": "10s",
+        },
         "host_metrics": {
+            "available": True,
+            "cpu_percent": 12.0,
+            "memory_used_bytes": 512,
+            "memory_total_bytes": 1024,
+            "disk_used_bytes": 2048,
+            "disk_total_bytes": 4096,
             "cpu_text": "12%",
             "memory_text": "512 MiB / 1 GiB",
             "disk_text": "2 GiB / 4 GiB",
@@ -709,6 +720,11 @@ def test_dashboard_status_payload_is_small_and_safe():
     assert payload["fields"]["overview.players"] == "3 / 64"
     assert payload["fields"]["host.cpu"] == "12%"
     assert [action["name"] for action in payload["actions"]] == ["stop", "restart"]
+    assert payload["metrics"]["fps"]["value"] == 60.0
+    assert payload["metrics"]["fps"]["percent"] == 100.0
+    assert payload["metrics"]["cpu"]["percent"] == 12.0
+    assert payload["metrics"]["memory"]["percent"] == 50.0
+    assert payload["metrics"]["disk"]["percent"] == 50.0
     assert "config_path" not in serialized
     assert "/srv/default" not in serialized
     assert "password" not in serialized.lower()
@@ -756,7 +772,60 @@ def test_dashboard_view_model_actions_follow_lifecycle():
     assert running["server_cards"][0]["title"] == "Server config"
     assert running["server_cards"][0]["layout"] == "wide"
     assert any(card["layout"] == "wide" for card in running["server_cards"])
+    assert running["host_meters"][0]["id"] == "cpu"
+    assert running["host_meters"][1]["id"] == "memory"
+    assert running["host_meters"][2]["id"] == "disk"
+    assert any(
+        meter["id"] == "fps"
+        for card in running["server_cards"]
+        for meter in card.get("meters", [])
+    )
     assert all(card["title"] != "Diagnostics summary" for card in running["server_cards"])
+
+
+def test_dashboard_status_payload_handles_unavailable_numeric_metrics():
+    from armactl.web.views.dashboard import (
+        build_dashboard_status_payload,
+        build_dashboard_view,
+    )
+
+    permissions = {
+        "can_run_actions": True,
+        "can_view_config": True,
+        "can_view_mods": True,
+        "can_view_admins": True,
+        "can_view_bot": True,
+        "can_view_jobs": True,
+        "can_view_files": True,
+        "can_view_logs": True,
+    }
+    snapshot = _view_snapshot("running")
+    snapshot["fps_metrics"] = {
+        "available": False,
+        "fps_text": "unavailable",
+        "age_text": "unknown",
+    }
+    snapshot["host_metrics"] = {
+        "available": False,
+        "cpu_text": "Unknown",
+        "memory_text": "Unknown",
+        "disk_text": "Unknown",
+        "uptime_text": "Unknown",
+    }
+    dashboard = build_dashboard_view(snapshot, **permissions)
+
+    payload = build_dashboard_status_payload(snapshot, dashboard)
+
+    assert payload["metrics"]["fps"] == {
+        "available": False,
+        "value": None,
+        "percent": None,
+        "text": "unavailable",
+    }
+    assert payload["metrics"]["cpu"]["available"] is False
+    assert payload["metrics"]["memory"]["used_bytes"] is None
+    assert payload["metrics"]["disk"]["total_bytes"] is None
+    assert all(meter["available"] is False for meter in dashboard["host_meters"])
 
 
 def test_dashboard_view_model_moves_sat_unavailable_to_diagnostics():

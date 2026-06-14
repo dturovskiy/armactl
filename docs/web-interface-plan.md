@@ -819,6 +819,10 @@ The no-JS fallback remains the current full page refresh. If polling fails, the
 UI should leave the last known values visible and show a subtle stale indicator
 instead of spamming errors.
 
+Compact visual meters for Server FPS and host CPU/RAM/disk ride on the same
+status endpoint. They use only safe numeric DTO fields plus short in-browser
+history for the FPS sparkline; no backend metric history is persisted yet.
+
 The web UI should have its own templates/static assets under `src/armactl/web/`.
 It should not import files from top-level `website/`, and top-level `website/`
 should not import or depend on the management panel.

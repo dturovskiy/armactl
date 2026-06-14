@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -26,6 +27,45 @@ def _bool_text(value: Any) -> str:
     if value is False:
         return "no"
     return "unknown"
+
+
+def _number(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _byte_count(value: Any) -> int | None:
+    number = _number(value)
+    if number is None or number < 0:
+        return None
+    return int(number)
+
+
+def _safe_percent(value: Any) -> float | None:
+    number = _number(value)
+    if number is None:
+        return None
+    return round(min(max(number, 0.0), 100.0), 2)
+
+
+def _ratio_percent(used: Any, total: Any) -> float | None:
+    used_number = _number(used)
+    total_number = _number(total)
+    if used_number is None or total_number is None or total_number <= 0:
+        return None
+    return _safe_percent((used_number / total_number) * 100.0)
+
+
+def _fps_percent(value: Any) -> float | None:
+    fps_value = _number(value)
+    if fps_value is None:
+        return None
+    return _safe_percent((fps_value / 60.0) * 100.0)
 
 
 def _item(
@@ -220,6 +260,85 @@ def _management_links(
     return links, "" if links else "No management pages available."
 
 
+def _metric_payload(snapshot: Mapping[str, Any]) -> dict[str, Any]:
+    fps = _section(snapshot, "fps_metrics")
+    host = _section(snapshot, "host_metrics")
+
+    fps_value = _number(fps.get("fps"))
+    fps_available = fps.get("available") is not False and fps_value is not None
+
+    host_available = host.get("available") is not False
+    cpu_percent = _safe_percent(host.get("cpu_percent"))
+
+    memory_used = _byte_count(host.get("memory_used_bytes"))
+    memory_total = _byte_count(host.get("memory_total_bytes"))
+    memory_percent = _ratio_percent(memory_used, memory_total)
+
+    disk_used = _byte_count(host.get("disk_used_bytes"))
+    disk_total = _byte_count(host.get("disk_total_bytes"))
+    disk_percent = _ratio_percent(disk_used, disk_total)
+
+    return {
+        "fps": {
+            "available": fps_available,
+            "value": round(fps_value, 2) if fps_available else None,
+            "percent": _fps_percent(fps_value) if fps_available else None,
+            "text": _text(fps.get("fps_text"), "unavailable"),
+        },
+        "cpu": {
+            "available": host_available and cpu_percent is not None,
+            "percent": cpu_percent if host_available else None,
+            "text": _text(host.get("cpu_text"), "unknown"),
+        },
+        "memory": {
+            "available": host_available and memory_percent is not None,
+            "percent": memory_percent if host_available else None,
+            "used_bytes": memory_used if host_available else None,
+            "total_bytes": memory_total if host_available else None,
+            "text": _text(host.get("memory_text"), "unknown"),
+        },
+        "disk": {
+            "available": host_available and disk_percent is not None,
+            "percent": disk_percent if host_available else None,
+            "used_bytes": disk_used if host_available else None,
+            "total_bytes": disk_total if host_available else None,
+            "text": _text(host.get("disk_text"), "unknown"),
+        },
+    }
+
+
+def _metric_meter(
+    metric_id: str,
+    label: str,
+    metric: Mapping[str, Any],
+    *,
+    kind: str = "bar",
+) -> dict[str, Any]:
+    percent = _safe_percent(metric.get("percent"))
+    return {
+        "id": metric_id,
+        "label": label,
+        "text": _text(metric.get("text"), "unknown"),
+        "percent": percent if percent is not None else 0.0,
+        "available": bool(metric.get("available")),
+        "kind": kind,
+    }
+
+
+def _host_meters(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
+    metrics = _metric_payload(snapshot)
+    return [
+        _metric_meter("cpu", "CPU", metrics["cpu"]),
+        _metric_meter("memory", "Memory", metrics["memory"]),
+        _metric_meter("disk", "Disk", metrics["disk"]),
+    ]
+
+
+def _fps_meter(snapshot: Mapping[str, Any]) -> dict[str, Any]:
+    metrics = _metric_payload(snapshot)
+    return _metric_meter("fps", "Server FPS", metrics["fps"], kind="sparkline")
+
+
 def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str, Any]]:
     if lifecycle not in ACTIVE_LIFECYCLES:
         return []
@@ -307,6 +426,7 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
                         field="live.telemetry_age",
                     ),
                 ],
+                "meters": [_fps_meter(snapshot)],
             },
         )
 
@@ -431,11 +551,11 @@ def build_dashboard_view(
         "management_links": management_links,
         "management_note": management_note,
         "server_cards": _server_cards(snapshot, lifecycle),
+        "host_meters": _host_meters(snapshot),
         "host_items": _host_items(snapshot),
         "diagnostics": _diagnostics(snapshot, lifecycle),
         "show_recent_jobs": can_view_jobs,
     }
-
 
 
 def _display_value(item: Mapping[str, Any], translate: Any) -> str:
@@ -514,6 +634,7 @@ def build_dashboard_status_payload(
             "uptime": _text(host.get("uptime_text"), "unknown"),
         },
         "mods": {"count": mods.get("count", 0)},
+        "metrics": _metric_payload(snapshot),
         "actions": [
             {
                 "name": str(action.get("name", "")),
