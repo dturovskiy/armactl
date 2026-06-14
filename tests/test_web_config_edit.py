@@ -161,6 +161,7 @@ def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
     assert 'value="OldScenario.conf"' in response.text
     assert 'name="server_max_view_distance"' in response.text
     assert 'name="server_min_grass_distance"' in response.text
+    assert response.text.count('class="field-wide"') >= 2
 
 
 def test_config_edit_unauthenticated_redirects_to_login(tmp_path: Path):

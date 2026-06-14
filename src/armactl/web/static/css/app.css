@@ -223,7 +223,9 @@ h2 {
 }
 
 .auth-form input {
+  box-sizing: border-box;
   width: 100%;
+  min-width: 0;
   min-height: 40px;
   padding: 8px 10px;
   border: 1px solid var(--border);
@@ -394,19 +396,30 @@ button.danger {
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .form-grid label {
   display: grid;
+  min-width: 0;
   gap: 6px;
   color: var(--muted);
   font-weight: 700;
 }
 
+.form-grid .field-wide {
+  grid-column: 1 / -1;
+}
+
+.form-grid label span {
+  overflow-wrap: anywhere;
+}
+
 .form-grid input {
+  box-sizing: border-box;
   width: 100%;
+  min-width: 0;
   min-height: 40px;
   padding: 8px 10px;
   border: 1px solid var(--border);
@@ -414,6 +427,12 @@ button.danger {
   background: var(--input-bg);
   color: var(--text);
   font: inherit;
+}
+
+@media (max-width: 760px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .checkbox-grid,

@@ -67,11 +67,11 @@
   <form method="post" action="/config" class="config-edit-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="form-grid">
-      <label>
+      <label class="field-wide">
         <span>{{ t("Server name") }}</span>
         <input type="text" name="name" value="{{ edit_name }}" required maxlength="512">
       </label>
-      <label>
+      <label class="field-wide">
         <span>{{ t("Scenario ID") }}</span>
         <input type="text" name="scenario_id" value="{{ edit_scenario }}" required maxlength="512">
       </label>
