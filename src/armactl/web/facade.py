@@ -27,6 +27,8 @@ from armactl.web.security.exposure import get_exposure_warning
 DEFAULT_GAME_PORT = 2001
 DEFAULT_A2S_PORT = 17777
 DEFAULT_RCON_PORT = 19999
+DASHBOARD_PLAYER_TIMEOUT_SECONDS = 0.35
+DASHBOARD_ROSTER_TIMEOUT_SECONDS = 0.35
 
 
 @dataclass(frozen=True)
@@ -741,7 +743,10 @@ def load_dashboard_snapshot(
                 _unavailable("player view is not available"),
                 player_view.query_player_view,
                 instance,
+                timeout=DASHBOARD_PLAYER_TIMEOUT_SECONDS,
+                roster_timeout=DASHBOARD_ROSTER_TIMEOUT_SECONDS,
                 state=state,
+                include_roster=False,
             )
         )
     else:

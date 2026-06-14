@@ -60,7 +60,8 @@
       {% for link in dashboard.management_links %}
         <a class="nav-card" href="{{ link.href }}">
           <strong>{{ t(link.label) }}</strong>
-          <span>{{ t(link.description) }}</span>
+          <span class="nav-card-description">{{ t(link.description) }}</span>
+          <span class="nav-card-action">{{ t("Open") }}</span>
         </a>
       {% endfor %}
     </div>

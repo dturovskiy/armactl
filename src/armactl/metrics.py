@@ -197,7 +197,7 @@ def query_server_fps_metrics(
     source = str(latest_log)
     try:
         log_mtime = os.path.getmtime(latest_log)
-        text = latest_log.read_text(encoding="utf-8", errors="replace")
+        text = _read_tail_text_file(latest_log)
     except OSError as error:
         return ServerFpsMetrics(False, source=source, error=str(error))
 
@@ -237,6 +237,25 @@ def query_server_fps_metrics(
 
 
 OPERATIONAL_STATUS_TAIL_LINES = 300
+CONSOLE_LOG_TAIL_BYTES = 512 * 1024
+
+
+def _read_tail_text_file(
+    path: Path,
+    max_bytes: int = CONSOLE_LOG_TAIL_BYTES,
+) -> str:
+    """Read a bounded tail from a text file while preserving recent complete lines."""
+    size = path.stat().st_size
+    with path.open("rb") as handle:
+        if size > max_bytes:
+            handle.seek(max(size - max_bytes, 0))
+            data = handle.read(max_bytes)
+            first_newline = data.find(b"\n")
+            if first_newline != -1:
+                data = data[first_newline + 1 :]
+        else:
+            data = handle.read()
+    return data.decode("utf-8", errors="replace")
 
 
 def _tail_recent_log_lines(
@@ -302,7 +321,7 @@ def query_server_operational_status(
     source = str(latest_log)
     try:
         log_mtime = os.path.getmtime(latest_log)
-        text = latest_log.read_text(encoding="utf-8", errors="replace")
+        text = _read_tail_text_file(latest_log)
     except OSError as error:
         return ServerOperationalStatus(
             False,

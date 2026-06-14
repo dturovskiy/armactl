@@ -298,6 +298,28 @@ def test_dashboard_snapshot_for_running_server(monkeypatch):
     assert snapshot["sat"]["warning"] == ""
 
 
+def test_dashboard_snapshot_uses_fast_player_probe(monkeypatch):
+    state = _state(installed=True, running=True)
+    facade = _install_common_fakes(monkeypatch, state, service_active=True)
+    calls: list[dict[str, Any]] = []
+
+    def fake_query_player_view(instance: str, **kwargs: Any) -> PlayerView:
+        calls.append({"instance": instance, **kwargs})
+        return PlayerView(True, current=2, max_players=24)
+
+    monkeypatch.setattr(facade.player_view, "query_player_view", fake_query_player_view)
+
+    snapshot = facade.load_dashboard_snapshot("default")
+
+    assert snapshot["players"]["count_text"] == "2 / 24"
+    assert len(calls) == 1
+    assert calls[0]["instance"] == "default"
+    assert calls[0]["state"] is state
+    assert calls[0]["timeout"] == facade.DASHBOARD_PLAYER_TIMEOUT_SECONDS
+    assert calls[0]["roster_timeout"] == facade.DASHBOARD_ROSTER_TIMEOUT_SECONDS
+    assert calls[0]["include_roster"] is False
+
+
 def test_dashboard_snapshot_includes_safe_web_runtime(monkeypatch, tmp_path: Path):
     facade = _install_common_fakes(monkeypatch, _state(installed=True, running=True))
     web_config = SimpleNamespace(

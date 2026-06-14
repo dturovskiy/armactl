@@ -331,17 +331,33 @@ ul {
 
 .nav-card {
   display: grid;
-  gap: 4px;
-  min-height: 84px;
-  padding: 12px;
+  gap: 6px;
+  min-height: 94px;
+  padding: 13px;
   border: 1px solid var(--border);
   border-radius: 8px;
+  background: var(--surface);
   color: var(--text);
   text-decoration: none;
+  transition: border-color 120ms ease, transform 120ms ease;
 }
 
-.nav-card span {
+.nav-card:hover,
+.nav-card:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.nav-card-description {
   color: var(--muted);
+}
+
+.nav-card-action {
+  align-self: end;
+  color: var(--accent);
+  font-size: 0.84rem;
+  font-weight: 700;
 }
 
 .inline-confirm {

@@ -223,6 +223,17 @@ def test_query_host_metrics_reads_meminfo_disk_load_and_uptime() -> None:
     assert result.uptime_seconds == 7200.0
 
 
+def test_read_tail_text_file_keeps_recent_complete_lines(tmp_path: Path) -> None:
+    log_path = tmp_path / "console.log"
+    log_path.write_text(
+        "old line\npartial-prefix\nrecent one\nrecent two\n",
+        encoding="utf-8",
+    )
+
+    result = metrics._read_tail_text_file(log_path, max_bytes=24)
+
+    assert result == "recent one\nrecent two\n"
+
 def test_query_server_fps_metrics_parses_valid_logstats_line(tmp_path: Path) -> None:
     config_dir = tmp_path / "config"
     log_path = _write_console_log(
