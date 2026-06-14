@@ -269,6 +269,7 @@
 - [x] Додати dashboard read-only parity з TUI
 - [x] Додати controlled start/stop/restart actions
 - [x] Додати web i18n adapter і theme preferences поверх існуючих `src/armactl/locales/*.json`
+- [ ] Додати fast preferences UX: миттєве перемикання теми і lightweight language switch без зайвого важкого dashboard reload
 - [x] Додати background job metadata model перед long-running operations
 - [x] Додати background dispatcher/read-only jobs UI foundation перед install/repair/update flows
 - [x] Додати read-only management pages для config/mods/admins/bot через backend modules

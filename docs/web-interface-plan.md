@@ -348,6 +348,22 @@ Web routes may still use backend modules that return already localized
 messages, but route and template strings should be localized with the
 per-request language. Do not import TUI screens or widgets to reuse labels.
 
+Preference UX should not make cheap choices feel expensive:
+
+- theme switching should update `document.documentElement.dataset.theme`
+  immediately in the browser, then persist the preference through the existing
+  server route or a small async endpoint;
+- theme persistence may remain a web-owned cookie because it is not sensitive
+  state;
+- language switching may still use a server-rendered page refresh because
+  templates and text are rendered through Jinja, but it should avoid forcing
+  a slow dashboard status rebuild when only the UI language changed;
+- if a language switch returns to a heavy page, use a lightweight redirect,
+  short-lived dashboard snapshot cache, or another scoped mechanism that does
+  not create a second source of truth for server state;
+- keep CSRF/session protection for authenticated preference writes, and keep
+  tests independent from any saved operator UI language.
+
 ## Security baseline
 
 - No default password.
@@ -865,6 +881,9 @@ not the foreground debug runner.
   Future mutating flows must reuse the established auth/session/CSRF helpers.
 - Web i18n/theme preferences are implemented with request-scoped translation
   helpers, existing locale JSON files, and web-owned cookies.
+- Fast preferences UX remains future work: theme changes should be instant in
+  the browser and language changes should avoid needless heavy dashboard
+  status rebuilds.
 - The always-on `armactl-web.service` template and `armactl web service ...`
   commands are implemented for production service installation and lifecycle
   management.
