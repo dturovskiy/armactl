@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Form, Request, status
-from fastapi.responses import PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response
 
 from armactl.web.auth.csrf import validate_csrf_token
 from armactl.web.auth.dependencies import get_current_session, get_web_runtime_config
@@ -40,6 +40,14 @@ def _validate_authenticated_csrf(
     )
 
 
+def _wants_async_response(request: Request) -> bool:
+    requested_with = request.headers.get("x-requested-with", "").strip().lower()
+    if requested_with == "fetch":
+        return True
+    accept = request.headers.get("accept", "").lower()
+    return "application/json" in accept
+
+
 @router.post("/preferences/language")
 def set_language_preference(
     request: Request,
@@ -57,10 +65,13 @@ def set_language_preference(
 
     config = get_web_runtime_config(request)
     normalized = normalize_language(language) or resolve_language(request)
-    response = RedirectResponse(
-        _safe_redirect_path(next, authenticated=authenticated),
-        status_code=status.HTTP_303_SEE_OTHER,
-    )
+    if _wants_async_response(request):
+        response = JSONResponse({"language": normalized})
+    else:
+        response = RedirectResponse(
+            _safe_redirect_path(next, authenticated=authenticated),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
     set_language_cookie(response, normalized, config)
     return response
 
@@ -82,9 +93,12 @@ def set_theme_preference(
 
     config = get_web_runtime_config(request)
     normalized = normalize_theme(theme) or resolve_theme(request) or DEFAULT_THEME
-    response = RedirectResponse(
-        _safe_redirect_path(next, authenticated=authenticated),
-        status_code=status.HTTP_303_SEE_OTHER,
-    )
+    if _wants_async_response(request):
+        response = JSONResponse({"theme": normalized})
+    else:
+        response = RedirectResponse(
+            _safe_redirect_path(next, authenticated=authenticated),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
     set_theme_cookie(response, normalized, config)
     return response

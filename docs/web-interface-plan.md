@@ -350,17 +350,16 @@ per-request language. Do not import TUI screens or widgets to reuse labels.
 
 Preference UX should not make cheap choices feel expensive:
 
-- theme switching should update `document.documentElement.dataset.theme`
-  immediately in the browser, then persist the preference through the existing
-  server route or a small async endpoint;
-- theme persistence may remain a web-owned cookie because it is not sensitive
+- theme switching updates `document.documentElement.dataset.theme` immediately
+  in the browser, then persists the preference through the existing server
+  route using a lightweight JSON response instead of redirecting;
+- theme persistence remains a web-owned cookie because it is not sensitive
   state;
-- language switching may still use a server-rendered page refresh because
-  templates and text are rendered through Jinja, but it should avoid forcing
-  a slow dashboard status rebuild when only the UI language changed;
-- if a language switch returns to a heavy page, use a lightweight redirect,
-  short-lived dashboard snapshot cache, or another scoped mechanism that does
-  not create a second source of truth for server state;
+- language switching still uses a server-rendered page refresh because
+  templates and text are rendered through Jinja, but the preference write can
+  complete through the same lightweight JSON response before one reload;
+- this avoids an extra dashboard status rebuild and does not introduce a
+  cache or second source of truth for server state;
 - keep CSRF/session protection for authenticated preference writes, and keep
   tests independent from any saved operator UI language.
 
@@ -881,9 +880,9 @@ not the foreground debug runner.
   Future mutating flows must reuse the established auth/session/CSRF helpers.
 - Web i18n/theme preferences are implemented with request-scoped translation
   helpers, existing locale JSON files, and web-owned cookies.
-- Fast preferences UX remains future work: theme changes should be instant in
-  the browser and language changes should avoid needless heavy dashboard
-  status rebuilds.
+- Fast preferences UX is implemented: theme changes are instant in the browser
+  and persist through a CSRF-protected lightweight POST; language preference
+  writes can use the same lightweight path before one server-rendered reload.
 - The always-on `armactl-web.service` template and `armactl web service ...`
   commands are implemented for production service installation and lifecycle
   management.

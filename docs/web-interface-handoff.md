@@ -102,11 +102,12 @@ Completed foundation:
     and append safe JSONL audit entries before rendering controlled results.
 15. Web localization and appearance preferences: request-scoped language
     resolution reuses existing locale JSON files and exposes server-rendered
-    language/theme controls through web-owned cookies. Current preference
-    changes use POST plus redirect, so switching from a heavy dashboard can
-    feel slow because the page status snapshot is rebuilt. A fast-preferences
-    UX slice should make theme switching immediate in the browser and keep
-    language switching from doing unnecessary heavy dashboard work.
+    language/theme controls through web-owned cookies. Theme switching is
+    progressively enhanced with package-local JS so the root `data-theme`
+    changes immediately, then persists through a CSRF-protected lightweight
+    POST. Language switching still uses server-rendered labels, but the
+    preference write can complete through the same lightweight response before
+    one page reload, avoiding an extra dashboard snapshot rebuild.
 16. Background job metadata foundation: `web_jobs` stores web-runtime job
     status, progress, timestamps, bounded redacted stdout/stderr tails, and
     safe result/error metadata.
@@ -151,17 +152,15 @@ Completed foundation:
 
 Next recommended implementation order:
 
-1. Add fast preferences UX for immediate theme switching and lightweight
-   language switching before the panel grows more heavy dashboard sections.
-2. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
+1. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
    environment-specific outcome.
-3. Add optional IP allowlist / trusted proxy handling if operators need direct
+2. Add optional IP allowlist / trusted proxy handling if operators need direct
    external bind deployments; this is not implemented yet.
-4. Connect install, repair, and update flows to explicit background job handlers
+3. Connect install, repair, and update flows to explicit background job handlers
    before exposing those flows in web.
-5. Add edit/save/delete flows for config, mods, admins, and bot settings through
+4. Add edit/save/delete flows for config, mods, admins, and bot settings through
    existing backend modules.
-6. Add atomic overwrite/delete/rename flows on top of the safe filesystem
+5. Add atomic overwrite/delete/rename flows on top of the safe filesystem
    adapter after single-file upload has been reviewed.
 
 ## Implementation prompt template

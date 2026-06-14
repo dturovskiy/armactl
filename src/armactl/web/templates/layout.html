@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ t("armactl web") }}{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}">
+  <script defer src="{{ url_for('static', path='/js/preferences.js') }}"></script>
 </head>
 <body>
   <header class="topbar">
@@ -15,21 +16,21 @@
       </div>
       <div class="topbar-actions">
         <div class="preference-controls" aria-label="{{ t('Preferences') }}">
-          <form method="post" action="/preferences/language" class="preference-form">
+          <form method="post" action="/preferences/language" class="preference-form" data-preference-form="language">
             {% if csrf_token is defined %}
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             {% endif %}
             <input type="hidden" name="language" value="{{ web_next_language }}">
             <input type="hidden" name="next" value="{{ request.url.path }}">
-            <button class="secondary" type="submit">{{ tr("Language: {language}", language=web_next_language_name) }}</button>
+            <button class="secondary" type="submit" data-language-button>{{ tr("Language: {language}", language=web_next_language_name) }}</button>
           </form>
-          <form method="post" action="/preferences/theme" class="preference-form">
+          <form method="post" action="/preferences/theme" class="preference-form" data-preference-form="theme">
             {% if csrf_token is defined %}
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             {% endif %}
-            <input type="hidden" name="theme" value="{{ web_next_theme }}">
+            <input type="hidden" name="theme" value="{{ web_next_theme }}" data-theme-input>
             <input type="hidden" name="next" value="{{ request.url.path }}">
-            <button class="secondary" type="submit">{{ tr("Theme: {theme}", theme=t(web_next_theme)) }}</button>
+            <button class="secondary" type="submit" data-theme-button data-theme-label-prefix="{{ t('Theme') }}" data-theme-label-light="{{ t('light') }}" data-theme-label-dark="{{ t('dark') }}">{{ tr("Theme: {theme}", theme=t(web_next_theme)) }}</button>
           </form>
         </div>
         {% block topbar_actions %}{% endblock %}

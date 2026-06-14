@@ -557,9 +557,35 @@ def test_login_template_has_language_and_theme_controls(tmp_path: Path):
     assert response.status_code == 200
     assert 'action="/preferences/language"' in response.text
     assert 'action="/preferences/theme"' in response.text
+    assert 'data-preference-form="language"' in response.text
+    assert 'data-preference-form="theme"' in response.text
+    assert '/static/js/preferences.js' in response.text
     assert 'data-theme="light"' in response.text
     assert "Language: Українська" in response.text
     assert "Theme: dark" in response.text
+
+
+def test_preferences_js_asset_is_served(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.get("/static/js/preferences.js")
+
+    assert response.status_code == 200
+    assert "text/javascript" in response.headers["content-type"]
+    assert "document.documentElement.dataset.theme" in response.text
+    assert "armactl_web_session" not in response.text
+    assert "csrf_token" not in response.text
+
+
+def test_preferences_js_persists_requested_theme_before_flipping_next_value():
+    script = Path("src/armactl/web/static/js/preferences.js").read_text(encoding="utf-8")
+
+    persist_index = script.index("const persist = postPreference(form);")
+    flip_index = script.index("updateThemeButton(form, oppositeTheme(requestedTheme));")
+
+    assert persist_index < flip_index
 
 
 def test_login_renders_ukrainian_from_language_preference(tmp_path: Path):
@@ -581,6 +607,7 @@ def test_login_renders_ukrainian_from_language_preference(tmp_path: Path):
     assert "Увійти" in response.text
     assert "Ім&#39;я користувача" in response.text
     assert "Мова: English" in response.text
+    assert 'data-theme-label-prefix="Тема"' in response.text
 
 
 def test_invalid_language_and_theme_preferences_are_normalized(tmp_path: Path):
@@ -603,6 +630,24 @@ def test_invalid_language_and_theme_preferences_are_normalized(tmp_path: Path):
     assert language_response.cookies.get(LANGUAGE_COOKIE_NAME) == "en"
     assert theme_response.status_code == 303
     assert theme_response.cookies.get(THEME_COOKIE_NAME) == "light"
+
+
+def test_theme_preference_async_sets_cookie_without_redirect(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.post(
+        "/preferences/theme",
+        data={"theme": "dark", "next": "/dashboard"},
+        headers={"X-Requested-With": "fetch", "Accept": "application/json"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"theme": "dark"}
+    assert response.cookies.get(THEME_COOKIE_NAME) == "dark"
+    assert "location" not in response.headers
 
 
 def test_accept_language_localizes_login_without_cookie(tmp_path: Path):
@@ -894,6 +939,8 @@ def test_password_hash_and_session_token_do_not_appear_in_dashboard_html(
     assert user.password_hash not in response.text
     assert session_token
     assert session_token not in response.text
+    assert "/static/js/preferences.js" in response.text
+    assert "ARMACTL_WEB_SESSION_SECRET" not in response.text
 
 
 def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
@@ -1037,6 +1084,60 @@ def test_authenticated_theme_preference_requires_valid_csrf(
     assert response.status_code == 403
     assert response.text == "Invalid CSRF token."
     assert response.cookies.get(THEME_COOKIE_NAME) is None
+
+
+def test_authenticated_language_preference_requires_valid_csrf(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.post(
+        "/preferences/language",
+        data={"language": "uk", "csrf_token": "wrong-token", "next": "/dashboard"},
+        headers={"X-Requested-With": "fetch", "Accept": "application/json"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Invalid CSRF token."
+    assert response.cookies.get(LANGUAGE_COOKIE_NAME) is None
+
+
+def test_dashboard_async_preferences_do_not_reload_heavy_snapshot(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    calls = _stub_dashboard(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _action_csrf_token(client)
+    assert calls == ["default"]
+
+    theme_response = client.post(
+        "/preferences/theme",
+        data={"theme": "dark", "csrf_token": csrf_token, "next": "/dashboard"},
+        headers={"X-Requested-With": "fetch", "Accept": "application/json"},
+        follow_redirects=False,
+    )
+    language_response = client.post(
+        "/preferences/language",
+        data={"language": "uk", "csrf_token": csrf_token, "next": "/dashboard"},
+        headers={"X-Requested-With": "fetch", "Accept": "application/json"},
+        follow_redirects=False,
+    )
+
+    assert theme_response.status_code == 200
+    assert theme_response.json() == {"theme": "dark"}
+    assert language_response.status_code == 200
+    assert language_response.json() == {"language": "uk"}
+    assert calls == ["default"]
 
 
 
