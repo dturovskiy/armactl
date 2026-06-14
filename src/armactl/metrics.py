@@ -292,6 +292,37 @@ def _line_has_mission_error(line: str) -> bool:
     )
 
 
+def _line_has_startup_failure(line: str) -> bool:
+    return any(
+        marker in line
+        for marker in (
+            "Unable to initialize the game",
+            "Failed to fetch addon details from workshop API",
+        )
+    )
+
+
+def _line_has_workshop_metadata_error(line: str) -> bool:
+    return any(
+        marker in line
+        for marker in (
+            "Failed to fetch addon details from workshop API",
+            "WorkshopApi/GetDownloadListS2S",
+            "SSL connect error",
+        )
+    )
+
+
+def _startup_failure_details(lines: list[str], index: int) -> tuple[str, ...]:
+    window = lines[max(index - 8, 0) : index + 1]
+    details = [
+        line
+        for line in window
+        if _line_has_startup_failure(line) or _line_has_workshop_metadata_error(line)
+    ]
+    return tuple((details or [lines[index]])[-4:])
+
+
 def _line_has_starting_status(line: str) -> bool:
     return any(
         marker in line
@@ -357,7 +388,8 @@ def query_server_operational_status(
             error="server console log is stale",
         )
 
-    for line in reversed(lines):
+    for index in range(len(lines) - 1, -1, -1):
+        line = lines[index]
         if FPS_STATS_RE.search(line):
             return ServerOperationalStatus(
                 True,
@@ -365,6 +397,23 @@ def query_server_operational_status(
                 severity="success",
                 message="Ready",
                 details=(line,),
+                age_seconds=age_seconds,
+                source=source,
+            )
+
+        if _line_has_startup_failure(line):
+            details = _startup_failure_details(lines, index)
+            message = (
+                "Workshop addon metadata error"
+                if any(_line_has_workshop_metadata_error(item) for item in details)
+                else "Server startup failed"
+            )
+            return ServerOperationalStatus(
+                True,
+                state="startup_failed",
+                severity="error",
+                message=message,
+                details=details,
                 age_seconds=age_seconds,
                 source=source,
             )

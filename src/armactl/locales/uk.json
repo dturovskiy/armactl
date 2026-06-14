@@ -531,6 +531,8 @@
     "Downloading mods": "Завантаження модів",
     "Downloading mods (retrying)": "Завантаження модів (повторна спроба)",
     "Mission/config error": "Помилка місії/конфігу",
+    "Workshop addon metadata error": "Помилка метаданих модів Workshop",
+    "Server startup failed": "Запуск сервера не вдався",
     "Starting": "Запускається",
     "Waiting for server telemetry": "Очікування телеметрії сервера",
     "Telemetry log unavailable": "Лог телеметрії недоступний",
