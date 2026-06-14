@@ -1,15 +1,16 @@
-"""Read-only management detail pages for armactl web."""
+"""Read-only management detail pages and safe config edits for armactl web."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import APIRouter, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi import APIRouter, Form, Request, status
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 from armactl import paths
 from armactl.web.auth.cookies import clear_csrf_cookie, clear_session_cookie, set_csrf_cookie
+from armactl.web.auth.csrf import validate_csrf_token
 from armactl.web.auth.dependencies import (
     CurrentSession,
     get_current_session,
@@ -18,13 +19,20 @@ from armactl.web.auth.dependencies import (
     permission_denied_response,
     require_permission,
 )
-from armactl.web.auth.permissions import ADMINS_VIEW, BOT_VIEW, CONFIG_VIEW, MODS_VIEW
+from armactl.web.auth.permissions import (
+    ADMINS_VIEW,
+    BOT_VIEW,
+    CONFIG_VIEW,
+    MODS_VIEW,
+    SETTINGS_MANAGE,
+)
 from armactl.web.facade import (
     load_admins_page,
     load_bot_page,
     load_config_page,
     load_mods_page,
 )
+from armactl.web.services import config_edit
 
 router = APIRouter()
 PageLoader = Callable[[str], dict[str, Any]]
@@ -65,6 +73,37 @@ def _render_page(
     return response
 
 
+def _render_config_page(
+    request: Request,
+    current: CurrentSession,
+    *,
+    saved: bool = False,
+    save_error: str = "",
+    status_code: int = status.HTTP_200_OK,
+) -> Response:
+    if not require_permission(current, CONFIG_VIEW):
+        return permission_denied_response()
+
+    form_csrf = get_form_csrf_token(request, current)
+    page = load_config_page(paths.DEFAULT_INSTANCE_NAME)
+    response = request.app.state.templates.TemplateResponse(
+        request=request,
+        name="config.html",
+        context={
+            "current_user": current.user,
+            "csrf_token": form_csrf.token,
+            "page": page,
+            "can_edit_config": require_permission(current, SETTINGS_MANAGE),
+            "config_saved": saved,
+            "config_save_error": save_error,
+        },
+        status_code=status_code,
+    )
+    if form_csrf.should_set_cookie:
+        set_csrf_cookie(response, form_csrf.token, current.config)
+    return response
+
+
 def _authenticated_page(
     request: Request,
     *,
@@ -80,13 +119,61 @@ def _authenticated_page(
 
 @router.get("/config", response_class=HTMLResponse)
 def config_page(request: Request) -> Response:
-    """Render read-only server config details."""
-    return _authenticated_page(
+    """Render server config details and safe edit controls when permitted."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    return _render_config_page(
         request,
-        permission=CONFIG_VIEW,
-        template="config.html",
-        loader=load_config_page,
+        current,
+        saved=request.query_params.get("saved") == "1",
     )
+
+
+@router.post("/config", response_class=HTMLResponse)
+def save_config_page(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    name: str = Form(default=""),
+    scenario_id: str = Form(default=""),
+    max_players: str = Form(default=""),
+    visible: str | None = Form(default=None),
+    battleye: str | None = Form(default=None),
+    server_max_view_distance: str = Form(default=""),
+    server_min_grass_distance: str = Form(default=""),
+) -> Response:
+    """Save allowlisted basic config fields without restarting the server."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, SETTINGS_MANAGE):
+        return permission_denied_response()
+    if not validate_csrf_token(current.config.db_path, current.session.id, csrf_token):
+        return PlainTextResponse(
+            "Invalid CSRF token.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+    form = {
+        "name": name,
+        "scenario_id": scenario_id,
+        "max_players": max_players,
+        "visible": visible,
+        "battleye": battleye,
+        "server_max_view_distance": server_max_view_distance,
+        "server_min_grass_distance": server_min_grass_distance,
+    }
+    try:
+        config_edit.save_default_config(paths.DEFAULT_INSTANCE_NAME, form)
+    except config_edit.ConfigEditError as error:
+        return _render_config_page(
+            request,
+            current,
+            save_error=str(error),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return RedirectResponse("/config?saved=1", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/mods", response_class=HTMLResponse)

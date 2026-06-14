@@ -10,6 +10,19 @@
 </form>
 {% endblock %}
 {% block content %}
+{% if config_saved %}
+<section class="panel full-width result-success config-message">
+  <h2>{{ t("Config saved") }}</h2>
+  <p class="muted">{{ t("Config saved. Restart the server to apply these changes.") }}</p>
+</section>
+{% endif %}
+{% if config_save_error %}
+<section class="panel full-width result-failure config-message">
+  <h2>{{ t("Config was not saved.") }}</h2>
+  <p class="error">{{ t(config_save_error) }}</p>
+</section>
+{% endif %}
+
 <section class="panel full-width">
   <h2>{{ t("Server Config") }}</h2>
   {% if page.available %}
@@ -35,4 +48,60 @@
     <p class="error">{{ t(page.error) }}</p>
   {% endif %}
 </section>
+
+{% if page.available and can_edit_config %}
+{% set edit = page.edit if page.edit is defined else {} %}
+{% set config = page.config if page.config is defined else {} %}
+{% set edit_name = edit.name if edit.name is defined else config.server_name or "" %}
+{% set edit_scenario = edit.scenario_id if edit.scenario_id is defined else config.scenario_id or "" %}
+{% set edit_max_players = edit.max_players if edit.max_players is defined else config.max_players or "" %}
+{% set edit_visible = edit.visible if edit.visible is defined else config.visible_text == "yes" %}
+{% set edit_battleye = edit.battleye if edit.battleye is defined else config.battleye_text == "yes" %}
+{% set edit_max_view = edit.server_max_view_distance if edit.server_max_view_distance is defined else "" %}
+{% set edit_min_grass = edit.server_min_grass_distance if edit.server_min_grass_distance is defined else "" %}
+<section class="panel full-width config-edit-panel">
+  <div class="section-heading-row">
+    <h2>{{ t("Basic server settings") }}</h2>
+    <span class="muted">{{ t("Restart required") }}</span>
+  </div>
+  <form method="post" action="/config" class="config-edit-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="form-grid">
+      <label>
+        <span>{{ t("Server name") }}</span>
+        <input type="text" name="name" value="{{ edit_name }}" required maxlength="512">
+      </label>
+      <label>
+        <span>{{ t("Scenario ID") }}</span>
+        <input type="text" name="scenario_id" value="{{ edit_scenario }}" required maxlength="512">
+      </label>
+      <label>
+        <span>{{ t("Max players") }}</span>
+        <input type="number" name="max_players" value="{{ edit_max_players }}" min="1" step="1" required>
+      </label>
+      <label>
+        <span>{{ t("Server max view distance") }}</span>
+        <input type="number" name="server_max_view_distance" value="{{ edit_max_view }}" min="1" step="1" required>
+      </label>
+      <label>
+        <span>{{ t("Server min grass distance") }}</span>
+        <input type="number" name="server_min_grass_distance" value="{{ edit_min_grass }}" min="0" step="1" required>
+      </label>
+    </div>
+    <div class="checkbox-grid">
+      <label class="inline-confirm">
+        <input type="checkbox" name="visible" value="true"{% if edit_visible %} checked{% endif %}>
+        {{ t("Visible") }}
+      </label>
+      <label class="inline-confirm">
+        <input type="checkbox" name="battleye" value="true"{% if edit_battleye %} checked{% endif %}>
+        {{ t("BattlEye") }}
+      </label>
+    </div>
+    <div class="form-actions">
+      <button type="submit">{{ t("Save config") }}</button>
+    </div>
+  </form>
+</section>
+{% endif %}
 {% endblock %}

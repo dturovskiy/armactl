@@ -23,6 +23,7 @@ from armactl import (
 from armactl.redaction import redact_sensitive_text
 from armactl.state import ServerState
 from armactl.web.security.exposure import get_exposure_warning
+from armactl.web.services.config_edit import build_config_edit_form
 
 DEFAULT_GAME_PORT = 2001
 DEFAULT_A2S_PORT = 17777
@@ -545,6 +546,7 @@ def load_config_page(instance: str) -> dict[str, Any]:
     try:
         config = config_manager.load_config(state.config_path)
         summary = _decorate_config(_plain_dict(status_summary.summarize_config(config)))
+        edit_form = build_config_edit_form(config)
     except Exception as error:
         return _missing_config_page(instance, state, _safe_error_message(error))
 
@@ -555,6 +557,7 @@ def load_config_page(instance: str) -> dict[str, Any]:
         "status": _state_status(state),
         "paths": _paths(state),
         "config": summary,
+        "edit": edit_form,
     }
 
 

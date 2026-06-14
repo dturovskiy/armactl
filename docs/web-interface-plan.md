@@ -637,7 +637,7 @@ Internal API readiness:
 |------|-------------------|---------------------|
 | Read-only status/dashboard | High | Implemented through one dashboard DTO from discovery, service/timer status, metrics, players, config summary, mods, web runtime, and safe bot summary |
 | Start/stop/restart | High | Default-instance web controls are implemented with auth, confirmation, CSRF, audit log, and route-level permission checks |
-| Config/mods/admins/bot settings | Medium-high | Read-only detail pages are implemented; wrap future mutations with form validation, CSRF, and redacted error rendering |
+| Config/mods/admins/bot settings | Medium-high | Basic allowlisted config editing is implemented through `config_manager`; mods/admins/bot mutations and broader config fields remain future work with form validation, CSRF, and redacted error rendering |
 | Logs/report | Medium-high | Bounded read-only audit, fixed journal, and redacted report preview views are implemented; add streaming/download later without `os.execvp` |
 | Install/repair/update | Medium | Install and repair enqueue explicit web background jobs; update remains future work; never block a request thread |
 | File manager | Medium | Safe adapter, browser foundation, single-file download, and server-root upload-new-file are implemented; overwrite/delete/rename and remote mount support remain future work |
@@ -654,7 +654,7 @@ logic from TUI screens.
 | Dashboard/status | Implemented in TUI, CLI, and the web read-only dashboard | discovery, state, status_summary, metrics, player_view, ports, bot_config | Keep future routes thin and continue extending the facade instead of route-local aggregation |
 | Server controls | Implemented | `service_manager`, CLI `start/stop/restart`, TUI `ManageScreen` | Web start/stop/restart now wraps existing calls for the default instance; schedule and job-backed operations remain future work |
 | Logs/report | Implemented for journal/report, TUI live view, and bounded read-only web views | `logs`, `report`, `TailLogScreen` | Web exposes fixed sources and redacted report preview; add browser streaming/download later |
-| Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Read-only web config page exists; future form writes stay through `config_manager` with validation |
+| Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Web supports allowlisted basic field edits through `config_manager`; generic/raw JSON and secrets remain out of scope |
 | Mods manager | Implemented beyond basic parity | `mods_manager`, `mods_state`, `addon_cleanup`, `ModManagerScreen` | Read-only web mods page exists; future add/remove/enable/disable/import/export routes should reuse existing modules |
 | Server admins | Implemented for Arma `game.admins` | `admins_manager`, `AdminManagerScreen` | Read-only game-admin page exists; keep game admins separate from web users/roles for future management flows |
 | Backups/cleanup | Partially implemented | `config_manager` backups, `cleaner`, `CleanupScreen` | Config backups exist; full server backup/restore is future work |
@@ -779,7 +779,7 @@ MVP views:
   summary
 - Server controls: start, stop, restart, refresh status
 - Logs: latest journal lines, later live streaming
-- Config: read-only safe structured summary now; future editable fields plus validation
+- Config: safe structured summary plus allowlisted basic field editing with validation and adjacent backup
 - Mods: read-only active list now; future add, remove, import/export
 - Admins: read-only game admin IDs and local labels now; future management forms
 - Bot: read-only Telegram status now; future safe configuration forms
@@ -922,8 +922,14 @@ not the foreground debug runner.
 
 ### Phase 4 - Config, mods, admins, and bot editing
 
-- Structured config editor through `config_manager`.
-- Mods add/remove/import/export through `mods_manager`.
+- Basic structured config editor is implemented through `config_manager` for
+  allowlisted non-secret fields: server name, scenario, max players,
+  visibility, BattlEye, and server distance values. Saves create an adjacent
+  `config.json.before-web-config-save-YYYYMMDD-HHMMSS.bak` before atomic
+  write and do not auto-restart the server.
+- Extended config fields, raw JSON editing, admin/RCON passwords, and generic
+  secret edits remain out of scope for web.
+- Mods add/remove/import/export through `mods_manager` remain future work.
 - Game admin management through `admins_manager`, kept separate from web users.
 - Telegram bot configuration through `bot_config` without exposing token values.
 - Validation errors rendered in UI.

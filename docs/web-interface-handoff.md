@@ -157,6 +157,11 @@ Completed foundation:
     server job dispatcher registers safe handlers that stream installer/repair
     generator output into bounded redacted job tails. A durable standalone
     worker daemon remains future hardening; update remains future work.
+25. Basic web config editing: `/config` now supports CSRF-protected
+    `settings:manage` edits for allowlisted `game.name`, `game.scenarioId`,
+    `game.maxPlayers`, `game.visible`, BattlEye, and server distance fields.
+    Saves create a web-specific adjacent backup before using `config_manager`
+    atomic write, never expose secrets, and never auto-restart the server.
 
 Next recommended implementation order:
 
@@ -166,8 +171,8 @@ Next recommended implementation order:
    external bind deployments; this is not implemented yet.
 3. Add update flow to explicit background job handlers if a safe backend API is
    introduced.
-4. Add edit/save/delete flows for config, mods, admins, and bot settings through
-   existing backend modules.
+4. Add edit/save/delete flows for mods, admins, bot settings, and extended
+   config fields through existing backend modules.
 5. Add atomic overwrite/delete/rename flows on top of the safe filesystem
    adapter after single-file upload has been reviewed.
 

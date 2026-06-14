@@ -282,7 +282,8 @@
 - [x] Додати read-only logs/report web views з bounded/redacted output
 - [x] Підключити install/repair flows до background jobs без blocking HTTP requests
 - [ ] Підключити update flow до background jobs без blocking HTTP requests
-- [ ] Додати edit/save/delete flows для config/mods/admins/bot через backend modules
+- [x] Додати safe web edit/save для базових полів `config.json` через `config_manager`
+- [ ] Додати edit/save/delete flows для mods/admins/bot і розширених config полів через backend modules
 - [x] Додати safe read-only filesystem browser foundation
 - [x] Додати download single file для web file browser
 - [x] Додати upload одного нового файла в server root для web file browser без overwrite
