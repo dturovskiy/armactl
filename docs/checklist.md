@@ -280,7 +280,8 @@
 - [x] Додати VM smoke checklist docs для web panel
 - [x] Додати reverse proxy / HTTPS deployment docs
 - [x] Додати read-only logs/report web views з bounded/redacted output
-- [ ] Підключити install/repair/update flows до background jobs без blocking HTTP requests
+- [x] Підключити install/repair flows до background jobs без blocking HTTP requests
+- [ ] Підключити update flow до background jobs без blocking HTTP requests
 - [ ] Додати edit/save/delete flows для config/mods/admins/bot через backend modules
 - [x] Додати safe read-only filesystem browser foundation
 - [x] Додати download single file для web file browser

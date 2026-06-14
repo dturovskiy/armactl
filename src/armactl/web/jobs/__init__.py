@@ -20,6 +20,17 @@ from armactl.web.jobs.runner import (
     dispatch_job,
     enqueue_job,
 )
+from armactl.web.jobs.server import (
+    SERVER_INSTALL_JOB_KIND,
+    SERVER_REPAIR_JOB_KIND,
+    create_server_job_dispatcher,
+    dispatch_server_job,
+    enqueue_server_install,
+    enqueue_server_repair,
+    handle_server_install,
+    handle_server_repair,
+    start_server_job_worker,
+)
 from armactl.web.jobs.store import (
     JobNotFoundError,
     JobStoreError,
@@ -35,6 +46,15 @@ from armactl.web.jobs.store import (
 )
 
 __all__ = [
+    "SERVER_INSTALL_JOB_KIND",
+    "SERVER_REPAIR_JOB_KIND",
+    "create_server_job_dispatcher",
+    "dispatch_server_job",
+    "enqueue_server_install",
+    "enqueue_server_repair",
+    "handle_server_install",
+    "handle_server_repair",
+    "start_server_job_worker",
     "JOB_STATUS_CANCELLED",
     "JOB_STATUS_FAILED",
     "JOB_STATUS_QUEUED",

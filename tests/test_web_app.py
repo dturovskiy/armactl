@@ -244,6 +244,31 @@ def _stopped_snapshot() -> dict:
     return snapshot
 
 
+def _incomplete_snapshot() -> dict:
+    snapshot = _no_server_snapshot()
+    snapshot.update(
+        lifecycle="incomplete",
+        overview={
+            "label": "incomplete",
+            "empty_state": True,
+            "empty_title": "Installation incomplete",
+            "empty_message": (
+                "Some server evidence exists, but the install or config is incomplete."
+            ),
+        },
+        paths={
+            "instance_root": "/srv/armactl-data/default",
+            "install_dir": "/srv/armactl-data/default/server",
+            "config_path": "/srv/armactl-data/default/config/config.json",
+            "config_dir": "/srv/armactl-data/default/config",
+            "logs_dir": "/srv/armactl-data/default/config/logs",
+            "service_name": "armareforger.service",
+            "timer_name": "armareforger-restart.timer",
+        },
+    )
+    return snapshot
+
+
 def _client(app, base_url: str = "http://testserver"):
     with warnings.catch_warnings():
         warnings.simplefilter("error", StarletteDeprecationWarning)
@@ -402,6 +427,12 @@ def _session_set_cookie(response) -> str:
 def _action_csrf_token(client) -> str:
     dashboard_response = client.get("/dashboard")
     return _form_token(dashboard_response.text)
+
+
+def _jobs_csrf_token(client) -> str:
+    jobs_response = client.get("/jobs")
+    assert jobs_response.status_code == 200
+    return _form_token(jobs_response.text)
 
 
 def _audit_log_text(data_root: Path) -> str:
@@ -1140,6 +1171,34 @@ def test_dashboard_async_preferences_do_not_reload_heavy_snapshot(
     assert calls == ["default"]
 
 
+def test_dashboard_incomplete_server_shows_repair_job_action(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.routes import dashboard
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+
+    def fake_snapshot(instance: str, *, web_config=None) -> dict:
+        assert web_config is not None
+        return _incomplete_snapshot()
+
+    monkeypatch.setattr(dashboard, "load_dashboard_snapshot", fake_snapshot)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert 'action="/jobs/server/repair"' in response.text
+    assert 'action="/service/start"' not in response.text
+    assert 'action="/service/stop"' not in response.text
+    assert 'action="/service/restart"' not in response.text
+    assert "Repair" in response.text
+    assert "Installation incomplete" in response.text
+
 
 def test_dashboard_no_server_empty_state_renders_controlled_html(
     tmp_path: Path,
@@ -1164,7 +1223,8 @@ def test_dashboard_no_server_empty_state_renders_controlled_html(
     assert response.status_code == 200
     assert "No server found" in response.text
     assert "Discovery did not find an installed server." in response.text
-    assert "Install from web is planned." in response.text
+    assert 'action="/jobs/server/install"' in response.text
+    assert "Install" in response.text
     assert "Host &amp; web runtime" in response.text
     assert "Mock Server" not in response.text
     assert 'action="/service/start"' not in response.text
@@ -1822,3 +1882,133 @@ def test_dashboard_renders_external_bind_warning(tmp_path: Path, monkeypatch):
     assert EXTERNAL_BIND_WITHOUT_HTTPS_WARNING in response.text
     assert password not in response.text
     assert "ARMACTL_WEB_SESSION_SECRET" not in response.text
+
+
+def test_unauthenticated_install_and_repair_jobs_redirect_to_login(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    install_response = client.post("/jobs/server/install", data={}, follow_redirects=False)
+    repair_response = client.post("/jobs/server/repair", data={}, follow_redirects=False)
+
+    assert install_response.status_code == 303
+    assert install_response.headers["location"] == "/login"
+    assert repair_response.status_code == 303
+    assert repair_response.headers["location"] == "/login"
+
+
+def test_install_repair_job_permission_denied_returns_403(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.routes import jobs
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    monkeypatch.setattr(jobs, "require_permission", lambda current, permission: False)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    install_response = client.post("/jobs/server/install", data={}, follow_redirects=False)
+    repair_response = client.post("/jobs/server/repair", data={}, follow_redirects=False)
+
+    assert install_response.status_code == 403
+    assert install_response.text == "Permission denied."
+    assert repair_response.status_code == 403
+    assert repair_response.text == "Permission denied."
+
+
+def test_install_repair_jobs_require_csrf(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    install_response = client.post(
+        "/jobs/server/install",
+        data={"csrf_token": "bad-token"},
+        follow_redirects=False,
+    )
+    repair_response = client.post(
+        "/jobs/server/repair",
+        data={"csrf_token": "bad-token"},
+        follow_redirects=False,
+    )
+
+    assert install_response.status_code == 403
+    assert install_response.text == "Invalid CSRF token."
+    assert repair_response.status_code == 403
+    assert repair_response.text == "Invalid CSRF token."
+
+
+def test_post_install_and_repair_create_queued_jobs_without_running_backend(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import server as server_jobs
+    from armactl.web.jobs.store import list_recent_jobs
+
+    def fail_backend(*args, **kwargs):
+        raise AssertionError("HTTP request must not run install/repair backend")
+
+    monkeypatch.setattr(server_jobs.installer, "run_install", fail_backend)
+    monkeypatch.setattr(server_jobs.repair, "run_repair", fail_backend)
+    scheduled: list[int] = []
+    monkeypatch.setattr(
+        server_jobs,
+        "start_server_job_worker",
+        lambda db_path, job_id: scheduled.append(job_id),
+    )
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+
+    install_response = client.post(
+        "/jobs/server/install",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    repair_response = client.post(
+        "/jobs/server/repair",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    jobs = list_recent_jobs(tmp_path / "web" / "web.db")
+
+    assert install_response.status_code == 303
+    assert install_response.headers["location"] == "/jobs"
+    assert repair_response.status_code == 303
+    assert repair_response.headers["location"] == "/jobs"
+    assert [job.kind for job in jobs[:2]] == ["server:repair", "server:install"]
+    assert all(job.status == "queued" for job in jobs[:2])
+    assert scheduled == [jobs[1].id, jobs[0].id]
+
+
+def test_jobs_page_shows_queued_install_repair_jobs(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import server as server_jobs
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    _stub_dashboard(monkeypatch)
+    monkeypatch.setattr(server_jobs, "start_server_job_worker", lambda db_path, job_id: None)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+    client.post(
+        "/jobs/server/install",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    response = client.get("/jobs", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "server:install" in response.text
+    assert "queued" in response.text
+    assert "Queued install" in response.text

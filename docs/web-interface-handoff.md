@@ -150,14 +150,22 @@ Completed foundation:
     uploads are rejected. Other roots remain browse/download only for now;
     overwrite, delete, rename, and archive extraction remain future work.
 
+24. Install/repair web job flows: lifecycle-aware dashboard actions can enqueue
+    `server:install` for `not_installed` and `server:repair` for `incomplete`
+    without running long operations inside the HTTP request. The route starts a
+    web-process background worker thread for the queued job, and the explicit
+    server job dispatcher registers safe handlers that stream installer/repair
+    generator output into bounded redacted job tails. A durable standalone
+    worker daemon remains future hardening; update remains future work.
+
 Next recommended implementation order:
 
 1. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
    environment-specific outcome.
 2. Add optional IP allowlist / trusted proxy handling if operators need direct
    external bind deployments; this is not implemented yet.
-3. Connect install, repair, and update flows to explicit background job handlers
-   before exposing those flows in web.
+3. Add update flow to explicit background job handlers if a safe backend API is
+   introduced.
 4. Add edit/save/delete flows for config, mods, admins, and bot settings through
    existing backend modules.
 5. Add atomic overwrite/delete/rename flows on top of the safe filesystem

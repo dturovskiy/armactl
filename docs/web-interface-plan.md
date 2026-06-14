@@ -639,7 +639,7 @@ Internal API readiness:
 | Start/stop/restart | High | Default-instance web controls are implemented with auth, confirmation, CSRF, audit log, and route-level permission checks |
 | Config/mods/admins/bot settings | Medium-high | Read-only detail pages are implemented; wrap future mutations with form validation, CSRF, and redacted error rendering |
 | Logs/report | Medium-high | Bounded read-only audit, fixed journal, and redacted report preview views are implemented; add streaming/download later without `os.execvp` |
-| Install/repair/update | Medium | Run via background jobs; never block a request thread |
+| Install/repair/update | Medium | Install and repair enqueue explicit web background jobs; update remains future work; never block a request thread |
 | File manager | Medium | Safe adapter, browser foundation, single-file download, and server-root upload-new-file are implemented; overwrite/delete/rename and remote mount support remain future work |
 | Web users/roles/entitlements | Low | Implement new `web.db` models; do not reuse game admins as web users |
 
@@ -927,6 +927,18 @@ not the foreground debug runner.
 - Game admin management through `admins_manager`, kept separate from web users.
 - Telegram bot configuration through `bot_config` without exposing token values.
 - Validation errors rendered in UI.
+
+### Phase 4b - Install and repair jobs
+
+- `server:install` and `server:repair` are explicit web job kinds.
+- Dashboard actions enqueue jobs and redirect to `/jobs`; HTTP requests do
+  not run installer or repair generators directly.
+- The enqueue route starts a web-process background worker thread for the
+  queued job. The registered handlers stream bounded redacted output into job
+  metadata.
+- A durable standalone worker daemon remains future hardening for process
+  restarts and multi-worker deployments.
+- Update remains future work.
 
 ### Phase 5 - Filesystem manager
 

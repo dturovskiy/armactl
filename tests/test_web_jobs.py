@@ -17,6 +17,8 @@ from armactl.web.jobs import (
     JOB_STATUS_QUEUED,
     JOB_STATUS_RUNNING,
     JOB_STATUS_SUCCEEDED,
+    SERVER_INSTALL_JOB_KIND,
+    SERVER_REPAIR_JOB_KIND,
     JobDispatcher,
     JobHandlerResult,
     JobStoreError,
@@ -24,8 +26,12 @@ from armactl.web.jobs import (
     append_job_output,
     cancel_job,
     create_job,
+    create_server_job_dispatcher,
     dispatch_job,
+    dispatch_server_job,
     enqueue_job,
+    enqueue_server_install,
+    enqueue_server_repair,
     get_job,
     list_recent_jobs,
     mark_job_failed,
@@ -318,6 +324,7 @@ def test_handler_output_is_bounded_and_redacted(tmp_path: Path):
     assert "secret-value" not in result.job.stderr_tail
     assert "ARMACTL_WEB_SESSION_SECRET=***" in result.job.stderr_tail
 
+
 def test_web_jobs_import_does_not_import_tui_or_textual(monkeypatch):
     _forget_modules("armactl.web.jobs", "armactl.tui", "textual")
     original_import = builtins.__import__
@@ -338,3 +345,151 @@ def test_web_jobs_import_does_not_import_tui_or_textual(monkeypatch):
     assert not any(
         _matches_prefix(module_name, FORBIDDEN_IMPORT_PREFIXES) for module_name in sys.modules
     )
+
+
+def test_server_job_dispatcher_registers_explicit_install_repair_handlers():
+    dispatcher = create_server_job_dispatcher()
+
+    assert dispatcher.registered_kinds == (SERVER_INSTALL_JOB_KIND, SERVER_REPAIR_JOB_KIND)
+
+
+def test_server_install_handler_streams_generator_output(tmp_path: Path, monkeypatch):
+    from armactl.web.jobs import server as server_jobs
+
+    db_path = _db_path(tmp_path)
+    calls: list[str] = []
+
+    def fake_install(instance: str):
+        calls.append(instance)
+        yield "install step 1"
+        yield "install step 2 password=hunter2"
+
+    monkeypatch.setattr(server_jobs.installer, "run_install", fake_install)
+    job = enqueue_server_install(db_path, requested_by_username="owner")
+
+    result = dispatch_server_job(db_path, job.id)
+
+    assert calls == ["default"]
+    assert result.job.kind == SERVER_INSTALL_JOB_KIND
+    assert result.job.status == JOB_STATUS_SUCCEEDED
+    assert result.job.result_message == "Server install completed."
+    assert "install step 1" in result.job.stdout_tail
+    assert "hunter2" not in result.job.stdout_tail
+    assert "password=***" in result.job.stdout_tail
+
+
+def test_server_enqueue_reuses_active_install_job(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+
+    first = enqueue_server_install(db_path, requested_by_username="owner")
+    second = enqueue_server_install(db_path, requested_by_username="owner")
+    jobs = list_recent_jobs(db_path)
+
+    assert second.id == first.id
+    assert [job.kind for job in jobs] == [SERVER_INSTALL_JOB_KIND]
+
+
+def test_server_repair_handler_uses_discovery_paths_and_streams_output(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from armactl.web.jobs import server as server_jobs
+
+    db_path = _db_path(tmp_path)
+    install_dir = tmp_path / "default" / "server"
+    config_path = tmp_path / "default" / "config" / "config.json"
+    calls: list[tuple[str, str, str]] = []
+
+    monkeypatch.setattr(
+        server_jobs.discovery,
+        "discover",
+        lambda instance, save=False: SimpleNamespace(
+            install_dir=str(install_dir),
+            config_path=str(config_path),
+        ),
+    )
+
+    def fake_repair(instance: str, repair_install_dir, repair_config_path):
+        calls.append((instance, str(repair_install_dir), str(repair_config_path)))
+        yield "repair step"
+
+    monkeypatch.setattr(server_jobs.repair, "run_repair", fake_repair)
+    job = enqueue_server_repair(db_path, requested_by_username="owner")
+
+    result = dispatch_server_job(db_path, job.id)
+
+    assert calls == [("default", str(install_dir), str(config_path))]
+    assert result.job.kind == SERVER_REPAIR_JOB_KIND
+    assert result.job.status == JOB_STATUS_SUCCEEDED
+    assert result.job.result_message == "Server repair completed."
+    assert "repair step" in result.job.stdout_tail
+
+
+def test_server_job_handler_failure_marks_failed_with_redacted_error(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.jobs import server as server_jobs
+
+    db_path = _db_path(tmp_path)
+
+    def fake_install(instance: str):
+        yield "starting install"
+        raise RuntimeError("secret=raw-install-secret failed")
+
+    monkeypatch.setattr(server_jobs.installer, "run_install", fake_install)
+    job = enqueue_server_install(db_path, requested_by_username="owner")
+
+    result = dispatch_server_job(db_path, job.id)
+
+    assert result.job.status == JOB_STATUS_FAILED
+    assert result.job.error_class == "RuntimeError"
+    assert "raw-install-secret" not in result.job.error_message
+    assert "secret=***" in result.job.error_message
+    assert "starting install" in result.job.stdout_tail
+
+
+def test_start_server_job_worker_dispatches_in_background_thread(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.jobs import server as server_jobs
+
+    db_path = _db_path(tmp_path)
+    job = enqueue_server_install(db_path, requested_by_username="owner")
+    calls: list[tuple[object, int]] = []
+
+    def fake_dispatch(db_path_arg, job_id: int):
+        calls.append((db_path_arg, job_id))
+
+    monkeypatch.setattr(server_jobs, "dispatch_server_job", fake_dispatch)
+
+    thread = server_jobs.start_server_job_worker(db_path, job.id)
+    thread.join(timeout=2)
+
+    assert not thread.is_alive()
+    assert calls == [(db_path, job.id)]
+
+
+def test_server_job_module_import_does_not_import_tui_textual(monkeypatch):
+    forbidden = FORBIDDEN_IMPORT_PREFIXES
+    _forget_modules("armactl.web.jobs.server", *forbidden)
+    original_import = builtins.__import__
+    blocked_imports: list[str] = []
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if _matches_prefix(name, forbidden):
+            blocked_imports.append(name)
+            raise AssertionError(f"server jobs imported forbidden dependency {name!r}")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    module = importlib.import_module("armactl.web.jobs.server")
+
+    assert module.SERVER_INSTALL_JOB_KIND == SERVER_INSTALL_JOB_KIND
+    assert blocked_imports == []
+    assert "armactl.tui" not in sys.modules
+    assert "textual" not in sys.modules

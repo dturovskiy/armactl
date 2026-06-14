@@ -82,6 +82,28 @@ def _summary_items(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str
 def _action_forms(lifecycle: str, can_run_actions: bool) -> list[dict[str, Any]]:
     if not can_run_actions:
         return []
+    if lifecycle == "not_installed":
+        return [
+            {
+                "name": "install",
+                "action_path": "/jobs/server/install",
+                "label": "Install",
+                "danger": False,
+                "confirm_label": "",
+                "confirm_value": "",
+            }
+        ]
+    if lifecycle == "incomplete":
+        return [
+            {
+                "name": "repair",
+                "action_path": "/jobs/server/repair",
+                "label": "Repair",
+                "danger": False,
+                "confirm_label": "",
+                "confirm_value": "",
+            }
+        ]
     if lifecycle == "stopped":
         return [
             {
@@ -119,9 +141,9 @@ def _quick_action_note(lifecycle: str, actions: list[dict[str, Any]]) -> str:
     if actions:
         return ""
     if lifecycle == "not_installed":
-        return "Install from web is planned."
+        return "Install is available as a background job."
     if lifecycle == "incomplete":
-        return "Repair from web is planned."
+        return "Repair is available as a background job."
     return "No server actions available."
 
 
@@ -317,7 +339,7 @@ def _diagnostics(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str, 
             {
                 "severity": "warning",
                 "title": "Repair diagnostics",
-                "message": "Repair from web is planned.",
+                "message": "Repair is available as a background job.",
                 "items": [
                     _item("Instance root", paths.get("instance_root", "unknown")),
                     _item("Install dir", paths.get("install_dir", "unknown")),

@@ -615,12 +615,14 @@ def test_dashboard_view_model_actions_follow_lifecycle():
     running = build_dashboard_view(_view_snapshot("running"), **common_permissions)
 
     assert not_installed["heading"] == "Dashboard"
-    assert not_installed["actions"] == []
+    assert [action["name"] for action in not_installed["actions"]] == ["install"]
+    assert not_installed["actions"][0]["action_path"] == "/jobs/server/install"
     assert not_installed["server_cards"] == []
     assert not_installed["management_links"] == []
-    assert not_installed["quick_action_note"] == "Install from web is planned."
-    assert incomplete["actions"] == []
-    assert incomplete["quick_action_note"] == "Repair from web is planned."
+    assert not_installed["quick_action_note"] == ""
+    assert [action["name"] for action in incomplete["actions"]] == ["repair"]
+    assert incomplete["actions"][0]["action_path"] == "/jobs/server/repair"
+    assert incomplete["quick_action_note"] == ""
     assert [action["name"] for action in stopped["actions"]] == ["start"]
     assert [action["name"] for action in running["actions"]] == ["stop", "restart"]
     assert running["heading"] == "Lifecycle Test Server"
