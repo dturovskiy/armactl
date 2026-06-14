@@ -114,15 +114,10 @@
 {% endif %}
 
 <section class="dashboard-section">
-  <h2>{{ t("Host & web runtime") }}</h2>
+  <h2>{{ t("Host") }}</h2>
   <div class="card-grid">
     <article class="panel summary-card">
-      <h3>{{ t("Host") }}</h3>
       {{ item_list(dashboard.host_items) }}
-    </article>
-    <article class="panel summary-card">
-      <h3>{{ t("Web Runtime") }}</h3>
-      {{ item_list(dashboard.web_items) }}
     </article>
   </div>
 </section>

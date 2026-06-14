@@ -706,7 +706,10 @@ def test_dashboard_view_model_actions_follow_lifecycle():
     assert incomplete["actions"][0]["action_path"] == "/jobs/server/repair"
     assert incomplete["quick_action_note"] == ""
     assert [action["name"] for action in stopped["actions"]] == ["start"]
-    assert [action["name"] for action in starting["actions"]] == ["stop"]
+    assert starting["actions"] == []
+    assert starting["quick_action_note"] == (
+        "Server is starting; actions are unavailable until telemetry is ready."
+    )
     assert starting["server_cards"]
     assert all(card["title"] != "Live server" for card in starting["server_cards"])
     assert [action["name"] for action in running["actions"]] == ["stop", "restart"]

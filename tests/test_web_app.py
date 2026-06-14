@@ -244,6 +244,40 @@ def _stopped_snapshot() -> dict:
     return snapshot
 
 
+def _starting_snapshot() -> dict:
+    snapshot = _snapshot()
+    snapshot.update(
+        lifecycle="starting",
+        running=False,
+        overview={
+            "label": "starting",
+            "empty_state": False,
+            "empty_title": "",
+            "empty_message": "",
+        },
+        service={
+            "available": True,
+            "active": True,
+            "enabled": True,
+            "active_state": "active",
+            "main_pid": 123,
+        },
+        operational_status={
+            "available": True,
+            "message": "Waiting for server telemetry",
+            "age_text": "0s",
+        },
+        players={"available": False, "count_text": "unavailable"},
+        fps_metrics={
+            "available": False,
+            "fps_text": "Unknown",
+            "age_text": "Unknown",
+            "freshness": "unavailable",
+        },
+    )
+    return snapshot
+
+
 def _incomplete_snapshot() -> dict:
     snapshot = _no_server_snapshot()
     snapshot.update(
@@ -1002,7 +1036,8 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert "owner" in root_response.text
     assert "Quick actions" in root_response.text
     assert "Server snapshot" in root_response.text
-    assert "Host &amp; web runtime" in root_response.text
+    assert "Host" in root_response.text
+    assert "Web Runtime" not in root_response.text
     assert "ServerAdminTools" in root_response.text
     assert 'action="/service/start"' not in root_response.text
     assert 'action="/service/stop"' in root_response.text
@@ -1043,6 +1078,31 @@ def test_dashboard_stopped_server_shows_start_only(tmp_path: Path, monkeypatch):
     assert "Server snapshot" in response.text
     assert 'href="/config"' in response.text
 
+
+def test_dashboard_starting_server_hides_service_actions(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.routes import dashboard
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+
+    def fake_snapshot(instance: str, *, web_config=None) -> dict:
+        assert web_config is not None
+        return _starting_snapshot()
+
+    monkeypatch.setattr(dashboard, "load_dashboard_snapshot", fake_snapshot)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "starting" in response.text
+    assert "Server is starting; actions are unavailable until telemetry is ready." in response.text
+    assert "action=\"/service/start\"" not in response.text
+    assert "action=\"/service/stop\"" not in response.text
+    assert "action=\"/service/restart\"" not in response.text
+    assert "Live server" not in response.text
 
 def test_dashboard_running_server_shows_stop_restart_only(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
@@ -1097,7 +1157,8 @@ def test_dashboard_renders_ukrainian_and_dark_theme_preference(
     assert "Швидкі дії" in response.text
     assert "Зупинити" in response.text
     assert "Перезапустити" in response.text
-    assert "Хост і web runtime" in response.text
+    assert "Хост" in response.text
+    assert "Web runtime" not in response.text
     assert "Вийти" in response.text
     assert "Тема: світла" in response.text
 
@@ -1231,7 +1292,8 @@ def test_dashboard_no_server_empty_state_renders_controlled_html(
     assert "Discovery did not find an installed server." in response.text
     assert 'action="/jobs/server/install"' in response.text
     assert "Install" in response.text
-    assert "Host &amp; web runtime" in response.text
+    assert "Host" in response.text
+    assert "Web Runtime" not in response.text
     assert "Mock Server" not in response.text
     assert 'action="/service/start"' not in response.text
     assert 'action="/service/stop"' not in response.text
@@ -1884,8 +1946,8 @@ def test_dashboard_renders_external_bind_warning(tmp_path: Path, monkeypatch):
     response = client.get("/dashboard", follow_redirects=False)
 
     assert response.status_code == 200
-    assert "Exposure warning" in response.text
-    assert EXTERNAL_BIND_WITHOUT_HTTPS_WARNING in response.text
+    assert "Exposure warning" not in response.text
+    assert EXTERNAL_BIND_WITHOUT_HTTPS_WARNING not in response.text
     assert password not in response.text
     assert "ARMACTL_WEB_SESSION_SECRET" not in response.text
 

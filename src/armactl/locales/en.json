@@ -294,6 +294,7 @@
     "Install complete": "Install complete",
     "Repair complete": "Repair complete",
     "No server actions available.": "No server actions available.",
+    "Server is starting; actions are unavailable until telemetry is ready.": "Server is starting; actions are unavailable until telemetry is ready.",
     "Management pages are available after the server is installed.": "Management pages are available after the server is installed.",
     "Management pages are limited until the server config is repaired.": "Management pages are limited until the server config is repaired.",
     "No management pages available.": "No management pages available.",

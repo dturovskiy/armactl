@@ -42,7 +42,6 @@ def _summary_items(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str
     players = _section(snapshot, "players")
     fps = _section(snapshot, "fps_metrics")
     host = _section(snapshot, "host_metrics")
-    web = _section(snapshot, "web")
     config = _section(snapshot, "config")
     mods = _section(snapshot, "mods")
 
@@ -60,11 +59,7 @@ def _summary_items(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str
             ]
         )
     elif lifecycle in {"stopped", "starting"}:
-        service_value = (
-            service.get("active_state")
-            if lifecycle == "starting"
-            else "stopped"
-        )
+        service_value = "starting" if lifecycle == "starting" else "stopped"
         items.extend(
             [
                 _item("Service", service_value or lifecycle, translate_value=True),
@@ -73,14 +68,7 @@ def _summary_items(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str
             ]
         )
     else:
-        bind_host = web.get("bind_host", "unknown")
-        bind_port = web.get("bind_port", "unknown")
-        items.extend(
-            [
-                _item("Host CPU", host.get("cpu_text", "unknown")),
-                _item("Web bind", f"{bind_host}:{bind_port}"),
-            ]
-        )
+        items.extend([_item("Host CPU", host.get("cpu_text", "unknown"))])
     return items
 
 
@@ -120,17 +108,6 @@ def _action_forms(lifecycle: str, can_run_actions: bool) -> list[dict[str, Any]]
                 "confirm_value": "",
             }
         ]
-    if lifecycle == "starting":
-        return [
-            {
-                "name": "stop",
-                "action_path": "/service/stop",
-                "label": "Stop",
-                "danger": True,
-                "confirm_label": "Confirm stop",
-                "confirm_value": "stop",
-            }
-        ]
     if lifecycle == "running":
         return [
             {
@@ -160,6 +137,8 @@ def _quick_action_note(lifecycle: str, actions: list[dict[str, Any]]) -> str:
         return "Install is available as a background job."
     if lifecycle == "incomplete":
         return "Repair is available as a background job."
+    if lifecycle == "starting":
+        return "Server is starting; actions are unavailable until telemetry is ready."
     return "No server actions available."
 
 
@@ -236,7 +215,9 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
             "items": [
                 _item(
                     "State",
-                    service.get("active_state")
+                    "starting"
+                    if lifecycle == "starting"
+                    else service.get("active_state")
                     or ("running" if lifecycle == "running" else "stopped"),
                     translate_value=True,
                 ),
@@ -311,23 +292,10 @@ def _host_items(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _web_items(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
-    web = _section(snapshot, "web")
-    bind_host = web.get("bind_host", "unknown")
-    bind_port = web.get("bind_port", "unknown")
-    return [
-        _item("Bind", f"{bind_host}:{bind_port}"),
-        _item("HTTPS required", web.get("https_required_text", "unknown"), translate_value=True),
-        _item("Runtime dir", web.get("runtime_dir", "unknown")),
-        _item("Database", web.get("db_path", "unknown")),
-    ]
-
-
 def _diagnostics(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str, Any]]:
     diagnostics: list[dict[str, Any]] = []
     overview = _section(snapshot, "overview")
     paths = _section(snapshot, "paths")
-    web = _section(snapshot, "web")
 
     if overview.get("empty_state"):
         diagnostics.append(
@@ -335,17 +303,6 @@ def _diagnostics(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str, 
                 "severity": "warning" if lifecycle == "incomplete" else "notice",
                 "title": overview.get("empty_title", "Dashboard"),
                 "message": overview.get("empty_message", ""),
-                "items": [],
-            }
-        )
-
-    exposure_warning = web.get("exposure_warning")
-    if isinstance(exposure_warning, Mapping):
-        diagnostics.append(
-            {
-                "severity": exposure_warning.get("severity", "warning"),
-                "title": "Exposure warning",
-                "message": exposure_warning.get("message", ""),
                 "items": [],
             }
         )
@@ -418,7 +375,6 @@ def build_dashboard_view(
         "management_note": management_note,
         "server_cards": _server_cards(snapshot, lifecycle),
         "host_items": _host_items(snapshot),
-        "web_items": _web_items(snapshot),
         "diagnostics": _diagnostics(snapshot, lifecycle),
         "show_recent_jobs": can_view_jobs,
     }
