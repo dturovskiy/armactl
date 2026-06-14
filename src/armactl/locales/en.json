@@ -330,6 +330,8 @@
     "game.gameProperties.serverMaxViewDistance must be a positive integer.": "game.gameProperties.serverMaxViewDistance must be a positive integer.",
     "game.gameProperties.serverMinGrassDistance must be a non-negative integer.": "game.gameProperties.serverMinGrassDistance must be a non-negative integer.",
     "Boolean field value is invalid.": "Boolean field value is invalid.",
-    "Failed to create config backup.": "Failed to create config backup."
+    "Failed to create config backup.": "Failed to create config backup.",
+    "Live refresh active": "Live refresh active",
+    "Dashboard data may be stale.": "Dashboard data may be stale."
   }
 }

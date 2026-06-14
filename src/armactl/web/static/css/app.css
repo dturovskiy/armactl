@@ -138,6 +138,22 @@ h2 {
   background: var(--empty-bg);
 }
 
+.dashboard-live-status {
+  display: inline-flex;
+  margin-bottom: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.dashboard-live-status[data-stale="true"] {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
 .dashboard-section {
   margin-top: 18px;
 }

@@ -680,6 +680,41 @@ def _view_snapshot(lifecycle: str) -> dict[str, Any]:
     }
 
 
+
+def test_dashboard_status_payload_is_small_and_safe():
+    from armactl.web.views.dashboard import (
+        build_dashboard_status_payload,
+        build_dashboard_view,
+    )
+
+    permissions = {
+        "can_run_actions": True,
+        "can_view_config": True,
+        "can_view_mods": True,
+        "can_view_admins": True,
+        "can_view_bot": True,
+        "can_view_jobs": True,
+        "can_view_files": True,
+        "can_view_logs": True,
+    }
+    snapshot = _view_snapshot("running")
+    dashboard = build_dashboard_view(snapshot, **permissions)
+
+    payload = build_dashboard_status_payload(snapshot, dashboard)
+    serialized = json.dumps(payload)
+
+    assert payload["ok"] is True
+    assert payload["lifecycle"] == "running"
+    assert payload["fields"]["heading"] == "Lifecycle Test Server"
+    assert payload["fields"]["overview.players"] == "3 / 64"
+    assert payload["fields"]["host.cpu"] == "12%"
+    assert [action["name"] for action in payload["actions"]] == ["stop", "restart"]
+    assert "config_path" not in serialized
+    assert "/srv/default" not in serialized
+    assert "password" not in serialized.lower()
+    assert "csrf" not in serialized.lower()
+
+
 def test_dashboard_view_model_actions_follow_lifecycle():
     from armactl.web.views.dashboard import build_dashboard_view
 

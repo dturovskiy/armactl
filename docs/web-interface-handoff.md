@@ -162,22 +162,23 @@ Completed foundation:
     `game.maxPlayers`, `game.visible`, BattlEye, and server distance fields.
     Saves create a web-specific adjacent backup before using `config_manager`
     atomic write, never expose secrets, and never auto-restart the server.
+26. Lightweight dashboard live refresh: `/dashboard/status.json` exposes a
+    small authenticated `dashboard:view` JSON DTO built from the existing
+    facade/view-model, while package-local `dashboard.js` polls every 7
+    seconds and updates marked DOM fields without replacing the no-JS
+    server-rendered dashboard fallback. WebSocket remains out of scope.
 
 Next recommended implementation order:
 
-1. Add lightweight dashboard live refresh through an authenticated safe JSON
-   endpoint and small package-local JS polling. Keep the server-rendered
-   dashboard as the no-JS fallback, avoid WebSocket for now, and do not add a
-   second source of truth for server state.
-2. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
+1. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
    environment-specific outcome.
-3. Add optional IP allowlist / trusted proxy handling if operators need direct
+2. Add optional IP allowlist / trusted proxy handling if operators need direct
    external bind deployments; this is not implemented yet.
-4. Add update flow to explicit background job handlers if a safe backend API is
+3. Add update flow to explicit background job handlers if a safe backend API is
    introduced.
-5. Add edit/save/delete flows for mods, admins, bot settings, and extended
+4. Add edit/save/delete flows for mods, admins, bot settings, and extended
    config fields through existing backend modules.
-6. Add atomic overwrite/delete/rename flows on top of the safe filesystem
+5. Add atomic overwrite/delete/rename flows on top of the safe filesystem
    adapter after single-file upload has been reviewed.
 
 ## Implementation prompt template

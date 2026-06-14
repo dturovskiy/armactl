@@ -28,11 +28,18 @@ def _bool_text(value: Any) -> str:
     return "unknown"
 
 
-def _item(label: str, value: Any, *, translate_value: bool = False) -> dict[str, Any]:
+def _item(
+    label: str,
+    value: Any,
+    *,
+    translate_value: bool = False,
+    field: str = "",
+) -> dict[str, Any]:
     return {
         "label": label,
         "value": _text(value),
         "translate_value": translate_value,
+        "field": field,
     }
 
 
@@ -46,29 +53,45 @@ def _summary_items(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str
     mods = _section(snapshot, "mods")
 
     items = [
-        _item("Instance", snapshot.get("instance")),
-        _item("Lifecycle", overview.get("label") or lifecycle, translate_value=True),
+        _item("Instance", snapshot.get("instance"), field="overview.instance"),
+        _item(
+            "Lifecycle",
+            overview.get("label") or lifecycle,
+            translate_value=True,
+            field="overview.lifecycle",
+        ),
     ]
     if lifecycle == "running":
         service_value = service.get("active_state") or "active"
         items.extend(
             [
-                _item("Service", service_value, translate_value=True),
-                _item("Players", players.get("count_text", "unavailable")),
-                _item("FPS", fps.get("fps_text", "unavailable")),
+                _item("Service", service_value, translate_value=True, field="overview.service"),
+                _item(
+                    "Players",
+                    players.get("count_text", "unavailable"),
+                    field="overview.players",
+                ),
+                _item("FPS", fps.get("fps_text", "unavailable"), field="overview.fps"),
             ]
         )
     elif lifecycle in {"stopped", "starting"}:
         service_value = "starting" if lifecycle == "starting" else "stopped"
         items.extend(
             [
-                _item("Service", service_value or lifecycle, translate_value=True),
-                _item("Name", config.get("server_name", "unknown")),
-                _item("Mods", mods.get("count", 0)),
+                _item(
+                    "Service",
+                    service_value or lifecycle,
+                    translate_value=True,
+                    field="overview.service",
+                ),
+                _item("Name", config.get("server_name", "unknown"), field="overview.name"),
+                _item("Mods", mods.get("count", 0), field="overview.mods"),
             ]
         )
     else:
-        items.extend([_item("Host CPU", host.get("cpu_text", "unknown"))])
+        items.extend(
+            [_item("Host CPU", host.get("cpu_text", "unknown"), field="overview.host_cpu")]
+        )
     return items
 
 
@@ -220,33 +243,44 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
                     else service.get("active_state")
                     or ("running" if lifecycle == "running" else "stopped"),
                     translate_value=True,
+                    field="service.state",
                 ),
                 _item(
                     "Operational state",
                     operational.get("message", "unavailable"),
                     translate_value=True,
+                    field="service.operational_state",
                 ),
-                _item("Operational age", operational.get("age_text", "unknown")),
+                _item(
+                    "Operational age",
+                    operational.get("age_text", "unknown"),
+                    field="service.operational_age",
+                ),
             ],
         },
         {
             "title": "Server config",
             "href": "/config",
             "items": [
-                _item("Name", config.get("server_name", "unknown")),
-                _item("Scenario", config.get("scenario_id", "unknown")),
-                _item("Max players", config.get("max_players", "unknown")),
+                _item("Name", config.get("server_name", "unknown"), field="config.name"),
+                _item("Scenario", config.get("scenario_id", "unknown"), field="config.scenario"),
+                _item(
+                    "Max players",
+                    config.get("max_players", "unknown"),
+                    field="config.max_players",
+                ),
             ],
         },
         {
             "title": "Active mods",
             "href": "/mods",
             "items": [
-                _item("Count", mods.get("count", 0)),
+                _item("Count", mods.get("count", 0), field="mods.count"),
                 _item(
                     "Preview",
                     ", ".join(mods.get("preview_labels") or []) or "none",
                     translate_value=not bool(mods.get("preview_labels")),
+                    field="mods.preview",
                 ),
             ],
         },
@@ -258,9 +292,17 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
             {
                 "title": "Live server",
                 "items": [
-                    _item("Players", players.get("count_text", "unavailable")),
-                    _item("Server FPS", fps.get("fps_text", "unavailable")),
-                    _item("Telemetry age", fps.get("age_text", "unknown")),
+                    _item(
+                        "Players",
+                        players.get("count_text", "unavailable"),
+                        field="live.players",
+                    ),
+                    _item("Server FPS", fps.get("fps_text", "unavailable"), field="live.fps"),
+                    _item(
+                        "Telemetry age",
+                        fps.get("age_text", "unknown"),
+                        field="live.telemetry_age",
+                    ),
                 ],
             },
         )
@@ -285,10 +327,10 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
 def _host_items(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
     host = _section(snapshot, "host_metrics")
     return [
-        _item("CPU", host.get("cpu_text", "unknown")),
-        _item("Memory", host.get("memory_text", "unknown")),
-        _item("Disk", host.get("disk_text", "unknown")),
-        _item("Uptime", host.get("uptime_text", "unknown")),
+        _item("CPU", host.get("cpu_text", "unknown"), field="host.cpu"),
+        _item("Memory", host.get("memory_text", "unknown"), field="host.memory"),
+        _item("Disk", host.get("disk_text", "unknown"), field="host.disk"),
+        _item("Uptime", host.get("uptime_text", "unknown"), field="host.uptime"),
     ]
 
 
@@ -377,4 +419,93 @@ def build_dashboard_view(
         "host_items": _host_items(snapshot),
         "diagnostics": _diagnostics(snapshot, lifecycle),
         "show_recent_jobs": can_view_jobs,
+    }
+
+
+
+def _display_value(item: Mapping[str, Any], translate: Any) -> str:
+    value = _text(item.get("value"))
+    if item.get("translate_value"):
+        return str(translate(value))
+    return value
+
+
+def _collect_display_fields(dashboard: Mapping[str, Any], translate: Any) -> dict[str, str]:
+    fields: dict[str, str] = {}
+
+    def collect(items: Any) -> None:
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if not isinstance(item, Mapping):
+                continue
+            field = str(item.get("field") or "").strip()
+            if field:
+                fields[field] = _display_value(item, translate)
+
+    collect(dashboard.get("overview_items"))
+    collect(dashboard.get("host_items"))
+    for card in dashboard.get("server_cards") or []:
+        if isinstance(card, Mapping):
+            collect(card.get("items"))
+    quick_action_note = _text(dashboard.get("quick_action_note"), "")
+    if quick_action_note:
+        fields["quick_actions.note"] = str(translate(quick_action_note))
+    return fields
+
+
+def build_dashboard_status_payload(
+    snapshot: Mapping[str, Any],
+    dashboard: Mapping[str, Any],
+    *,
+    translate: Any = lambda value: value,
+) -> dict[str, Any]:
+    """Return a small secret-free DTO for live dashboard polling."""
+    lifecycle = _text(dashboard.get("lifecycle") or snapshot.get("lifecycle"))
+    service = _section(snapshot, "service")
+    players = _section(snapshot, "players")
+    fps = _section(snapshot, "fps_metrics")
+    host = _section(snapshot, "host_metrics")
+    mods = _section(snapshot, "mods")
+    operational = _section(snapshot, "operational_status")
+    heading = _text(dashboard.get("heading"), "Dashboard")
+    if heading == "Dashboard":
+        heading = str(translate("Dashboard"))
+
+    fields = _collect_display_fields(dashboard, translate)
+    fields["heading"] = heading
+
+    return {
+        "ok": True,
+        "installed": bool(snapshot.get("installed")),
+        "running": bool(snapshot.get("running")),
+        "lifecycle": lifecycle,
+        "heading": heading,
+        "fields": fields,
+        "service": {
+            "state": _text(service.get("active_state")),
+            "substate": _text(service.get("sub_state")),
+        },
+        "players": {"text": _text(players.get("count_text"), "unavailable")},
+        "fps": {"text": _text(fps.get("fps_text"), "unavailable")},
+        "telemetry": {
+            "age": _text(fps.get("age_text"), "unknown"),
+            "state": _text(operational.get("message"), "unavailable"),
+        },
+        "host": {
+            "cpu": _text(host.get("cpu_text"), "unknown"),
+            "memory": _text(host.get("memory_text"), "unknown"),
+            "disk": _text(host.get("disk_text"), "unknown"),
+            "uptime": _text(host.get("uptime_text"), "unknown"),
+        },
+        "mods": {"count": mods.get("count", 0)},
+        "actions": [
+            {
+                "name": str(action.get("name", "")),
+                "label": str(translate(str(action.get("label", "")))),
+            }
+            for action in dashboard.get("actions") or []
+            if isinstance(action, Mapping)
+        ],
+        "quick_action_note": str(translate(_text(dashboard.get("quick_action_note"), ""))),
     }

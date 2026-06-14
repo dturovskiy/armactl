@@ -820,6 +820,99 @@ def test_session_cookie_authenticates_dashboard(tmp_path: Path, monkeypatch):
     assert calls == ["default"]
 
 
+
+def test_authenticated_owner_can_fetch_dashboard_status_json(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    calls = _stub_dashboard(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard/status.json", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["lifecycle"] == "running"
+    assert payload["installed"] is True
+    assert payload["running"] is True
+    assert payload["fields"]["heading"] == "Mock Server"
+    assert payload["fields"]["overview.players"] == "3 / 64"
+    assert payload["fields"]["live.fps"] == "59.8"
+    assert payload["host"]["cpu"] == "12.0%"
+    assert payload["mods"]["count"] == 2
+    assert [action["name"] for action in payload["actions"]] == ["stop", "restart"]
+    assert calls == ["default"]
+
+
+def test_unauthenticated_dashboard_status_json_redirects_to_login(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.get("/dashboard/status.json", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_dashboard_status_json_permission_denied_returns_controlled_403(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.routes import dashboard
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    calls = _stub_dashboard(monkeypatch)
+    monkeypatch.setattr(dashboard, "require_permission", lambda current, permission: False)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard/status.json", follow_redirects=False)
+
+    assert response.status_code == 403
+    assert response.text == "Permission denied."
+    assert calls == []
+
+
+def test_dashboard_status_json_does_not_include_secrets_or_paths(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner status secret password"
+    setup_owner_user(tmp_path, "owner", password)
+    user = get_user_by_username(tmp_path / "web" / "web.db", "owner")
+    assert user is not None
+    _stub_dashboard(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    login_response = _login(client, "owner", password)
+    session_token = login_response.cookies.get(SESSION_COOKIE_NAME)
+
+    response = client.get("/dashboard/status.json", follow_redirects=False)
+
+    assert response.status_code == 200
+    body = response.text
+    assert password not in body
+    assert user.password_hash not in body
+    assert session_token
+    assert session_token not in body
+    assert "csrf_token" not in body
+    assert "session" not in body.lower()
+    assert "config_path" not in body
+    assert "/srv/armactl-data" not in body
+    assert "ARMACTL_WEB_SESSION_SECRET" not in body
+
+
 def test_dashboard_permission_denied_returns_controlled_403(
     tmp_path: Path,
     monkeypatch,
@@ -1011,6 +1104,10 @@ def test_password_hash_and_session_token_do_not_appear_in_dashboard_html(
     assert session_token not in response.text
     assert "/static/js/preferences.js" in response.text
     assert "ARMACTL_WEB_SESSION_SECRET" not in response.text
+    assert "/static/js/dashboard.js" in response.text
+    assert "data-dashboard-root" in response.text
+    assert 'data-dashboard-field="overview.players"' in response.text
+    assert "data-dashboard-live-status" in response.text
 
 
 def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
@@ -1052,8 +1149,24 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert 'href="/files"' in root_response.text
     assert 'href="/logs"' in root_response.text
     assert "Recent Jobs" in root_response.text
+    assert "/static/js/dashboard.js" in root_response.text
+    assert 'data-dashboard-endpoint="/dashboard/status.json"' in root_response.text
+    assert 'data-dashboard-field="host.cpu"' in root_response.text
     assert calls == ["default", "default"]
 
+
+
+
+def test_dashboard_js_static_asset_is_served(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.get("/static/js/dashboard.js", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "dashboard/status.json" in response.text
+    assert "data-dashboard-root" in response.text
 
 
 def test_dashboard_stopped_server_shows_start_only(tmp_path: Path, monkeypatch):
