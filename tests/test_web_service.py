@@ -155,7 +155,7 @@ def test_web_service_runtime_check_verifies_armactl_import(
 
     assert result.success is True
     assert commands == [
-        [str(python_bin), "-c", "import armactl, fastapi, uvicorn, argon2"]
+        [str(python_bin), "-c", "import armactl, fastapi, uvicorn, argon2, multipart"]
     ]
 
 

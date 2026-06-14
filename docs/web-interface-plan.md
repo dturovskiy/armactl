@@ -546,8 +546,10 @@ Rules:
 
 The current web slices implement the safe browser foundation: fixed root
 selection, relative-path directory listing, metadata, bounded redacted text
-preview, and single-file attachment download. They do not implement upload,
-overwrite, delete, rename, remote mount support, or archive extraction.
+preview, single-file attachment download, and single-file upload for new
+targets under the `server` root without overwrite. Other roots remain
+browse/download only for now. They do not implement overwrite, delete, rename,
+remote mount support, or archive extraction.
 
 This is not SFTP in the MVP. Because the web panel runs inside the same VM as
 the game server, file operations should be implemented as safe local filesystem
@@ -623,7 +625,7 @@ Internal API readiness:
 | Config/mods/admins/bot settings | Medium-high | Read-only detail pages are implemented; wrap future mutations with form validation, CSRF, and redacted error rendering |
 | Logs/report | Medium-high | Bounded read-only audit, fixed journal, and redacted report preview views are implemented; add streaming/download later without `os.execvp` |
 | Install/repair/update | Medium | Run via background jobs; never block a request thread |
-| File manager | Medium | Safe adapter, browser foundation, and single-file download are implemented; upload/delete/rename and remote mount support remain future work |
+| File manager | Medium | Safe adapter, browser foundation, single-file download, and server-root upload-new-file are implemented; overwrite/delete/rename and remote mount support remain future work |
 | Web users/roles/entitlements | Low | Implement new `web.db` models; do not reuse game admins as web users |
 
 ## Existing feature inventory
@@ -643,7 +645,7 @@ logic from TUI screens.
 | Backups/cleanup | Partially implemented | `config_manager` backups, `cleaner`, `CleanupScreen` | Config backups exist; full server backup/restore is future work |
 | Schedule | Implemented for restart timer | `service_manager`, `ScheduleScreen`, CLI `schedule` | Web can show/set/enable/disable restart schedule; task chains are future |
 | Telegram bot | Implemented | `bot_config`, `bot_manager`, `telegram_bot`, `BotConfigScreen` | Read-only bot status page exists; future config/service flows can reuse the same `.env` and service-manager path |
-| File manager | Read-only browsing and single-file download implemented | `paths`, new web filesystem adapter | Browser lists fixed local roots, bounded redacted text previews, and validated single-file downloads; upload/delete/rename remain future work |
+| File manager | Browsing, single-file download, and server-root upload-new-file implemented | `paths`, new web filesystem adapter | Browser lists fixed local roots, bounded redacted text previews, validated single-file downloads, and no-overwrite uploads to the `server` root; overwrite/delete/rename remain future work |
 | Web users/roles | Partially implemented | `web.db` owner user, password hashes, sessions, CSRF primitives, login/logout cookie wiring, and code-level permission categories exist | Add editable roles/permissions only when more roles are introduced |
 | Paid features | Not implemented | none | Add explicit entitlement model only if productized |
 
@@ -910,10 +912,10 @@ not the foreground debug runner.
 
 ### Phase 5 - Filesystem manager
 
-- Safe allowed-root browser foundation is implemented as read-only.
+- Safe allowed-root browser foundation is implemented.
 - Download single file is implemented through the same safe relative-path adapter.
-- Upload file to selected directory.
-- Atomic overwrite with explicit confirmation.
+- Upload one new file to a selected safe directory under the `server` root is implemented without overwrite.
+- Atomic overwrite with explicit confirmation remains future work.
 - Tests for path traversal, symlinks, overwrite, and size limits.
 
 ### Phase 6 - External deployment docs

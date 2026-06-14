@@ -58,6 +58,12 @@ def _server_root(data_root: Path) -> Path:
     return path
 
 
+def _config_root(data_root: Path) -> Path:
+    path = data_root / "default" / "config"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def _login_owner(data_root: Path):
     from armactl.web.app import create_app
 
@@ -66,6 +72,12 @@ def _login_owner(data_root: Path):
     client = _client(create_app(data_root=data_root))
     _login(client, "owner", password)
     return client
+
+
+def _files_csrf_token(client, url: str = "/files/server") -> str:
+    response = client.get(url, follow_redirects=False)
+    assert response.status_code == 200
+    return _form_token(response.text)
 
 
 def test_file_adapter_import_does_not_import_tui_textual(monkeypatch):
@@ -154,7 +166,7 @@ def test_authenticated_owner_can_open_files_page(tmp_path: Path):
 
     assert response.status_code == 200
     assert "File Browser" in response.text
-    assert "Read-only file browser" in response.text
+    assert "File browser" in response.text
     assert SESSION_COOKIE_NAME not in response.text
     assert CSRF_COOKIE_NAME not in response.text
 
@@ -469,3 +481,295 @@ def test_download_content_disposition_uses_safe_basename(tmp_path: Path):
     assert "report.txt" in disposition
     assert "nested" not in disposition
     assert ".." not in disposition
+
+
+def test_authenticated_owner_can_upload_new_file(tmp_path: Path):
+    server = _server_root(tmp_path)
+    client = _login_owner(tmp_path)
+    token = _files_csrf_token(client)
+
+    response = client.post(
+        "/files/server/upload",
+        data={"path": "", "csrf_token": token},
+        files={"upload": ("new.txt", b"uploaded content", "text/plain")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/files/server"
+    assert (server / "new.txt").read_bytes() == b"uploaded content"
+
+
+def test_upload_form_visible_for_owner(tmp_path: Path):
+    _server_root(tmp_path)
+    client = _login_owner(tmp_path)
+
+    response = client.get("/files/server", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert 'action="/files/server/upload"' in response.text
+    assert 'enctype="multipart/form-data"' in response.text
+    assert 'name="upload"' in response.text
+
+
+def test_upload_form_hidden_for_read_only_roots(tmp_path: Path):
+    _config_root(tmp_path)
+    client = _login_owner(tmp_path)
+
+    response = client.get("/files/config", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert 'action="/files/config/upload"' not in response.text
+    assert 'name="upload"' not in response.text
+
+
+def test_unauthenticated_upload_redirects_to_login(tmp_path: Path):
+    _server_root(tmp_path)
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.post(
+        "/files/server/upload",
+        data={"path": "", "csrf_token": "missing"},
+        files={"upload": ("new.txt", b"content", "text/plain")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_upload_permission_denied_without_files_write(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.auth.permissions import FILES_READ
+
+    _server_root(tmp_path)
+    password = "owner files password"
+    setup_owner_user(tmp_path, "owner", password)
+    app = create_app(data_root=tmp_path)
+    for route in app.routes:
+        if getattr(route, "path", "") == "/files/{root_id}/upload":
+            monkeypatch.setitem(
+                route.endpoint.__globals__,
+                "require_permission",
+                lambda current, permission: permission == FILES_READ,
+            )
+            break
+    client = _client(app)
+    _login(client, "owner", password)
+    token = _files_csrf_token(client)
+
+    response = client.post(
+        "/files/server/upload",
+        data={"path": "", "csrf_token": token},
+        files={"upload": ("new.txt", b"content", "text/plain")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Permission denied."
+    assert "Traceback" not in response.text
+
+
+def test_upload_to_read_only_root_is_rejected(tmp_path: Path):
+    config = _config_root(tmp_path)
+    client = _login_owner(tmp_path)
+    token = _files_csrf_token(client, "/files/config")
+
+    response = client.post(
+        "/files/config/upload",
+        data={"path": "", "csrf_token": token},
+        files={"upload": ("config.json", b"raw config", "application/json")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert response.text == "Upload unavailable."
+    assert not (config / "config.json").exists()
+
+
+def test_upload_requires_csrf(tmp_path: Path):
+    server = _server_root(tmp_path)
+    client = _login_owner(tmp_path)
+
+    response = client.post(
+        "/files/server/upload",
+        data={"path": "", "csrf_token": "bad-token"},
+        files={"upload": ("new.txt", b"content", "text/plain")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Invalid CSRF token."
+    assert not (server / "new.txt").exists()
+
+
+def test_upload_traversal_destination_is_rejected(tmp_path: Path):
+    server = _server_root(tmp_path)
+    client = _login_owner(tmp_path)
+    token = _files_csrf_token(client)
+
+    response = client.post(
+        "/files/server/upload",
+        data={"path": "../config", "csrf_token": token},
+        files={"upload": ("evil.txt", b"evil", "text/plain")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert response.text == "Unsafe file path."
+    assert not (server / "evil.txt").exists()
+
+
+def test_upload_symlink_destination_escape_is_rejected(tmp_path: Path):
+    server = _server_root(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    try:
+        (server / "escape").symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+    client = _login_owner(tmp_path)
+    token = _files_csrf_token(client)
+
+    response = client.post(
+        "/files/server/upload",
+        data={"path": "escape", "csrf_token": token},
+        files={"upload": ("evil.txt", b"evil", "text/plain")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert response.text == "Unsafe file path."
+    assert not (outside / "evil.txt").exists()
+
+
+def test_upload_invalid_filename_is_rejected(tmp_path: Path):
+    from io import BytesIO
+
+    server = _server_root(tmp_path)
+    from armactl.web.services import filesystem
+
+    with pytest.raises(filesystem.InvalidUploadFilenameError):
+        filesystem.upload_file(tmp_path, "server", "", "bad/name.txt", BytesIO(b"bad"))
+
+    assert not (server / "name.txt").exists()
+
+
+def test_upload_existing_target_is_rejected_without_overwrite(tmp_path: Path):
+    server = _server_root(tmp_path)
+    target = server / "new.txt"
+    target.write_text("original", encoding="utf-8")
+    client = _login_owner(tmp_path)
+    token = _files_csrf_token(client)
+
+    response = client.post(
+        "/files/server/upload",
+        data={"path": "", "csrf_token": token},
+        files={"upload": ("new.txt", b"replacement", "text/plain")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 409
+    assert response.text == "File already exists."
+    assert target.read_text(encoding="utf-8") == "original"
+
+
+def test_upload_too_large_is_rejected_without_partial_file(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+
+    server = _server_root(tmp_path)
+    password = "owner files password"
+    setup_owner_user(tmp_path, "owner", password)
+    app = create_app(data_root=tmp_path)
+    for route in app.routes:
+        if getattr(route, "path", "") == "/files/{root_id}/upload":
+            monkeypatch.setattr(route.endpoint.__globals__["filesystem"], "MAX_UPLOAD_BYTES", 4)
+            break
+    client = _client(app)
+    _login(client, "owner", password)
+    token = _files_csrf_token(client)
+
+    response = client.post(
+        "/files/server/upload",
+        data={"path": "", "csrf_token": token},
+        files={"upload": ("large.bin", b"too-large", "application/octet-stream")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 413
+    assert response.text == "Upload too large."
+    assert not (server / "large.bin").exists()
+    assert not any(path.name.startswith(".armactl-upload-") for path in server.iterdir())
+
+
+def test_upload_into_file_path_is_rejected(tmp_path: Path):
+    server = _server_root(tmp_path)
+    (server / "not-dir.txt").write_text("not a directory", encoding="utf-8")
+    client = _login_owner(tmp_path)
+    token = _files_csrf_token(client)
+
+    response = client.post(
+        "/files/server/upload",
+        data={"path": "not-dir.txt", "csrf_token": token},
+        files={"upload": ("new.txt", b"content", "text/plain")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert response.text == "Upload unavailable."
+    assert not (server / "not-dir.txt" / "new.txt").exists()
+
+
+def test_upload_git_and_venv_destination_or_filename_rejected(tmp_path: Path):
+    server = _server_root(tmp_path)
+    (server / ".venv").mkdir()
+    client = _login_owner(tmp_path)
+    token = _files_csrf_token(client)
+
+    dest_response = client.post(
+        "/files/server/upload",
+        data={"path": ".venv", "csrf_token": token},
+        files={"upload": ("safe.txt", b"safe", "text/plain")},
+        follow_redirects=False,
+    )
+    filename_response = client.post(
+        "/files/server/upload",
+        data={"path": "", "csrf_token": token},
+        files={"upload": (".git", b"bad", "text/plain")},
+        follow_redirects=False,
+    )
+
+    assert dest_response.status_code == 400
+    assert dest_response.text == "Unsafe file path."
+    assert not (server / ".venv" / "safe.txt").exists()
+    assert filename_response.status_code == 400
+    assert filename_response.text == "Invalid filename."
+    assert not (server / ".git").is_file()
+
+
+def test_upload_form_hidden_without_files_write(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.auth.permissions import FILES_READ
+
+    _server_root(tmp_path)
+    password = "owner files password"
+    setup_owner_user(tmp_path, "owner", password)
+    app = create_app(data_root=tmp_path)
+    for route in app.routes:
+        if getattr(route, "path", "") == "/files/{root_id}":
+            monkeypatch.setitem(
+                route.endpoint.__globals__,
+                "require_permission",
+                lambda current, permission: permission == FILES_READ,
+            )
+            break
+    client = _client(app)
+    _login(client, "owner", password)
+
+    response = client.get("/files/server", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert 'action="/files/server/upload"' not in response.text
+    assert 'name="upload"' not in response.text

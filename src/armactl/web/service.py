@@ -92,7 +92,7 @@ def check_web_service_runtime(project_root: Path | None = None) -> ServiceResult
 
     try:
         result = subprocess.run(
-            [str(python_bin), "-c", "import armactl, fastapi, uvicorn, argon2"],
+            [str(python_bin), "-c", "import armactl, fastapi, uvicorn, argon2, multipart"],
             capture_output=True,
             text=True,
             timeout=20,

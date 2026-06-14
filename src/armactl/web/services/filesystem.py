@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+from typing import BinaryIO
 from urllib.parse import quote
 
 from armactl import paths
 from armactl.redaction import redact_sensitive_text
 
 MAX_PREVIEW_BYTES = 64 * 1024
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
 FORBIDDEN_PATH_NAMES = frozenset({".git", ".venv"})
+UPLOAD_ROOT_IDS = frozenset({"server"})
 SYSTEM_PREFIXES = (
     Path("/etc"),
     Path("/root"),
@@ -69,6 +75,34 @@ class DownloadUnavailableError(FileBrowserError):
 
     public_message = "Download unavailable."
     status_code = 400
+
+
+class UploadUnavailableError(FileBrowserError):
+    """Raised when an upload cannot be accepted for a safe location."""
+
+    public_message = "Upload unavailable."
+    status_code = 400
+
+
+class UploadTooLargeError(FileBrowserError):
+    """Raised when an upload exceeds the configured streaming limit."""
+
+    public_message = "Upload too large."
+    status_code = 413
+
+
+class InvalidUploadFilenameError(FileBrowserError):
+    """Raised when an upload filename is empty or unsafe."""
+
+    public_message = "Invalid filename."
+    status_code = 400
+
+
+class UploadTargetExistsError(FileBrowserError):
+    """Raised when an upload would overwrite an existing file."""
+
+    public_message = "File already exists."
+    status_code = 409
 
 
 @dataclass(frozen=True)
@@ -141,6 +175,19 @@ class DownloadFile:
     metadata: FileMetadata
     path: Path
     filename: str
+
+
+@dataclass(frozen=True)
+class UploadedFile:
+    """Metadata for one safely uploaded file."""
+
+    root: FileRoot
+    filename: str
+    path: Path
+    relative_path: str
+    directory_relative_path: str
+    directory_href: str
+    size: int
 
 
 @dataclass(frozen=True)
@@ -248,6 +295,12 @@ def get_file_root(
         if root.root_id == normalized:
             return root
     raise UnknownFileRootError(UnknownFileRootError.public_message)
+
+
+def root_allows_upload(root: FileRoot | str) -> bool:
+    """Return whether a fixed root currently accepts new file uploads."""
+    root_id = root.root_id if isinstance(root, FileRoot) else str(root or "")
+    return root_id.strip().lower() in UPLOAD_ROOT_IDS
 
 
 def _normalize_relative_parts(relative_path: object | None) -> tuple[str, ...]:
@@ -469,6 +522,129 @@ def _safe_download_filename(name: str) -> str:
         else:
             safe_chars.append(char)
     return "".join(safe_chars).strip(" .") or "download"
+
+
+def _safe_upload_filename(filename: object | None) -> str:
+    """Return a safe basename for a new uploaded file or raise a controlled error."""
+    if not isinstance(filename, str):
+        raise InvalidUploadFilenameError(InvalidUploadFilenameError.public_message)
+    raw = filename.strip()
+    if not raw or raw in {".", ".."}:
+        raise InvalidUploadFilenameError(InvalidUploadFilenameError.public_message)
+    if "\x00" in raw or "/" in raw or "\\" in raw:
+        raise InvalidUploadFilenameError(InvalidUploadFilenameError.public_message)
+    if any(ord(char) < 32 or char == "\x7f" for char in raw):
+        raise InvalidUploadFilenameError(InvalidUploadFilenameError.public_message)
+
+    basename = Path(raw).name
+    if basename != raw or basename in FORBIDDEN_PATH_NAMES:
+        raise InvalidUploadFilenameError(InvalidUploadFilenameError.public_message)
+    return basename
+
+
+def _child_relative_path(parent_relative_path: str, filename: str) -> str:
+    if not parent_relative_path:
+        return filename
+    return f"{parent_relative_path}/{filename}"
+
+
+def _fsync_directory(directory: Path) -> None:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    try:
+        fd = os.open(directory, flags)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        return
+    finally:
+        os.close(fd)
+
+
+def upload_file(
+    data_root: Path | None,
+    root_id: str,
+    directory_path: object | None,
+    filename: object | None,
+    source: BinaryIO,
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    max_bytes: int | None = None,
+) -> UploadedFile:
+    """Upload one new file into a safe directory without overwriting."""
+    safe_filename = _safe_upload_filename(filename)
+    limit = MAX_UPLOAD_BYTES if max_bytes is None else max_bytes
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+        raise UploadUnavailableError(UploadUnavailableError.public_message)
+
+    directory = resolve_browser_path(data_root, root_id, directory_path, instance=instance)
+    if not root_allows_upload(directory.root):
+        raise UploadUnavailableError(UploadUnavailableError.public_message)
+    if not directory.resolved_path.exists() or not directory.resolved_path.is_dir():
+        raise UploadUnavailableError(UploadUnavailableError.public_message)
+
+    target_relative_path = _child_relative_path(directory.relative_path, safe_filename)
+    target = resolve_browser_path(data_root, root_id, target_relative_path, instance=instance)
+    if target.requested_path.exists() or target.requested_path.is_symlink():
+        raise UploadTargetExistsError(UploadTargetExistsError.public_message)
+    if target.resolved_path.exists():
+        raise UploadTargetExistsError(UploadTargetExistsError.public_message)
+
+    temp_path: Path | None = None
+    total = 0
+    published = False
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=directory.resolved_path,
+            prefix=".armactl-upload-",
+            delete=False,
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+            while True:
+                chunk = source.read(_UPLOAD_CHUNK_BYTES)
+                if chunk in (b"", ""):
+                    break
+                if isinstance(chunk, str):
+                    chunk = chunk.encode("utf-8")
+                total += len(chunk)
+                if total > limit:
+                    raise UploadTooLargeError(UploadTooLargeError.public_message)
+                temp_file.write(chunk)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+
+        try:
+            os.link(temp_path, target.requested_path)
+        except FileExistsError as exc:
+            raise UploadTargetExistsError(UploadTargetExistsError.public_message) from exc
+        published = True
+        _fsync_directory(directory.resolved_path)
+    except FileBrowserError:
+        raise
+    except OSError as exc:
+        raise UploadUnavailableError(UploadUnavailableError.public_message) from exc
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    if not published:
+        raise UploadUnavailableError(UploadUnavailableError.public_message)
+
+    return UploadedFile(
+        root=directory.root,
+        filename=safe_filename,
+        path=target.requested_path,
+        relative_path=target_relative_path,
+        directory_relative_path=directory.relative_path,
+        directory_href=_files_href(directory.root.root_id, directory.relative_path),
+        size=total,
+    )
 
 
 def resolve_download_file(

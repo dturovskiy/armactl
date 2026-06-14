@@ -166,7 +166,7 @@ def _management_links(
             {
                 "href": "/files",
                 "label": "Files",
-                "description": "Read-only file browser",
+                "description": "File browser",
             }
         )
     if can_view_logs:

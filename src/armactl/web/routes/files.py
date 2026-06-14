@@ -1,8 +1,8 @@
-"""Read-only file browser routes for armactl web."""
+"""File browser routes for armactl web."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query, Request, status
+from fastapi import APIRouter, File, Form, Query, Request, UploadFile, status
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
@@ -12,6 +12,7 @@ from fastapi.responses import (
 )
 
 from armactl.web.auth.cookies import clear_csrf_cookie, clear_session_cookie, set_csrf_cookie
+from armactl.web.auth.csrf import validate_csrf_token
 from armactl.web.auth.dependencies import (
     CurrentSession,
     get_current_session,
@@ -20,7 +21,7 @@ from armactl.web.auth.dependencies import (
     permission_denied_response,
     require_permission,
 )
-from armactl.web.auth.permissions import FILES_READ
+from armactl.web.auth.permissions import FILES_READ, FILES_WRITE
 from armactl.web.services import filesystem
 
 router = APIRouter()
@@ -49,6 +50,7 @@ def _render_files(
     preview = None
     error = ""
     status_code = status.HTTP_200_OK
+    can_write_files = require_permission(current, FILES_WRITE)
 
     if root_id is not None:
         try:
@@ -90,6 +92,11 @@ def _render_files(
             "directory": directory,
             "preview": preview,
             "error": error,
+            "can_upload": (
+                directory is not None
+                and can_write_files
+                and filesystem.root_allows_upload(directory.root)
+            ),
         },
         status_code=status_code,
     )
@@ -147,6 +154,44 @@ def files_preview(
 ) -> Response:
     """Render a bounded text preview for one safe file."""
     return _authenticated_files(request, root_id=root_id, preview_path=path)
+
+
+@router.post("/files/{root_id}/upload", response_class=HTMLResponse)
+def files_upload(
+    request: Request,
+    root_id: str,
+    path: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+    upload: UploadFile | None = File(default=None),
+) -> Response:
+    """Upload one new file into a safe directory under a fixed root."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, FILES_WRITE):
+        return permission_denied_response()
+    if not validate_csrf_token(current.config.db_path, current.session.id, csrf_token):
+        return PlainTextResponse(
+            "Invalid CSRF token.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+    if upload is None:
+        return PlainTextResponse(
+            filesystem.UploadUnavailableError.public_message,
+            status_code=filesystem.UploadUnavailableError.status_code,
+        )
+
+    try:
+        uploaded = filesystem.upload_file(
+            current.config.data_root,
+            root_id,
+            path,
+            upload.filename,
+            upload.file,
+        )
+    except filesystem.FileBrowserError as exc:
+        return _controlled_file_error(exc)
+    return RedirectResponse(uploaded.directory_href, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/files/{root_id}/download")

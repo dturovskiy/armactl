@@ -13,8 +13,8 @@
 <section class="panel full-width files-panel">
   <div class="section-heading-row">
     <div>
-      <h2>{{ t("Read-only file browser") }}</h2>
-      <p class="muted">{{ t("Single-file download is available; upload/delete/rename actions are not available yet.") }}</p>
+      <h2>{{ t("File browser") }}</h2>
+      <p class="muted">{{ t("Single-file download is available; upload is limited to server files. Overwrite/delete/rename actions are not available yet.") }}</p>
     </div>
   </div>
 
@@ -54,6 +54,18 @@
         <a class="text-link" href="{{ directory.parent_href }}">{{ t("Parent directory") }}</a>
       {% endif %}
     </div>
+
+    {% if can_upload %}
+      <form method="post" action="/files/{{ directory.root.root_id }}/upload" enctype="multipart/form-data" class="inline-form upload-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="path" value="{{ directory.relative_path }}">
+        <label>
+          <span>{{ t("Choose file") }}</span>
+          <input type="file" name="upload" required>
+        </label>
+        <button type="submit">{{ t("Upload file") }}</button>
+      </form>
+    {% endif %}
 
     {% if directory.entries %}
       <table>

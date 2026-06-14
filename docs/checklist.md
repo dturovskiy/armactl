@@ -283,7 +283,8 @@
 - [ ] Додати edit/save/delete flows для config/mods/admins/bot через backend modules
 - [x] Додати safe read-only filesystem browser foundation
 - [x] Додати download single file для web file browser
-- [ ] Додати upload/atomic overwrite для web file browser
+- [x] Додати upload одного нового файла в server root для web file browser без overwrite
+- [ ] Додати atomic overwrite для web file browser
 - [ ] Додати delete/rename для web file browser
 - [ ] Додати archive extraction flow після окремого threat model
 - [ ] Додати optional entitlement/feature-flag model, якщо продукт матиме платні tiers
