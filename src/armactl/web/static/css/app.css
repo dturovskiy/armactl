@@ -167,10 +167,34 @@ h2 {
   margin-bottom: 10px;
 }
 
-.card-grid {
+.card-grid,
+.server-snapshot-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 14px;
+}
+
+.card-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.server-snapshot-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.server-snapshot-grid .summary-card-compact {
+  grid-column: span 2;
+}
+
+.server-snapshot-grid .summary-card-wide {
+  grid-column: 1 / -1;
+}
+
+.summary-card-wide dl {
+  grid-template-columns: minmax(120px, 0.25fr) minmax(0, 1fr);
+}
+
+.summary-card-wide dd {
+  overflow-wrap: anywhere;
 }
 
 .summary-card h3,
@@ -590,8 +614,14 @@ th {
   .summary-band,
   .grid,
   .job-output-grid,
+  .server-snapshot-grid,
   dl {
     grid-template-columns: 1fr;
+  }
+
+  .server-snapshot-grid .summary-card-compact,
+  .server-snapshot-grid .summary-card-wide {
+    grid-column: 1;
   }
 
   .topbar > div,

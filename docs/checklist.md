@@ -268,6 +268,8 @@
 - [x] Додати web permission categories foundation для dashboard/actions/files/backups/users
 - [x] Додати dashboard read-only parity з TUI
 - [x] Додати lightweight dashboard live refresh через JSON endpoint і JS polling без WebSocket
+- [x] Поліпшити dashboard snapshot layout: широкий config-блок і компактні нижні плитки
+- [ ] Додати компактні dashboard-графіки для FPS/CPU/RAM/Disk поверх live-refresh даних
 - [x] Додати controlled start/stop/restart actions
 - [x] Додати web i18n adapter і theme preferences поверх існуючих `src/armactl/locales/*.json`
 - [x] Додати fast preferences UX: миттєве перемикання теми і lightweight language switch без зайвого важкого dashboard reload

@@ -1137,7 +1137,9 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert "Server snapshot" in root_response.text
     assert "Host" in root_response.text
     assert "Web Runtime" not in root_response.text
-    assert "ServerAdminTools" in root_response.text
+    assert "ServerAdminTools" not in root_response.text
+    assert 'server-snapshot-grid' in root_response.text
+    assert 'summary-card-wide' in root_response.text
     assert 'action="/service/start"' not in root_response.text
     assert 'action="/service/stop"' in root_response.text
     assert 'action="/service/restart"' in root_response.text

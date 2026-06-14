@@ -753,3 +753,30 @@ def test_dashboard_view_model_actions_follow_lifecycle():
     assert all(card["title"] != "Live server" for card in starting["server_cards"])
     assert [action["name"] for action in running["actions"]] == ["stop", "restart"]
     assert running["heading"] == "Lifecycle Test Server"
+    assert running["server_cards"][0]["title"] == "Server config"
+    assert running["server_cards"][0]["layout"] == "wide"
+    assert any(card["layout"] == "wide" for card in running["server_cards"])
+    assert all(card["title"] != "Diagnostics summary" for card in running["server_cards"])
+
+
+def test_dashboard_view_model_moves_sat_unavailable_to_diagnostics():
+    from armactl.web.views.dashboard import build_dashboard_view
+
+    snapshot = _view_snapshot("running")
+    snapshot["sat"] = {"available": False, "warning": ""}
+    dashboard = build_dashboard_view(
+        snapshot,
+        can_run_actions=True,
+        can_view_config=True,
+        can_view_mods=True,
+        can_view_admins=True,
+        can_view_bot=True,
+        can_view_jobs=True,
+        can_view_files=True,
+        can_view_logs=True,
+    )
+
+    assert all(card["title"] != "Diagnostics summary" for card in dashboard["server_cards"])
+    assert dashboard["diagnostics"][-1]["title"] == "ServerAdminTools"
+    assert dashboard["diagnostics"][-1]["severity"] == "notice"
+    assert dashboard["diagnostics"][-1]["message"] == "ServerAdminTools config is not present."

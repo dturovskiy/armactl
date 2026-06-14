@@ -230,11 +230,25 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
     fps = _section(snapshot, "fps_metrics")
     config = _section(snapshot, "config")
     mods = _section(snapshot, "mods")
-    sat = _section(snapshot, "sat")
 
     cards = [
         {
+            "title": "Server config",
+            "layout": "wide",
+            "href": "/config",
+            "items": [
+                _item("Name", config.get("server_name", "unknown"), field="config.name"),
+                _item("Scenario", config.get("scenario_id", "unknown"), field="config.scenario"),
+                _item(
+                    "Max players",
+                    config.get("max_players", "unknown"),
+                    field="config.max_players",
+                ),
+            ],
+        },
+        {
             "title": "Service health",
+            "layout": "compact",
             "items": [
                 _item(
                     "State",
@@ -259,20 +273,8 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
             ],
         },
         {
-            "title": "Server config",
-            "href": "/config",
-            "items": [
-                _item("Name", config.get("server_name", "unknown"), field="config.name"),
-                _item("Scenario", config.get("scenario_id", "unknown"), field="config.scenario"),
-                _item(
-                    "Max players",
-                    config.get("max_players", "unknown"),
-                    field="config.max_players",
-                ),
-            ],
-        },
-        {
             "title": "Active mods",
+            "layout": "compact",
             "href": "/mods",
             "items": [
                 _item("Count", mods.get("count", 0), field="mods.count"),
@@ -288,9 +290,10 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
 
     if lifecycle == "running":
         cards.insert(
-            1,
+            2,
             {
                 "title": "Live server",
+                "layout": "compact",
                 "items": [
                     _item(
                         "Players",
@@ -307,20 +310,6 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
             },
         )
 
-    sat_warning = sat.get("warning") or "none"
-    cards.append(
-        {
-            "title": "Diagnostics summary",
-            "items": [
-                _item(
-                    "ServerAdminTools",
-                    "available" if sat.get("available") else "unavailable",
-                    translate_value=True,
-                ),
-                _item("Warning", sat_warning, translate_value=sat_warning == "none"),
-            ],
-        }
-    )
     return cards
 
 
@@ -362,6 +351,32 @@ def _diagnostics(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str, 
                 ],
             }
         )
+
+    sat = _section(snapshot, "sat")
+    if lifecycle in ACTIVE_LIFECYCLES:
+        sat_warning = _text(sat.get("warning"), "")
+        if sat_warning:
+            diagnostics.append(
+                {
+                    "severity": "warning",
+                    "title": "ServerAdminTools",
+                    "message": sat_warning,
+                    "items": [
+                        _item("Status", "available", translate_value=True),
+                    ],
+                }
+            )
+        elif sat and not sat.get("available"):
+            diagnostics.append(
+                {
+                    "severity": "notice",
+                    "title": "ServerAdminTools",
+                    "message": "ServerAdminTools config is not present.",
+                    "items": [
+                        _item("Status", "unavailable", translate_value=True),
+                    ],
+                }
+            )
 
     errors = snapshot.get("errors") or []
     if errors:

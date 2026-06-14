@@ -167,18 +167,26 @@ Completed foundation:
     facade/view-model, while package-local `dashboard.js` polls every 7
     seconds and updates marked DOM fields without replacing the no-JS
     server-rendered dashboard fallback. WebSocket remains out of scope.
+27. Dashboard snapshot layout polish: the main config card spans the full
+    dashboard width, service/live/mod cards sit below as compact tiles, and
+    ServerAdminTools unavailable state moved into diagnostics instead of
+    appearing as unavailable plus Warning: none.
 
 Next recommended implementation order:
 
-1. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
+1. Add compact dashboard charts/meters for FPS, CPU, RAM, and disk usage on top
+   of the live-refresh data. Keep them lightweight and package-local; avoid a
+   frontend framework unless the charting requirements grow beyond simple
+   operator sparklines/meters.
+2. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
    environment-specific outcome.
-2. Add optional IP allowlist / trusted proxy handling if operators need direct
+3. Add optional IP allowlist / trusted proxy handling if operators need direct
    external bind deployments; this is not implemented yet.
-3. Add update flow to explicit background job handlers if a safe backend API is
+4. Add update flow to explicit background job handlers if a safe backend API is
    introduced.
-4. Add edit/save/delete flows for mods, admins, bot settings, and extended
+5. Add edit/save/delete flows for mods, admins, bot settings, and extended
    config fields through existing backend modules.
-5. Add atomic overwrite/delete/rename flows on top of the safe filesystem
+6. Add atomic overwrite/delete/rename flows on top of the safe filesystem
    adapter after single-file upload has been reviewed.
 
 ## Implementation prompt template

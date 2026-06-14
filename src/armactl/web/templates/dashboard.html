@@ -103,9 +103,9 @@
 {% if dashboard.server_cards %}
 <section class="dashboard-section">
   <h2>{{ t("Server snapshot") }}</h2>
-  <div class="card-grid">
+  <div class="server-snapshot-grid">
     {% for card in dashboard.server_cards %}
-      <article class="panel summary-card">
+      <article class="panel summary-card summary-card-{{ card.layout|default('compact') }}">
         <div class="section-heading-row">
           <h3>{{ t(card.title) }}</h3>
           {% if card.href %}<a class="text-link" href="{{ card.href }}">{{ t("Open") }}</a>{% endif %}
