@@ -290,6 +290,8 @@
 - [x] Підключити install/repair flows до background jobs без blocking HTTP requests
 - [ ] Підключити update flow до background jobs без blocking HTTP requests
 - [x] Додати safe web edit/save для базових полів `config.json` через `config_manager`
+- [x] Додати audit logging для safe web config save з changed fields і backup path
+- [x] Додати shared operator UI primitives для dashboard/config pages
 - [ ] Додати edit/save/delete flows для mods/admins/bot і розширених config полів через backend modules
 - [ ] Спроєктувати emergency/admin-only raw JSON config editor окремо від нормального web config flow
 - [ ] Спроєктувати player registry / moderation data model для IDs, nicknames, sessions і playtime

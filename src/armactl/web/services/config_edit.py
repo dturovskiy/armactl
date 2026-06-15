@@ -12,10 +12,15 @@ from typing import Any
 
 from armactl import config_manager, discovery, paths
 from armactl.redaction import redact_sensitive_text
+from armactl.web.services.audit import AuditLogError, append_audit_event
 
 
 class ConfigEditError(ValueError):
     """Raised when a web config edit cannot be safely applied."""
+
+
+class ConfigAuditError(RuntimeError):
+    """Raised when a saved config change could not be audited."""
 
 
 @dataclass(frozen=True)
@@ -24,9 +29,37 @@ class ConfigEditResult:
 
     config_path: Path
     backup_path: Path
+    changed_fields: tuple[str, ...]
 
 
 _STRING_LIMIT = 512
+CONFIG_SAVE_ACTION = "config.save"
+ALLOWLISTED_CONFIG_FORM_FIELDS = (
+    "name",
+    "scenario_id",
+    "max_players",
+    "visible",
+    "battleye",
+    "server_max_view_distance",
+    "server_min_grass_distance",
+)
+_FIELD_PATHS = {
+    "name": ("game", "name"),
+    "scenario_id": ("game", "scenarioId"),
+    "max_players": ("game", "maxPlayers"),
+    "visible": ("game", "visible"),
+    "battleye": ("game", "gameProperties", "battlEye"),
+    "server_max_view_distance": (
+        "game",
+        "gameProperties",
+        "serverMaxViewDistance",
+    ),
+    "server_min_grass_distance": (
+        "game",
+        "gameProperties",
+        "serverMinGrassDistance",
+    ),
+}
 
 
 def _safe_text(value: Any) -> str:
@@ -72,6 +105,27 @@ def _bool_field(form: Mapping[str, Any], key: str) -> bool:
     if value in {"0", "false", "off", "no"}:
         return False
     raise ConfigEditError("Boolean field value is invalid.")
+
+
+def _nested_value(data: Mapping[str, Any], path: tuple[str, ...]) -> Any:
+    value: Any = data
+    for key in path:
+        if not isinstance(value, Mapping):
+            return None
+        value = value.get(key)
+    return value
+
+
+def _changed_fields(before: Mapping[str, Any], after: Mapping[str, Any]) -> tuple[str, ...]:
+    return tuple(
+        field
+        for field, field_path in _FIELD_PATHS.items()
+        if _nested_value(before, field_path) != _nested_value(after, field_path)
+    )
+
+
+def _submitted_fields(form: Mapping[str, Any]) -> tuple[str, ...]:
+    return tuple(field for field in ALLOWLISTED_CONFIG_FORM_FIELDS if field in form)
 
 
 def build_config_edit_form(config: Mapping[str, Any]) -> dict[str, Any]:
@@ -174,12 +228,17 @@ def save_basic_config_file(config_path: Path | str, form: Mapping[str, Any]) -> 
         raise ConfigEditError("Config root must be an object.")
 
     updated = _updated_config(data, form)
+    changed_fields = _changed_fields(data, updated)
     backup_path = create_web_config_backup(path)
     try:
         config_manager.save_config(path, updated, backup=False)
     except config_manager.ConfigError as exc:
         raise ConfigEditError(redact_sensitive_text(exc)) from exc
-    return ConfigEditResult(config_path=path, backup_path=backup_path)
+    return ConfigEditResult(
+        config_path=path,
+        backup_path=backup_path,
+        changed_fields=changed_fields,
+    )
 
 
 def save_default_config(instance: str, form: Mapping[str, Any]) -> ConfigEditResult:
@@ -188,3 +247,73 @@ def save_default_config(instance: str, form: Mapping[str, Any]) -> ConfigEditRes
     if not state.config_path:
         raise ConfigEditError("Server config path is unavailable.")
     return save_basic_config_file(state.config_path, form)
+
+
+def _audit_config_save(
+    *,
+    audit_log_path: Path,
+    username: str,
+    instance: str,
+    target: str,
+    success: bool,
+    message: str,
+    changed_fields: tuple[str, ...],
+    backup_path: Path | str = "",
+) -> None:
+    append_audit_event(
+        audit_log_path,
+        username=username,
+        action=CONFIG_SAVE_ACTION,
+        instance=instance,
+        target=target,
+        success=success,
+        message=message,
+        exit_code=0 if success else 1,
+        details={
+            "changed_fields": changed_fields,
+            "backup_path": str(backup_path) if backup_path else "",
+        },
+    )
+
+
+def save_default_config_and_audit(
+    instance: str,
+    form: Mapping[str, Any],
+    *,
+    audit_log_path: Path,
+    username: str,
+) -> ConfigEditResult:
+    """Save allowlisted config fields and append a safe web audit event."""
+    normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
+    target = "config.json"
+    try:
+        result = save_default_config(normalized_instance, form)
+    except ConfigEditError as error:
+        try:
+            _audit_config_save(
+                audit_log_path=audit_log_path,
+                username=username,
+                instance=normalized_instance,
+                target=target,
+                success=False,
+                message=str(error),
+                changed_fields=_submitted_fields(form),
+            )
+        except AuditLogError:
+            pass
+        raise
+
+    try:
+        _audit_config_save(
+            audit_log_path=audit_log_path,
+            username=username,
+            instance=normalized_instance,
+            target=str(result.config_path),
+            success=True,
+            message="Config saved.",
+            changed_fields=result.changed_fields,
+            backup_path=result.backup_path,
+        )
+    except AuditLogError as exc:
+        raise ConfigAuditError("Config saved but audit logging failed.") from exc
+    return result

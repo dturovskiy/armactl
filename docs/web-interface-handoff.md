@@ -164,6 +164,8 @@ Completed foundation:
     atomic write, never expose secrets, and never auto-restart the server. Raw
     JSON editing remains future emergency/admin-only work, not part of the
     normal operator config flow.
+    Config saves also append a safe audit entry with changed field names and
+    backup path.
 26. Lightweight dashboard live refresh: `/dashboard/status.json` exposes a
     small authenticated `dashboard:view` JSON DTO built from the existing
     facade/view-model, while package-local `dashboard.js` polls every 7
@@ -178,6 +180,10 @@ Completed foundation:
     meters with a no-JS text fallback, and package-local `dashboard.js` updates
     meter bars through the existing polling path. A dedicated FPS history chart
     is postponed until the visual design is reviewed.
+29. Shared operator UI primitives: dashboard and config pages now use reusable
+    status pills, key-value/value-block layouts, and notice styles for
+    restart-required, warning, success, and unavailable states. Keep future page
+    work on these flat primitives and avoid nested cards.
 
 Planned but not implemented:
 

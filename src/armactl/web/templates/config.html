@@ -11,15 +11,21 @@
 {% endblock %}
 {% block content %}
 {% if config_saved %}
-<section class="panel full-width result-success config-message">
+<section class="notice-panel notice-success full-width result-success config-message">
   <h2>{{ t("Config saved") }}</h2>
   <p class="muted">{{ t("Config saved. Restart the server to apply these changes.") }}</p>
 </section>
 {% endif %}
 {% if config_save_error %}
-<section class="panel full-width result-failure config-message">
+<section class="notice-panel notice-error full-width result-failure config-message">
   <h2>{{ t("Config was not saved.") }}</h2>
   <p class="error">{{ t(config_save_error) }}</p>
+</section>
+{% endif %}
+{% if config_audit_error %}
+<section class="notice-panel notice-warning full-width result-warning config-message">
+  <h2>{{ t("Audit warning") }}</h2>
+  <p class="muted">{{ t(config_audit_error) }}</p>
 </section>
 {% endif %}
 
@@ -29,26 +35,26 @@
     <div class="config-summary-grid">
       <article class="panel config-summary-card">
         <h3>{{ t("Status") }}</h3>
-        <dl class="config-summary-list">
+        <dl class="key-value-list config-summary-list">
           <dt>{{ t("Instance") }}</dt><dd>{{ page.instance }}</dd>
-          <dt>{{ t("Lifecycle") }}</dt><dd>{{ t(page.status.lifecycle) }}</dd>
-          <dt>{{ t("Installed") }}</dt><dd>{{ t("yes") if page.status.installed else t("no") }}</dd>
-          <dt>{{ t("Running") }}</dt><dd>{{ t("yes") if page.status.running else t("no") }}</dd>
+          <dt>{{ t("Lifecycle") }}</dt><dd><span class="status-pill status-pill-{{ page.status.lifecycle }}">{{ t(page.status.lifecycle) }}</span></dd>
+          <dt>{{ t("Installed") }}</dt><dd><span class="status-pill {% if page.status.installed %}status-pill-ok{% else %}status-pill-unavailable{% endif %}">{{ t("yes") if page.status.installed else t("no") }}</span></dd>
+          <dt>{{ t("Running") }}</dt><dd><span class="status-pill {% if page.status.running %}status-pill-running{% else %}status-pill-stopped{% endif %}">{{ t("yes") if page.status.running else t("no") }}</span></dd>
         </dl>
       </article>
       <article class="panel config-summary-card config-summary-card-wide">
         <h3>{{ t("Server") }}</h3>
-        <dl class="config-summary-list">
+        <dl class="key-value-list config-summary-list">
           <dt>{{ t("Name") }}</dt><dd class="wrap-value">{{ page.config.server_name or t("unknown") }}</dd>
           <dt>{{ t("Scenario") }}</dt><dd class="wrap-value">{{ page.config.scenario_id or t("unknown") }}</dd>
           <dt>{{ t("Max players") }}</dt><dd>{{ page.config.max_players or t("unknown") }}</dd>
-          <dt>{{ t("Visible") }}</dt><dd>{{ t(page.config.visible_text) }}</dd>
-          <dt>{{ t("BattlEye") }}</dt><dd>{{ t(page.config.battleye_text) }}</dd>
+          <dt>{{ t("Visible") }}</dt><dd><span class="status-pill status-pill-{{ page.config.visible_text }}">{{ t(page.config.visible_text) }}</span></dd>
+          <dt>{{ t("BattlEye") }}</dt><dd><span class="status-pill status-pill-{{ page.config.battleye_text }}">{{ t(page.config.battleye_text) }}</span></dd>
         </dl>
       </article>
       <article class="panel config-summary-card">
         <h3>{{ t("Network") }}</h3>
-        <dl class="config-summary-list">
+        <dl class="key-value-list config-summary-list">
           <dt>{{ t("Game port") }}</dt><dd>{{ page.config.bind_port or t("unknown") }}</dd>
           <dt>{{ t("A2S port") }}</dt><dd>{{ page.config.a2s_port or t("unknown") }}</dd>
           <dt>{{ t("RCON port") }}</dt><dd>{{ page.config.rcon_port or t("unknown") }}</dd>
@@ -56,7 +62,7 @@
       </article>
       <article class="panel config-summary-card config-summary-card-wide">
         <h3>{{ t("Paths") }}</h3>
-        <dl class="config-summary-list config-path-list">
+        <dl class="key-value-list config-summary-list config-path-list">
           <dt>{{ t("Config path") }}</dt><dd class="wrap-value">{{ page.paths.config_path or t("unknown") }}</dd>
           <dt>{{ t("Instance root") }}</dt><dd class="wrap-value">{{ page.paths.instance_root or t("unknown") }}</dd>
           <dt>{{ t("Install dir") }}</dt><dd class="wrap-value">{{ page.paths.install_dir or t("unknown") }}</dd>
@@ -64,7 +70,7 @@
       </article>
     </div>
   {% else %}
-    <section class="panel full-width">
+    <section class="notice-panel notice-unavailable full-width">
       <p class="muted">{{ t("Config data is unavailable.") }}</p>
       <p class="error">{{ t(page.error) }}</p>
     </section>
@@ -86,7 +92,7 @@
     <h2>{{ t("Basic server settings") }}</h2>
     <span class="muted">{{ t("Restart required") }}</span>
   </div>
-  <p class="config-restart-note muted"><strong>{{ t("Restart required") }}:</strong> {{ t("Restart the server to apply saved config changes.") }}</p>
+  <p class="notice-inline notice-restart config-restart-note muted"><strong>{{ t("Restart required") }}:</strong> {{ t("Restart the server to apply saved config changes.") }}</p>
   <form method="post" action="/config" class="config-edit-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="form-grid">

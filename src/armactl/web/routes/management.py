@@ -79,6 +79,7 @@ def _render_config_page(
     *,
     saved: bool = False,
     save_error: str = "",
+    audit_error: str = "",
     status_code: int = status.HTTP_200_OK,
 ) -> Response:
     if not require_permission(current, CONFIG_VIEW):
@@ -96,6 +97,7 @@ def _render_config_page(
             "can_edit_config": require_permission(current, SETTINGS_MANAGE),
             "config_saved": saved,
             "config_save_error": save_error,
+            "config_audit_error": audit_error,
         },
         status_code=status_code,
     )
@@ -164,13 +166,26 @@ def save_config_page(
         "server_min_grass_distance": server_min_grass_distance,
     }
     try:
-        config_edit.save_default_config(paths.DEFAULT_INSTANCE_NAME, form)
+        config_edit.save_default_config_and_audit(
+            paths.DEFAULT_INSTANCE_NAME,
+            form,
+            audit_log_path=current.config.audit_log_path,
+            username=current.user.username,
+        )
     except config_edit.ConfigEditError as error:
         return _render_config_page(
             request,
             current,
             save_error=str(error),
             status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    except config_edit.ConfigAuditError as error:
+        return _render_config_page(
+            request,
+            current,
+            saved=True,
+            audit_error=str(error),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
     return RedirectResponse("/config?saved=1", status_code=status.HTTP_303_SEE_OTHER)

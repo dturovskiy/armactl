@@ -910,6 +910,8 @@
     "Config saved": "Конфіг збережено",
     "Config saved. Restart the server to apply these changes.": "Конфіг збережено. Перезапустіть сервер, щоб застосувати ці зміни.",
     "Config was not saved.": "Конфіг не збережено.",
+    "Audit warning": "Попередження аудиту",
+    "Config saved but audit logging failed.": "Конфіг збережено, але запис аудиту не вдався.",
     "Basic server settings": "Базові налаштування сервера",
     "Restart required": "Потрібен перезапуск",
     "Restart the server to apply saved config changes.": "Перезапустіть сервер, щоб застосувати збережені зміни конфігу.",

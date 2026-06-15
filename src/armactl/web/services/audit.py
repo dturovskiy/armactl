@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,6 +33,7 @@ class AuditEvent:
     success: bool
     message: str
     exit_code: int | None
+    details: Mapping[str, Any] | None = None
 
 
 def _utc_timestamp() -> str:
@@ -45,6 +47,19 @@ def _safe_text(value: object, *, max_length: int = MAX_AUDIT_MESSAGE_LENGTH) -> 
     return redacted
 
 
+def _safe_details(details: Mapping[str, object] | None) -> dict[str, Any] | None:
+    if details is None:
+        return None
+    safe: dict[str, Any] = {}
+    for key, value in details.items():
+        safe_key = _safe_text(key, max_length=120)
+        if isinstance(value, str) or not isinstance(value, Sequence):
+            safe[safe_key] = _safe_text(value, max_length=500)
+            continue
+        safe[safe_key] = [_safe_text(item, max_length=500) for item in value]
+    return safe
+
+
 def append_audit_event(
     audit_log_path: Path,
     *,
@@ -55,9 +70,11 @@ def append_audit_event(
     success: bool,
     message: str,
     exit_code: int | None,
+    details: Mapping[str, object] | None = None,
 ) -> AuditEvent:
     """Append one JSON audit event and return the safe event payload."""
     safe_target = _safe_text(target)
+    safe_details = _safe_details(details)
     event = AuditEvent(
         timestamp=_utc_timestamp(),
         username=_safe_text(username),
@@ -68,6 +85,7 @@ def append_audit_event(
         success=bool(success),
         message=_safe_text(message),
         exit_code=exit_code,
+        details=safe_details,
     )
     payload: dict[str, Any] = {
         "timestamp": event.timestamp,
@@ -80,6 +98,8 @@ def append_audit_event(
         "message": event.message,
         "exit_code": event.exit_code,
     }
+    if event.details is not None:
+        payload["details"] = dict(event.details)
 
     try:
         audit_log_path.parent.mkdir(parents=True, exist_ok=True)

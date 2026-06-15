@@ -313,6 +313,8 @@
     "Config saved": "Config saved",
     "Config saved. Restart the server to apply these changes.": "Config saved. Restart the server to apply these changes.",
     "Config was not saved.": "Config was not saved.",
+    "Audit warning": "Audit warning",
+    "Config saved but audit logging failed.": "Config saved but audit logging failed.",
     "Basic server settings": "Basic server settings",
     "Restart required": "Restart required",
     "Restart the server to apply saved config changes.": "Restart the server to apply saved config changes.",

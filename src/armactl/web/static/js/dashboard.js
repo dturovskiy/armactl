@@ -35,11 +35,13 @@
   function updateLifecycleClass(lifecycle) {
     document.querySelectorAll("[data-dashboard-lifecycle-class]").forEach((node) => {
       node.classList.forEach((className) => {
-        if (className.startsWith("state-")) {
+        if (className.startsWith("state-") || className.startsWith("status-pill-")) {
           node.classList.remove(className);
         }
       });
-      node.classList.add(`state-${lifecycle || "unknown"}`);
+      const safeLifecycle = lifecycle || "unknown";
+      node.classList.add("state-" + safeLifecycle);
+      node.classList.add("status-pill-" + safeLifecycle);
     });
   }
 

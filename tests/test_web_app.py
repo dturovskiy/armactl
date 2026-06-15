@@ -1156,6 +1156,9 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert "Web Runtime" not in root_response.text
     assert "ServerAdminTools" not in root_response.text
     assert 'server-snapshot-grid' in root_response.text
+    assert "status-pill" in root_response.text
+    assert "key-value-list" in root_response.text
+    assert "value-block" in root_response.text
     assert 'summary-card-wide' in root_response.text
     assert 'action="/service/start"' not in root_response.text
     assert 'action="/service/stop"' in root_response.text
@@ -2014,6 +2017,10 @@ def test_template_and_static_paths_are_package_local():
     assert response.status_code == 200
     assert "text/css" in response.headers["content-type"]
     assert ".summary-band" in response.text
+    assert ".status-pill" in response.text
+    assert ".key-value-list" in response.text
+    assert ".notice-panel" in response.text
+    assert ".notice-restart" in response.text
     assert ".auth-panel" in response.text
     assert "[data-theme=\"dark\"]" in response.text
 

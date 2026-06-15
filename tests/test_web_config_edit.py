@@ -147,6 +147,15 @@ def _valid_post_data(csrf_token: str) -> dict[str, str]:
     }
 
 
+def _audit_log_text(data_root: Path) -> str:
+    audit_path = data_root / "logs" / "web" / "audit.log"
+    return audit_path.read_text(encoding="utf-8")
+
+
+def _audit_events(data_root: Path) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in _audit_log_text(data_root).splitlines()]
+
+
 def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
     config_path = _write_config(tmp_path)
     client = _authed_client(tmp_path, monkeypatch, config_path)
@@ -155,6 +164,9 @@ def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
 
     assert response.status_code == 200
     assert 'class="config-summary-grid"' in response.text
+    assert "key-value-list config-summary-list" in response.text
+    assert "status-pill status-pill-stopped" in response.text
+    assert "notice-inline notice-restart" in response.text
     for heading in ("Status", "Server", "Network", "Paths", "Basic server settings"):
         assert f">{heading}<" in response.text
     assert 'method="post" action="/config"' in response.text
@@ -200,6 +212,7 @@ def test_config_page_groups_summary_and_escapes_long_values(tmp_path: Path, monk
 
     assert response.status_code == 200
     assert "config-summary-card" in response.text
+    assert "key-value-list config-summary-list" in response.text
     assert "config-path-list" in response.text
     assert str(config_path) in response.text
     assert "Scenarios/VeryLongScenario&lt;&amp;&gt;.conf" in response.text
@@ -320,6 +333,30 @@ def test_config_edit_updates_allowlisted_fields_creates_backup_and_preserves_res
     assert "Updated Server" in saved_page.text
     assert "Restart the server to apply these changes." in saved_page.text
 
+    events = _audit_events(tmp_path)
+    assert len(events) == 1
+    event = events[0]
+    assert event["username"] == "owner"
+    assert event["action"] == "config.save"
+    assert event["instance"] == "default"
+    assert event["target"] == str(config_path)
+    assert event["success"] is True
+    assert event["exit_code"] == 0
+    assert event["message"] == "Config saved."
+    assert event["details"]["changed_fields"] == [
+        "name",
+        "scenario_id",
+        "max_players",
+        "visible",
+        "battleye",
+        "server_max_view_distance",
+        "server_min_grass_distance",
+    ]
+    assert event["details"]["backup_path"] == str(backups[0])
+    audit_text = _audit_log_text(tmp_path)
+    for secret in ("admin-password-secret", "raw-rcon-secret"):
+        assert secret not in audit_text
+
 
 @pytest.mark.parametrize(
     ("override", "message"),
@@ -357,6 +394,65 @@ def test_config_edit_rejects_invalid_values_without_backup(
     assert message in response.text
     assert json.loads(config_path.read_text()) == original
     assert list(config_path.parent.glob("config.json.before-web-config-save-*.bak")) == []
+    events = _audit_events(tmp_path)
+    assert len(events) == 1
+    event = events[0]
+    assert event["username"] == "owner"
+    assert event["action"] == "config.save"
+    assert event["instance"] == "default"
+    assert event["target"] == "config.json"
+    assert event["success"] is False
+    assert event["exit_code"] == 1
+    assert event["message"] == message
+    assert event["details"]["backup_path"] == ""
+    assert set(event["details"]["changed_fields"]) == {
+        "name",
+        "scenario_id",
+        "max_players",
+        "visible",
+        "battleye",
+        "server_max_view_distance",
+        "server_min_grass_distance",
+    }
+    audit_text = _audit_log_text(tmp_path)
+    for secret in ("admin-password-secret", "raw-rcon-secret"):
+        assert secret not in audit_text
+
+
+def test_config_edit_audit_failure_reports_saved_with_warning(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import config_edit
+    from armactl.web.services.audit import AuditLogError
+
+    original_config = _sample_config()
+    config_path = _write_config(tmp_path, deepcopy(original_config))
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+    csrf_token = _form_token(client.get("/config").text)
+
+    def fail_audit(*args, **kwargs):
+        raise AuditLogError("disk full")
+
+    monkeypatch.setattr(config_edit, "append_audit_event", fail_audit)
+
+    response = client.post(
+        "/config",
+        data=_valid_post_data(csrf_token),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 500
+    assert "Config saved" in response.text
+    assert "Audit warning" in response.text
+    assert "Config saved but audit logging failed." in response.text
+    assert "Config was not saved." not in response.text
+    updated = json.loads(config_path.read_text())
+    assert updated["game"]["name"] == "Updated Server"
+    assert updated["game"]["maxPlayers"] == 48
+    backups = sorted(config_path.parent.glob("config.json.before-web-config-save-*.bak"))
+    assert len(backups) == 1
+    assert json.loads(backups[0].read_text()) == original_config
 
 
 def test_config_edit_does_not_render_secrets(tmp_path: Path, monkeypatch):
