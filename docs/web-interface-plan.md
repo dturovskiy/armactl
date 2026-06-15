@@ -580,6 +580,83 @@ SFTP/SSH can remain an operator fallback outside armactl. A future fleet
 controller may use SSH/SFTP internally to reach remote machines, but that is a
 different architecture and should not be part of the first per-VM web panel.
 
+## Player registry and moderation model
+
+A future web slice should add a first-class player registry and moderation
+layer. This is separate from web users and game admins: web users are people who
+log into the control panel, while the player registry tracks Arma players seen
+on the managed game server.
+
+Goals:
+
+- collect durable player identifiers and nicknames when players join or are seen
+  online;
+- keep first-seen, last-seen, last nickname, known aliases, session count, and
+  approximate total playtime;
+- show active, recent, and inactive players in the web panel;
+- provide search by nickname and player identifier;
+- support a ban list with reason, created-by web user, timestamp, optional
+  expiry, active/revoked state, and audit trail;
+- expose ban/unban actions through authenticated, permission-protected,
+  CSRF-protected web flows with explicit confirmation;
+- keep CLI/TUI usable for emergency moderation fallback later.
+
+Storage should be instance-scoped, not tied only to the web runtime. Prefer a
+small SQLite database under the managed instance, for example
+~/armactl-data/INSTANCE/players.db.
+
+The schema can later include tables such as players, player_aliases,
+player_sessions, player_bans, and player_observations. Do not store this only
+in ~/armactl-data/web/web.db, because player history belongs to the game-server
+instance and should remain usable by future CLI/TUI/bot features as well as the
+web panel.
+
+Ingestion sources must be explicit and conservative:
+
+- current online player views from RCON/player_view when stable identifiers are
+  available;
+- server logs or journal lines if join/leave/player identity events can be
+  parsed reliably;
+- optional ServerAdminTools data only through a dedicated adapter, not by raw
+  unrelated config rewrites;
+- never guess a stable player ID from a nickname alone;
+- do not treat A2S counts as identity data. A2S is useful for counts, not for a
+  player registry.
+
+Each observed identifier should keep its source and confidence. Nicknames are
+not stable identities, so aliases should attach to a durable game/player ID
+when that ID is available. If only a nickname is known, the UI should mark the
+record as incomplete and avoid destructive moderation actions that require a
+stable identifier.
+
+Ban management must not be a blind JSON editor. It needs a moderation service
+that writes through the correct backend adapter for the selected ban mechanism,
+creates a backup before changing any config-backed ban list, validates the
+result, and records an audit event. If ServerAdminTools bans are used, update
+only the relevant ban fields and preserve unrelated SAT settings.
+
+Suggested web views:
+
+- /players: active/recent/inactive player list with search and filters;
+- /players/PLAYER_ID: identity details, aliases, observations, sessions, total
+  playtime, and audit history;
+- /bans or a moderation tab: active/revoked bans, reasons, expiry, and
+  ban/unban actions;
+- dashboard summary: online count remains lightweight; detailed player history
+  belongs on dedicated pages.
+
+Security and product notes:
+
+- add explicit permissions such as players:view, players:manage, and
+  bans:manage;
+- redact or avoid sensitive tokens/secrets in player diagnostics;
+- audit all ban/unban decisions;
+- treat player history as operator data that may contain personally identifying
+  nicknames/IDs; document retention/export/delete behavior before productizing
+  hosted or paid features;
+- keep analytics local to the instance for the MVP. Fleet-wide player analytics
+  belong to a future central portal/control-plane layer.
+
 ## Backend surface
 
 The project already has an internal Python API surface: reusable backend
@@ -610,6 +687,7 @@ The web backend should be a thin adapter over existing modules:
 - Schedule/timer: `service_manager`
 - Telegram bot settings: `bot_config`, `bot_manager`
 - Files: new safe filesystem adapter
+- Players/moderation: future instance-scoped player registry and ban-list service
 
 Avoid importing or calling TUI screens from web code.
 
@@ -637,6 +715,7 @@ Internal API readiness:
 |------|-------------------|---------------------|
 | Read-only status/dashboard | High | Implemented through one dashboard DTO from discovery, service/timer status, metrics, players, config summary, mods, web runtime, and safe bot summary |
 | Start/stop/restart | High | Default-instance web controls are implemented with auth, confirmation, CSRF, audit log, and route-level permission checks |
+| Players/moderation | Low | Future instance-scoped players.db, identity ingestion from reliable sources, activity history, and ban-list management; do not infer IDs from nicknames or A2S counts |
 | Config/mods/admins/bot settings | Medium-high | Basic allowlisted config editing is implemented through `config_manager`; mods/admins/bot mutations and broader config fields remain future work with form validation, CSRF, and redacted error rendering |
 | Logs/report | Medium-high | Bounded read-only audit, fixed journal, and redacted report preview views are implemented; add streaming/download later without `os.execvp` |
 | Install/repair/update | Medium | Install and repair enqueue explicit web background jobs; update remains future work; never block a request thread |
@@ -657,6 +736,7 @@ logic from TUI screens.
 | Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Web supports allowlisted basic field edits through `config_manager`; generic/raw JSON and secrets remain out of scope |
 | Mods manager | Implemented beyond basic parity | `mods_manager`, `mods_state`, `addon_cleanup`, `ModManagerScreen` | Read-only web mods page exists; future add/remove/enable/disable/import/export routes should reuse existing modules |
 | Server admins | Implemented for Arma `game.admins` | `admins_manager`, `AdminManagerScreen` | Read-only game-admin page exists; keep game admins separate from web users/roles for future management flows |
+| Player registry and bans | Not implemented | player_view can show current online data; logs/RCON/SAT may become ingestion sources after adapter review | Add dedicated storage, search, history, and moderation flows with auth, permissions, CSRF, backups, and audit logging |
 | Backups/cleanup | Partially implemented | `config_manager` backups, `cleaner`, `CleanupScreen` | Config backups exist; full server backup/restore is future work |
 | Schedule | Implemented for restart timer | `service_manager`, `ScheduleScreen`, CLI `schedule` | Web can show/set/enable/disable restart schedule; task chains are future |
 | Telegram bot | Implemented | `bot_config`, `bot_manager`, `telegram_bot`, `BotConfigScreen` | Read-only bot status page exists; future config/service flows can reuse the same `.env` and service-manager path |
@@ -952,8 +1032,9 @@ not the foreground debug runner.
   visibility, BattlEye, and server distance values. Saves create an adjacent
   `config.json.before-web-config-save-YYYYMMDD-HHMMSS.bak` before atomic
   write and do not auto-restart the server.
-- Extended config fields, raw JSON editing, admin/RCON passwords, and generic
-  secret edits remain out of scope for web.
+- Extended config fields, admin/RCON passwords, and generic secret edits
+  remain out of scope for web. A raw JSON editor is future emergency/admin-only
+  work, not part of the normal operator config flow.
 - Mods add/remove/import/export through `mods_manager` remain future work.
 - Game admin management through `admins_manager`, kept separate from web users.
 - Telegram bot configuration through `bot_config` without exposing token values.

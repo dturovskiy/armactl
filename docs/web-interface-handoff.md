@@ -161,7 +161,9 @@ Completed foundation:
     `settings:manage` edits for allowlisted `game.name`, `game.scenarioId`,
     `game.maxPlayers`, `game.visible`, BattlEye, and server distance fields.
     Saves create a web-specific adjacent backup before using `config_manager`
-    atomic write, never expose secrets, and never auto-restart the server.
+    atomic write, never expose secrets, and never auto-restart the server. Raw
+    JSON editing remains future emergency/admin-only work, not part of the
+    normal operator config flow.
 26. Lightweight dashboard live refresh: `/dashboard/status.json` exposes a
     small authenticated `dashboard:view` JSON DTO built from the existing
     facade/view-model, while package-local `dashboard.js` polls every 7
@@ -177,6 +179,15 @@ Completed foundation:
     meter bars through the existing polling path. A dedicated FPS history chart
     is postponed until the visual design is reviewed.
 
+Planned but not implemented:
+
+- Player registry and moderation are now part of the web roadmap. Store player
+  identity/activity data per instance, for example in ~/armactl-data/INSTANCE/players.db,
+  not only in the web runtime database. Use reliable RCON/log/SAT adapters for
+  IDs and nicknames, never infer stable identity from nicknames or A2S counts,
+  and require auth, permissions, CSRF, audit logging, and backups for ban/unban
+  flows.
+
 Next recommended implementation order:
 
 1. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
@@ -186,9 +197,12 @@ Next recommended implementation order:
 3. Add update flow to explicit background job handlers if a safe backend API is
    introduced.
 4. Add edit/save/delete flows for mods, admins, bot settings, and extended
-   config fields through existing backend modules.
+   config fields through existing backend modules; keep any raw JSON config
+   editor as a separate emergency/admin-only design.
 5. Add atomic overwrite/delete/rename flows on top of the safe filesystem
    adapter after single-file upload has been reviewed.
+6. Add player registry and ban-list management after the identity ingestion
+   source is validated on a real server log/RCON sample.
 
 ## Implementation prompt template
 
