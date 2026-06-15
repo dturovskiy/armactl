@@ -386,6 +386,12 @@ def _management_pages() -> dict[str, dict]:
             "paths": {"config_path": "/srv/armactl-data/default/config/config.json"},
             "count": 1,
             "mods": [{"mod_id": "mod-a", "name": "Mod A", "version": "1.0"}],
+            "disabled_count": 1,
+            "disabled_mods": [
+                {"mod_id": "mod-b", "name": "Mod B Disabled", "version": ""}
+            ],
+            "disabled_mods_path": "/srv/armactl-data/default/mods-state.json",
+            "disabled_mods_error": "",
         },
         "admins": {
             "instance": "default",

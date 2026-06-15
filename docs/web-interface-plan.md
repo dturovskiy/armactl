@@ -900,7 +900,7 @@ Internal API readiness:
 | Read-only status/dashboard | High | Implemented through one dashboard DTO from discovery, service/timer status, metrics, players, config summary, mods, web runtime, and safe bot summary |
 | Start/stop/restart | High | Default-instance web controls are implemented with auth, confirmation, CSRF, audit log, and route-level permission checks |
 | Players/moderation | Low | Future instance-scoped players.db, identity ingestion from reliable sources, activity history, and ban-list management; do not infer IDs from nicknames or A2S counts |
-| Config/mods/admins/bot settings | Medium-high | Basic allowlisted config editing is implemented through `config_manager`; game admin add/update/remove is implemented through `admins_manager`; mods/bot mutations, advanced admin bulk/raw flows, and broader config fields remain future work with form validation, CSRF, and redacted error rendering |
+| Config/mods/admins/bot settings | Medium-high | Basic allowlisted config editing is implemented through `config_manager`; basic mod add/update/enable/disable/remove is implemented through `mods_manager`; game admin add/update/remove is implemented through `admins_manager`; bot mutations, advanced modpack/bulk mod flows, advanced admin bulk/raw flows, and broader config fields remain future work with form validation, CSRF, and redacted error rendering |
 | Logs/report | Medium-high | Bounded read-only audit, fixed journal, and redacted report preview views are implemented; add streaming/download later without `os.execvp` |
 | Install/repair/update | Medium | Install and repair enqueue explicit web background jobs; update remains future work; never block a request thread |
 | File manager | Medium | Safe adapter, browser foundation, single-file download, and server-root upload-new-file are implemented; overwrite/delete/rename and remote mount support remain future work |
@@ -918,7 +918,7 @@ logic from TUI screens.
 | Server controls | Implemented | `service_manager`, CLI `start/stop/restart`, TUI `ManageScreen` | Web start/stop/restart now wraps existing calls for the default instance; schedule controls are implemented separately and job-backed operations remain future work |
 | Logs/report | Implemented for journal/report, TUI live view, and bounded read-only web views | `logs`, `report`, `TailLogScreen` | Web exposes fixed sources and redacted report preview; add browser streaming/download later |
 | Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Web supports allowlisted basic field edits through `config_manager`; generic/raw JSON and secrets remain out of scope |
-| Mods manager | Implemented beyond basic parity | `mods_manager`, `mods_state`, `addon_cleanup`, `ModManagerScreen` | Read-only web mods page exists; future add/remove/enable/disable/import/export routes should reuse existing modules |
+| Mods manager | Implemented beyond basic parity | `mods_manager`, `mods_state`, `addon_cleanup`, `ModManagerScreen` | Web can view active/disabled mods and add/update/enable/disable/remove one mod at a time through `mods_manager` with auth, CSRF, `mods:manage`, confirmation for remove, and audit; bulk paste/import/export/clear-all/modpack workflows remain future |
 | Server admins | Implemented for Arma `game.admins` | `admins_manager`, `AdminManagerScreen` | Web can view game admins and add/update/remove one admin at a time through `admins_manager` with auth, CSRF, `admins:manage`, confirmation for remove, and audit; keep game admins separate from web users/roles |
 | Player registry and bans | Not implemented | player_view can show current online data; logs/RCON/SAT may become ingestion sources after adapter review | Add dedicated storage, search, history, and moderation flows with auth, permissions, CSRF, backups, and audit logging; moderation UI should expose active/recent players with nickname search/sort and an add-to-game-admin action only when a reliable identity ID is available |
 | Backups/cleanup | Partially implemented | `config_manager` backups, `cleaner`, `CleanupScreen` | Config backups exist; full server backup/restore is future work |
@@ -1044,7 +1044,9 @@ MVP views:
 - Server controls: start, stop, restart, refresh status
 - Logs: latest journal lines, later live streaming
 - Config: safe structured summary plus allowlisted basic field editing with validation and adjacent backup
-- Mods: read-only active list now; future add, remove, import/export
+- Mods: view active and disabled mods, add/update one mod, enable/disable, and
+  confirmed remove; bulk paste/import/export/clear-all/modpack workflows remain
+  future
 - Admins: view game admin IDs/local labels and add, update, or remove one admin
   at a time; advanced bulk/raw flows remain future
 - Bot: read-only Telegram status now; future safe configuration forms
@@ -1221,7 +1223,10 @@ not the foreground debug runner.
 - Extended config fields, admin/RCON passwords, and generic secret edits
   remain out of scope for web. A raw JSON editor is future emergency/admin-only
   work, not part of the normal operator config flow.
-- Mods add/remove/import/export through `mods_manager` remain future work.
+- Basic mod add/update/enable/disable/remove is implemented through
+  `mods_manager` with active/disabled sections, confirmation before remove,
+  and audit logging. Bulk paste/import/export/clear-all/modpack workflows
+  remain future work.
 - Game admin add/update/remove is implemented through `admins_manager`, kept
   separate from web users and roles. Advanced bulk/raw admin flows remain
   future work.

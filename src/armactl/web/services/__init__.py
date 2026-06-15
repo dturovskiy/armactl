@@ -2,4 +2,10 @@
 
 from __future__ import annotations
 
-__all__ = ["admin_actions", "audit", "schedule_actions", "service_actions"]
+__all__ = [
+    "admin_actions",
+    "audit",
+    "mod_actions",
+    "schedule_actions",
+    "service_actions",
+]

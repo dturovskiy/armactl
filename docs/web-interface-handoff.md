@@ -192,6 +192,15 @@ Completed foundation:
     and append redacted JSONL audit events. Game admins remain separate from
     web users/roles; SAT guard, raw JSON editing, and bulk/advanced admin flows
     remain future work.
+31. Safe web mod management: `/mods` now keeps read-only visibility under
+    `mods:view`, shows active and disabled mods separately, and adds
+    authenticated CSRF-protected add/update, enable, disable, and confirmed
+    remove forms for users with `mods:manage`. Mutations go through a thin web
+    adapter over `mods_manager` helpers, render controlled
+    success/error/unchanged states, show restart-required only after real
+    changes, and append redacted JSONL audit events with compact cleanup
+    summary for remove. Bulk paste/import/export/clear-all/modpack workflows,
+    raw JSON editing, and archive extraction remain future work.
 
 Planned but not implemented:
 
@@ -239,10 +248,12 @@ Next recommended implementation order:
    `docs/web-interface-plan.md`.
 6. Add update flow to explicit background job handlers if a safe backend API is
    introduced.
-7. Add edit/save/delete flows for mods, bot settings, and extended config
-   fields through existing backend modules; keep any raw JSON config editor as
-   a separate emergency/admin-only design. Advanced/bulk admin workflows remain
+7. Add edit/save/delete flows for bot settings and extended config fields
+   through existing backend modules; keep any raw JSON config editor as a
+   separate emergency/admin-only design. Advanced/bulk admin workflows remain
    future and should still avoid mixing game admins with web users/roles.
+   Advanced modpack workflows such as bulk paste, import/export, and clear-all
+   remain future and should keep remove/cleanup confirmations explicit.
 8. Add atomic overwrite/delete/rename flows on top of the safe filesystem
    adapter after single-file upload has been reviewed.
 9. Add player registry and ban-list management after the identity ingestion

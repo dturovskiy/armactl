@@ -297,7 +297,9 @@
 - [x] Додати audit logging для safe web config save з changed fields і backup path
 - [x] Додати shared operator UI primitives для dashboard/config pages
 - [x] Додати safe web add/update/remove для game admins через `admins_manager` з auth/CSRF/`admins:manage`/audit
-- [ ] Додати edit/save/delete flows для mods/bot і розширених config полів через backend modules
+- [x] Додати basic web add/update/enable/disable/remove для mods через `mods_manager` з auth/CSRF/`mods:manage`/audit
+- [ ] Додати edit/save/delete flows для bot і розширених config полів через backend modules
+- [ ] Спроєктувати bulk paste/import/export/clear all/advanced modpack workflows для web mods окремим future flow
 - [ ] Спроєктувати emergency/admin-only raw JSON config editor окремо від нормального web config flow
 - [ ] Спроєктувати player registry / moderation data model для IDs, nicknames, sessions і playtime
 - [ ] Додати player identity ingestion з RCON/logs/SAT adapters без вигаданих ID

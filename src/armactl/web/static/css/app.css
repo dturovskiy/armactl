@@ -715,6 +715,26 @@ button.danger {
   margin-top: 18px;
 }
 
+.mod-row-actions,
+.mod-remove-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.mod-row-actions {
+  max-width: 360px;
+}
+
+.mod-action-form {
+  margin: 0;
+}
+
+.mod-edit-panel {
+  margin-top: 18px;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

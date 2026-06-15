@@ -24,6 +24,7 @@ from armactl.web.auth.permissions import (
     ADMINS_VIEW,
     BOT_VIEW,
     CONFIG_VIEW,
+    MODS_MANAGE,
     MODS_VIEW,
     SETTINGS_MANAGE,
 )
@@ -33,7 +34,7 @@ from armactl.web.facade import (
     load_config_page,
     load_mods_page,
 )
-from armactl.web.services import admin_actions, config_edit
+from armactl.web.services import admin_actions, config_edit, mod_actions
 
 router = APIRouter()
 PageLoader = Callable[[str], dict[str, Any]]
@@ -109,6 +110,35 @@ def _render_config_page(
     return response
 
 
+def _render_mods_page(
+    request: Request,
+    current: CurrentSession,
+    *,
+    result: mod_actions.ModActionResult | None = None,
+    status_code: int = status.HTTP_200_OK,
+) -> Response:
+    if not require_permission(current, MODS_VIEW):
+        return permission_denied_response()
+
+    form_csrf = get_form_csrf_token(request, current)
+    page = load_mods_page(paths.DEFAULT_INSTANCE_NAME)
+    response = request.app.state.templates.TemplateResponse(
+        request=request,
+        name="mods.html",
+        context={
+            "current_user": current.user,
+            "csrf_token": form_csrf.token,
+            "page": page,
+            "result": result,
+            "can_manage_mods": require_permission(current, MODS_MANAGE),
+        },
+        status_code=status_code,
+    )
+    if form_csrf.should_set_cookie:
+        set_csrf_cookie(response, form_csrf.token, current.config)
+    return response
+
+
 def _render_admins_page(
     request: Request,
     current: CurrentSession,
@@ -136,6 +166,63 @@ def _render_admins_page(
     if form_csrf.should_set_cookie:
         set_csrf_cookie(response, form_csrf.token, current.config)
     return response
+
+
+def _run_mod_action(
+    request: Request,
+    *,
+    action: str,
+    csrf_token: str,
+    mod_id: str = "",
+    name: str = "",
+    version: str = "",
+) -> Response:
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, MODS_MANAGE):
+        return permission_denied_response()
+    if not validate_csrf_token(current.config.db_path, current.session.id, csrf_token):
+        return PlainTextResponse(
+            "Invalid CSRF token.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+    try:
+        result = mod_actions.run_mod_action_and_audit(
+            action,
+            instance=paths.DEFAULT_INSTANCE_NAME,
+            mod_id=mod_id,
+            name=name,
+            version=version,
+            audit_log_path=current.config.audit_log_path,
+            username=current.user.username,
+        )
+    except mod_actions.ModActionError:
+        return PlainTextResponse(
+            "Unknown mod action.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    except Exception:
+        result = mod_actions.ModActionResult(
+            action=action,
+            instance=paths.DEFAULT_INSTANCE_NAME,
+            target="",
+            success=False,
+            changed=False,
+            message="Mod action is unavailable.",
+            exit_code=1,
+            audit_written=False,
+        )
+        return _render_mods_page(
+            request,
+            current,
+            result=result,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    result_status = status.HTTP_200_OK if result.success else status.HTTP_400_BAD_REQUEST
+    return _render_mods_page(request, current, result=result, status_code=result_status)
 
 
 def _run_admin_action(
@@ -283,12 +370,95 @@ def save_config_page(
 
 @router.get("/mods", response_class=HTMLResponse)
 def mods_page(request: Request) -> Response:
-    """Render read-only active mod details."""
-    return _authenticated_page(
+    """Render mod details and safe edit controls when permitted."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    return _render_mods_page(request, current)
+
+
+@router.post("/mods/add", response_class=HTMLResponse)
+def add_mod_page(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    mod_id: str = Form(default=""),
+    name: str = Form(default=""),
+    version: str = Form(default=""),
+) -> Response:
+    """Add or update one Workshop mod."""
+    return _run_mod_action(
         request,
-        permission=MODS_VIEW,
-        template="mods.html",
-        loader=load_mods_page,
+        action=mod_actions.ACTION_ADD,
+        csrf_token=csrf_token,
+        mod_id=mod_id,
+        name=name,
+        version=version,
+    )
+
+
+@router.post("/mods/disable", response_class=HTMLResponse)
+def disable_mod_page(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    mod_id: str = Form(default=""),
+) -> Response:
+    """Disable one active Workshop mod without deleting addon files."""
+    return _run_mod_action(
+        request,
+        action=mod_actions.ACTION_DISABLE,
+        csrf_token=csrf_token,
+        mod_id=mod_id,
+    )
+
+
+@router.post("/mods/enable", response_class=HTMLResponse)
+def enable_mod_page(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    mod_id: str = Form(default=""),
+) -> Response:
+    """Enable one disabled Workshop mod."""
+    return _run_mod_action(
+        request,
+        action=mod_actions.ACTION_ENABLE,
+        csrf_token=csrf_token,
+        mod_id=mod_id,
+    )
+
+
+@router.post("/mods/remove", response_class=HTMLResponse)
+def remove_mod_page(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    mod_id: str = Form(default=""),
+    confirm: str = Form(default=""),
+) -> Response:
+    """Remove one Workshop mod after explicit confirmation."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, MODS_MANAGE):
+        return permission_denied_response()
+    if not validate_csrf_token(current.config.db_path, current.session.id, csrf_token):
+        return PlainTextResponse(
+            "Invalid CSRF token.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+    if confirm != "remove":
+        return _render_mods_page(
+            request,
+            current,
+            result=mod_actions.confirmation_failure(
+                instance=paths.DEFAULT_INSTANCE_NAME,
+                target=mod_id,
+            ),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    return _run_mod_action(
+        request,
+        action=mod_actions.ACTION_REMOVE,
+        csrf_token=csrf_token,
+        mod_id=mod_id,
     )
 
 

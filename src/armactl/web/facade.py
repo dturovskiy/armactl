@@ -13,6 +13,7 @@ from armactl import (
     discovery,
     metrics,
     mods_manager,
+    mods_state,
     paths,
     player_view,
     ports,
@@ -572,7 +573,7 @@ def _mod_entry(raw: Any) -> dict[str, str]:
 
 
 def load_mods_page(instance: str) -> dict[str, Any]:
-    """Return active mod list details without mutating config or sidecars."""
+    """Return active and disabled mod list details for a web page."""
     state, error_page = _discover_management_state(instance)
     if error_page is not None:
         return error_page
@@ -580,6 +581,9 @@ def load_mods_page(instance: str) -> dict[str, Any]:
     if not state.config_path:
         return _missing_config_page(instance, state, "config path is not available")
 
+    disabled_mods_path = ""
+    disabled_mods: list[dict[str, str]] = []
+    disabled_mods_error = ""
     try:
         raw_mods = mods_manager.get_mods(state.config_path)
         if not isinstance(raw_mods, list):
@@ -587,6 +591,15 @@ def load_mods_page(instance: str) -> dict[str, Any]:
         mods = [_mod_entry(raw) for raw in raw_mods]
     except Exception as error:
         return _missing_config_page(instance, state, _safe_error_message(error))
+
+    try:
+        disabled_mods_path = str(mods_state.mods_state_path_for_config(state.config_path))
+        raw_disabled_mods = mods_state.load_disabled_mods(state.config_path)
+        if not isinstance(raw_disabled_mods, list):
+            raw_disabled_mods = []
+        disabled_mods = [_mod_entry(raw) for raw in raw_disabled_mods]
+    except Exception as error:
+        disabled_mods_error = _safe_error_message(error)
 
     return {
         "instance": instance,
@@ -596,6 +609,10 @@ def load_mods_page(instance: str) -> dict[str, Any]:
         "paths": _paths(state),
         "count": len(mods),
         "mods": mods,
+        "disabled_count": len(disabled_mods),
+        "disabled_mods": disabled_mods,
+        "disabled_mods_path": disabled_mods_path,
+        "disabled_mods_error": disabled_mods_error,
     }
 
 
