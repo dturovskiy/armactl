@@ -481,6 +481,51 @@ button.danger {
   text-decoration: none;
 }
 
+.config-summary-section > h2 {
+  margin-bottom: 10px;
+}
+
+.config-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.config-summary-card {
+  grid-column: span 3;
+  min-width: 0;
+}
+
+.config-summary-card-wide {
+  grid-column: span 3;
+}
+
+.config-summary-card h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.config-summary-list {
+  grid-template-columns: minmax(110px, 0.45fr) minmax(0, 1fr);
+}
+
+.config-path-list {
+  grid-template-columns: minmax(110px, 0.28fr) minmax(0, 1fr);
+}
+
+.wrap-value {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.config-restart-note {
+  margin: 10px 0 0;
+}
+
+.config-restart-note strong {
+  color: var(--warning);
+}
+
 .config-edit-form {
   display: grid;
   gap: 14px;
@@ -668,12 +713,15 @@ th {
   .grid,
   .job-output-grid,
   .server-snapshot-grid,
+  .config-summary-grid,
   dl {
     grid-template-columns: 1fr;
   }
 
   .server-snapshot-grid .summary-card-compact,
-  .server-snapshot-grid .summary-card-wide {
+  .server-snapshot-grid .summary-card-wide,
+  .config-summary-card,
+  .config-summary-card-wide {
     grid-column: 1;
   }
 

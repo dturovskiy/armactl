@@ -154,6 +154,9 @@ def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
     response = client.get("/config", follow_redirects=False)
 
     assert response.status_code == 200
+    assert 'class="config-summary-grid"' in response.text
+    for heading in ("Status", "Server", "Network", "Paths", "Basic server settings"):
+        assert f">{heading}<" in response.text
     assert 'method="post" action="/config"' in response.text
     assert 'name="name"' in response.text
     assert 'value="Old Server"' in response.text
@@ -161,7 +164,48 @@ def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
     assert 'value="OldScenario.conf"' in response.text
     assert 'name="server_max_view_distance"' in response.text
     assert 'name="server_min_grass_distance"' in response.text
+    assert "Restart the server to apply saved config changes." in response.text
     assert response.text.count('class="field-wide"') >= 2
+
+    form_match = re.search(
+        r'<form method="post" action="/config" class="config-edit-form">(.*?)</form>',
+        response.text,
+        re.S,
+    )
+    assert form_match is not None
+    editable_names = set(re.findall(r'name="([^"]+)"', form_match.group(1)))
+    assert editable_names == {
+        "csrf_token",
+        "name",
+        "scenario_id",
+        "max_players",
+        "server_max_view_distance",
+        "server_min_grass_distance",
+        "visible",
+        "battleye",
+    }
+    assert "bind_port" not in editable_names
+    assert "rcon_port" not in editable_names
+    assert "password" not in editable_names
+
+
+def test_config_page_groups_summary_and_escapes_long_values(tmp_path: Path, monkeypatch):
+    config = _sample_config()
+    config["game"]["name"] = "Very long <script>alert(1)</script> server name"
+    config["game"]["scenarioId"] = "Scenarios/VeryLongScenario<&>.conf"
+    config_path = _write_config(tmp_path, config)
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+
+    response = client.get("/config", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "config-summary-card" in response.text
+    assert "config-path-list" in response.text
+    assert str(config_path) in response.text
+    assert "Scenarios/VeryLongScenario&lt;&amp;&gt;.conf" in response.text
+    assert "Very long &lt;script&gt;alert(1)&lt;/script&gt; server name" in response.text
+    assert "<script>alert(1)</script>" not in response.text
+    assert 'class="wrap-value"' in response.text
 
 
 def test_config_edit_unauthenticated_redirects_to_login(tmp_path: Path):

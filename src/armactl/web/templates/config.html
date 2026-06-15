@@ -23,29 +23,51 @@
 </section>
 {% endif %}
 
-<section class="panel full-width">
+<section class="dashboard-section config-summary-section">
   <h2>{{ t("Server Config") }}</h2>
   {% if page.available %}
-    <dl>
-      <dt>{{ t("Instance") }}</dt><dd>{{ page.instance }}</dd>
-      <dt>{{ t("Lifecycle") }}</dt><dd>{{ t(page.status.lifecycle) }}</dd>
-      <dt>{{ t("Installed") }}</dt><dd>{{ t("yes") if page.status.installed else t("no") }}</dd>
-      <dt>{{ t("Running") }}</dt><dd>{{ t("yes") if page.status.running else t("no") }}</dd>
-      <dt>{{ t("Name") }}</dt><dd>{{ page.config.server_name or t("unknown") }}</dd>
-      <dt>{{ t("Scenario") }}</dt><dd>{{ page.config.scenario_id or t("unknown") }}</dd>
-      <dt>{{ t("Max players") }}</dt><dd>{{ page.config.max_players or t("unknown") }}</dd>
-      <dt>{{ t("Visible") }}</dt><dd>{{ t(page.config.visible_text) }}</dd>
-      <dt>{{ t("BattlEye") }}</dt><dd>{{ t(page.config.battleye_text) }}</dd>
-      <dt>{{ t("Game port") }}</dt><dd>{{ page.config.bind_port or t("unknown") }}</dd>
-      <dt>{{ t("A2S port") }}</dt><dd>{{ page.config.a2s_port or t("unknown") }}</dd>
-      <dt>{{ t("RCON port") }}</dt><dd>{{ page.config.rcon_port or t("unknown") }}</dd>
-      <dt>{{ t("Config path") }}</dt><dd>{{ page.paths.config_path or t("unknown") }}</dd>
-      <dt>{{ t("Instance root") }}</dt><dd>{{ page.paths.instance_root or t("unknown") }}</dd>
-      <dt>{{ t("Install dir") }}</dt><dd>{{ page.paths.install_dir or t("unknown") }}</dd>
-    </dl>
+    <div class="config-summary-grid">
+      <article class="panel config-summary-card">
+        <h3>{{ t("Status") }}</h3>
+        <dl class="config-summary-list">
+          <dt>{{ t("Instance") }}</dt><dd>{{ page.instance }}</dd>
+          <dt>{{ t("Lifecycle") }}</dt><dd>{{ t(page.status.lifecycle) }}</dd>
+          <dt>{{ t("Installed") }}</dt><dd>{{ t("yes") if page.status.installed else t("no") }}</dd>
+          <dt>{{ t("Running") }}</dt><dd>{{ t("yes") if page.status.running else t("no") }}</dd>
+        </dl>
+      </article>
+      <article class="panel config-summary-card config-summary-card-wide">
+        <h3>{{ t("Server") }}</h3>
+        <dl class="config-summary-list">
+          <dt>{{ t("Name") }}</dt><dd class="wrap-value">{{ page.config.server_name or t("unknown") }}</dd>
+          <dt>{{ t("Scenario") }}</dt><dd class="wrap-value">{{ page.config.scenario_id or t("unknown") }}</dd>
+          <dt>{{ t("Max players") }}</dt><dd>{{ page.config.max_players or t("unknown") }}</dd>
+          <dt>{{ t("Visible") }}</dt><dd>{{ t(page.config.visible_text) }}</dd>
+          <dt>{{ t("BattlEye") }}</dt><dd>{{ t(page.config.battleye_text) }}</dd>
+        </dl>
+      </article>
+      <article class="panel config-summary-card">
+        <h3>{{ t("Network") }}</h3>
+        <dl class="config-summary-list">
+          <dt>{{ t("Game port") }}</dt><dd>{{ page.config.bind_port or t("unknown") }}</dd>
+          <dt>{{ t("A2S port") }}</dt><dd>{{ page.config.a2s_port or t("unknown") }}</dd>
+          <dt>{{ t("RCON port") }}</dt><dd>{{ page.config.rcon_port or t("unknown") }}</dd>
+        </dl>
+      </article>
+      <article class="panel config-summary-card config-summary-card-wide">
+        <h3>{{ t("Paths") }}</h3>
+        <dl class="config-summary-list config-path-list">
+          <dt>{{ t("Config path") }}</dt><dd class="wrap-value">{{ page.paths.config_path or t("unknown") }}</dd>
+          <dt>{{ t("Instance root") }}</dt><dd class="wrap-value">{{ page.paths.instance_root or t("unknown") }}</dd>
+          <dt>{{ t("Install dir") }}</dt><dd class="wrap-value">{{ page.paths.install_dir or t("unknown") }}</dd>
+        </dl>
+      </article>
+    </div>
   {% else %}
-    <p class="muted">{{ t("Config data is unavailable.") }}</p>
-    <p class="error">{{ t(page.error) }}</p>
+    <section class="panel full-width">
+      <p class="muted">{{ t("Config data is unavailable.") }}</p>
+      <p class="error">{{ t(page.error) }}</p>
+    </section>
   {% endif %}
 </section>
 
@@ -64,6 +86,7 @@
     <h2>{{ t("Basic server settings") }}</h2>
     <span class="muted">{{ t("Restart required") }}</span>
   </div>
+  <p class="config-restart-note muted"><strong>{{ t("Restart required") }}:</strong> {{ t("Restart the server to apply saved config changes.") }}</p>
   <form method="post" action="/config" class="config-edit-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="form-grid">
