@@ -94,6 +94,36 @@ Use two launch layers:
 remote-server operating mode. After setup, operators should not need SSH just to
 keep the panel available.
 
+## Game server schedule and boot policy
+
+The web panel autostart policy and the game server autostart policy are
+separate.
+
+armactl-web.service should be enabled after install so the browser panel comes
+back after VM boot and waits for operator connections. This does not guarantee
+that armareforger.service also starts after VM boot.
+
+The existing Arma restart timer controls scheduled restarts. A timer that only
+uses calendar entries such as 06:00 and 18:00 plus Persistent=true catches up
+missed scheduled events after downtime, but it does not mean start the game
+server immediately after every VM boot. If armareforger.service is disabled and
+the VM reboots at an arbitrary time, the server may stay stopped until the next
+timer event or manual start.
+
+The web panel should make this explicit:
+
+- show service enabled/disabled and timer enabled/disabled separately;
+- show the next scheduled restart time;
+- warn when the game service is disabled and no boot-start policy is active;
+- provide schedule controls through the same backend used by CLI/TUI;
+- add a separate setting for start game server after VM boot if operators need
+  immediate boot recovery.
+
+Future host controls should be separate from game-server controls. VM reboot or
+shutdown can be useful for remote operators, but they should be owner/admin
+only, require strong confirmation, write audit records, and remain outside the
+normal server start/stop/restart controls.
+
 ## Remote access and local smoke scenarios
 
 Target remote scenario:

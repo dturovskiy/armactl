@@ -128,6 +128,21 @@ ssh -L 8765:127.0.0.1:8765 operator@GAME_VM
 Then open `http://127.0.0.1:8765/login` locally. Test wrong password, correct
 password, dashboard rendering, logout, and service status output.
 
+Game-server boot policy checks:
+
+Run these commands on the game VM:
+
+    systemctl is-enabled armareforger.service armareforger-restart.timer armactl-web.service
+    systemctl cat armareforger-restart.timer
+    systemctl list-timers --all | grep -E 'armareforger|armactl'
+
+Interpret the game service and timer separately. armactl-web.service should be
+enabled so the panel comes back after VM boot. armareforger-restart.timer being
+enabled only proves the scheduled restart timer is active; it does not always
+prove that the game server starts immediately after every VM boot. If the game
+service is disabled, confirm the intended recovery policy before relying on a
+remote reboot.
+
 Basic lifecycle checks:
 
 ```bash

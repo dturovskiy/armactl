@@ -181,6 +181,16 @@ Completed foundation:
 
 Planned but not implemented:
 
+- Schedule and boot policy need web work. On the serhiivka VM,
+  armareforger.service was disabled while armareforger-restart.timer was
+  enabled with calendar restarts at 06:00 and 18:00 plus Persistent=true. That
+  means scheduled restart recovery exists, but immediate game-server start after
+  every VM boot is not guaranteed. Web should show service enabled state, timer
+  enabled state, next run, and an autostart warning, then add schedule controls
+  through service_manager.
+- Host reboot/shutdown controls are useful later, but must be separate from
+  game-server controls, owner/admin-only, double-confirmed, and audited.
+
 - Player registry and moderation are now part of the web roadmap. Store player
   identity/activity data per instance, for example in ~/armactl-data/INSTANCE/players.db,
   not only in the web runtime database. Use reliable RCON/log/SAT adapters for
@@ -194,14 +204,17 @@ Next recommended implementation order:
    environment-specific outcome.
 2. Add optional IP allowlist / trusted proxy handling if operators need direct
    external bind deployments; this is not implemented yet.
-3. Add update flow to explicit background job handlers if a safe backend API is
+3. Add web schedule controls and boot/autostart visibility before broader
+   management edits, because this is already available in TUI and affects
+   remote recovery after VM reboot.
+4. Add update flow to explicit background job handlers if a safe backend API is
    introduced.
-4. Add edit/save/delete flows for mods, admins, bot settings, and extended
+5. Add edit/save/delete flows for mods, admins, bot settings, and extended
    config fields through existing backend modules; keep any raw JSON config
    editor as a separate emergency/admin-only design.
-5. Add atomic overwrite/delete/rename flows on top of the safe filesystem
+6. Add atomic overwrite/delete/rename flows on top of the safe filesystem
    adapter after single-file upload has been reviewed.
-6. Add player registry and ban-list management after the identity ingestion
+7. Add player registry and ban-list management after the identity ingestion
    source is validated on a real server log/RCON sample.
 
 ## Implementation prompt template

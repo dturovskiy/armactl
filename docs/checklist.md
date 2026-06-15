@@ -272,6 +272,9 @@
 - [x] Додати компактні dashboard meters для FPS/CPU/RAM/Disk поверх live-refresh даних
 - [ ] Спроєктувати окремий охайний FPS history chart після UI review
 - [x] Додати controlled start/stop/restart actions
+- [ ] Додати web schedule controls для restart timer: show/set/enable/disable/restart-now/next-run
+- [ ] Додати game server boot/autostart policy і dashboard warning, якщо service disabled без boot-start гарантії
+- [ ] Спроєктувати host reboot/shutdown controls як owner/admin-only future flow з double-confirm і audit
 - [x] Додати web i18n adapter і theme preferences поверх існуючих `src/armactl/locales/*.json`
 - [x] Додати fast preferences UX: миттєве перемикання теми і lightweight language switch без зайвого важкого dashboard reload
 - [x] Додати background job metadata model перед long-running operations
