@@ -126,6 +126,12 @@ POST + CSRF + schedule permissions and audit timer set/enable/disable,
 restart-now, and game-service autostart enable/disable through
 `service_manager` without shelling out to the CLI.
 
+UI follow-up: `/schedule` is accepted as functional, but the page should be
+revisited after the core management flows are complete. The timer schedule,
+timer enable/disable, game-service autostart, and restart-now controls should be
+visually separated into calmer operator sections, with destructive actions kept
+away from routine schedule editing.
+
 Future host controls should be separate from game-server controls. VM reboot or
 shutdown can be useful for remote operators, but they should be owner/admin
 only, require strong confirmation, write audit records, and remain outside the

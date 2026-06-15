@@ -274,6 +274,7 @@
 - [x] Додати controlled start/stop/restart actions
 - [x] Додати web schedule controls для restart timer: show/set/enable/disable/restart-now/next-run
 - [x] Додати game server boot/autostart policy, dashboard warning і web enable/disable controls
+- [ ] Переглянути UI `/schedule`: рознести timer/autostart/restart-now у спокійніші секції без візуального перевантаження
 - [ ] Спроєктувати host reboot/shutdown controls як owner/admin-only future flow з double-confirm і audit
 - [ ] Спроєктувати diagnostic command palette для allowlisted debug/report commands без raw shell
 - [ ] Спроєктувати break-glass web terminal як disabled-by-default future flow з IP allowlist/trusted proxy/extra auth/audit

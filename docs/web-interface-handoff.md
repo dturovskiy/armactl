@@ -195,6 +195,10 @@ Planned but not implemented:
   autostart warning, then mutates timer set/enable/disable/restart-now and
   game-service autostart enable/disable through service_manager with CSRF,
   permissions, and audit logging.
+  UI follow-up: `/schedule` is functionally accepted for now, but it should get
+  a later polish pass. The timer, game-service autostart, and restart-now
+  controls are currently dense; regroup them into calmer operator sections once
+  the remaining management flows are in place.
 - Host reboot/shutdown controls are useful later, but must be separate from
   game-server controls, owner/admin-only, double-confirmed, and audited.
 
