@@ -10,9 +10,25 @@
 </form>
 {% endblock %}
 {% block content %}
+{% if result %}
+<section class="notice-panel full-width service-result result-{{ result.status_label }} admins-message">
+  <h2>{{ t("Admin action result") }}</h2>
+  <dl class="key-value-list">
+    <dt>{{ t("Action") }}</dt><dd>{{ t(result.action) }}</dd>
+    <dt>{{ t("Target") }}</dt><dd class="wrap-value">{{ result.target or t("unknown") }}</dd>
+    <dt>{{ t("Status") }}</dt><dd><span class="status-pill status-pill-{{ result.status_label }}">{{ t(result.status_label) }}</span></dd>
+    <dt>{{ t("Changed") }}</dt><dd>{{ t("yes") if result.changed else t("no") }}</dd>
+    <dt>{{ t("Message") }}</dt><dd class="wrap-value">{{ t(result.message) }}</dd>
+  </dl>
+</section>
+{% endif %}
+
 <section class="panel full-width">
   <h2>{{ t("Official Game Admins") }}</h2>
   {% if page.available %}
+    {% if can_manage_admins %}
+      <p class="notice-inline notice-restart muted"><strong>{{ t("Restart required") }}:</strong> {{ t("Restart the server to apply admin changes.") }}</p>
+    {% endif %}
     <dl>
       <dt>{{ t("Instance") }}</dt><dd>{{ page.instance }}</dd>
       <dt>{{ t("Config path") }}</dt><dd>{{ page.paths.config_path or t("unknown") }}</dd>
@@ -25,13 +41,26 @@
     {% endif %}
     {% if page.official_admins %}
       <table>
-        <thead><tr><th>{{ t("Identity ID") }}</th><th>{{ t("Label") }}</th><th>{{ t("Source") }}</th></tr></thead>
+        <thead><tr><th>{{ t("Identity ID") }}</th><th>{{ t("Label") }}</th><th>{{ t("Source") }}</th>{% if can_manage_admins %}<th>{{ t("Actions") }}</th>{% endif %}</tr></thead>
         <tbody>
         {% for admin in page.official_admins %}
           <tr>
             <td>{{ admin.identity_id }}</td>
             <td>{{ admin.name or t("none") }}</td>
             <td>{{ admin.source or t("unknown") }}</td>
+            {% if can_manage_admins %}
+              <td>
+                <form method="post" action="/admins/remove" class="admin-remove-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="admin_reference" value="{{ admin.identity_id }}">
+                  <label class="inline-confirm">
+                    <input type="checkbox" name="confirm" value="remove">
+                    {{ t("Confirm remove") }}
+                  </label>
+                  <button class="danger" type="submit">{{ t("Remove") }}</button>
+                </form>
+              </td>
+            {% endif %}
           </tr>
         {% endfor %}
         </tbody>
@@ -44,4 +73,28 @@
     <p class="error">{{ t(page.error) }}</p>
   {% endif %}
 </section>
+
+{% if page.available and can_manage_admins %}
+<section class="panel full-width admin-edit-panel">
+  <div class="section-heading-row">
+    <h2>{{ t("Add or update game admin") }}</h2>
+  </div>
+  <form method="post" action="/admins/add" class="config-edit-form admin-edit-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="form-grid">
+      <label class="field-wide">
+        <span>{{ t("Admin reference") }}</span>
+        <input type="text" name="admin_reference" autocomplete="off" maxlength="256" required>
+      </label>
+      <label class="field-wide">
+        <span>{{ t("Label") }}</span>
+        <input type="text" name="label" autocomplete="off" maxlength="128">
+      </label>
+    </div>
+    <div class="form-actions">
+      <button type="submit">{{ t("Add or update admin") }}</button>
+    </div>
+  </form>
+</section>
+{% endif %}
 {% endblock %}

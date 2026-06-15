@@ -704,6 +704,17 @@ button.danger {
   font: inherit;
 }
 
+.admin-remove-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-edit-panel {
+  margin-top: 18px;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

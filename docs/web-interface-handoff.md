@@ -184,6 +184,14 @@ Completed foundation:
     status pills, key-value/value-block layouts, and notice styles for
     restart-required, warning, success, and unavailable states. Keep future page
     work on these flat primitives and avoid nested cards.
+30. Safe web game-admin management: `/admins` now keeps read-only visibility
+    under `admins:view` and adds authenticated CSRF-protected add/update/remove
+    forms for users with `admins:manage`. Mutations go through a thin web
+    adapter over `admins_manager.add_admin()` / `remove_admin()`, require
+    confirmation for remove, render controlled success/error/unchanged states,
+    and append redacted JSONL audit events. Game admins remain separate from
+    web users/roles; SAT guard, raw JSON editing, and bulk/advanced admin flows
+    remain future work.
 
 Planned but not implemented:
 
@@ -231,9 +239,10 @@ Next recommended implementation order:
    `docs/web-interface-plan.md`.
 6. Add update flow to explicit background job handlers if a safe backend API is
    introduced.
-7. Add edit/save/delete flows for mods, admins, bot settings, and extended
-   config fields through existing backend modules; keep any raw JSON config
-   editor as a separate emergency/admin-only design.
+7. Add edit/save/delete flows for mods, bot settings, and extended config
+   fields through existing backend modules; keep any raw JSON config editor as
+   a separate emergency/admin-only design. Advanced/bulk admin workflows remain
+   future and should still avoid mixing game admins with web users/roles.
 8. Add atomic overwrite/delete/rename flows on top of the safe filesystem
    adapter after single-file upload has been reviewed.
 9. Add player registry and ban-list management after the identity ingestion

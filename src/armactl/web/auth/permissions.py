@@ -18,6 +18,7 @@ JOBS_VIEW = "jobs:view"
 CONFIG_VIEW = "config:view"
 MODS_VIEW = "mods:view"
 ADMINS_VIEW = "admins:view"
+ADMINS_MANAGE = "admins:manage"
 BOT_VIEW = "bot:view"
 SCHEDULE_VIEW = "schedule:view"
 SCHEDULE_MANAGE = "schedule:manage"
@@ -36,6 +37,7 @@ ALL_PERMISSIONS = frozenset(
         CONFIG_VIEW,
         MODS_VIEW,
         ADMINS_VIEW,
+        ADMINS_MANAGE,
         BOT_VIEW,
         SCHEDULE_VIEW,
         SCHEDULE_MANAGE,
