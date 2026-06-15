@@ -124,6 +124,40 @@ shutdown can be useful for remote operators, but they should be owner/admin
 only, require strong confirmation, write audit records, and remain outside the
 normal server start/stop/restart controls.
 
+## Diagnostics command palette and terminal boundary
+
+The MVP should not expose an arbitrary shell in the browser. A browser terminal
+is effectively SSH with a larger attack surface: command injection, accidental
+destructive commands, sudo/root escalation, transcript leakage, and confused
+operator context are all easy failure modes.
+
+The safer first step is a diagnostics command palette with allowlisted actions:
+
+- `armactl status` equivalent through backend APIs;
+- game service status and web service status;
+- restart timer status and next-run checks;
+- port checks;
+- config validation;
+- bounded recent game/web/bot logs;
+- bounded redacted diagnostic report collection;
+- refresh discovery/state;
+- restart the web panel only through an explicit audited service action.
+
+These actions should run through explicit handlers, preferably the web job
+model when output may be slow. They must use permissions, CSRF, audit logging,
+bounded output, and redaction. They should not accept arbitrary command text,
+shell fragments, pipes, redirects, sudo, or root-level input.
+
+A full web terminal can be considered later only as a disabled-by-default
+break-glass feature for a very small operator set, for example the technical
+architect and the hardware owner. It should require all of the following:
+HTTPS, trusted proxy handling, IP allowlist for the operators' public IPs,
+explicit `terminal:use` permission, extra re-auth before opening a session,
+short-lived sessions, transcript audit/redaction, and clear UI separation from
+normal server management. Any sudo/root use through the browser must be an
+explicit operator-provisioned decision, never a default armactl installation
+behavior.
+
 ## Remote access and local smoke scenarios
 
 Target remote scenario:
@@ -415,6 +449,10 @@ Preference UX should not make cheap choices feel expensive:
 - Optional IP allowlist and trusted proxy handling are future work; the current
   login throttle intentionally uses `request.client.host` and does not trust
   `X-Forwarded-For`.
+- Browser terminal access is future break-glass functionality, not MVP. Prefer
+  an allowlisted diagnostics command palette first. If a full terminal is ever
+  enabled, it must be disabled by default and gated by HTTPS, trusted proxy/IP
+  allowlist, extra auth, explicit permission, short sessions, and audit.
 - Secrets must be redacted in UI, logs, and API responses.
 - Web access to systemd must use the existing narrow privileged helper pattern,
   not broad passwordless sudo.

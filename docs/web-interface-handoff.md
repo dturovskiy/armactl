@@ -213,14 +213,23 @@ Next recommended implementation order:
 3. Add web schedule controls and boot/autostart visibility before broader
    management edits, because this is already available in TUI and affects
    remote recovery after VM reboot.
-4. Add update flow to explicit background job handlers if a safe backend API is
+4. Add a diagnostics command palette before any browser terminal. It should run
+   only registered safe commands such as status, timer status, port checks,
+   config validation, bounded logs/report collection, and web/game service
+   status. Use jobs, permissions, CSRF, audit, bounded/redacted output, and no
+   arbitrary shell input.
+5. Treat a full web terminal as a disabled-by-default break-glass future flow,
+   equivalent in risk to SSH. It must require HTTPS, trusted proxy/IP allowlist,
+   explicit operator permission, extra re-auth, short-lived sessions, transcript
+   auditing/redaction, and clear separation from normal dashboard operations.
+6. Add update flow to explicit background job handlers if a safe backend API is
    introduced.
-5. Add edit/save/delete flows for mods, admins, bot settings, and extended
+7. Add edit/save/delete flows for mods, admins, bot settings, and extended
    config fields through existing backend modules; keep any raw JSON config
    editor as a separate emergency/admin-only design.
-6. Add atomic overwrite/delete/rename flows on top of the safe filesystem
+8. Add atomic overwrite/delete/rename flows on top of the safe filesystem
    adapter after single-file upload has been reviewed.
-7. Add player registry and ban-list management after the identity ingestion
+9. Add player registry and ban-list management after the identity ingestion
    source is validated on a real server log/RCON sample.
 
 ## Implementation prompt template
