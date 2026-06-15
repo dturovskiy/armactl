@@ -629,6 +629,60 @@ button.danger {
   gap: 12px;
 }
 
+.schedule-time-form {
+  grid-column: span 2;
+}
+
+.schedule-form-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.schedule-time-list {
+  display: grid;
+  gap: 8px;
+}
+
+.schedule-time-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 8px;
+  align-items: end;
+}
+
+.schedule-time-row label {
+  min-width: 0;
+}
+
+.schedule-time-remove {
+  min-width: 42px;
+  min-height: 40px;
+  padding: 0;
+  font-size: 1.15rem;
+}
+
+.schedule-empty-note[hidden] {
+  display: none;
+}
+
+.schedule-toggle-card h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.schedule-toggle-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.schedule-toggle-actions form {
+  margin: 0;
+}
+
 .schedule-action-form label:not(.inline-confirm) {
   display: grid;
   gap: 6px;
@@ -636,7 +690,8 @@ button.danger {
   font-weight: 700;
 }
 
-.schedule-action-form input[type="text"] {
+.schedule-action-form input[type="text"],
+.schedule-action-form input[type="time"] {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -647,6 +702,18 @@ button.danger {
   background: var(--input-bg);
   color: var(--text);
   font: inherit;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .config-summary-list {

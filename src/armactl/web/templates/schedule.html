@@ -4,6 +4,7 @@
 {%- endmacro %}
 {% block title %}{{ t("Schedule - armactl web") }}{% endblock %}
 {% block heading %}{{ t("Schedule") }}{% endblock %}
+{% block extra_scripts %}<script defer src="{{ url_for('static', path='/js/schedule.js') }}?v={{ web_static_version }}"></script>{% endblock %}
 {% block topbar_actions %}
 <a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
 <form method="post" action="/logout" class="logout-form">
@@ -93,22 +94,59 @@
 <section class="dashboard-section">
   <h2>{{ t("Schedule Controls") }}</h2>
   <div class="schedule-actions-grid">
-    <form method="post" action="/schedule/set" class="panel schedule-action-form">
+    {% set schedule_times = timer.schedule.split(",") if timer.schedule else [] %}
+    <form method="post" action="/schedule/set" class="panel schedule-action-form schedule-time-form" data-schedule-time-form>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label>
+      <div class="schedule-form-heading">
         <span>{{ t("Restart Time(s)") }}</span>
-        <input type="text" name="schedule" value="{{ timer.schedule or '' }}" placeholder="{{ t('05:00, 13:30, 22:00') }}" maxlength="500" required>
-      </label>
+        <span class="muted">{{ t("Server time") }}</span>
+      </div>
+      <div class="schedule-time-list" data-schedule-time-list data-max-times="3">
+        {% for raw_time in schedule_times[:3] %}
+          {% set time_value = raw_time.strip() %}
+          {% if time_value %}
+            <div class="schedule-time-row" data-schedule-time-row>
+              <label>
+                <span class="sr-only">{{ t("Restart time") }}</span>
+                <input type="time" name="schedule_time" value="{{ time_value }}" step="60" required>
+              </label>
+              <button class="secondary schedule-time-remove" type="button" data-remove-schedule-time aria-label="{{ t('Remove time') }}">&times;</button>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+      <p class="muted schedule-empty-note" data-empty-schedule-time{% if schedule_times %} hidden{% endif %}>{{ t("No restart times configured.") }}</p>
+      <template data-schedule-time-template>
+        <div class="schedule-time-row" data-schedule-time-row>
+          <label>
+            <span class="sr-only">{{ t("Restart time") }}</span>
+            <input type="time" name="schedule_time" step="60" required>
+          </label>
+          <button class="secondary schedule-time-remove" type="button" data-remove-schedule-time aria-label="{{ t('Remove time') }}">&times;</button>
+        </div>
+      </template>
+      <noscript>
+        <label>
+          <span>{{ t("Restart Time(s)") }}</span>
+          <input type="text" name="schedule" value="{{ timer.schedule or '' }}" placeholder="{{ t('05:00, 13:30, 22:00') }}" maxlength="500">
+        </label>
+      </noscript>
+      <button class="secondary" type="button" data-add-schedule-time>{{ t("+ Add time") }}</button>
       <button type="submit">{{ t("Apply Schedule") }}</button>
     </form>
-    <form method="post" action="/schedule/enable" class="panel schedule-action-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button type="submit">{{ t("Enable Timer") }}</button>
-    </form>
-    <form method="post" action="/schedule/disable" class="panel schedule-action-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button class="secondary" type="submit">{{ t("Disable Timer") }}</button>
-    </form>
+    <article class="panel schedule-action-form schedule-toggle-card">
+      <h3>{{ t("Timer state") }}</h3>
+      <div class="schedule-toggle-actions">
+        <form method="post" action="/schedule/enable">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit">{{ t("Enable Timer") }}</button>
+        </form>
+        <form method="post" action="/schedule/disable">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="secondary" type="submit">{{ t("Disable Timer") }}</button>
+        </form>
+      </div>
+    </article>
     <form method="post" action="/schedule/restart-now" class="panel schedule-action-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label class="inline-confirm">

@@ -16,7 +16,8 @@ ACTION_SET_SCHEDULE = "schedule.set"
 ACTION_ENABLE_TIMER = "schedule.enable"
 ACTION_DISABLE_TIMER = "schedule.disable"
 ACTION_RESTART_NOW = "schedule.restart-now"
-WEB_TIME_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
+MAX_WEB_RESTART_TIMES = 3
+WEB_TIME_RE = re.compile(r"^\d{1,2}:\d{2}$")
 SUPPORTED_ACTIONS = frozenset(
     {
         ACTION_SET_SCHEDULE,
@@ -108,6 +109,8 @@ def _safe_schedule_string(value: object) -> str:
 def _normalize_web_schedule_entries(value: str) -> list[str]:
     """Normalize simple web schedule input into daily OnCalendar entries."""
     raw_entries = [entry.strip() for entry in re.split(r"[,;\s]+", value) if entry.strip()]
+    if len(raw_entries) > MAX_WEB_RESTART_TIMES:
+        return []
     normalized: list[str] = []
     seen: set[str] = set()
     for entry in raw_entries:
@@ -116,10 +119,9 @@ def _normalize_web_schedule_entries(value: str) -> list[str]:
         parts = entry.split(":")
         hour = int(parts[0])
         minute = int(parts[1])
-        second = int(parts[2]) if len(parts) == 3 else 0
-        if hour > 23 or minute > 59 or second > 59:
+        if hour > 23 or minute > 59:
             return []
-        normalized_entry = f"*-*-* {hour:02d}:{minute:02d}:{second:02d}"
+        normalized_entry = f"*-*-* {hour:02d}:{minute:02d}:00"
         if normalized_entry in seen:
             continue
         seen.add(normalized_entry)
@@ -325,7 +327,7 @@ def run_schedule_action(
                 instance=instance,
                 target=timer_name,
                 success=False,
-                message="Use one or more restart times such as 05:00, 13:30.",
+                message="Use one to three restart times such as 05:00, 13:30.",
                 exit_code=1,
                 performed=False,
                 schedule=schedule_value,

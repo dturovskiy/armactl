@@ -143,6 +143,19 @@ def _audit_events(data_root: Path) -> list[dict]:
     return [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
 
 
+def test_schedule_js_asset_is_served(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.get("/static/js/schedule.js", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "data-schedule-time-form" in response.text
+    assert "data-add-schedule-time" in response.text
+    assert "maxTimes" in response.text
+
+
 def test_schedule_page_requires_authentication(tmp_path: Path):
     from armactl.web.app import create_app
 
@@ -210,6 +223,13 @@ def test_schedule_page_renders_timer_and_boot_policy_states(tmp_path: Path, monk
     assert "Boot Policy" in response.text
     assert "Autostart" in response.text
     assert "enabled" in response.text
+    assert "/static/js/schedule.js" in response.text
+    assert 'type="time"' in response.text
+    assert "data-add-schedule-time" in response.text
+    assert "05:00" in response.text
+    assert "20:30" in response.text
+    assert "Enable Timer" in response.text
+    assert "Disable Timer" in response.text
 
 
 def test_schedule_page_warns_when_game_service_autostart_disabled(
@@ -271,7 +291,7 @@ def test_schedule_set_success_writes_safe_audit(tmp_path: Path, monkeypatch):
         "/schedule/set",
         data={
             "csrf_token": csrf_token,
-            "schedule": "05:00; 13:30 22:00:15",
+            "schedule_time": ["05:00", "13:30", "22:00"],
         },
         follow_redirects=False,
     )
@@ -282,7 +302,7 @@ def test_schedule_set_success_writes_safe_audit(tmp_path: Path, monkeypatch):
     assert calls == [
         (
             "default",
-            ["*-*-* 05:00:00", "*-*-* 13:30:00", "*-*-* 22:00:15"],
+            ["*-*-* 05:00:00", "*-*-* 13:30:00", "*-*-* 22:00:00"],
         )
     ]
     event = _audit_events(tmp_path)[0]
@@ -294,7 +314,7 @@ def test_schedule_set_success_writes_safe_audit(tmp_path: Path, monkeypatch):
     assert event["details"]["schedule_entries"] == [
         "*-*-* 05:00:00",
         "*-*-* 13:30:00",
-        "*-*-* 22:00:15",
+        "*-*-* 22:00:00",
     ]
     audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(encoding="utf-8")
     assert "raw-schedule-secret" not in audit_text
@@ -327,7 +347,7 @@ def test_schedule_set_rejects_non_time_web_input(tmp_path: Path, monkeypatch):
     )
 
     assert response.status_code == 400
-    assert "Use one or more restart times such as 05:00, 13:30." in response.text
+    assert "Use one to three restart times such as 05:00, 13:30." in response.text
     assert "raw-schedule-secret" not in response.text
     event = _audit_events(tmp_path)[0]
     assert event["action"] == "schedule.set"
@@ -336,6 +356,35 @@ def test_schedule_set_rejects_non_time_web_input(tmp_path: Path, monkeypatch):
     assert "raw-schedule-secret" not in (
         tmp_path / "logs" / "web" / "audit.log"
     ).read_text(encoding="utf-8")
+
+
+def test_schedule_set_rejects_more_than_three_web_times(tmp_path: Path, monkeypatch):
+    from armactl.web.services import schedule_actions
+
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        schedule_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(),
+    )
+    monkeypatch.setattr(
+        schedule_actions.service_manager,
+        "update_restart_timer_schedule",
+        AssertionError,
+    )
+    csrf_token = _schedule_csrf_token(client)
+
+    response = client.post(
+        "/schedule/set",
+        data={
+            "csrf_token": csrf_token,
+            "schedule_time": ["01:00", "02:00", "03:00", "04:00"],
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Use one to three restart times such as 05:00, 13:30." in response.text
 
 
 def test_schedule_set_failure_writes_safe_audit(tmp_path: Path, monkeypatch):

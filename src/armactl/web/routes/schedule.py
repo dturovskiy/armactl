@@ -141,12 +141,16 @@ def schedule_page(request: Request) -> Response:
 
 
 @router.post("/schedule/set", response_class=HTMLResponse)
-def set_schedule(
-    request: Request,
-    csrf_token: str = Form(default=""),
-    schedule: str = Form(default=""),
-) -> Response:
+async def set_schedule(request: Request) -> Response:
     """Set the restart timer OnCalendar schedule."""
+    form = await request.form()
+    csrf_token = str(form.get("csrf_token") or "")
+    schedule_times = [
+        str(value).strip()
+        for value in form.getlist("schedule_time")
+        if str(value).strip()
+    ]
+    schedule = ", ".join(schedule_times) if schedule_times else str(form.get("schedule") or "")
     return _run_schedule_action(
         request,
         action=schedule_actions.ACTION_SET_SCHEDULE,
