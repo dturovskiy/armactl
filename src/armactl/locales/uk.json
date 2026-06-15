@@ -909,6 +909,8 @@
     "Network": "Мережа",
     "Config saved": "Конфіг збережено",
     "Config saved. Restart the server to apply these changes.": "Конфіг збережено. Перезапустіть сервер, щоб застосувати ці зміни.",
+    "No config changes": "Змін конфігу немає",
+    "Config was unchanged; no restart is required.": "Конфіг не змінився; перезапуск не потрібен.",
     "Config was not saved.": "Конфіг не збережено.",
     "Audit warning": "Попередження аудиту",
     "Config saved but audit logging failed.": "Конфіг збережено, але запис аудиту не вдався.",

@@ -156,6 +156,17 @@ def _audit_events(data_root: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in _audit_log_text(data_root).splitlines()]
 
 
+def _unchanged_post_data(csrf_token: str) -> dict[str, str]:
+    return {
+        "csrf_token": csrf_token,
+        "name": "Old Server",
+        "scenario_id": "OldScenario.conf",
+        "max_players": "32",
+        "server_max_view_distance": "1600",
+        "server_min_grass_distance": "30",
+    }
+
+
 def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
     config_path = _write_config(tmp_path)
     client = _authed_client(tmp_path, monkeypatch, config_path)
@@ -165,6 +176,9 @@ def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
     assert response.status_code == 200
     assert 'class="config-summary-grid"' in response.text
     assert "key-value-list config-summary-list" in response.text
+    assert "config.js" in response.text
+    assert "data-config-edit-form" in response.text
+    assert "data-config-dirty-note hidden" in response.text
     assert "status-pill status-pill-stopped" in response.text
     assert "notice-inline notice-restart" in response.text
     for heading in ("Status", "Server", "Network", "Paths", "Basic server settings"):
@@ -180,7 +194,7 @@ def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
     assert response.text.count('class="field-wide"') >= 2
 
     form_match = re.search(
-        r'<form method="post" action="/config" class="config-edit-form">(.*?)</form>',
+        r'<form method="post" action="/config" class="config-edit-form"[^>]*>(.*?)</form>',
         response.text,
         re.S,
     )
@@ -356,6 +370,35 @@ def test_config_edit_updates_allowlisted_fields_creates_backup_and_preserves_res
     audit_text = _audit_log_text(tmp_path)
     for secret in ("admin-password-secret", "raw-rcon-secret"):
         assert secret not in audit_text
+
+
+def test_config_edit_noop_save_does_not_backup_or_request_restart(
+    tmp_path: Path,
+    monkeypatch,
+):
+    original_config = _sample_config()
+    config_path = _write_config(tmp_path, deepcopy(original_config))
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+    csrf_token = _form_token(client.get("/config").text)
+
+    response = client.post(
+        "/config",
+        data=_unchanged_post_data(csrf_token),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/config?unchanged=1"
+    assert json.loads(config_path.read_text()) == original_config
+    assert list(config_path.parent.glob("config.json.before-web-config-save-*.bak")) == []
+    audit_path = tmp_path / "logs" / "web" / "audit.log"
+    assert not audit_path.exists() or audit_path.read_text(encoding="utf-8") == ""
+
+    unchanged_page = client.get("/config?unchanged=1", follow_redirects=False)
+    assert unchanged_page.status_code == 200
+    assert "No config changes" in unchanged_page.text
+    assert "Config was unchanged; no restart is required." in unchanged_page.text
+    assert "notice-success" not in unchanged_page.text
 
 
 @pytest.mark.parametrize(

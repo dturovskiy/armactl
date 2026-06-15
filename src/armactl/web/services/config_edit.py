@@ -28,7 +28,7 @@ class ConfigEditResult:
     """Safe result for a successful config edit."""
 
     config_path: Path
-    backup_path: Path
+    backup_path: Path | None
     changed_fields: tuple[str, ...]
 
 
@@ -229,6 +229,12 @@ def save_basic_config_file(config_path: Path | str, form: Mapping[str, Any]) -> 
 
     updated = _updated_config(data, form)
     changed_fields = _changed_fields(data, updated)
+    if not changed_fields:
+        return ConfigEditResult(
+            config_path=path,
+            backup_path=None,
+            changed_fields=changed_fields,
+        )
     backup_path = create_web_config_backup(path)
     try:
         config_manager.save_config(path, updated, backup=False)
@@ -258,7 +264,7 @@ def _audit_config_save(
     success: bool,
     message: str,
     changed_fields: tuple[str, ...],
-    backup_path: Path | str = "",
+    backup_path: Path | str | None = None,
 ) -> None:
     append_audit_event(
         audit_log_path,
@@ -302,6 +308,8 @@ def save_default_config_and_audit(
         except AuditLogError:
             pass
         raise
+    if not result.changed_fields:
+        return result
 
     try:
         _audit_config_save(

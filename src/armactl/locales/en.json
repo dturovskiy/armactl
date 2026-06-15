@@ -312,6 +312,8 @@
     "Network": "Network",
     "Config saved": "Config saved",
     "Config saved. Restart the server to apply these changes.": "Config saved. Restart the server to apply these changes.",
+    "No config changes": "No config changes",
+    "Config was unchanged; no restart is required.": "Config was unchanged; no restart is required.",
     "Config was not saved.": "Config was not saved.",
     "Audit warning": "Audit warning",
     "Config saved but audit logging failed.": "Config saved but audit logging failed.",
