@@ -272,13 +272,14 @@
 - [x] Додати компактні dashboard meters для FPS/CPU/RAM/Disk поверх live-refresh даних
 - [ ] Спроєктувати окремий охайний FPS history chart після UI review
 - [x] Додати controlled start/stop/restart actions
-- [ ] Додати web schedule controls для restart timer: show/set/enable/disable/restart-now/next-run
-- [ ] Додати game server boot/autostart policy і dashboard warning, якщо service disabled без boot-start гарантії
+- [x] Додати web schedule controls для restart timer: show/set/enable/disable/restart-now/next-run
+- [x] Додати game server boot/autostart policy і dashboard warning, якщо service disabled без boot-start гарантії
 - [ ] Спроєктувати host reboot/shutdown controls як owner/admin-only future flow з double-confirm і audit
 - [ ] Спроєктувати diagnostic command palette для allowlisted debug/report commands без raw shell
 - [ ] Спроєктувати break-glass web terminal як disabled-by-default future flow з IP allowlist/trusted proxy/extra auth/audit
 - [x] Додати web i18n adapter і theme preferences поверх існуючих `src/armactl/locales/*.json`
 - [x] Додати fast preferences UX: миттєве перемикання теми і lightweight language switch без зайвого важкого dashboard reload
+- [ ] Додати security review gate для premium/mega, diagnostics, terminal, IP allowlist і host controls
 - [x] Додати background job metadata model перед long-running operations
 - [x] Додати background dispatcher/read-only jobs UI foundation перед install/repair/update flows
 - [x] Додати read-only management pages для config/mods/admins/bot через backend modules
@@ -307,6 +308,9 @@
 - [ ] Додати delete/rename для web file browser
 - [ ] Додати archive extraction flow після окремого threat model
 - [ ] Додати optional entitlement/feature-flag model, якщо продукт матиме платні tiers
+- [ ] Спроєктувати web product tiers: basic/plus/premium/mega окремо від ролей і permissions
+- [ ] Спроєктувати admin-only web user/role/tier management для Deus/Yaroslav operators
+- [ ] Спроєктувати IP allowlist management UI/API з CIDR, labels, expiry, audit і trusted-proxy rules
 - [ ] Додати remote HTTPS login smoke checklist
 
 ---

@@ -19,6 +19,8 @@ CONFIG_VIEW = "config:view"
 MODS_VIEW = "mods:view"
 ADMINS_VIEW = "admins:view"
 BOT_VIEW = "bot:view"
+SCHEDULE_VIEW = "schedule:view"
+SCHEDULE_MANAGE = "schedule:manage"
 
 ALL_PERMISSIONS = frozenset(
     {
@@ -35,6 +37,8 @@ ALL_PERMISSIONS = frozenset(
         MODS_VIEW,
         ADMINS_VIEW,
         BOT_VIEW,
+        SCHEDULE_VIEW,
+        SCHEDULE_MANAGE,
     }
 )
 

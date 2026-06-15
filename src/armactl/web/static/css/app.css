@@ -136,7 +136,8 @@ h2 {
 
 .status-pill-starting,
 .status-pill-incomplete,
-.status-pill-warning {
+.status-pill-warning,
+.status-pill-disabled {
   border-color: var(--warning);
   color: var(--warning);
 }
@@ -591,6 +592,63 @@ button.danger {
   font-size: 0.95rem;
 }
 
+.schedule-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.schedule-summary-card {
+  grid-column: span 2;
+  min-width: 0;
+}
+
+.schedule-summary-card-wide {
+  grid-column: span 2;
+}
+
+.schedule-summary-card h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.schedule-entry-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.schedule-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.schedule-action-form {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.schedule-action-form label:not(.inline-confirm) {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.schedule-action-form input[type="text"] {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+}
+
 .config-summary-list {
   grid-template-columns: minmax(110px, 0.45fr) minmax(0, 1fr);
 }
@@ -792,6 +850,7 @@ th {
   .job-output-grid,
   .server-snapshot-grid,
   .config-summary-grid,
+  .schedule-summary-grid,
   dl {
     grid-template-columns: 1fr;
   }
@@ -799,7 +858,9 @@ th {
   .server-snapshot-grid .summary-card-compact,
   .server-snapshot-grid .summary-card-wide,
   .config-summary-card,
-  .config-summary-card-wide {
+  .config-summary-card-wide,
+  .schedule-summary-card,
+  .schedule-summary-card-wide {
     grid-column: 1;
   }
 

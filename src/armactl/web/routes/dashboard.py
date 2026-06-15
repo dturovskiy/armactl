@@ -24,6 +24,7 @@ from armactl.web.auth.permissions import (
     JOBS_VIEW,
     LOGS_VIEW,
     MODS_VIEW,
+    SCHEDULE_VIEW,
 )
 from armactl.web.facade import load_dashboard_snapshot
 from armactl.web.i18n import resolve_language, translation_helpers
@@ -54,6 +55,7 @@ def _dashboard_permission_flags(current: CurrentSession) -> dict[str, bool]:
         "can_view_jobs": require_permission(current, JOBS_VIEW),
         "can_view_files": require_permission(current, FILES_READ),
         "can_view_logs": require_permission(current, LOGS_VIEW),
+        "can_view_schedule": require_permission(current, SCHEDULE_VIEW),
     }
 
 

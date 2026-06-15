@@ -187,13 +187,13 @@ Completed foundation:
 
 Planned but not implemented:
 
-- Schedule and boot policy need web work. On the serhiivka VM,
-  armareforger.service was disabled while armareforger-restart.timer was
-  enabled with calendar restarts at 06:00 and 18:00 plus Persistent=true. That
-  means scheduled restart recovery exists, but immediate game-server start after
-  every VM boot is not guaranteed. Web should show service enabled state, timer
-  enabled state, next run, and an autostart warning, then add schedule controls
-  through service_manager.
+- Schedule and boot policy visibility are implemented for the web panel. On
+  the serhiivka VM, armareforger.service was disabled while
+  armareforger-restart.timer was enabled with calendar restarts at 06:00 and
+  18:00 plus Persistent=true. The web `/schedule` page now shows service
+  enabled state, timer enabled state, OnCalendar values, next/last run, and an
+  autostart warning, then mutates set/enable/disable/restart-now through
+  service_manager with CSRF, permissions, and audit logging.
 - Host reboot/shutdown controls are useful later, but must be separate from
   game-server controls, owner/admin-only, double-confirmed, and audited.
 
@@ -210,9 +210,8 @@ Next recommended implementation order:
    environment-specific outcome.
 2. Add optional IP allowlist / trusted proxy handling if operators need direct
    external bind deployments; this is not implemented yet.
-3. Add web schedule controls and boot/autostart visibility before broader
-   management edits, because this is already available in TUI and affects
-   remote recovery after VM reboot.
+3. Smoke-test the web schedule controls and boot/autostart warning on a real
+   target VM, because this affects remote recovery expectations after VM reboot.
 4. Add a diagnostics command palette before any browser terminal. It should run
    only registered safe commands such as status, timer status, port checks,
    config validation, bounded logs/report collection, and web/game service
@@ -222,6 +221,9 @@ Next recommended implementation order:
    equivalent in risk to SSH. It must require HTTPS, trusted proxy/IP allowlist,
    explicit operator permission, extra re-auth, short-lived sessions, transcript
    auditing/redaction, and clear separation from normal dashboard operations.
+   Before implementing terminal, host controls, premium diagnostics, or
+   allowlist management, add and pass the security review gate from
+   `docs/web-interface-plan.md`.
 6. Add update flow to explicit background job handlers if a safe backend API is
    introduced.
 7. Add edit/save/delete flows for mods, admins, bot settings, and extended

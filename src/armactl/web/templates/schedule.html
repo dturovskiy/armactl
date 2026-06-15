@@ -1,0 +1,127 @@
+{% extends "layout.html" %}
+{% macro bool_pill(value) -%}
+  <span class="status-pill {% if value is true %}status-pill-yes{% elif value is false %}status-pill-no{% else %}status-pill-unknown{% endif %}">{{ t("yes") if value is true else t("no") if value is false else t("unknown") }}</span>
+{%- endmacro %}
+{% block title %}{{ t("Schedule - armactl web") }}{% endblock %}
+{% block heading %}{{ t("Schedule") }}{% endblock %}
+{% block topbar_actions %}
+<a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
+<form method="post" action="/logout" class="logout-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <span class="user-label">{{ current_user.username }}</span>
+  <button type="submit">{{ t("Log out") }}</button>
+</form>
+{% endblock %}
+{% block content %}
+{% set timer = page.timer if page.timer is defined else {} %}
+{% set policy = page.service_policy if page.service_policy is defined else {} %}
+{% if result %}
+<section class="notice-panel full-width service-result result-{{ result.status_label }} schedule-message">
+  <h2>{{ t("Schedule action result") }}</h2>
+  <dl class="key-value-list">
+    <dt>{{ t("Action") }}</dt><dd>{{ t(result.action) }}</dd>
+    <dt>{{ t("Target") }}</dt><dd class="wrap-value">{{ result.target or t("unknown") }}</dd>
+    <dt>{{ t("Status") }}</dt><dd><span class="status-pill status-pill-{{ result.status_label }}">{{ t(result.status_label) }}</span></dd>
+    <dt>{{ t("Performed") }}</dt><dd>{{ t("yes") if result.performed else t("no") }}</dd>
+    {% if result.schedule %}
+      <dt>{{ t("Schedule") }}</dt><dd class="wrap-value">{{ result.schedule }}</dd>
+    {% endif %}
+    <dt>{{ t("Message") }}</dt><dd class="wrap-value">{{ t(result.message) }}</dd>
+  </dl>
+</section>
+{% endif %}
+
+<section class="dashboard-section schedule-summary-section">
+  <h2>{{ t("Restart Timer") }}</h2>
+  {% if page.available %}
+    <div class="schedule-summary-grid">
+      <article class="panel schedule-summary-card">
+        <h3>{{ t("Status") }}</h3>
+        <dl class="key-value-list config-summary-list">
+          <dt>{{ t("Instance") }}</dt><dd>{{ page.instance }}</dd>
+          <dt>{{ t("Timer unit") }}</dt><dd class="wrap-value">{{ timer.timer_name or t("unknown") }}</dd>
+          <dt>{{ t("Installed") }}</dt><dd>{{ bool_pill(timer.exists) }}</dd>
+          <dt>{{ t("Active") }}</dt><dd>{{ bool_pill(timer.active) }}</dd>
+          <dt>{{ t("Enabled") }}</dt><dd>{{ bool_pill(timer.enabled) }}</dd>
+          <dt>{{ t("Active state") }}</dt><dd><span class="status-pill status-pill-{{ timer.active_state or 'unknown' }}">{{ t(timer.active_state or "unknown") }}</span></dd>
+          <dt>{{ t("Unit file state") }}</dt><dd><span class="status-pill status-pill-{{ timer.unit_file_state or 'unknown' }}">{{ t(timer.unit_file_state or "unknown") }}</span></dd>
+        </dl>
+      </article>
+      <article class="panel schedule-summary-card schedule-summary-card-wide">
+        <h3>{{ t("Current Schedule") }}</h3>
+        <dl class="key-value-list config-summary-list">
+          <dt>{{ t("Schedule") }}</dt><dd class="wrap-value">{{ timer.schedule_display or t("unknown") }}</dd>
+          <dt>{{ t("OnCalendar") }}</dt>
+          <dd class="wrap-value">
+            {% if timer.schedule_entries %}
+              <ul class="schedule-entry-list">
+                {% for entry in timer.schedule_entries %}
+                  <li>{{ entry }}</li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              {{ t("unknown") }}
+            {% endif %}
+          </dd>
+          <dt>{{ t("Next run") }}</dt><dd class="wrap-value">{{ timer.next_run or t("unknown") }}</dd>
+          <dt>{{ t("Last run") }}</dt><dd class="wrap-value">{{ timer.last_trigger or t("unknown") }}</dd>
+        </dl>
+      </article>
+      <article class="panel schedule-summary-card schedule-summary-card-wide">
+        <h3>{{ t("Boot Policy") }}</h3>
+        <dl class="key-value-list config-summary-list">
+          <dt>{{ t("Service unit") }}</dt><dd class="wrap-value">{{ policy.service_name or t("unknown") }}</dd>
+          <dt>{{ t("Installed") }}</dt><dd>{{ bool_pill(policy.exists) }}</dd>
+          <dt>{{ t("Active") }}</dt><dd>{{ bool_pill(policy.active) }}</dd>
+          <dt>{{ t("Autostart") }}</dt><dd><span class="status-pill status-pill-{{ policy.boot_policy or 'unknown' }}">{{ t(policy.boot_policy or "unknown") }}</span></dd>
+          <dt>{{ t("Active state") }}</dt><dd><span class="status-pill status-pill-{{ policy.active_state or 'unknown' }}">{{ t(policy.active_state or "unknown") }}</span></dd>
+        </dl>
+        {% if policy.warning %}
+          <p class="notice-inline notice-warning muted">{{ t(policy.warning_message) }}</p>
+        {% endif %}
+      </article>
+    </div>
+  {% else %}
+    <section class="notice-panel notice-unavailable full-width">
+      <p class="muted">{{ t("Schedule data is unavailable.") }}</p>
+      <p class="error">{{ t(page.error) }}</p>
+    </section>
+  {% endif %}
+</section>
+
+{% if page.available and can_manage_schedule %}
+<section class="dashboard-section">
+  <h2>{{ t("Schedule Controls") }}</h2>
+  <div class="schedule-actions-grid">
+    <form method="post" action="/schedule/set" class="panel schedule-action-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>
+        <span>{{ t("Restart Time(s)") }}</span>
+        <input type="text" name="schedule" value="{{ timer.schedule or '' }}" placeholder="{{ t('05:00, 13:30, 22:00') }}" maxlength="500" required>
+      </label>
+      <button type="submit">{{ t("Apply Schedule") }}</button>
+    </form>
+    <form method="post" action="/schedule/enable" class="panel schedule-action-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit">{{ t("Enable Timer") }}</button>
+    </form>
+    <form method="post" action="/schedule/disable" class="panel schedule-action-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="secondary" type="submit">{{ t("Disable Timer") }}</button>
+    </form>
+    <form method="post" action="/schedule/restart-now" class="panel schedule-action-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="inline-confirm">
+        <input type="checkbox" name="confirm" value="schedule.restart-now">
+        {{ t("Confirm restart now") }}
+      </label>
+      <button class="danger" type="submit">{{ t("Restart Now") }}</button>
+    </form>
+  </div>
+</section>
+{% elif page.available %}
+<section class="notice-panel notice-unavailable full-width">
+  <p class="muted">{{ t("Schedule changes require schedule management permission.") }}</p>
+</section>
+{% endif %}
+{% endblock %}

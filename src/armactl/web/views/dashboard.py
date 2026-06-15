@@ -214,6 +214,7 @@ def _management_links(
     can_view_bot: bool,
     can_view_files: bool,
     can_view_logs: bool,
+    can_view_schedule: bool = False,
 ) -> tuple[list[dict[str, str]], str]:
     if lifecycle not in ACTIVE_LIFECYCLES:
         if lifecycle == "not_installed":
@@ -227,6 +228,14 @@ def _management_links(
                 "href": "/config",
                 "label": "Config",
                 "description": "Server settings summary",
+            }
+        )
+    if can_view_schedule:
+        links.append(
+            {
+                "href": "/schedule",
+                "label": "Schedule",
+                "description": "Restart timer controls",
             }
         )
     if can_view_mods:
@@ -472,6 +481,27 @@ def _diagnostics(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str, 
             }
         )
 
+    service = _section(snapshot, "service")
+    if (
+        lifecycle in ACTIVE_LIFECYCLES
+        and service.get("available") is not False
+        and service.get("enabled") is False
+    ):
+        diagnostics.append(
+            {
+                "severity": "warning",
+                "title": "Boot Policy",
+                "message": (
+                    "Game service is disabled; scheduled restarts will not guarantee "
+                    "boot-start after host reboot."
+                ),
+                "items": [
+                    _item("Service unit", service.get("service_name", "unknown")),
+                    _item("Autostart", "disabled", translate_value=True),
+                ],
+            }
+        )
+
     sat = _section(snapshot, "sat")
     if lifecycle in ACTIVE_LIFECYCLES:
         sat_warning = _text(sat.get("warning"), "")
@@ -525,6 +555,7 @@ def build_dashboard_view(
     can_view_bot: bool,
     can_view_jobs: bool,
     can_view_files: bool = False,
+    can_view_schedule: bool = False,
     can_view_logs: bool = False,
 ) -> dict[str, Any]:
     """Shape a raw dashboard snapshot into a lifecycle-aware template model."""
@@ -540,6 +571,7 @@ def build_dashboard_view(
         can_view_admins=can_view_admins,
         can_view_bot=can_view_bot,
         can_view_files=can_view_files,
+        can_view_schedule=can_view_schedule,
         can_view_logs=can_view_logs,
     )
     return {

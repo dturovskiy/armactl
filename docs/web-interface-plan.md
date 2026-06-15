@@ -119,6 +119,12 @@ The web panel should make this explicit:
 - add a separate setting for start game server after VM boot if operators need
   immediate boot recovery.
 
+Implemented web slice: `/schedule` shows restart timer installed/active/enabled
+state, OnCalendar values, next/last run when available, and read-only
+`armareforger.service` autostart policy. Mutating controls use authenticated
+POST + CSRF + schedule permissions and audit set/enable/disable/restart-now
+through `service_manager` without shelling out to the CLI.
+
 Future host controls should be separate from game-server controls. VM reboot or
 shutdown can be useful for remote operators, but they should be owner/admin
 only, require strong confirmation, write audit records, and remain outside the
@@ -157,6 +163,62 @@ short-lived sessions, transcript audit/redaction, and clear UI separation from
 normal server management. Any sudo/root use through the browser must be an
 explicit operator-provisioned decision, never a default armactl installation
 behavior.
+
+## Security review gate for premium and break-glass features
+
+Premium, mega, diagnostics, terminal, IP allowlist management, host controls,
+and any paid entitlement checks must pass a separate security review before
+implementation is considered production-ready. Treat this as a release gate,
+not a nice-to-have.
+
+The review must cover:
+
+- **Trusted proxy and client IP handling:** never trust `X-Forwarded-For` or
+  similar headers unless the immediate proxy is configured as trusted. IP
+  allowlists must evaluate the real client IP from a validated proxy chain.
+- **IP allowlist bypass risks:** allowlist checks must happen server-side on
+  every protected route/action, not only in navigation or templates. Denied
+  allowlist decisions should be audited without logging unnecessary personal
+  data.
+- **Role, permission, and tier confusion:** product tiers such as `premium` or
+  `mega` must not silently imply dangerous low-level permissions. Routes should
+  check explicit permissions such as `terminal:use`, `host:manage`,
+  `allowlist:manage`, or `diagnostics:run`.
+- **Mega/platform-owner account takeover:** platform-owner flows should require
+  strong passwords, rate limiting, extra re-auth for sensitive actions, and a
+  path to add 2FA before broad external distribution.
+- **Backend enforcement:** hiding a button in the UI is never enough. Every
+  route, JSON endpoint, job enqueue path, and action handler must enforce auth,
+  permission, CSRF, tier/policy requirements, and audit behavior.
+- **Command execution:** diagnostics must use registered allowlisted handlers.
+  Do not accept arbitrary shell strings, pipes, redirects, environment
+  injection, sudo prompts, or root shell input.
+- **Terminal transcripts and redaction:** if a break-glass terminal is ever
+  enabled, transcripts and job output must redact tokens, cookies, passwords,
+  session IDs, CSRF values, `.env` values, and common secret-looking strings.
+  Operators must see that a transcript/audit trail exists.
+- **Privilege escalation:** no broad passwordless sudo. Reuse narrow privileged
+  helper patterns, explicit service actions, or operator-provisioned host
+  policies. Root-level browser access must never be installed by default.
+- **Audit integrity:** audit logs are operational evidence, not cryptographic
+  proof. Mutating and denied sensitive actions should be append-only where
+  practical, include user/action/target/result, and avoid secrets. Future
+  exports can add signing or remote shipping if needed.
+- **Dangerous file operations:** overwrite, delete, rename, archive extraction,
+  raw JSON editing, and restore flows need explicit confirmation, backups when
+  applicable, traversal/symlink checks, bounded file sizes, and audit records.
+- **Host/VM controls:** VM reboot/shutdown must be separate from game server
+  restart, owner/platform-only, double-confirmed, audited, and never scheduled
+  by default for normal player-facing operation.
+- **External exposure:** direct `0.0.0.0` HTTP binding is acceptable for short
+  tests only. Production should use HTTPS, reverse proxy or VPN/firewall
+  controls, secure cookies, and visible exposure warnings.
+- **Fail-safe entitlement behavior:** license/tier failures must not block
+  security basics such as password changes, disabling the web service, audit
+  export, or local CLI/TUI recovery.
+- **Recovery path:** if web auth, tiers, allowlists, or terminal policy are
+  misconfigured, an operator with SSH/local shell access must still be able to
+  recover through documented CLI/TUI/runtime-file steps.
 
 ## Remote access and local smoke scenarios
 
@@ -454,6 +516,10 @@ Preference UX should not make cheap choices feel expensive:
   enabled, it must be disabled by default and gated by HTTPS, trusted proxy/IP
   allowlist, extra auth, explicit permission, short sessions, and audit.
 - Secrets must be redacted in UI, logs, and API responses.
+- Premium/mega, diagnostics, terminal, IP allowlist management, host controls,
+  raw JSON editing, and dangerous file operations must pass the dedicated
+  security review gate before production use. Route-level checks and tests are
+  required; UI-only hiding is not sufficient.
 - Web access to systemd must use the existing narrow privileged helper pattern,
   not broad passwordless sudo.
 - The service should bind to localhost by default and require an explicit flag
@@ -529,7 +595,8 @@ surface should be able to grow into:
 - a user profile page;
 - password change and recovery/reset flow;
 - multiple users per installation;
-- roles such as owner, operator, and read-only viewer;
+- roles such as platform owner, server admin, operator, and read-only viewer;
+- optional product tiers such as basic, plus, premium, and mega;
 - per-user audit log attribution;
 - optional 2FA;
 - product/update/license or support information if the distribution model needs
@@ -565,6 +632,48 @@ The current project has no licensing, billing, subscription, entitlement, or
 paid-feature code. If armactl later ships to different customers with paid
 tiers, keep the product model separate from the core local server-management
 logic.
+
+Treat roles, permissions, and paid tiers as separate layers:
+
+- permissions are the exact operations the app can authorize, for example
+  `dashboard:view`, `logs:view`, `actions:run`, `settings:manage`,
+  `files:read`, `files:write`, `schedule:manage`, `diagnostics:run`,
+  `users:manage`, `allowlist:manage`, `terminal:use`, and `host:manage`;
+- roles are operational bundles, for example `viewer`, `operator`,
+  `server_admin`, and `platform_owner`;
+- tiers are product bundles, for example `basic`, `plus`, `premium`, and
+  `mega`; they should grant or suggest permissions through explicit mappings,
+  not appear as hidden ad-hoc checks throughout route handlers.
+
+Initial tier direction:
+
+- `basic`: dashboard/status and limited read-only visibility;
+- `plus`: basic operator actions such as start/restart and selected logs or
+  diagnostics;
+- `premium`: broader server-management workflows such as schedule, safe config,
+  files, mods/admins/bot flows, and the diagnostics command palette;
+- `mega`: internal/platform-owner level for Deus/Yaroslav-style operators,
+  including user management, tier/role assignment, IP allowlist management,
+  break-glass terminal eligibility, and future host controls.
+
+`mega` should be treated as privileged operator access, not simply a public
+paid tier. It should be small, auditable, and separated from ordinary customer
+plans.
+
+IP allowlists should be first-class policy records, not hard-coded constants.
+A future management UI/API should support:
+
+- CIDR entries such as `203.0.113.42/32` or an office subnet;
+- labels such as "Deus home" or "Yaroslav office";
+- enabled/disabled state;
+- optional expiry for temporary access;
+- audit records for add, edit, disable, delete, and denied access decisions;
+- trusted-proxy rules so the app only trusts forwarded client IP headers from
+  configured proxies.
+
+Sensitive features such as diagnostics command palette, break-glass terminal,
+allowlist management, and host controls should require both permission checks
+and the relevant policy checks, not only a tier name.
 
 Recommended direction:
 
@@ -799,18 +908,18 @@ logic from TUI screens.
 | Product area | Current status | Existing source | Web implication |
 |--------------|----------------|-----------------|-----------------|
 | Dashboard/status | Implemented in TUI, CLI, and the web read-only dashboard | discovery, state, status_summary, metrics, player_view, ports, bot_config | Keep future routes thin and continue extending the facade instead of route-local aggregation |
-| Server controls | Implemented | `service_manager`, CLI `start/stop/restart`, TUI `ManageScreen` | Web start/stop/restart now wraps existing calls for the default instance; schedule and job-backed operations remain future work |
+| Server controls | Implemented | `service_manager`, CLI `start/stop/restart`, TUI `ManageScreen` | Web start/stop/restart now wraps existing calls for the default instance; schedule controls are implemented separately and job-backed operations remain future work |
 | Logs/report | Implemented for journal/report, TUI live view, and bounded read-only web views | `logs`, `report`, `TailLogScreen` | Web exposes fixed sources and redacted report preview; add browser streaming/download later |
 | Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Web supports allowlisted basic field edits through `config_manager`; generic/raw JSON and secrets remain out of scope |
 | Mods manager | Implemented beyond basic parity | `mods_manager`, `mods_state`, `addon_cleanup`, `ModManagerScreen` | Read-only web mods page exists; future add/remove/enable/disable/import/export routes should reuse existing modules |
 | Server admins | Implemented for Arma `game.admins` | `admins_manager`, `AdminManagerScreen` | Read-only game-admin page exists; keep game admins separate from web users/roles for future management flows |
 | Player registry and bans | Not implemented | player_view can show current online data; logs/RCON/SAT may become ingestion sources after adapter review | Add dedicated storage, search, history, and moderation flows with auth, permissions, CSRF, backups, and audit logging |
 | Backups/cleanup | Partially implemented | `config_manager` backups, `cleaner`, `CleanupScreen` | Config backups exist; full server backup/restore is future work |
-| Schedule | Implemented for restart timer | `service_manager`, `ScheduleScreen`, CLI `schedule` | Web can show/set/enable/disable restart schedule; task chains are future |
+| Schedule | Implemented for restart timer | `service_manager`, `ScheduleScreen`, CLI `schedule` | Web can show/set/enable/disable restart schedule, trigger restart-now, show next/last run, and warn on disabled game-service autostart; task chains are future |
 | Telegram bot | Implemented | `bot_config`, `bot_manager`, `telegram_bot`, `BotConfigScreen` | Read-only bot status page exists; future config/service flows can reuse the same `.env` and service-manager path |
 | File manager | Browsing, single-file download, and server-root upload-new-file implemented | `paths`, new web filesystem adapter | Browser lists fixed local roots, bounded redacted text previews, validated single-file downloads, and no-overwrite uploads to the `server` root; overwrite/delete/rename remain future work |
-| Web users/roles | Partially implemented | `web.db` owner user, password hashes, sessions, CSRF primitives, login/logout cookie wiring, and code-level permission categories exist | Add editable roles/permissions only when more roles are introduced |
-| Paid features | Not implemented | none | Add explicit entitlement model only if productized |
+| Web users/roles | Partially implemented | `web.db` owner user, password hashes, sessions, CSRF primitives, login/logout cookie wiring, and code-level permission categories exist | Add editable users/roles/tier assignment only after the permission matrix and owner-only admin UI are designed |
+| Paid features | Not implemented | none | Add explicit entitlement/tier model only if productized; keep basic/plus/premium/mega separate from low-level permissions |
 
 ## Proposed package structure
 
@@ -1074,7 +1183,8 @@ not the foreground debug runner.
 ### Phase 3 - Controlled server actions
 
 - Start/stop/restart via existing `service_manager` for the current default instance is implemented.
-- Schedule show/set/enable/disable.
+- Schedule show/set/enable/disable/restart-now with next-run and boot-policy
+  visibility is implemented.
 - Audit log for mutating actions.
 - Add confirmation UI for stop/restart and other disruptive operations.
 

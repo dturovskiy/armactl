@@ -126,6 +126,8 @@ def test_owner_has_every_declared_permission():
         "mods:view",
         "admins:view",
         "bot:view",
+        "schedule:view",
+        "schedule:manage",
     }
     assert all(user_has_permission(user, permission) for permission in ALL_PERMISSIONS)
 
