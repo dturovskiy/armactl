@@ -301,6 +301,7 @@
 - [ ] Додати edit/save/delete flows для bot і розширених config полів через backend modules
 - [ ] Спроєктувати bulk paste/import/export/clear all/advanced modpack workflows для web mods окремим future flow
 - [ ] Спроєктувати emergency/admin-only raw JSON config editor окремо від нормального web config flow
+- [x] Додати web moderation foundation на `/admins`: current players, server-rendered search, add-to-game-admin only with reliable identity
 - [ ] Спроєктувати player registry / moderation data model для IDs, nicknames, sessions і playtime
 - [ ] Додати player identity ingestion з RCON/logs/SAT adapters без вигаданих ID
 - [ ] Додати web players pages: active/recent/search/details/activity history

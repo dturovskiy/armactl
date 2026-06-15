@@ -201,6 +201,14 @@ Completed foundation:
     changes, and append redacted JSONL audit events with compact cleanup
     summary for remove. Bulk paste/import/export/clear-all/modpack workflows,
     raw JSON editing, and archive extraction remain future work.
+32. Players / moderation foundation: `/admins` now includes a lightweight
+    moderation section backed by the existing `player_view`/RCON roster path.
+    It shows current players, filters by nickname or reliable ID through a
+    server-rendered GET query, and reuses the existing admin action flow to add
+    a player as a game admin only when a stable admin reference is available.
+    Players without reliable identity stay read-only. No player registry,
+    IP storage, ban/unban action, or banlist manager is implemented in this
+    slice.
 
 Planned but not implemented:
 
@@ -256,11 +264,12 @@ Next recommended implementation order:
    remain future and should keep remove/cleanup confirmations explicit.
 8. Add atomic overwrite/delete/rename flows on top of the safe filesystem
    adapter after single-file upload has been reviewed.
-9. Add player registry and ban-list management after the identity ingestion
-   source is validated on a real server log/RCON sample. The future moderation
-   UI should show active/recent players with nickname search/sort and allow
-   adding a player as a game admin only when a reliable identity ID is
-   available.
+9. Add player registry persistence and ban-list management after the identity
+   ingestion source is validated on a real server log/RCON sample. The future
+   step should add instance-scoped storage, recent/history/detail views,
+   banlist manager, explicit permissions, CSRF, confirmation, backups when a
+   config-backed list changes, audit logging, and no player IP storage by
+   default.
 
 ## Implementation prompt template
 

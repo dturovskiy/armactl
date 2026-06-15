@@ -448,6 +448,20 @@ def _stub_management_pages(monkeypatch, pages: dict[str, dict] | None = None) ->
     monkeypatch.setattr(management, "load_config_page", fake_loader("config"))
     monkeypatch.setattr(management, "load_mods_page", fake_loader("mods"))
     monkeypatch.setattr(management, "load_admins_page", fake_loader("admins"))
+    monkeypatch.setattr(
+        management.player_moderation,
+        "load_player_moderation_panel",
+        lambda instance, query="": {
+            "available": True,
+            "query": query,
+            "players": [],
+            "total_count": 0,
+            "filtered_count": 0,
+            "source": "rcon.roster",
+            "status": "available",
+            "error": "",
+        },
+    )
     monkeypatch.setattr(management, "load_bot_page", fake_loader("bot"))
     return calls
 

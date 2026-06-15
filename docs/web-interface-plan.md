@@ -771,6 +771,12 @@ layer. This is separate from web users and game admins: web users are people who
 log into the control panel, while the player registry tracks Arma players seen
 on the managed game server.
 
+Implemented foundation: `/admins` includes a lightweight Players / Moderation
+section backed by the existing `player_view`/RCON roster path. It shows current
+player names, filters server-side by nickname or reliable ID, and offers
+add-to-game-admin only when a stable admin reference is available. It does not
+persist a registry, store IP addresses, or expose ban/unban actions.
+
 Goals:
 
 - collect durable player identifiers and nicknames when players join or are seen
@@ -783,6 +789,9 @@ Goals:
   expiry, active/revoked state, and audit trail;
 - expose ban/unban actions through authenticated, permission-protected,
   CSRF-protected web flows with explicit confirmation;
+- do not store player IP addresses by default; if a later security-reviewed
+  workflow truly needs IP metadata, gate it behind explicit policy, retention,
+  and redaction rules;
 - keep CLI/TUI usable for emergency moderation fallback later.
 
 Storage should be instance-scoped, not tied only to the web runtime. Prefer a
@@ -899,7 +908,7 @@ Internal API readiness:
 |------|-------------------|---------------------|
 | Read-only status/dashboard | High | Implemented through one dashboard DTO from discovery, service/timer status, metrics, players, config summary, mods, web runtime, and safe bot summary |
 | Start/stop/restart | High | Default-instance web controls are implemented with auth, confirmation, CSRF, audit log, and route-level permission checks |
-| Players/moderation | Low | Future instance-scoped players.db, identity ingestion from reliable sources, activity history, and ban-list management; do not infer IDs from nicknames or A2S counts |
+| Players/moderation | Low-to-medium | Current-player moderation foundation is implemented on `/admins` using `player_view`/RCON roster data and add-to-game-admin only for reliable IDs; future instance-scoped players.db, identity ingestion, activity history, and ban-list management remain; do not infer IDs from nicknames or A2S counts |
 | Config/mods/admins/bot settings | Medium-high | Basic allowlisted config editing is implemented through `config_manager`; basic mod add/update/enable/disable/remove is implemented through `mods_manager`; game admin add/update/remove is implemented through `admins_manager`; bot mutations, advanced modpack/bulk mod flows, advanced admin bulk/raw flows, and broader config fields remain future work with form validation, CSRF, and redacted error rendering |
 | Logs/report | Medium-high | Bounded read-only audit, fixed journal, and redacted report preview views are implemented; add streaming/download later without `os.execvp` |
 | Install/repair/update | Medium | Install and repair enqueue explicit web background jobs; update remains future work; never block a request thread |
@@ -920,7 +929,7 @@ logic from TUI screens.
 | Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Web supports allowlisted basic field edits through `config_manager`; generic/raw JSON and secrets remain out of scope |
 | Mods manager | Implemented beyond basic parity | `mods_manager`, `mods_state`, `addon_cleanup`, `ModManagerScreen` | Web can view active/disabled mods and add/update/enable/disable/remove one mod at a time through `mods_manager` with auth, CSRF, `mods:manage`, confirmation for remove, and audit; bulk paste/import/export/clear-all/modpack workflows remain future |
 | Server admins | Implemented for Arma `game.admins` | `admins_manager`, `AdminManagerScreen` | Web can view game admins and add/update/remove one admin at a time through `admins_manager` with auth, CSRF, `admins:manage`, confirmation for remove, and audit; keep game admins separate from web users/roles |
-| Player registry and bans | Not implemented | player_view can show current online data; logs/RCON/SAT may become ingestion sources after adapter review | Add dedicated storage, search, history, and moderation flows with auth, permissions, CSRF, backups, and audit logging; moderation UI should expose active/recent players with nickname search/sort and an add-to-game-admin action only when a reliable identity ID is available |
+| Player registry and bans | Foundation implemented, persistence/bans future | `player_view` can show current online data; logs/RCON/SAT may become ingestion sources after adapter review | `/admins` now exposes current players with server-rendered search and add-to-game-admin only when a reliable identity ID is available; next steps are dedicated instance storage, recent/history views, and ban-list management with auth, permissions, CSRF, confirmation, backups, audit logging, and no IP storage by default |
 | Backups/cleanup | Partially implemented | `config_manager` backups, `cleaner`, `CleanupScreen` | Config backups exist; full server backup/restore is future work |
 | Schedule | Implemented for restart timer | `service_manager`, `ScheduleScreen`, CLI `schedule` | Web can show/set/enable/disable restart schedule, trigger restart-now, show next/last run, and warn on disabled game-service autostart; task chains are future |
 | Telegram bot | Implemented | `bot_config`, `bot_manager`, `telegram_bot`, `BotConfigScreen` | Read-only bot status page exists; future config/service flows can reuse the same `.env` and service-manager path |

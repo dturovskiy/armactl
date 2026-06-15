@@ -34,7 +34,7 @@ from armactl.web.facade import (
     load_config_page,
     load_mods_page,
 )
-from armactl.web.services import admin_actions, config_edit, mod_actions
+from armactl.web.services import admin_actions, config_edit, mod_actions, player_moderation
 
 router = APIRouter()
 PageLoader = Callable[[str], dict[str, Any]]
@@ -151,6 +151,10 @@ def _render_admins_page(
 
     form_csrf = get_form_csrf_token(request, current)
     page = load_admins_page(paths.DEFAULT_INSTANCE_NAME)
+    player_panel = player_moderation.load_player_moderation_panel(
+        paths.DEFAULT_INSTANCE_NAME,
+        query=request.query_params.get("player_search", ""),
+    )
     response = request.app.state.templates.TemplateResponse(
         request=request,
         name="admins.html",
@@ -160,6 +164,7 @@ def _render_admins_page(
             "page": page,
             "result": result,
             "can_manage_admins": require_permission(current, ADMINS_MANAGE),
+            "player_panel": player_panel,
         },
         status_code=status_code,
     )
