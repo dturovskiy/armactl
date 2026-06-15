@@ -192,8 +192,9 @@ Planned but not implemented:
   armareforger-restart.timer was enabled with calendar restarts at 06:00 and
   18:00 plus Persistent=true. The web `/schedule` page now shows service
   enabled state, timer enabled state, OnCalendar values, next/last run, and an
-  autostart warning, then mutates set/enable/disable/restart-now through
-  service_manager with CSRF, permissions, and audit logging.
+  autostart warning, then mutates timer set/enable/disable/restart-now and
+  game-service autostart enable/disable through service_manager with CSRF,
+  permissions, and audit logging.
 - Host reboot/shutdown controls are useful later, but must be separate from
   game-server controls, owner/admin-only, double-confirmed, and audited.
 

@@ -147,6 +147,24 @@
         </form>
       </div>
     </article>
+    <article class="panel schedule-action-form schedule-toggle-card">
+      <h3>{{ t("Game server autostart") }}</h3>
+      <p class="muted">{{ t("Start the game server after VM boot.") }}</p>
+      <div class="schedule-toggle-actions">
+        <form method="post" action="/schedule/autostart/enable">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit">{{ t("Enable Autostart") }}</button>
+        </form>
+        <form method="post" action="/schedule/autostart/disable">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label class="inline-confirm">
+            <input type="checkbox" name="confirm" value="service.autostart-disable">
+            {{ t("Confirm disable autostart") }}
+          </label>
+          <button class="secondary" type="submit">{{ t("Disable Autostart") }}</button>
+        </form>
+      </div>
+    </article>
     <form method="post" action="/schedule/restart-now" class="panel schedule-action-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label class="inline-confirm">

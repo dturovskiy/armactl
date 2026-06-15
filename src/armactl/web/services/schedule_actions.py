@@ -16,6 +16,8 @@ ACTION_SET_SCHEDULE = "schedule.set"
 ACTION_ENABLE_TIMER = "schedule.enable"
 ACTION_DISABLE_TIMER = "schedule.disable"
 ACTION_RESTART_NOW = "schedule.restart-now"
+ACTION_ENABLE_GAME_AUTOSTART = "service.autostart-enable"
+ACTION_DISABLE_GAME_AUTOSTART = "service.autostart-disable"
 MAX_WEB_RESTART_TIMES = 3
 WEB_TIME_RE = re.compile(r"^\d{1,2}:\d{2}$")
 SUPPORTED_ACTIONS = frozenset(
@@ -24,9 +26,16 @@ SUPPORTED_ACTIONS = frozenset(
         ACTION_ENABLE_TIMER,
         ACTION_DISABLE_TIMER,
         ACTION_RESTART_NOW,
+        ACTION_ENABLE_GAME_AUTOSTART,
+        ACTION_DISABLE_GAME_AUTOSTART,
     }
 )
-CONFIRMATION_REQUIRED_ACTIONS = frozenset({ACTION_RESTART_NOW})
+CONFIRMATION_REQUIRED_ACTIONS = frozenset(
+    {
+        ACTION_RESTART_NOW,
+        ACTION_DISABLE_GAME_AUTOSTART,
+    }
+)
 
 
 class ScheduleActionError(ValueError):
@@ -73,6 +82,8 @@ def confirmation_message(action: str) -> str:
     normalized = normalize_schedule_action(action)
     if normalized == ACTION_RESTART_NOW:
         return "Confirmation is required to restart the server now."
+    if normalized == ACTION_DISABLE_GAME_AUTOSTART:
+        return "Confirmation is required to disable game server autostart."
     return "Confirmation is required for this schedule action."
 
 
@@ -137,6 +148,12 @@ def _timer_name(instance: str, state: ServerState | None) -> str:
 
 def _restart_service_name(instance: str) -> str:
     return service_manager.restart_service_unit_name(instance)
+
+
+def _service_name(instance: str, state: ServerState | None) -> str:
+    if state is not None and state.service_name:
+        return state.service_name
+    return service_manager.service_unit_name(instance)
 
 
 def _result(
@@ -206,6 +223,17 @@ def _failure_from_missing_state(
             exit_code=1,
             performed=False,
         )
+    if action in {ACTION_ENABLE_GAME_AUTOSTART, ACTION_DISABLE_GAME_AUTOSTART}:
+        if not state.service_exists:
+            return _result(
+                action=action,
+                instance=instance,
+                target=_service_name(instance, state),
+                success=False,
+                message="Server service is not installed.",
+                exit_code=1,
+                performed=False,
+            )
     if action == ACTION_RESTART_NOW:
         if not state.server_installed:
             return _result(
@@ -367,6 +395,22 @@ def run_schedule_action(
             instance,
             restart_service_name,
             service_manager.start_service(restart_service_name),
+        )
+    if normalized == ACTION_ENABLE_GAME_AUTOSTART:
+        service_name = _service_name(instance, state)
+        return _result_from_service_result(
+            normalized,
+            instance,
+            service_name,
+            service_manager.enable_service(service_name),
+        )
+    if normalized == ACTION_DISABLE_GAME_AUTOSTART:
+        service_name = _service_name(instance, state)
+        return _result_from_service_result(
+            normalized,
+            instance,
+            service_name,
+            service_manager.disable_service(service_name),
         )
     raise ScheduleActionError("Unknown schedule action.")
 

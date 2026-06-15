@@ -230,6 +230,10 @@ def test_schedule_page_renders_timer_and_boot_policy_states(tmp_path: Path, monk
     assert "20:30" in response.text
     assert "Enable Timer" in response.text
     assert "Disable Timer" in response.text
+    assert "Game server autostart" in response.text
+    assert "Enable Autostart" in response.text
+    assert "Disable Autostart" in response.text
+    assert "Confirm disable autostart" in response.text
 
 
 def test_schedule_page_warns_when_game_service_autostart_disabled(
@@ -422,7 +426,10 @@ def test_schedule_set_failure_writes_safe_audit(tmp_path: Path, monkeypatch):
     ).read_text(encoding="utf-8")
 
 
-def test_schedule_enable_disable_and_restart_now_routes(tmp_path: Path, monkeypatch):
+def test_schedule_enable_disable_restart_and_autostart_routes(
+    tmp_path: Path,
+    monkeypatch,
+):
     from armactl.web.services import schedule_actions
 
     calls: list[tuple[str, str]] = []
@@ -470,22 +477,78 @@ def test_schedule_enable_disable_and_restart_now_routes(tmp_path: Path, monkeypa
         data={"csrf_token": csrf_token, "confirm": "schedule.restart-now"},
         follow_redirects=False,
     )
+    autostart_enable_response = client.post(
+        "/schedule/autostart/enable",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    missing_autostart_confirm_response = client.post(
+        "/schedule/autostart/disable",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    autostart_disable_response = client.post(
+        "/schedule/autostart/disable",
+        data={"csrf_token": csrf_token, "confirm": "service.autostart-disable"},
+        follow_redirects=False,
+    )
 
     assert enable_response.status_code == 200
     assert disable_response.status_code == 200
     assert missing_confirm_response.status_code == 400
     assert "Confirmation is required to restart the server now." in missing_confirm_response.text
     assert restart_response.status_code == 200
+    assert autostart_enable_response.status_code == 200
+    assert missing_autostart_confirm_response.status_code == 400
+    assert (
+        "Confirmation is required to disable game server autostart."
+        in missing_autostart_confirm_response.text
+    )
+    assert autostart_disable_response.status_code == 200
     assert calls == [
         ("enable", "armareforger-restart.timer"),
         ("disable", "armareforger-restart.timer"),
         ("start", "armareforger-restart.service"),
+        ("enable", "armareforger.service"),
+        ("disable", "armareforger.service"),
     ]
     assert [event["action"] for event in _audit_events(tmp_path)] == [
         "schedule.enable",
         "schedule.disable",
         "schedule.restart-now",
+        "service.autostart-enable",
+        "service.autostart-disable",
     ]
+
+
+def test_schedule_autostart_actions_require_installed_service(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import schedule_actions
+
+    client = _authed_client(tmp_path, monkeypatch)
+    state = _state(installed=True, timer_exists=True)
+    state.service_exists = False
+    monkeypatch.setattr(
+        schedule_actions.discovery,
+        "discover",
+        lambda instance, save=False: state,
+    )
+    monkeypatch.setattr(schedule_actions.service_manager, "enable_service", AssertionError)
+    csrf_token = _schedule_csrf_token(client)
+
+    response = client.post(
+        "/schedule/autostart/enable",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Server service is not installed." in response.text
+    event = _audit_events(tmp_path)[0]
+    assert event["action"] == "service.autostart-enable"
+    assert event["success"] is False
 
 
 def test_dashboard_links_to_schedule_page_when_permission_allows(

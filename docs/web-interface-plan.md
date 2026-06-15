@@ -120,10 +120,11 @@ The web panel should make this explicit:
   immediate boot recovery.
 
 Implemented web slice: `/schedule` shows restart timer installed/active/enabled
-state, OnCalendar values, next/last run when available, and read-only
+state, OnCalendar values, next/last run when available, and
 `armareforger.service` autostart policy. Mutating controls use authenticated
-POST + CSRF + schedule permissions and audit set/enable/disable/restart-now
-through `service_manager` without shelling out to the CLI.
+POST + CSRF + schedule permissions and audit timer set/enable/disable,
+restart-now, and game-service autostart enable/disable through
+`service_manager` without shelling out to the CLI.
 
 Future host controls should be separate from game-server controls. VM reboot or
 shutdown can be useful for remote operators, but they should be owner/admin

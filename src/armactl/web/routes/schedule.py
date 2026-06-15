@@ -179,6 +179,31 @@ def disable_schedule(request: Request, csrf_token: str = Form(default="")) -> Re
     )
 
 
+@router.post("/schedule/autostart/enable", response_class=HTMLResponse)
+def enable_game_autostart(request: Request, csrf_token: str = Form(default="")) -> Response:
+    """Enable game server autostart after VM boot."""
+    return _run_schedule_action(
+        request,
+        action=schedule_actions.ACTION_ENABLE_GAME_AUTOSTART,
+        csrf_token=csrf_token,
+    )
+
+
+@router.post("/schedule/autostart/disable", response_class=HTMLResponse)
+def disable_game_autostart(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    confirm: str = Form(default=""),
+) -> Response:
+    """Disable game server autostart after VM boot."""
+    return _run_schedule_action(
+        request,
+        action=schedule_actions.ACTION_DISABLE_GAME_AUTOSTART,
+        csrf_token=csrf_token,
+        confirm=confirm,
+    )
+
+
 @router.post("/schedule/restart-now", response_class=HTMLResponse)
 def restart_now(
     request: Request,
