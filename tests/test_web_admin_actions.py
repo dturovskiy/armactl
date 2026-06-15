@@ -237,6 +237,18 @@ def test_admins_post_requires_valid_csrf(tmp_path: Path, monkeypatch):
     assert response.text == "Invalid CSRF token."
 
 
+def test_admins_plain_get_does_not_show_restart_required_notice(
+    tmp_path: Path,
+    monkeypatch,
+):
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get("/admins", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Restart the server to apply admin changes." not in response.text
+
+
 def test_admins_add_success_writes_safe_audit(tmp_path: Path, monkeypatch):
     from armactl.web.services import admin_actions
 
@@ -372,6 +384,44 @@ def test_admins_remove_success_writes_audit(tmp_path: Path, monkeypatch):
     assert event["target"] == "76561198000000001"
     assert event["success"] is True
     assert event["details"] == {"changed": "yes"}
+
+
+def test_admins_unchanged_remove_does_not_show_restart_required_notice(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import admin_actions
+
+    config_path = tmp_path / "config.json"
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        admin_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+    monkeypatch.setattr(
+        admin_actions.admins_manager,
+        "remove_admin",
+        lambda path, admin_reference: False,
+    )
+    csrf_token = _admins_csrf_token(client)
+
+    response = client.post(
+        "/admins/remove",
+        data={
+            "csrf_token": csrf_token,
+            "admin_reference": "76561198000000001",
+            "confirm": "remove",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "Admin was unchanged." in response.text
+    assert "Restart the server to apply admin changes." not in response.text
+    event = _audit_events(tmp_path)[0]
+    assert event["action"] == "admin.remove"
+    assert event["details"] == {"changed": "no"}
 
 
 def test_admins_backend_error_is_controlled_and_audited(tmp_path: Path, monkeypatch):

@@ -246,7 +246,10 @@ Next recommended implementation order:
 8. Add atomic overwrite/delete/rename flows on top of the safe filesystem
    adapter after single-file upload has been reviewed.
 9. Add player registry and ban-list management after the identity ingestion
-   source is validated on a real server log/RCON sample.
+   source is validated on a real server log/RCON sample. The future moderation
+   UI should show active/recent players with nickname search/sort and allow
+   adding a player as a game admin only when a reliable identity ID is
+   available.
 
 ## Implementation prompt template
 

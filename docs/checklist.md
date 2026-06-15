@@ -302,6 +302,7 @@
 - [ ] Спроєктувати player registry / moderation data model для IDs, nicknames, sessions і playtime
 - [ ] Додати player identity ingestion з RCON/logs/SAT adapters без вигаданих ID
 - [ ] Додати web players pages: active/recent/search/details/activity history
+- [ ] Додати moderation UI: nickname search/sort, player details, and add-to-game-admin action when reliable player identity is known
 - [ ] Додати ban list management з auth/permissions/CSRF/audit/backups
 - [x] Додати safe read-only filesystem browser foundation
 - [x] Додати download single file для web file browser

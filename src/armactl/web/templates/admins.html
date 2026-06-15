@@ -26,7 +26,7 @@
 <section class="panel full-width">
   <h2>{{ t("Official Game Admins") }}</h2>
   {% if page.available %}
-    {% if can_manage_admins %}
+    {% if result and result.success and result.changed %}
       <p class="notice-inline notice-restart muted"><strong>{{ t("Restart required") }}:</strong> {{ t("Restart the server to apply admin changes.") }}</p>
     {% endif %}
     <dl>
