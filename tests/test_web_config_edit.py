@@ -398,6 +398,7 @@ def test_config_edit_noop_save_does_not_backup_or_request_restart(
     assert unchanged_page.status_code == 200
     assert "No config changes" in unchanged_page.text
     assert "Config was unchanged; no restart is required." in unchanged_page.text
+    assert "data-config-flash-message" in unchanged_page.text
     assert "notice-success" not in unchanged_page.text
 
 
