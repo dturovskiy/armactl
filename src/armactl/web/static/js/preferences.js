@@ -35,7 +35,15 @@
     if (button) {
       const prefix = button.dataset.themeLabelPrefix || "Theme";
       const label = nextTheme === "dark" ? button.dataset.themeLabelDark : button.dataset.themeLabelLight;
-      button.textContent = `${prefix}: ${label || nextTheme}`;
+      const nextLabel = `${prefix}: ${label || nextTheme}`;
+      const icon = button.querySelector("[data-theme-icon]");
+      button.setAttribute("aria-label", nextLabel);
+      button.setAttribute("title", nextLabel);
+      if (icon) {
+        icon.textContent = nextTheme === "dark" ? "☾" : "☀";
+      } else {
+        button.textContent = nextLabel;
+      }
     }
   };
 

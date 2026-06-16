@@ -37,6 +37,9 @@ jobs:
       - name: Build source archive
         run: git archive --format=tar.gz --output "dist/armactl-${GITHUB_REF_NAME}.tar.gz" HEAD
 
+      - name: Build release badge
+        run: python scripts/render-release-badge "${GITHUB_REF_NAME}" dist/release.svg
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:

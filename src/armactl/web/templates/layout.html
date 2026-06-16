@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ t("armactl web") }}{% endblock %}</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', path='/img/armactl_dashboard.png') }}?v={{ web_static_version }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', path='/img/armactl_dashboard.png') }}?v={{ web_static_version }}">
   <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}?v={{ web_static_version }}">
   <script defer src="{{ url_for('static', path='/js/preferences.js') }}?v={{ web_static_version }}"></script>
   {% block extra_scripts %}{% endblock %}
@@ -17,21 +19,37 @@
       </div>
       <div class="topbar-actions">
         <div class="preference-controls" aria-label="{{ t('Preferences') }}">
-          <form method="post" action="/preferences/language" class="preference-form" data-preference-form="language">
-            {% if csrf_token is defined %}
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            {% endif %}
-            <input type="hidden" name="language" value="{{ web_next_language }}">
-            <input type="hidden" name="next" value="{{ request.url.path }}">
-            <button class="secondary" type="submit" data-language-button>{{ tr("Language: {language}", language=web_next_language_name) }}</button>
-          </form>
+          <details class="language-menu">
+            <summary class="icon-control language-summary" aria-label="{{ tr('Language: {language}', language=web_language_name) }}" title="{{ tr('Language: {language}', language=web_language_name) }}">
+              <span class="control-icon" aria-hidden="true">◎</span>
+              <span class="control-code">{{ web_language|upper }}</span>
+              <span class="control-chevron" aria-hidden="true">⌄</span>
+            </summary>
+            <div class="language-options">
+              {% for language in web_languages %}
+                <form method="post" action="/preferences/language" class="preference-form" data-preference-form="language">
+                  {% if csrf_token is defined %}
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  {% endif %}
+                  <input type="hidden" name="language" value="{{ language.code }}">
+                  <input type="hidden" name="next" value="{{ request.url.path }}">
+                  <button class="language-option{% if language.active %} language-option-active{% endif %}" type="submit" data-language-button{% if language.active %} aria-current="true"{% endif %}>
+                    <span class="language-option-code">{{ language.code|upper }}</span>
+                    <span>{{ language.name }}</span>
+                  </button>
+                </form>
+              {% endfor %}
+            </div>
+          </details>
           <form method="post" action="/preferences/theme" class="preference-form" data-preference-form="theme">
             {% if csrf_token is defined %}
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             {% endif %}
             <input type="hidden" name="theme" value="{{ web_next_theme }}" data-theme-input>
             <input type="hidden" name="next" value="{{ request.url.path }}">
-            <button class="secondary" type="submit" data-theme-button data-theme-label-prefix="{{ t('Theme') }}" data-theme-label-light="{{ t('light') }}" data-theme-label-dark="{{ t('dark') }}">{{ tr("Theme: {theme}", theme=t(web_next_theme)) }}</button>
+            <button class="icon-control theme-toggle-button" type="submit" data-theme-button data-theme-label-prefix="{{ t('Theme') }}" data-theme-label-light="{{ t('light') }}" data-theme-label-dark="{{ t('dark') }}" aria-label="{{ tr('Theme: {theme}', theme=t(web_next_theme)) }}" title="{{ tr('Theme: {theme}', theme=t(web_next_theme)) }}">
+              <span class="control-icon" data-theme-icon aria-hidden="true">{% if web_next_theme == "dark" %}☾{% else %}☀{% endif %}</span>
+            </button>
           </form>
         </div>
         {% block topbar_actions %}{% endblock %}

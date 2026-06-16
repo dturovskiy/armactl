@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""Render a stable release badge without querying third-party badge APIs."""
+
+from __future__ import annotations
+
+import argparse
+import html
+from pathlib import Path
+
+
+def _text_width(text: str) -> int:
+    return len(text) * 7 + 10
+
+
+def render_badge(version: str) -> str:
+    label = "release"
+    value = version if version.startswith("v") else f"v{version}"
+    label_width = _text_width(label)
+    value_width = _text_width(value)
+    total_width = label_width + value_width
+    label_x = label_width / 2
+    value_x = label_width + value_width / 2
+    safe_label = html.escape(label)
+    safe_value = html.escape(value)
+
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{total_width}" height="20" role="img" aria-label="{safe_label}: {safe_value}">
+  <title>{safe_label}: {safe_value}</title>
+  <linearGradient id="s" x2="0" y2="100%">
+    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+    <stop offset="1" stop-opacity=".1"/>
+  </linearGradient>
+  <clipPath id="r">
+    <rect width="{total_width}" height="20" rx="3" fill="#fff"/>
+  </clipPath>
+  <g clip-path="url(#r)">
+    <rect width="{label_width}" height="20" fill="#555"/>
+    <rect x="{label_width}" width="{value_width}" height="20" fill="#4c1"/>
+    <rect width="{total_width}" height="20" fill="url(#s)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,sans-serif" text-rendering="geometricPrecision" font-size="110">
+    <text aria-hidden="true" x="{label_x * 10}" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="{(label_width - 10) * 10}">{safe_label}</text>
+    <text x="{label_x * 10}" y="140" transform="scale(.1)" textLength="{(label_width - 10) * 10}">{safe_label}</text>
+    <text aria-hidden="true" x="{value_x * 10}" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="{(value_width - 10) * 10}">{safe_value}</text>
+    <text x="{value_x * 10}" y="140" transform="scale(.1)" textLength="{(value_width - 10) * 10}">{safe_value}</text>
+  </g>
+</svg>
+"""
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("version")
+    parser.add_argument("output", type=Path)
+    args = parser.parse_args()
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(render_badge(args.version), encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()

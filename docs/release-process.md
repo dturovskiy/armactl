@@ -15,8 +15,12 @@ For each release, update all version metadata:
 - `pyproject.toml`
 - `src/armactl/__init__.py`
 - `CHANGELOG.md`
+- `assets/badges/release.svg`
 
 The package version and `__version__` must match the Git tag.
+The checked-in release badge should show the same version and can be regenerated with:
+
+    python scripts/render-release-badge vX.Y.Z assets/badges/release.svg
 
 ## Changelog style
 
@@ -49,6 +53,7 @@ A release PR should usually include only:
 - `pyproject.toml`
 - `src/armactl/__init__.py`
 - `CHANGELOG.md`
+- `assets/badges/release.svg`
 
 PR title format:
 

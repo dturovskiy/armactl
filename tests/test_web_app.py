@@ -648,12 +648,19 @@ def test_login_template_has_language_and_theme_controls(tmp_path: Path):
     assert 'action="/preferences/theme"' in response.text
     assert 'data-preference-form="language"' in response.text
     assert 'data-preference-form="theme"' in response.text
+    assert 'class="language-menu"' in response.text
+    assert 'class="icon-control language-summary"' in response.text
+    assert 'class="language-option language-option-active"' in response.text
+    assert 'class="icon-control theme-toggle-button"' in response.text
+    assert 'data-theme-icon' in response.text
     assert '/static/js/preferences.js' in response.text
+    assert '/static/img/armactl_dashboard.png?v=' in response.text
     assert '/static/css/app.css?v=' in response.text
     assert '/static/js/preferences.js?v=' in response.text
     assert 'data-theme="light"' in response.text
-    assert "Language: Українська" in response.text
-    assert "Theme: dark" in response.text
+    assert "English" in response.text
+    assert "Українська" in response.text
+    assert 'aria-label="Theme: dark"' in response.text
 
 
 def test_preferences_js_asset_is_served(tmp_path: Path):
@@ -2396,6 +2403,7 @@ def test_template_and_static_paths_are_package_local():
     assert (TEMPLATES_DIR / "login.html").is_file()
     assert (TEMPLATES_DIR / "service_result.html").is_file()
     assert (STATIC_DIR / "css" / "app.css").is_file()
+    assert (STATIC_DIR / "img" / "armactl_dashboard.png").is_file()
 
     client = _client(create_app())
     response = client.get("/static/css/app.css")
@@ -2406,6 +2414,11 @@ def test_template_and_static_paths_are_package_local():
     assert ".status-pill" in response.text
     assert ".key-value-list" in response.text
     assert ".notice-panel" in response.text
+
+    logo_response = client.get("/static/img/armactl_dashboard.png")
+
+    assert logo_response.status_code == 200
+    assert "image/png" in logo_response.headers["content-type"]
     assert ".notice-restart" in response.text
     assert ".auth-panel" in response.text
     assert "[data-theme=\"dark\"]" in response.text

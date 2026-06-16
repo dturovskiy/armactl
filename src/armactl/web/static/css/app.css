@@ -2,10 +2,12 @@
   color-scheme: light;
   --bg: #f5f7f8;
   --surface: #ffffff;
+  --panel-strong: #ffffff;
   --border: #d7dee3;
   --text: #172026;
   --muted: #5f6f78;
   --accent: #276749;
+  --accent-soft: #e6f4ec;
   --warning: #8a5a00;
   --error: #9b1c1c;
   --button-text: #ffffff;
@@ -17,10 +19,12 @@ html[data-theme="dark"] {
   color-scheme: dark;
   --bg: #101513;
   --surface: #18201d;
+  --panel-strong: #121a17;
   --border: #34413c;
   --text: #eef4f1;
   --muted: #a8b8b1;
   --accent: #5fbf86;
+  --accent-soft: #15281f;
   --warning: #f0bc58;
   --error: #ff7f7f;
   --button-text: #07100b;
@@ -438,6 +442,110 @@ h2 {
 
 .preference-form {
   display: inline-flex;
+}
+
+.language-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.language-menu summary {
+  list-style: none;
+}
+
+.language-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.icon-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 42px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-strong);
+  color: var(--text);
+  font: inherit;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.icon-control:hover,
+.icon-control:focus-visible,
+.language-menu[open] > .language-summary {
+  border-color: var(--accent);
+  color: var(--accent);
+  outline: 0;
+}
+
+.control-icon {
+  font-size: 1rem;
+}
+
+.control-code {
+  min-width: 2ch;
+  text-align: center;
+  letter-spacing: 0;
+}
+
+.control-chevron {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.language-options {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  gap: 4px;
+  min-width: 190px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.22);
+}
+
+.language-option {
+  width: 100%;
+  justify-content: start;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.language-option:hover,
+.language-option:focus-visible,
+.language-option-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  outline: 0;
+}
+
+.language-option-code {
+  width: 3ch;
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.theme-toggle-button {
+  width: 42px;
+  padding-inline: 0;
 }
 
 .logout-form {
@@ -1136,6 +1244,13 @@ th {
   .topbar-actions,
   .preference-controls {
     flex-direction: column;
+  }
+
+  .language-options {
+    position: static;
+    width: 100%;
+    min-width: 0;
+    margin-top: 8px;
   }
 
   .value-block {

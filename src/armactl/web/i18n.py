@@ -195,12 +195,21 @@ def web_template_context(request: Request) -> dict[str, Any]:
     next_lang = next_language(language)
     theme = preferences.theme
     next_theme_value = next_theme(theme)
+    languages = tuple(
+        {
+            "code": code,
+            "name": language_name(code),
+            "active": code == language,
+        }
+        for code in supported_language_codes()
+    )
     app = getattr(request, "app", None)
     app_state = getattr(app, "state", None)
     static_version = str(getattr(app_state, "static_asset_version", "0"))
     context: dict[str, Any] = {
         "web_language": language,
         "web_language_name": language_name(language),
+        "web_languages": languages,
         "web_next_language": next_lang,
         "web_next_language_name": language_name(next_lang),
         "web_theme": theme,
