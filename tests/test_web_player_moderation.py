@@ -281,6 +281,9 @@ def test_admins_player_search_query_is_passed_to_panel_loader(
 
     assert response.status_code == 200
     assert calls[-1] == "brav"
+    assert 'id="players-moderation"' in response.text
+    assert 'action="/admins#players-moderation"' in response.text
+    assert 'href="/admins#players-moderation"' in response.text
     assert 'value="brav"' in response.text
     assert "Bravo" in response.text
 

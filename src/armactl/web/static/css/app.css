@@ -191,6 +191,10 @@ h2 {
   padding: 16px;
 }
 
+.moderation-panel {
+  scroll-margin-top: 16px;
+}
+
 .empty-state {
   background: var(--empty-bg);
 }
