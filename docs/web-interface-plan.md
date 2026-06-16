@@ -133,10 +133,13 @@ category (`config`, `admins`, `mods`, and future `schedule` work), links back to
 the source page, keeps only UI-safe redacted details, and records actor,
 timestamp, instance, and the resolution action (`restart game server`). Repeated
 saves in the same category may update that category, but they must not erase
-other categories. The dashboard shows a compact pending-work summary, `/jobs`
-shows a separate detailed "Pending operator work" section even when the
-background job list is empty, and successful web-triggered game-server restart
-clears only restart-related pending work.
+other categories. The dashboard shows one compact "Pending operator work"
+table with source links and a single "View all work" link, and it does not
+render a large empty background-jobs panel next to pending work. `/jobs` is
+the detailed operations page: it shows pending operator work as dense rows
+separate from background jobs, with precise empty states for each section.
+Successful web-triggered game-server restart clears only restart-related
+pending work.
 
 UI follow-up: `/schedule` is accepted as functional, but the page should be
 revisited after the core management flows are complete. The timer schedule,
@@ -1316,9 +1319,10 @@ not the foreground debug runner.
   controlled failed jobs.
 - A read-only authenticated `/jobs` page lists recent jobs and bounded output
   tails for operators with `jobs:view`.
-- Pending operator work is shown on `/jobs` in a separate section from
+- Pending operator work is shown on `/jobs` in a separate dense table from
   background jobs. It is stored in `web_pending_work`, not `web_jobs`, and can be
-  present even when there are no background jobs.
+  present even when there are no background jobs. Empty states say either
+  "No pending operator work." or "No background jobs." precisely.
 - Use the job model for future install, repair, SteamCMD update, and large file
   actions.
 - Until explicit handlers and routes exist for those operations, keep

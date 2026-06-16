@@ -222,9 +222,11 @@ Completed foundation:
     web now create or update category-scoped pending work in `web.db` when they
     really change server state. `config`, `admins`, and `mods` stack without
     overwriting each other; repeated saves in the same category update that
-    category. The dashboard shows a compact Pending work summary, while `/jobs`
-    shows a separate detailed Pending operator work section even when
-    background jobs are empty. Pending work is web/operator metadata in
+    category. The dashboard shows one compact Pending operator work table
+    with a single View all work link and hides empty background jobs. `/jobs`
+    shows Pending operator work as dense rows in a separate section from
+    Background jobs, with precise empty states. Pending work is
+    web/operator metadata in
     `web_pending_work`, not a fake `web_jobs` row, and successful web restart
     clears only restart-related pending work.
 

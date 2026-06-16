@@ -901,28 +901,28 @@ button.danger {
   margin-top: 14px;
 }
 
-.pending-work-compact-list {
-  display: grid;
-  gap: 10px;
-}
-
-.pending-work-compact-item h3,
-.pending-work-card h2 {
-  margin: 0;
-  font-size: 0.95rem;
-}
-
-.pending-work-compact-meta {
-  grid-template-columns: minmax(100px, 0.35fr) minmax(0, 1fr);
-  margin-top: 8px;
-}
-
-.pending-work-card {
-  border-left-color: var(--warning);
-}
-
+.pending-work-summary-note,
 .pending-work-panel > .muted {
   margin-top: 6px;
+}
+
+.pending-work-dashboard-table,
+.pending-work-table {
+  font-size: 0.9rem;
+}
+
+.pending-work-dashboard-table th,
+.pending-work-dashboard-table td,
+.pending-work-table th,
+.pending-work-table td {
+  vertical-align: top;
+}
+
+.pending-work-source-action {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
 .job-card {

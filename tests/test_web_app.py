@@ -1187,10 +1187,11 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert 'href="/mods"' in root_response.text
     assert 'href="/admins"' in root_response.text
     assert 'href="/bot"' in root_response.text
-    assert 'href="/jobs"' in root_response.text
+    assert 'href="/jobs"' not in root_response.text
     assert 'href="/files"' in root_response.text
     assert 'href="/logs"' in root_response.text
-    assert "Recent Jobs" in root_response.text
+    assert "Background jobs" not in root_response.text
+    assert "No background jobs." not in root_response.text
     assert "/static/js/dashboard.js" in root_response.text
     assert 'data-dashboard-endpoint="/dashboard/status.json"' in root_response.text
     assert 'data-dashboard-field="host.cpu"' in root_response.text
@@ -1692,7 +1693,9 @@ def test_authenticated_owner_sees_jobs_page(tmp_path: Path):
     response = client.get("/jobs", follow_redirects=False)
 
     assert response.status_code == 200
-    assert "Background Jobs" in response.text
+    assert "Operations" in response.text
+    assert "Background jobs" in response.text
+    assert "No pending operator work." in response.text
     assert "safe:test" in response.text
     assert "succeeded" in response.text
     assert "Job completed." in response.text
@@ -1732,8 +1735,8 @@ def test_jobs_page_renders_ukrainian_labels(tmp_path: Path):
 
     assert response.status_code == 200
     assert '<html lang="uk"' in response.text
+    assert "Операції" in response.text
     assert "Фонові завдання" in response.text
-    assert "Останні фонові завдання" in response.text
     assert "Запитав" in response.text
     assert "у черзі" in response.text
 
@@ -1769,6 +1772,24 @@ def test_jobs_output_is_escaped_and_secrets_are_not_rendered(tmp_path: Path):
     assert CSRF_COOKIE_NAME not in response.text
 
 
+def test_jobs_page_distinguishes_empty_pending_work_and_background_jobs(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/jobs", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Pending operator work" in response.text
+    assert "Background jobs" in response.text
+    assert "No pending operator work." in response.text
+    assert "No background jobs." in response.text
+    assert "No jobs yet." not in response.text
+
+
 def test_jobs_page_shows_pending_work_when_background_jobs_empty_and_redacts_details(
     tmp_path: Path,
 ):
@@ -1793,12 +1814,17 @@ def test_jobs_page_shows_pending_work_when_background_jobs_empty_and_redacts_det
     response = client.get("/jobs", follow_redirects=False)
 
     assert response.status_code == 200
-    assert "Pending Operator Work" in response.text
+    assert "Pending operator work" in response.text
     assert "These are not background jobs" in response.text
+    assert "Background jobs" in response.text
     assert "Config changes" in response.text
+    assert 'href="/config"' in response.text
     assert "config.save" in response.text
     assert "max_players" in response.text
-    assert "No jobs yet." in response.text
+    assert "No background jobs." in response.text
+    assert "No jobs yet." not in response.text
+    assert "pending-work-table" in response.text
+    assert "pending-work-card" not in response.text
     assert "hunter2" not in response.text
     assert "raw-token" not in response.text
     assert "session-secret" not in response.text
@@ -1939,11 +1965,18 @@ def test_dashboard_shows_compact_pending_work_summary(tmp_path: Path, monkeypatc
     response = client.get("/dashboard", follow_redirects=False)
 
     assert response.status_code == 200
-    assert "Pending work" in response.text
+    assert "Pending operator work" in response.text
+    assert "Saved changes waiting for manual action" in response.text
     assert "Config changes" in response.text
-    assert "Action needed" in response.text
+    assert 'href="/config"' in response.text
     assert "Restart game server" in response.text
-    assert 'href="/jobs"' in response.text
+    assert "View all work" in response.text
+    assert response.text.count('href="/jobs"') == 1
+    assert "View all jobs" not in response.text
+    assert "Background jobs" not in response.text
+    assert "No background jobs." not in response.text
+    assert "pending-work-dashboard-table" in response.text
+    assert response.text.count("View all work") == 1
     assert "pending-detail-field" not in response.text
     assert "raw-secret" not in response.text
 
