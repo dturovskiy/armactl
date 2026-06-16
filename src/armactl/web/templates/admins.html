@@ -150,10 +150,12 @@
       {% endfor %}
       </tbody>
     </table>
+  {% elif not player_panel.available %}
+    <p class="muted">{{ t("Current player roster is unavailable.") }}</p>
   {% elif player_panel.query %}
     <p class="muted">{{ t("No players match search.") }}</p>
   {% else %}
-    <p class="muted">{{ t("No current player roster entries available.") }}</p>
+    <p class="muted">{{ t("No players are currently online.") }}</p>
   {% endif %}
   <p class="muted">{{ t("Ban management is planned for a later audited slice.") }}</p>
 </section>

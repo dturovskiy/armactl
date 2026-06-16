@@ -970,6 +970,8 @@
     "Add as admin": "Додати в адміни",
     "Read-only": "Лише перегляд",
     "No players match search.": "Немає гравців за цим пошуком.",
+    "Current player roster is unavailable.": "Поточний список гравців недоступний.",
+    "No players are currently online.": "Зараз на сервері немає гравців онлайн.",
     "No current player roster entries available.": "Поточний список гравців недоступний або порожній.",
     "Ban management is planned for a later audited slice.": "Керування банами заплановано для окремого audited slice.",
     "online now": "зараз онлайн",

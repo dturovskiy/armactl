@@ -285,6 +285,46 @@ def test_admins_player_search_query_is_passed_to_panel_loader(
     assert "Bravo" in response.text
 
 
+def test_admins_page_distinguishes_unavailable_player_roster(
+    tmp_path: Path,
+    monkeypatch,
+):
+    client = _authed_client(tmp_path, monkeypatch, panel=_panel(available=False))
+
+    response = client.get("/admins", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Current player roster is unavailable." in response.text
+    assert "No players are currently online." not in response.text
+
+
+def test_admins_page_distinguishes_empty_player_roster(
+    tmp_path: Path,
+    monkeypatch,
+):
+    client = _authed_client(tmp_path, monkeypatch, panel=_panel())
+
+    response = client.get("/admins", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "No players are currently online." in response.text
+    assert "Current player roster is unavailable." not in response.text
+
+
+def test_admins_page_distinguishes_empty_player_search(
+    tmp_path: Path,
+    monkeypatch,
+):
+    client = _authed_client(tmp_path, monkeypatch, panel=_panel(query="missing"))
+
+    response = client.get("/admins?player_search=missing", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "No players match search." in response.text
+    assert "Current player roster is unavailable." not in response.text
+    assert "No players are currently online." not in response.text
+
+
 def test_add_admin_from_player_uses_existing_admin_action_flow(
     tmp_path: Path,
     monkeypatch,
