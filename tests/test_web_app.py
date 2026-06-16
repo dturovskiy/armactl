@@ -707,7 +707,8 @@ def test_login_renders_ukrainian_from_language_preference(tmp_path: Path):
     assert '<html lang="uk" data-theme="light">' in response.text
     assert "Увійти" in response.text
     assert "Ім&#39;я користувача" in response.text
-    assert "Мова: English" in response.text
+    assert 'class="language-menu"' in response.text
+    assert "Українська" in response.text
     assert 'data-theme-label-prefix="Тема"' in response.text
 
 
