@@ -20,6 +20,7 @@ MODS_VIEW = "mods:view"
 MODS_MANAGE = "mods:manage"
 ADMINS_VIEW = "admins:view"
 ADMINS_MANAGE = "admins:manage"
+PLAYERS_VIEW = "players:view"
 BOT_VIEW = "bot:view"
 SCHEDULE_VIEW = "schedule:view"
 SCHEDULE_MANAGE = "schedule:manage"
@@ -40,6 +41,7 @@ ALL_PERMISSIONS = frozenset(
         MODS_MANAGE,
         ADMINS_VIEW,
         ADMINS_MANAGE,
+        PLAYERS_VIEW,
         BOT_VIEW,
         SCHEDULE_VIEW,
         SCHEDULE_MANAGE,

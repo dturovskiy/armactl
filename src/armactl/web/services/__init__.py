@@ -7,6 +7,7 @@ __all__ = [
     "audit",
     "mod_actions",
     "player_moderation",
+    "player_registry",
     "schedule_actions",
     "service_actions",
 ]

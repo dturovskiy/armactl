@@ -209,6 +209,15 @@ Completed foundation:
     Players without reliable identity stay read-only. No player registry,
     IP storage, ban/unban action, or banlist manager is implemented in this
     slice.
+33. Player registry foundation: `/players` now provides a read-only
+    instance-scoped player registry backed by `<instance>/players.db`, not
+    `web.db`. The registry stores only reliable IDs, current nickname,
+    nickname history, first/last seen, seen count, and source. It does not
+    store IP addresses, tokens, sessions, or secrets. Recording current online
+    players is an explicit CSRF-protected POST refresh using the existing
+    `player_view`/RCON roster path; GET remains read-only and does not create
+    the database. Ban/unban, banlist manager, session duration, activity
+    history, details pages, and extra log/SAT ingestion remain future work.
 
 Planned but not implemented:
 
@@ -264,9 +273,9 @@ Next recommended implementation order:
    remain future and should keep remove/cleanup confirmations explicit.
 8. Add atomic overwrite/delete/rename flows on top of the safe filesystem
    adapter after single-file upload has been reviewed.
-9. Add player registry persistence and ban-list management after the identity
-   ingestion source is validated on a real server log/RCON sample. The future
-   step should add instance-scoped storage, recent/history/detail views,
+9. Add player registry details/history and ban-list management after the
+   identity ingestion source is validated on a real server log/RCON sample.
+   The future step should add recent/history/detail views, session duration,
    banlist manager, explicit permissions, CSRF, confirmation, backups when a
    config-backed list changes, audit logging, and no player IP storage by
    default.

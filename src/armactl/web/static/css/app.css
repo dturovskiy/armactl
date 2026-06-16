@@ -749,6 +749,10 @@ button.danger {
   margin: 0;
 }
 
+.player-refresh-form {
+  margin: 14px 0;
+}
+
 .mod-row-actions,
 .mod-remove-form {
   display: flex;

@@ -127,6 +127,7 @@ def test_owner_has_every_declared_permission():
         "mods:manage",
         "admins:view",
         "admins:manage",
+        "players:view",
         "bot:view",
         "schedule:view",
         "schedule:manage",

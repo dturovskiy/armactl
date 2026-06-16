@@ -302,9 +302,11 @@
 - [ ] Спроєктувати bulk paste/import/export/clear all/advanced modpack workflows для web mods окремим future flow
 - [ ] Спроєктувати emergency/admin-only raw JSON config editor окремо від нормального web config flow
 - [x] Додати web moderation foundation на `/admins`: current players, server-rendered search, add-to-game-admin only with reliable identity
-- [ ] Спроєктувати player registry / moderation data model для IDs, nicknames, sessions і playtime
-- [ ] Додати player identity ingestion з RCON/logs/SAT adapters без вигаданих ID
-- [ ] Додати web players pages: active/recent/search/details/activity history
+- [x] Додати instance-scoped player registry foundation (`players.db`) для reliable IDs, nickname history, first/last seen і seen count
+- [x] Додати explicit web refresh ingestion з current RCON/player_view roster без вигаданих ID і без IP storage
+- [x] Додати `/players` read-only registry page з search по nickname/ID
+- [ ] Розширити player registry до sessions, activity duration, details pages і recent/history views
+- [ ] Додати додаткове player identity ingestion з logs/SAT adapters без вигаданих ID
 - [ ] Додати moderation UI: nickname search/sort, player details, and add-to-game-admin action when reliable player identity is known
 - [ ] Додати ban list management з auth/permissions/CSRF/audit/backups
 - [x] Додати safe read-only filesystem browser foundation
