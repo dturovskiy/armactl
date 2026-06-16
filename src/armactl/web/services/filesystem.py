@@ -19,6 +19,35 @@ MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 _UPLOAD_CHUNK_BYTES = 1024 * 1024
 FORBIDDEN_PATH_NAMES = frozenset({".git", ".venv"})
 UPLOAD_ROOT_IDS = frozenset({"server"})
+PREVIEW_TEXT_SUFFIXES = frozenset(
+    {
+        ".bat",
+        ".cfg",
+        ".conf",
+        ".csv",
+        ".env",
+        ".ini",
+        ".json",
+        ".log",
+        ".md",
+        ".properties",
+        ".rpt",
+        ".sh",
+        ".txt",
+        ".xml",
+        ".yaml",
+        ".yml",
+    }
+)
+PREVIEW_TEXT_FILENAMES = frozenset(
+    {
+        "changelog",
+        "license",
+        "notice",
+        "readme",
+        "version",
+    }
+)
 SYSTEM_PREFIXES = (
     Path("/etc"),
     Path("/root"),
@@ -342,6 +371,16 @@ def _download_href(root_id: str, relative_path: str) -> str:
     return f"/files/{root_id}/download?path={_query_path(relative_path)}"
 
 
+def _is_preview_candidate(path: Path) -> bool:
+    lower_name = path.name.casefold()
+    if lower_name in PREVIEW_TEXT_FILENAMES:
+        return True
+    suffixes = {suffix.casefold() for suffix in path.suffixes}
+    if suffixes & PREVIEW_TEXT_SUFFIXES:
+        return True
+    return False
+
+
 def resolve_browser_path(
     data_root: Path | None,
     root_id: str,
@@ -407,7 +446,7 @@ def _metadata_from_path(root: FileRoot, path: Path, relative_path: str) -> FileM
         size_text=_format_size(stat_result.st_size) if is_file else "",
         modified_at=_format_modified(stat_result.st_mtime),
         href=_files_href(root.root_id, relative_path) if is_dir else "",
-        preview_href=_preview_href(root.root_id, relative_path) if is_file else "",
+        preview_href=_preview_href(root.root_id, relative_path) if is_file and _is_preview_candidate(path) else "",
         download_href=_download_href(root.root_id, relative_path) if is_file else "",
     )
 

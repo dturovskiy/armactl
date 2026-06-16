@@ -200,6 +200,24 @@ def test_listing_safe_directory_works(tmp_path: Path):
     assert 'href="/files/server/download?path=subdir"' not in response.text
 
 
+def test_listing_hides_preview_for_non_text_files(tmp_path: Path):
+    server = _server_root(tmp_path)
+    (server / "world.txt").write_text("hello", encoding="utf-8")
+    (server / "binary.bin").write_bytes(b"abc\x00def")
+    (server / "ArmaReforgerServer").write_bytes(b"\x7fELF\x00binary")
+    client = _login_owner(tmp_path)
+
+    response = client.get("/files/server", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert 'href="/files/server/preview?path=world.txt#file-preview"' in response.text
+    assert 'href="/files/server/preview?path=binary.bin#file-preview"' not in response.text
+    assert (
+        'href="/files/server/preview?path=ArmaReforgerServer#file-preview"'
+        not in response.text
+    )
+
+
 def test_parent_directory_navigation_for_nested_directory(tmp_path: Path):
     server = _server_root(tmp_path)
     (server / "subdir" / "nested").mkdir(parents=True)
