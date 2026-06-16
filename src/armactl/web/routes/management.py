@@ -38,7 +38,7 @@ from armactl.web.services import (
     admin_actions,
     config_edit,
     mod_actions,
-    pending_restart,
+    pending_work,
     player_moderation,
 )
 
@@ -179,17 +179,17 @@ def _render_admins_page(
     return response
 
 
-def _mark_pending_restart_for_result(
+def _mark_restart_pending_for_result(
     current: CurrentSession,
     *,
-    reason: str,
+    kind: str,
     source_action: str,
     details: object = "",
 ) -> None:
-    pending_restart.mark_pending_restart(
+    pending_work.mark_restart_pending(
         current.config.db_path,
         instance=paths.DEFAULT_INSTANCE_NAME,
-        reason=reason,
+        kind=kind,
         source_action=source_action,
         username=current.user.username,
         details=details,
@@ -250,9 +250,9 @@ def _run_mod_action(
         )
 
     if result.success and result.changed:
-        _mark_pending_restart_for_result(
+        _mark_restart_pending_for_result(
             current,
-            reason=pending_restart.REASON_MODS,
+            kind=pending_work.KIND_MODS,
             source_action=result.action,
             details=result.target,
         )
@@ -312,9 +312,9 @@ def _run_admin_action(
         )
 
     if result.success and result.changed:
-        _mark_pending_restart_for_result(
+        _mark_restart_pending_for_result(
             current,
-            reason=pending_restart.REASON_ADMINS,
+            kind=pending_work.KIND_ADMINS,
             source_action=result.action,
             details=result.target,
         )
@@ -407,10 +407,10 @@ def save_config_page(
 
     if not result.changed_fields:
         return RedirectResponse("/config?unchanged=1", status_code=status.HTTP_303_SEE_OTHER)
-    pending_restart.mark_pending_restart(
+    pending_work.mark_restart_pending(
         current.config.db_path,
         instance=paths.DEFAULT_INSTANCE_NAME,
-        reason=pending_restart.REASON_CONFIG,
+        kind=pending_work.KIND_CONFIG,
         source_action=config_edit.CONFIG_SAVE_ACTION,
         username=current.user.username,
         details=", ".join(result.changed_fields),

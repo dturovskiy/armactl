@@ -1768,6 +1768,47 @@ def test_jobs_output_is_escaped_and_secrets_are_not_rendered(tmp_path: Path):
     assert SESSION_COOKIE_NAME not in response.text
     assert CSRF_COOKIE_NAME not in response.text
 
+
+def test_jobs_page_shows_pending_work_when_background_jobs_empty_and_redacts_details(
+    tmp_path: Path,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services.pending_work import KIND_CONFIG, mark_restart_pending
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    mark_restart_pending(
+        tmp_path / "web" / "web.db",
+        kind=KIND_CONFIG,
+        source_action="config.save",
+        username="owner",
+        details=(
+            "max_players password=hunter2 token=raw-token "
+            "ARMACTL_WEB_SESSION_SECRET=session-secret"
+        ),
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/jobs", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Pending Operator Work" in response.text
+    assert "These are not background jobs" in response.text
+    assert "Config changes" in response.text
+    assert "config.save" in response.text
+    assert "max_players" in response.text
+    assert "No jobs yet." in response.text
+    assert "hunter2" not in response.text
+    assert "raw-token" not in response.text
+    assert "session-secret" not in response.text
+    assert "password=***" in response.text
+    assert "token=***" in response.text
+    assert "ARMACTL_WEB_SESSION_SECRET=***" in response.text
+    assert SESSION_COOKIE_NAME not in response.text
+    assert CSRF_COOKIE_NAME not in response.text
+
+
 def test_unauthenticated_service_action_redirects_to_login(tmp_path: Path):
     from armactl.web.app import create_app
 
@@ -1878,19 +1919,19 @@ def test_service_start_calls_backend_and_writes_audit(
     assert "route-secret" not in _audit_log_text(tmp_path)
 
 
-def test_dashboard_shows_pending_restart_marker(tmp_path: Path, monkeypatch):
+def test_dashboard_shows_compact_pending_work_summary(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
-    from armactl.web.services.pending_restart import mark_pending_restart
+    from armactl.web.services.pending_work import KIND_CONFIG, mark_restart_pending
 
     password = "owner pending password"
     setup_owner_user(tmp_path, "owner", password)
     _stub_dashboard(monkeypatch)
-    mark_pending_restart(
+    mark_restart_pending(
         tmp_path / "web" / "web.db",
-        reason="config",
+        kind=KIND_CONFIG,
         source_action="config.save",
         username="owner",
-        details="max_players",
+        details="pending-detail-field password=raw-secret",
     )
     client = _client(create_app(data_root=tmp_path))
     _login(client, "owner", password)
@@ -1898,10 +1939,13 @@ def test_dashboard_shows_pending_restart_marker(tmp_path: Path, monkeypatch):
     response = client.get("/dashboard", follow_redirects=False)
 
     assert response.status_code == 200
-    assert "Pending restart" in response.text
-    assert "Server changes were saved but are not applied yet." in response.text
+    assert "Pending work" in response.text
     assert "Config changes" in response.text
-    assert "max_players" in response.text
+    assert "Action needed" in response.text
+    assert "Restart game server" in response.text
+    assert 'href="/jobs"' in response.text
+    assert "pending-detail-field" not in response.text
+    assert "raw-secret" not in response.text
 
 
 def test_service_stop_and_restart_require_confirmation(
@@ -1941,11 +1985,13 @@ def test_service_stop_and_restart_require_confirmation(
     assert not (tmp_path / "logs" / "web" / "audit.log").exists()
 
 
-def test_service_restart_clears_pending_restart_marker(tmp_path: Path, monkeypatch):
+def test_service_restart_clears_restart_related_pending_work(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
-    from armactl.web.services.pending_restart import (
-        get_pending_restart,
-        mark_pending_restart,
+    from armactl.web.services.pending_work import (
+        KIND_CONFIG,
+        list_pending_work,
+        mark_restart_pending,
+        upsert_pending_work,
     )
 
     password = "owner action password"
@@ -1957,11 +2003,21 @@ def test_service_restart_clears_pending_restart_marker(tmp_path: Path, monkeypat
         success=True,
         message="restarted",
     )
-    mark_pending_restart(
-        tmp_path / "web" / "web.db",
-        reason="config",
+    db_path = tmp_path / "web" / "web.db"
+    mark_restart_pending(
+        db_path,
+        kind=KIND_CONFIG,
         source_action="config.save",
         username="owner",
+    )
+    upsert_pending_work(
+        db_path,
+        kind="schedule",
+        source_path="/schedule",
+        source_action="schedule.set",
+        title="Schedule changes",
+        username="owner",
+        resolution_action="reload schedule",
     )
     client = _client(create_app(data_root=tmp_path))
     _login(client, "owner", password)
@@ -1975,7 +2031,9 @@ def test_service_restart_clears_pending_restart_marker(tmp_path: Path, monkeypat
 
     assert response.status_code == 200
     assert "Restart success" in response.text
-    assert get_pending_restart(tmp_path / "web" / "web.db") is None
+    remaining = list_pending_work(db_path)
+    assert len(remaining) == 1
+    assert remaining[0].kind == "schedule"
 
 
 def test_service_backend_failure_renders_controlled_result_and_audit(

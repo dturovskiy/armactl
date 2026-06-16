@@ -281,7 +281,7 @@
 - [x] Додати web i18n adapter і theme preferences поверх існуючих `src/armactl/locales/*.json`
 - [x] Додати fast preferences UX: миттєве перемикання теми і lightweight language switch без зайвого важкого dashboard reload
 - [ ] Додати floating toast notifications для save/action result без стрибків на верх сторінки
-- [ ] Додати topbar notification indicator/center для pending restart, saved-but-not-applied work і важливих operator warnings
+- [ ] Додати topbar notification indicator/center для pending operator work, saved-but-not-applied work і важливих operator warnings
 - [ ] Додати security review gate для premium/mega, diagnostics, terminal, IP allowlist і host controls
 - [x] Додати background job metadata model перед long-running operations
 - [x] Додати background dispatcher/read-only jobs UI foundation перед install/repair/update flows
@@ -301,7 +301,7 @@
 - [ ] Підключити update flow до background jobs без blocking HTTP requests
 - [x] Додати safe web edit/save для базових полів `config.json` через `config_manager`
 - [x] Додати audit logging для safe web config save з changed fields і backup path
-- [x] Додати web pending-restart marker після змін config/admins/mods і показувати його на dashboard до успішного restart
+- [x] Додати stacked web pending operator work для config/admins/mods окремо від `web_jobs`, з compact dashboard summary і details на `/jobs`
 - [x] Додати shared operator UI primitives для dashboard/config pages
 - [x] Додати safe web add/update/remove для game admins через `admins_manager` з auth/CSRF/`admins:manage`/audit
 - [x] Додати basic web add/update/enable/disable/remove для mods через `mods_manager` з auth/CSRF/`mods:manage`/audit

@@ -17,7 +17,7 @@ from armactl.web.auth.dependencies import (
     require_permission,
 )
 from armactl.web.auth.permissions import ACTIONS_RUN
-from armactl.web.services import pending_restart, service_actions
+from armactl.web.services import pending_work, service_actions
 
 router = APIRouter()
 
@@ -120,7 +120,7 @@ def service_action(
         )
 
     if normalized == "restart" and result.success and result.performed:
-        pending_restart.clear_pending_restart(
+        pending_work.clear_restart_pending_work(
             current.config.db_path,
             instance=paths.DEFAULT_INSTANCE_NAME,
         )

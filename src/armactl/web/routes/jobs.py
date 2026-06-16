@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, Request, status
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
+from armactl import paths
 from armactl.web.auth.cookies import clear_csrf_cookie, clear_session_cookie, set_csrf_cookie
 from armactl.web.auth.csrf import validate_csrf_token
 from armactl.web.auth.dependencies import (
@@ -18,6 +19,7 @@ from armactl.web.auth.dependencies import (
 from armactl.web.auth.permissions import ACTIONS_RUN, JOBS_VIEW
 from armactl.web.jobs import server as server_jobs
 from armactl.web.jobs.store import list_recent_jobs
+from armactl.web.services.pending_work import list_pending_work
 
 router = APIRouter()
 
@@ -32,6 +34,10 @@ def _redirect_to_login(request: Request) -> RedirectResponse:
 
 def _render_jobs(request: Request, current: CurrentSession) -> Response:
     form_csrf = get_form_csrf_token(request, current)
+    pending_work_items = list_pending_work(
+        current.config.db_path,
+        instance=paths.DEFAULT_INSTANCE_NAME,
+    )
     jobs = list_recent_jobs(current.config.db_path, limit=25)
     response = request.app.state.templates.TemplateResponse(
         request=request,
@@ -40,6 +46,7 @@ def _render_jobs(request: Request, current: CurrentSession) -> Response:
             "current_user": current.user,
             "csrf_token": form_csrf.token,
             "jobs": jobs,
+            "pending_work_items": pending_work_items,
         },
     )
     if form_csrf.should_set_cookie:

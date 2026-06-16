@@ -346,13 +346,16 @@ def test_config_edit_updates_allowlisted_fields_creates_backup_and_preserves_res
     assert "Config saved" in saved_page.text
     assert "Updated Server" in saved_page.text
     assert "Restart the server to apply these changes." in saved_page.text
-    from armactl.web.services.pending_restart import get_pending_restart
+    from armactl.web.services.pending_work import KIND_CONFIG, get_pending_work
 
-    marker = get_pending_restart(tmp_path / "web" / "web.db")
-    assert marker is not None
-    assert marker.reason == "config"
-    assert marker.source_action == "config.save"
-    assert "max_players" in marker.details
+    item = get_pending_work(tmp_path / "web" / "web.db", kind=KIND_CONFIG)
+    assert item is not None
+    assert item.kind == "config"
+    assert item.source_path == "/config"
+    assert item.source_action == "config.save"
+    assert item.title == "Config changes"
+    assert item.resolution_action == "restart game server"
+    assert "max_players" in item.details
 
     events = _audit_events(tmp_path)
     assert len(events) == 1
@@ -400,9 +403,9 @@ def test_config_edit_noop_save_does_not_backup_or_request_restart(
     assert list(config_path.parent.glob("config.json.before-web-config-save-*.bak")) == []
     audit_path = tmp_path / "logs" / "web" / "audit.log"
     assert not audit_path.exists() or audit_path.read_text(encoding="utf-8") == ""
-    from armactl.web.services.pending_restart import get_pending_restart
+    from armactl.web.services.pending_work import list_pending_work
 
-    assert get_pending_restart(tmp_path / "web" / "web.db") is None
+    assert list_pending_work(tmp_path / "web" / "web.db") == []
 
     unchanged_page = client.get("/config?unchanged=1", follow_redirects=False)
     assert unchanged_page.status_code == 200

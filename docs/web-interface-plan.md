@@ -126,11 +126,17 @@ POST + CSRF + schedule permissions and audit timer set/enable/disable,
 restart-now, and game-service autostart enable/disable through
 `service_manager` without shelling out to the CLI.
 
-Saved config, game-admin, and mod changes should create a web-runtime
-pending-restart marker when they actually change server state. This marker is
-shown on the dashboard as operator work still waiting for a game-server restart
-and is cleared only after a successful web-triggered server restart. It is not a
-background job and must not be inserted into `web_jobs` as fake progress.
+Saved config, game-admin, and mod changes should create web-runtime
+pending operator work when they actually change server state. Pending work is a
+separate concept from background jobs: it is stored outside `web_jobs`, stacks by
+category (`config`, `admins`, `mods`, and future `schedule` work), links back to
+the source page, keeps only UI-safe redacted details, and records actor,
+timestamp, instance, and the resolution action (`restart game server`). Repeated
+saves in the same category may update that category, but they must not erase
+other categories. The dashboard shows a compact pending-work summary, `/jobs`
+shows a separate detailed "Pending operator work" section even when the
+background job list is empty, and successful web-triggered game-server restart
+clears only restart-related pending work.
 
 UI follow-up: `/schedule` is accepted as functional, but the page should be
 revisited after the core management flows are complete. The timer schedule,
@@ -188,8 +194,8 @@ panels are functional, but they should be upgraded in a focused UI slice:
 - keep destructive or restart-required warnings persistent until resolved;
 - add a notification icon/indicator in the top bar for pending operator work
   such as saved config/admin/mod changes that still require restart;
-- keep the dashboard pending-restart marker as the source of truth for
-  restart-required work, not duplicated fake jobs;
+- keep the web-runtime pending-work store as the source of truth for
+  restart-required operator work, not duplicated fake jobs;
 - make notification entries link back to the relevant page/section, for
   example config, admins, mods, schedule, files, logs, or jobs;
 - ensure all notifications come from server-side state or explicit safe client
@@ -1310,6 +1316,9 @@ not the foreground debug runner.
   controlled failed jobs.
 - A read-only authenticated `/jobs` page lists recent jobs and bounded output
   tails for operators with `jobs:view`.
+- Pending operator work is shown on `/jobs` in a separate section from
+  background jobs. It is stored in `web_pending_work`, not `web_jobs`, and can be
+  present even when there are no background jobs.
 - Use the job model for future install, repair, SteamCMD update, and large file
   actions.
 - Until explicit handlers and routes exist for those operations, keep

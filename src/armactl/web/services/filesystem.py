@@ -446,7 +446,11 @@ def _metadata_from_path(root: FileRoot, path: Path, relative_path: str) -> FileM
         size_text=_format_size(stat_result.st_size) if is_file else "",
         modified_at=_format_modified(stat_result.st_mtime),
         href=_files_href(root.root_id, relative_path) if is_dir else "",
-        preview_href=_preview_href(root.root_id, relative_path) if is_file and _is_preview_candidate(path) else "",
+        preview_href=(
+            _preview_href(root.root_id, relative_path)
+            if is_file and _is_preview_candidate(path)
+            else ""
+        ),
         download_href=_download_href(root.root_id, relative_path) if is_file else "",
     )
 

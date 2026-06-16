@@ -311,13 +311,15 @@ def test_mods_add_success_writes_safe_audit(tmp_path: Path, monkeypatch):
     assert event["target"] == "CCCCCCCCCCCCCCCC"
     assert event["success"] is True
     assert event["details"]["changed"] == "yes"
-    from armactl.web.services.pending_restart import get_pending_restart
+    from armactl.web.services.pending_work import KIND_MODS, get_pending_work
 
-    marker = get_pending_restart(tmp_path / "web" / "web.db")
-    assert marker is not None
-    assert marker.reason == "mods"
-    assert marker.source_action == "mod.add"
-    assert marker.details == "CCCCCCCCCCCCCCCC"
+    item = get_pending_work(tmp_path / "web" / "web.db", kind=KIND_MODS)
+    assert item is not None
+    assert item.kind == "mods"
+    assert item.source_path == "/mods"
+    assert item.source_action == "mod.add"
+    assert item.title == "Mod changes"
+    assert item.details == "CCCCCCCCCCCCCCCC"
 
 
 def test_mods_add_unchanged_writes_audit_without_restart_notice(
@@ -358,9 +360,9 @@ def test_mods_add_unchanged_writes_audit_without_restart_notice(
     assert event["action"] == "mod.add"
     assert event["success"] is True
     assert event["details"]["changed"] == "no"
-    from armactl.web.services.pending_restart import get_pending_restart
+    from armactl.web.services.pending_work import list_pending_work
 
-    assert get_pending_restart(tmp_path / "web" / "web.db") is None
+    assert list_pending_work(tmp_path / "web" / "web.db") == []
 
 
 def test_mods_disable_success_writes_audit(tmp_path: Path, monkeypatch):

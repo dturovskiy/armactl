@@ -218,12 +218,15 @@ Completed foundation:
     `player_view`/RCON roster path; GET remains read-only and does not create
     the database. Ban/unban, banlist manager, session duration, activity
     history, details pages, and extra log/SAT ingestion remain future work.
-34. Pending restart marker: config, game-admin, and mod changes saved through
-    web now create or update a per-instance marker in `web.db` when they really
-    change server state. The dashboard shows this marker in the Recent Jobs
-    area as operator work still needing a game-server restart, and a successful
-    web restart action clears it. The marker is web/operator metadata, not a
-    fake background job.
+34. Pending operator work: config, game-admin, and mod changes saved through
+    web now create or update category-scoped pending work in `web.db` when they
+    really change server state. `config`, `admins`, and `mods` stack without
+    overwriting each other; repeated saves in the same category update that
+    category. The dashboard shows a compact Pending work summary, while `/jobs`
+    shows a separate detailed Pending operator work section even when
+    background jobs are empty. Pending work is web/operator metadata in
+    `web_pending_work`, not a fake `web_jobs` row, and successful web restart
+    clears only restart-related pending work.
 
 Planned but not implemented:
 

@@ -901,6 +901,30 @@ button.danger {
   margin-top: 14px;
 }
 
+.pending-work-compact-list {
+  display: grid;
+  gap: 10px;
+}
+
+.pending-work-compact-item h3,
+.pending-work-card h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.pending-work-compact-meta {
+  grid-template-columns: minmax(100px, 0.35fr) minmax(0, 1fr);
+  margin-top: 8px;
+}
+
+.pending-work-card {
+  border-left-color: var(--warning);
+}
+
+.pending-work-panel > .muted {
+  margin-top: 6px;
+}
+
 .job-card {
   padding: 14px;
   border: 1px solid var(--border);

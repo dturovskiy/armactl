@@ -313,13 +313,15 @@ def test_admins_add_success_writes_safe_audit(tmp_path: Path, monkeypatch):
     assert event["target"] == "76561198000000002"
     assert event["success"] is True
     assert event["details"] == {"changed": "yes"}
-    from armactl.web.services.pending_restart import get_pending_restart
+    from armactl.web.services.pending_work import KIND_ADMINS, get_pending_work
 
-    marker = get_pending_restart(tmp_path / "web" / "web.db")
-    assert marker is not None
-    assert marker.reason == "admins"
-    assert marker.source_action == "admin.add"
-    assert marker.details == "76561198000000002"
+    item = get_pending_work(tmp_path / "web" / "web.db", kind=KIND_ADMINS)
+    assert item is not None
+    assert item.kind == "admins"
+    assert item.source_path == "/admins"
+    assert item.source_action == "admin.add"
+    assert item.title == "Admin changes"
+    assert item.details == "76561198000000002"
 
 
 def test_admins_update_success_writes_update_audit(tmp_path: Path, monkeypatch):
@@ -453,9 +455,9 @@ def test_admins_unchanged_remove_does_not_show_restart_required_notice(
     event = _audit_events(tmp_path)[0]
     assert event["action"] == "admin.remove"
     assert event["details"] == {"changed": "no"}
-    from armactl.web.services.pending_restart import get_pending_restart
+    from armactl.web.services.pending_work import list_pending_work
 
-    assert get_pending_restart(tmp_path / "web" / "web.db") is None
+    assert list_pending_work(tmp_path / "web" / "web.db") == []
 
 
 def test_admins_backend_error_is_controlled_and_audited(tmp_path: Path, monkeypatch):
