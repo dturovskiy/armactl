@@ -279,6 +279,7 @@
 - [ ] Спроєктувати diagnostic command palette для allowlisted debug/report commands без raw shell
 - [ ] Спроєктувати break-glass web terminal як disabled-by-default future flow з IP allowlist/trusted proxy/extra auth/audit
 - [x] Додати web i18n adapter і theme preferences поверх існуючих `src/armactl/locales/*.json`
+- [ ] Додати dev/test-only pseudolocalization mode для пошуку missing keys, raw text і layout overflow
 - [x] Додати fast preferences UX: миттєве перемикання теми і lightweight language switch без зайвого важкого dashboard reload
 - [ ] Додати floating toast notifications для save/action result без стрибків на верх сторінки
 - [ ] Додати topbar notification indicator/center для pending operator work, saved-but-not-applied work і важливих operator warnings
@@ -286,6 +287,7 @@
 - [x] Додати background job metadata model перед long-running operations
 - [x] Додати background dispatcher/read-only jobs UI foundation перед install/repair/update flows
 - [x] Додати read-only management pages для config/mods/admins/bot через backend modules
+- [ ] Спроєктувати settings IA: dashboard summary, basic config, mods, mod settings, network/advanced, diagnostics, danger zone
 - [x] Додати `armactl-web.service` template і service commands
 - [x] Додати login rate limiting / auth abuse throttling для web login
 - [x] Додати явне HTTPS/external-bind warning у web UI/runtime summary
@@ -307,6 +309,10 @@
 - [x] Додати basic web add/update/enable/disable/remove для mods через `mods_manager` з auth/CSRF/`mods:manage`/audit
 - [ ] Додати edit/save/delete flows для bot і розширених config полів через backend modules
 - [ ] Спроєктувати bulk paste/import/export/clear all/advanced modpack workflows для web mods окремим future flow
+- [ ] Спроєктувати окремі mod settings pages для SAT та інших модів з власними runtime config checks
+- [ ] Спроєктувати network/advanced server settings page для game/A2S/RCON ports і sensitive server options
+- [ ] Спроєктувати diagnostics page для SAT/config/ports/paths/telemetry/log health checks
+- [ ] Спроєктувати advanced danger zone для raw JSON, backup restore і destructive maintenance actions
 - [ ] Спроєктувати emergency/admin-only raw JSON config editor окремо від нормального web config flow
 - [x] Додати web moderation foundation на `/admins`: current players, server-rendered search, add-to-game-admin only with reliable identity
 - [x] Додати instance-scoped player registry foundation (`players.db`) для reliable IDs, nickname history, first/last seen і seen count

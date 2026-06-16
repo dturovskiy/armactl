@@ -63,6 +63,8 @@ explicitly a release task.
 - Keep CLI and TUI usable as fallback management paths.
 - Keep tests independent from saved operator UI language.
 - Reuse existing `src/armactl/locales/*.json` files for web localization.
+- Pseudolocalization is planned as a dev/test-only QA mode to catch missing
+  keys, raw hardcoded template text, and layout overflow before UI polish.
   Resolve language per web request/session/user and do not call the TUI-style
   global `toggle_lang()` / `save_lang()` helpers during HTTP request handling.
 
@@ -402,3 +404,8 @@ unrelated feature work:
   operator views. Future work should make audit JSONL readable, add bounded
   download/export, optional live follow or auto-refresh, filters/search, and
   `ERROR`/`WARNING` highlighting while keeping sources fixed and allowlisted.
+- Settings IA: keep the dashboard as an operational summary. Basic config stays
+  safe and common; mod settings, SAT diagnostics, A2S/RCON/network settings,
+  diagnostics, raw JSON, backup restore, and destructive maintenance belong on
+  focused pages or danger-zone flows instead of being dumped into `/dashboard`
+  or the basic `/config` form.

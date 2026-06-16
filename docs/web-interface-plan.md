@@ -189,6 +189,33 @@ normal server management. Any sudo/root use through the browser must be an
 explicit operator-provisioned decision, never a default armactl installation
 behavior.
 
+## Settings information architecture
+
+The dashboard should stay a compact operational overview, not a dumping ground
+for every editable setting. Split settings by operator intent and risk:
+
+- Dashboard: short server state, important warnings, pending work summary, and
+  links to detailed pages only.
+- Basic server config: safe common fields such as name, scenario, player count,
+  visibility, BattlEye, and distances.
+- Mods: active/disabled mod list, add/update/disable/delete controls, ordering,
+  bulk paste/import/export, and future Workshop/catalog helpers.
+- Mod settings: separate pages or subpages for per-mod runtime configuration,
+  such as ServerAdminTools. Dashboard should show only a short neutral/alert
+  summary and link to details.
+- Network and advanced server settings: game port, A2S, RCON, passwords, and
+  other sensitive settings that need stronger validation, explanations, and
+  restart warnings than the basic config form.
+- Diagnostics: SAT/config/ports/paths/telemetry/log health checks and controlled
+  troubleshooting actions.
+- Advanced / danger zone: raw JSON editor, backup restore, destructive file
+  actions, and other break-glass workflows that need explicit confirmation,
+  audit logging, and clear rollback/recovery notes.
+
+Do not add every new setting to `/config` or `/dashboard`. Prefer focused pages
+with thin routes and service-layer validation so dangerous settings do not make
+routine operation harder.
+
 ## Notifications and pending operator work
 
 The web UI should avoid pushing important operator messages to the top of long
@@ -576,6 +603,20 @@ The web panel should use `armactl.i18n.translate_for_lang()` and
 Web routes may still use backend modules that return already localized
 messages, but route and template strings should be localized with the
 per-request language. Do not import TUI screens or widgets to reuse labels.
+
+Add a dev/test-only pseudolocalization mode as a UI QA tool, not as a production
+language. It should transform existing localized strings into longer,
+visibly-marked text so layout and missing-key problems are obvious during
+manual and automated checks. Requirements:
+
+- do not store `pseudo` as a normal production user language unless an explicit
+  development/test flag enables it;
+- derive pseudo strings from the existing locale keys instead of adding a third
+  hand-maintained locale file;
+- expand text length enough to catch button/card/table overflow;
+- keep placeholders and `tr()` interpolation safe and intact;
+- use it to find raw hardcoded template text, missing keys, and layout overflow
+  before polishing web pages.
 
 Preference UX should not make cheap choices feel expensive:
 
