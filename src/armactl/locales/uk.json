@@ -665,7 +665,7 @@
     "Server admin is already configured and its local label was updated.": "Адміна сервера вже налаштовано; його локальну мітку оновлено.",
     "Server admin not found.": "Адміна сервера не знайдено.",
     "Server admin removed.": "Адміна сервера видалено.",
-    "Steam profile reference is required.": "Потрібно вказати профіль Steam.",
+    "Steam profile reference is required.": "Потрібне посилання на профіль Steam або SteamID64.",
     "SteamID64, steamcommunity.com profile URL, or vanity slug...": "SteamID64, URL профілю steamcommunity.com або vanity slug...",
     "Stored in official game.admins. Listed admins can use #login without a password; optional labels remain local.": "Зберігається в офіційному game.admins. Додані адміни можуть виконувати #login без пароля; необов'язкові мітки лишаються локальними.",
     "[bold cyan]Server Admins[/bold cyan]": "[bold cyan]Адміни сервера[/bold cyan]",
@@ -1059,6 +1059,8 @@
     "Config changes": "Зміни конфігу",
     "Admin changes": "Зміни адмінів",
     "Mod changes": "Зміни модів",
-    "Saved changes": "Збережені зміни"
+    "Saved changes": "Збережені зміни",
+    "Steam nickname lookup is ambiguous. Paste the profile URL or SteamID64.": "Нікнейм Steam неоднозначний. Вставте URL профілю або SteamID64.",
+    "Paste a SteamID64, IdentityId, steamcommunity.com profile URL, or Steam vanity slug.": "Вставте SteamID64, IdentityId, URL профілю steamcommunity.com або Steam vanity slug."
   }
 }

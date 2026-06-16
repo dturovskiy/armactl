@@ -472,6 +472,9 @@
     "Config changes": "Config changes",
     "Admin changes": "Admin changes",
     "Mod changes": "Mod changes",
-    "Saved changes": "Saved changes"
+    "Saved changes": "Saved changes",
+    "Steam nickname lookup is ambiguous. Paste the profile URL or SteamID64.": "Steam nickname lookup is ambiguous. Paste the profile URL or SteamID64.",
+    "Paste a SteamID64, IdentityId, steamcommunity.com profile URL, or Steam vanity slug.": "Paste a SteamID64, IdentityId, steamcommunity.com profile URL, or Steam vanity slug.",
+    "Steam profile reference is required.": "Steam profile reference is required."
   }
 }

@@ -497,6 +497,45 @@ def test_admins_backend_error_is_controlled_and_audited(tmp_path: Path, monkeypa
     assert "token=***" in audit_text
 
 
+def test_admins_ambiguous_steam_nickname_error_is_localized(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.i18n import LANGUAGE_COOKIE_NAME
+    from armactl.web.services import admin_actions
+
+    config_path = tmp_path / "config.json"
+    client = _authed_client(tmp_path, monkeypatch)
+    client.cookies.set(LANGUAGE_COOKIE_NAME, "uk", path="/")
+    monkeypatch.setattr(
+        admin_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def add_admin(path: Path, admin_reference: str, name: str = "") -> bool:
+        raise ConfigError(
+            "Steam nickname lookup is ambiguous. Paste the profile URL or SteamID64."
+        )
+
+    monkeypatch.setattr(admin_actions.admins_manager, "add_admin", add_admin)
+    csrf_token = _admins_csrf_token(client)
+
+    response = client.post(
+        "/admins/add",
+        data={
+            "csrf_token": csrf_token,
+            "admin_reference": "1",
+            "label": "",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Нікнейм Steam неоднозначний. Вставте URL профілю або SteamID64." in response.text
+    assert "Steam nickname lookup is ambiguous" not in response.text
+
+
 def test_admins_html_and_audit_do_not_expose_auth_secrets(tmp_path: Path, monkeypatch):
     from armactl.web.services import admin_actions
 
