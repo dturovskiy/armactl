@@ -93,37 +93,41 @@
   {% endif %}
 </section>
 
-{% if pending_work_items %}
 <section class="dashboard-section pending-work-summary">
   <div class="section-heading-row">
     <h2>{{ t("Pending operator work") }}</h2>
     {% if pending_work_detail_href %}<a class="button-link secondary-link" href="{{ pending_work_detail_href }}">{{ t("View all work") }}</a>{% endif %}
   </div>
-  <p class="muted pending-work-summary-note">{{ t("Saved changes waiting for manual action, usually a game-server restart.") }}</p>
-  <table class="pending-work-dashboard-table">
-    <thead>
-      <tr><th>{{ t("Category") }}</th><th>{{ t("Source page") }}</th><th>{{ t("Updated") }}</th><th>{{ t("Requested by") }}</th><th>{{ t("Required action") }}</th></tr>
-    </thead>
-    <tbody>
-      {% for item in pending_work_items %}
-        <tr>
-          <td>{{ t(item.title) }}</td>
-          <td><a class="text-link" href="{{ item.source_path }}">{{ item.source_path }}</a></td>
-          <td>{{ item.updated_at }}</td>
-          <td>{{ item.created_by_username }}</td>
-          <td><span class="status-pill status-pill-warning">{{ t(item.resolution_action_label) }}</span></td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {% if pending_work_items %}
+    <p class="muted pending-work-summary-note">{{ t("Saved changes waiting for manual action, usually a game-server restart.") }}</p>
+    <table class="pending-work-dashboard-table">
+      <thead>
+        <tr><th>{{ t("Category") }}</th><th>{{ t("Source page") }}</th><th>{{ t("Updated") }}</th><th>{{ t("Requested by") }}</th><th>{{ t("Required action") }}</th></tr>
+      </thead>
+      <tbody>
+        {% for item in pending_work_items %}
+          <tr>
+            <td>{{ t(item.title) }}</td>
+            <td><a class="text-link" href="{{ item.source_path }}">{{ item.source_path }}</a></td>
+            <td>{{ item.updated_at }}</td>
+            <td>{{ item.created_by_username }}</td>
+            <td><span class="status-pill status-pill-warning">{{ t(item.resolution_action_label) }}</span></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="notice-panel notice-unavailable pending-work-empty">
+      <strong>{{ t("No pending operator work.") }}</strong>
+      <p class="muted">{{ t("All saved changes are applied. No action is required.") }}</p>
+    </div>
+  {% endif %}
 </section>
-{% endif %}
 
 {% if dashboard.show_recent_jobs and recent_jobs %}
 <section class="dashboard-section recent-jobs">
   <div class="section-heading-row">
     <h2>{{ t("Background jobs") }}</h2>
-    {% if not pending_work_items %}<a class="button-link secondary-link" href="/jobs">{{ t("View all jobs") }}</a>{% endif %}
   </div>
   <table>
     <thead><tr><th>{{ t("Kind") }}</th><th>{{ t("Status") }}</th><th>{{ t("Requested by") }}</th><th>{{ t("Updated") }}</th></tr></thead>

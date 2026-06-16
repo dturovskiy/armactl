@@ -16,7 +16,7 @@
   </div>
   <p class="service-result-message">{{ t(result_view.message) }}</p>
   {% if result.action == "restart" and result.success and result_view.pending_restart_work_cleared %}
-    <p class="notice-inline notice-success">{{ t("Dashboard and jobs no longer show restart-related pending work.") }}</p>
+    <p class="notice-inline notice-success">{{ t("All saved changes that required restart have been applied.") }}</p>
   {% endif %}
   <details class="service-result-details">
     <summary>{{ t("Diagnostic details") }}</summary>

@@ -1187,9 +1187,12 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert 'href="/mods"' in root_response.text
     assert 'href="/admins"' in root_response.text
     assert 'href="/bot"' in root_response.text
-    assert 'href="/jobs"' not in root_response.text
+    assert 'href="/jobs"' in root_response.text
     assert 'href="/files"' in root_response.text
     assert 'href="/logs"' in root_response.text
+    assert "Pending operator work" in root_response.text
+    assert "No pending operator work." in root_response.text
+    assert "All saved changes are applied. No action is required." in root_response.text
     assert "Background jobs" not in root_response.text
     assert "No background jobs." not in root_response.text
     assert "/static/js/dashboard.js" in root_response.text
@@ -2082,6 +2085,9 @@ def test_service_restart_clears_all_restart_related_pending_work(
     assert response.status_code == 200
     assert "Server restart completed." in response.text
     assert "Pending restart work cleared." in response.text
+    assert "All saved changes that required restart have been applied." in response.text
+    assert "Dashboard and jobs" not in response.text
+    assert "restart-related pending work" not in response.text
     assert "raw helper text" not in response.text
     assert "backend-secret" not in response.text
     remaining = list_pending_work(db_path)
@@ -2093,6 +2099,9 @@ def test_service_restart_clears_all_restart_related_pending_work(
     jobs_response = client.get("/jobs", follow_redirects=False)
     assert dashboard_response.status_code == 200
     assert jobs_response.status_code == 200
+    assert "Pending operator work" in dashboard_response.text
+    assert "No pending operator work." not in dashboard_response.text
+    assert "All saved changes are applied. No action is required." not in dashboard_response.text
     assert "Config changes" not in dashboard_response.text
     assert "Admin changes" not in dashboard_response.text
     assert "Mod changes" not in dashboard_response.text
@@ -2215,9 +2224,12 @@ def test_service_restart_clears_migrated_legacy_pending_restart(
     assert list_pending_work(db_path) == []
     dashboard_response = client.get("/dashboard", follow_redirects=False)
     jobs_response = client.get("/jobs", follow_redirects=False)
-    assert "Pending operator work" not in dashboard_response.text
+    assert "Pending operator work" in dashboard_response.text
+    assert "No pending operator work." in dashboard_response.text
+    assert "All saved changes are applied. No action is required." in dashboard_response.text
     assert "Config changes" not in jobs_response.text
     assert "No pending operator work." in jobs_response.text
+    assert "No background jobs." in jobs_response.text
 
 
 def test_service_backend_failure_renders_controlled_result_and_audit(

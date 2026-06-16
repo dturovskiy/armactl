@@ -869,6 +869,21 @@ button.danger {
   border-left: 4px solid var(--border);
 }
 
+.service-result-message {
+  margin: 12px 0 0;
+  font-weight: 700;
+}
+
+.service-result-details {
+  margin-top: 14px;
+}
+
+.service-result-details summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 700;
+}
+
 .result-success {
   border-left-color: var(--accent);
 }
@@ -923,6 +938,15 @@ button.danger {
   margin-top: 3px;
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+.pending-work-empty {
+  margin-top: 10px;
+  padding: 10px 12px;
+}
+
+.pending-work-empty p {
+  margin: 4px 0 0;
 }
 
 .job-card {
