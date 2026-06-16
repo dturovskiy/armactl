@@ -649,6 +649,7 @@ def test_login_template_has_language_and_theme_controls(tmp_path: Path):
     assert 'data-preference-form="language"' in response.text
     assert 'data-preference-form="theme"' in response.text
     assert '/static/js/preferences.js' in response.text
+    assert '/static/js/scroll_restore.js' in response.text
     assert '/static/css/app.css?v=' in response.text
     assert '/static/js/preferences.js?v=' in response.text
     assert 'data-theme="light"' in response.text

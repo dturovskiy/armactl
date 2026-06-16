@@ -41,5 +41,6 @@
   <main class="page">
     {% block content %}{% endblock %}
   </main>
+<script src="{{ url_for('static', path='js/scroll_restore.js') }}?v={{ web_static_version }}" defer></script>
 </body>
 </html>
