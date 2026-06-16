@@ -1138,6 +1138,7 @@ def test_password_hash_and_session_token_do_not_appear_in_dashboard_html(
     assert "/static/js/preferences.js" in response.text
     assert "ARMACTL_WEB_SESSION_SECRET" not in response.text
     assert "/static/js/dashboard.js" in response.text
+    assert "/static/js/service_actions.js" in response.text
     assert "data-dashboard-root" in response.text
     assert 'data-dashboard-field="overview.players"' in response.text
     assert "data-dashboard-live-status" in response.text
@@ -1196,6 +1197,30 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert "Background jobs" not in root_response.text
     assert "No background jobs." not in root_response.text
     assert "/static/js/dashboard.js" in root_response.text
+    assert "/static/js/service_actions.js" in root_response.text
+    assert 'data-service-action-form' in root_response.text
+    assert 'data-service-action="stop"' in root_response.text
+    assert 'data-service-action="restart"' in root_response.text
+    assert 'data-service-action-label="Stopping server..."' in root_response.text
+    assert 'data-service-action-label="Restarting server..."' in root_response.text
+    assert 'data-service-action-submit' in root_response.text
+    assert re.search(
+        r'<input type="checkbox" name="confirm" value="stop" required>',
+        root_response.text,
+    )
+    assert re.search(
+        r'<input type="checkbox" name="confirm" value="restart" required>',
+        root_response.text,
+    )
+    service_action_values = re.findall(
+        r'data-service-action(?:-[\w-]+)?="([^"]*)"',
+        root_response.text,
+    )
+    assert service_action_values
+    for value in service_action_values:
+        assert "csrf" not in value.lower()
+        assert "session" not in value.lower()
+        assert "token" not in value.lower()
     assert 'data-dashboard-endpoint="/dashboard/status.json"' in root_response.text
     assert 'data-dashboard-field="host.cpu"' in root_response.text
     assert 'data-dashboard-meter="fps"' in root_response.text
@@ -1225,6 +1250,24 @@ def test_dashboard_js_static_asset_is_served(tmp_path: Path):
     assert "password" not in response.text.lower()
 
 
+def test_service_action_js_static_asset_is_served(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.get("/static/js/service_actions.js", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "data-service-action-form" in response.text
+    assert 'addEventListener("submit"' in response.text
+    assert "service-action-overlay" in response.text
+    assert "reportValidity" in response.text
+    assert "disabled = true" in response.text
+    assert "csrf" not in response.text.lower()
+    assert "token" not in response.text.lower()
+    assert "password" not in response.text.lower()
+
+
 def test_dashboard_stopped_server_shows_start_only(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
     from armactl.web.routes import dashboard
@@ -1246,6 +1289,9 @@ def test_dashboard_stopped_server_shows_start_only(tmp_path: Path, monkeypatch):
     assert 'action="/service/start"' in response.text
     assert 'action="/service/stop"' not in response.text
     assert 'action="/service/restart"' not in response.text
+    assert 'data-service-action="start"' in response.text
+    assert 'data-service-action-label="Starting server..."' in response.text
+    assert "/static/js/service_actions.js" in response.text
     assert "Server snapshot" in response.text
     assert 'href="/config"' in response.text
 
@@ -1273,6 +1319,8 @@ def test_dashboard_starting_server_hides_service_actions(tmp_path: Path, monkeyp
     assert "action=\"/service/start\"" not in response.text
     assert "action=\"/service/stop\"" not in response.text
     assert "action=\"/service/restart\"" not in response.text
+    assert "data-service-action-form" not in response.text
+    assert "/static/js/service_actions.js" in response.text
     assert "Live server" not in response.text
 
 def test_dashboard_running_server_shows_stop_restart_only(tmp_path: Path, monkeypatch):

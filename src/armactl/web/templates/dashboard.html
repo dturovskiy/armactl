@@ -29,7 +29,10 @@
   </div>
 {%- endmacro %}
 {% block title %}{{ t("Dashboard - armactl web") }}{% endblock %}
-{% block extra_scripts %}<script defer src="{{ url_for('static', path='/js/dashboard.js') }}?v={{ web_static_version }}"></script>{% endblock %}
+{% block extra_scripts %}
+<script defer src="{{ url_for('static', path='/js/dashboard.js') }}?v={{ web_static_version }}"></script>
+<script defer src="{{ url_for('static', path='/js/service_actions.js') }}?v={{ web_static_version }}"></script>
+{% endblock %}
 {% block heading %}<span data-dashboard-field="heading">{% if dashboard.heading == "Dashboard" %}{{ t("Dashboard") }}{% else %}{{ dashboard.heading }}{% endif %}</span>{% endblock %}
 {% block topbar_actions %}
 <form method="post" action="/logout" class="logout-form">
@@ -57,17 +60,23 @@
 <section class="dashboard-section">
   <h2>{{ t("Quick actions") }}</h2>
   {% if dashboard.actions %}
+    {% set service_action_labels = {
+      "start": t("Starting server..."),
+      "stop": t("Stopping server..."),
+      "restart": t("Restarting server...")
+    } %}
     <div class="action-grid">
       {% for action in dashboard.actions %}
-        <form method="post" action="{{ action.action_path }}" class="action-form action-tile">
+        {% set service_action_label = service_action_labels.get(action.name, "") %}
+        <form method="post" action="{{ action.action_path }}" class="action-form action-tile"{% if service_action_label %} data-service-action-form data-service-action="{{ action.name }}" data-service-action-label="{{ service_action_label }}"{% endif %}>
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           {% if action.confirm_label %}
             <label class="inline-confirm">
-              <input type="checkbox" name="confirm" value="{{ action.confirm_value }}">
+              <input type="checkbox" name="confirm" value="{{ action.confirm_value }}" required>
               {{ t(action.confirm_label) }}
             </label>
           {% endif %}
-          <button{% if action.danger %} class="danger"{% endif %} type="submit">{{ t(action.label) }}</button>
+          <button{% if action.danger %} class="danger"{% endif %}{% if service_action_label %} data-service-action-submit{% endif %} type="submit">{{ t(action.label) }}</button>
         </form>
       {% endfor %}
     </div>

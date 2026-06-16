@@ -32,7 +32,9 @@ WEB_DATA_ROOT_ENV = "ARMACTL_WEB_DATA_ROOT"
 def _static_asset_version() -> str:
     candidates = (
         STATIC_DIR / "css" / "app.css",
+        STATIC_DIR / "js" / "dashboard.js",
         STATIC_DIR / "js" / "preferences.js",
+        STATIC_DIR / "js" / "service_actions.js",
     )
     mtimes: list[int] = []
     for candidate in candidates:
