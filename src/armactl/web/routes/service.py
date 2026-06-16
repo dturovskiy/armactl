@@ -30,12 +30,58 @@ def _redirect_to_login(request: Request) -> RedirectResponse:
     return response
 
 
+def _operator_result_title(result: service_actions.ServiceActionResult) -> str:
+    if result.action == "restart":
+        return "Server restart completed." if result.success else "Server restart failed."
+    if result.action == "start":
+        return "Server start completed." if result.success else "Server start failed."
+    if result.action == "stop":
+        return "Server stop completed." if result.success else "Server stop failed."
+    return "Service action completed." if result.success else "Service action failed."
+
+
+def _operator_result_message(
+    result: service_actions.ServiceActionResult,
+    *,
+    pending_restart_work_cleared: bool,
+) -> str:
+    if result.action == "restart" and result.success:
+        if pending_restart_work_cleared:
+            return "Pending restart work cleared."
+        return "No pending restart work was waiting."
+    if result.action == "restart" and not result.success and result.performed:
+        return "Pending restart work was not cleared."
+    if result.success:
+        return "The service action completed successfully."
+    if not result.performed:
+        return result.message
+    return "Review diagnostic details below."
+
+
+def _service_result_view(
+    result: service_actions.ServiceActionResult,
+    *,
+    pending_restart_work_cleared: bool,
+) -> dict[str, object]:
+    show_backend_message = not (result.action == "restart" and result.success)
+    return {
+        "title": _operator_result_title(result),
+        "message": _operator_result_message(
+            result,
+            pending_restart_work_cleared=pending_restart_work_cleared,
+        ),
+        "pending_restart_work_cleared": pending_restart_work_cleared,
+        "show_backend_message": show_backend_message,
+    }
+
+
 def _render_result(
     request: Request,
     current: CurrentSession,
     result: service_actions.ServiceActionResult,
     *,
     status_code: int = status.HTTP_200_OK,
+    pending_restart_work_cleared: bool = False,
 ) -> Response:
     form_csrf = get_form_csrf_token(request, current)
     response = request.app.state.templates.TemplateResponse(
@@ -45,6 +91,10 @@ def _render_result(
             "current_user": current.user,
             "csrf_token": form_csrf.token,
             "result": result,
+            "result_view": _service_result_view(
+                result,
+                pending_restart_work_cleared=pending_restart_work_cleared,
+            ),
         },
         status_code=status_code,
     )
@@ -119,9 +169,18 @@ def service_action(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
+    pending_restart_work_cleared = False
     if normalized == "restart" and result.success and result.performed:
-        pending_work.clear_restart_pending_work(
-            current.config.db_path,
-            instance=paths.DEFAULT_INSTANCE_NAME,
+        pending_restart_work_cleared = (
+            pending_work.clear_restart_pending_work(
+                current.config.db_path,
+                instance=paths.DEFAULT_INSTANCE_NAME,
+            )
+            > 0
         )
-    return _render_result(request, current, result)
+    return _render_result(
+        request,
+        current,
+        result,
+        pending_restart_work_cleared=pending_restart_work_cleared,
+    )

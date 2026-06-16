@@ -139,7 +139,10 @@ render a large empty background-jobs panel next to pending work. `/jobs` is
 the detailed operations page: it shows pending operator work as dense rows
 separate from background jobs, with precise empty states for each section.
 Successful web-triggered game-server restart clears only restart-related
-pending work.
+pending work, including legacy pending-restart rows migrated from the older
+single-marker store. The restart result page uses operator-friendly text
+such as "Server restart completed." and "Pending restart work cleared.",
+with safe diagnostics secondary to the main message.
 
 UI follow-up: `/schedule` is accepted as functional, but the page should be
 revisited after the core management flows are complete. The timer schedule,

@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
 {% block title %}{{ t("Service action - armactl web") }}{% endblock %}
-{% block heading %}{{ t("Service action result") }}{% endblock %}
+{% block heading %}{{ t("Service action") }}{% endblock %}
 {% block topbar_actions %}
 <form method="post" action="/logout" class="logout-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -10,14 +10,25 @@
 {% endblock %}
 {% block content %}
 <section class="panel service-result result-{{ result.status_label }}">
-  <h2>{{ t(result.action | title) }} {{ t(result.status_label) }}</h2>
-  <dl>
-    <dt>{{ t("Instance") }}</dt><dd>{{ result.instance }}</dd>
-    <dt>{{ t("Service") }}</dt><dd>{{ result.service_name or t("unknown") }}</dd>
-    <dt>{{ t("Performed") }}</dt><dd>{{ t("yes") if result.performed else t("no") }}</dd>
-    <dt>{{ t("Exit code") }}</dt><dd>{{ result.exit_code }}</dd>
-    <dt>{{ t("Message") }}</dt><dd>{{ t(result.message) }}</dd>
-  </dl>
+  <div class="section-heading-row">
+    <h2>{{ t(result_view.title) }}</h2>
+    <span class="status-pill status-pill-{{ result.status_label }}">{{ t(result.status_label) }}</span>
+  </div>
+  <p class="service-result-message">{{ t(result_view.message) }}</p>
+  {% if result.action == "restart" and result.success and result_view.pending_restart_work_cleared %}
+    <p class="notice-inline notice-success">{{ t("Dashboard and jobs no longer show restart-related pending work.") }}</p>
+  {% endif %}
+  <details class="service-result-details">
+    <summary>{{ t("Diagnostic details") }}</summary>
+    <dl class="key-value-list">
+      <dt>{{ t("Action") }}</dt><dd>{{ t(result.action) }}</dd>
+      <dt>{{ t("Instance") }}</dt><dd>{{ result.instance }}</dd>
+      <dt>{{ t("Service") }}</dt><dd>{{ result.service_name or t("unknown") }}</dd>
+      <dt>{{ t("Performed") }}</dt><dd>{{ t("yes") if result.performed else t("no") }}</dd>
+      <dt>{{ t("Exit code") }}</dt><dd>{{ result.exit_code }}</dd>
+      {% if result_view.show_backend_message %}<dt>{{ t("Backend message") }}</dt><dd>{{ t(result.message) }}</dd>{% endif %}
+    </dl>
+  </details>
   <p class="result-actions"><a class="button-link" href="/dashboard">{{ t("Back to dashboard") }}</a></p>
 </section>
 {% endblock %}

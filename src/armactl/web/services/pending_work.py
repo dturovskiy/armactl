@@ -299,8 +299,17 @@ def clear_restart_pending_work(
     instance: str = paths.DEFAULT_INSTANCE_NAME,
 ) -> int:
     """Clear only pending work resolved by a successful game server restart."""
-    return clear_pending_work(
-        db_path,
-        instance=instance,
-        resolution_action=RESOLUTION_RESTART_GAME_SERVER,
-    )
+    normalized_instance = _normalize_instance(instance)
+    with _connect(db_path) as connection:
+        work_cursor = connection.execute(
+            """
+            DELETE FROM web_pending_work
+            WHERE instance = ? AND resolution_action = ?
+            """,
+            (normalized_instance, RESOLUTION_RESTART_GAME_SERVER),
+        )
+        legacy_cursor = connection.execute(
+            "DELETE FROM web_pending_restarts WHERE instance = ?",
+            (normalized_instance,),
+        )
+    return work_cursor.rowcount + legacy_cursor.rowcount

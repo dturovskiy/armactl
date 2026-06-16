@@ -1932,8 +1932,8 @@ def test_service_start_calls_backend_and_writes_audit(
 
     events = _audit_events(tmp_path)
     assert response.status_code == 200
-    assert "Service action result" in response.text
-    assert "Start success" in response.text
+    assert "Server start completed." in response.text
+    assert "The service action completed successfully." in response.text
     assert "route-secret" not in response.text
     assert calls == [("start", "armareforger.service")]
     assert len(events) == 1
@@ -2018,10 +2018,15 @@ def test_service_stop_and_restart_require_confirmation(
     assert not (tmp_path / "logs" / "web" / "audit.log").exists()
 
 
-def test_service_restart_clears_restart_related_pending_work(tmp_path: Path, monkeypatch):
+def test_service_restart_clears_all_restart_related_pending_work(
+    tmp_path: Path,
+    monkeypatch,
+):
     from armactl.web.app import create_app
     from armactl.web.services.pending_work import (
+        KIND_ADMINS,
         KIND_CONFIG,
+        KIND_MODS,
         list_pending_work,
         mark_restart_pending,
         upsert_pending_work,
@@ -2034,13 +2039,25 @@ def test_service_restart_clears_restart_related_pending_work(tmp_path: Path, mon
         monkeypatch,
         running=True,
         success=True,
-        message="restarted",
+        message="restarted raw helper text token=backend-secret",
     )
     db_path = tmp_path / "web" / "web.db"
     mark_restart_pending(
         db_path,
         kind=KIND_CONFIG,
         source_action="config.save",
+        username="owner",
+    )
+    mark_restart_pending(
+        db_path,
+        kind=KIND_ADMINS,
+        source_action="admin.add",
+        username="owner",
+    )
+    mark_restart_pending(
+        db_path,
+        kind=KIND_MODS,
+        source_action="mod.add",
         username="owner",
     )
     upsert_pending_work(
@@ -2063,10 +2080,144 @@ def test_service_restart_clears_restart_related_pending_work(tmp_path: Path, mon
     )
 
     assert response.status_code == 200
-    assert "Restart success" in response.text
+    assert "Server restart completed." in response.text
+    assert "Pending restart work cleared." in response.text
+    assert "raw helper text" not in response.text
+    assert "backend-secret" not in response.text
     remaining = list_pending_work(db_path)
     assert len(remaining) == 1
     assert remaining[0].kind == "schedule"
+    assert remaining[0].resolution_action == "reload schedule"
+
+    dashboard_response = client.get("/dashboard", follow_redirects=False)
+    jobs_response = client.get("/jobs", follow_redirects=False)
+    assert dashboard_response.status_code == 200
+    assert jobs_response.status_code == 200
+    assert "Config changes" not in dashboard_response.text
+    assert "Admin changes" not in dashboard_response.text
+    assert "Mod changes" not in dashboard_response.text
+    assert "Config changes" not in jobs_response.text
+    assert "Admin changes" not in jobs_response.text
+    assert "Mod changes" not in jobs_response.text
+    assert "Schedule changes" in jobs_response.text
+
+
+def test_failed_service_restart_does_not_clear_pending_work(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services.pending_work import (
+        KIND_CONFIG,
+        get_pending_work,
+        mark_restart_pending,
+    )
+
+    password = "owner action password"
+    setup_owner_user(tmp_path, "owner", password)
+    _stub_dashboard(monkeypatch)
+    _stub_service_backend(
+        monkeypatch,
+        running=True,
+        success=False,
+        message="restart failed password=backend-secret",
+        exit_code=7,
+    )
+    db_path = tmp_path / "web" / "web.db"
+    mark_restart_pending(
+        db_path,
+        kind=KIND_CONFIG,
+        source_action="config.save",
+        username="owner",
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _action_csrf_token(client)
+
+    response = client.post(
+        "/service/restart",
+        data={"csrf_token": csrf_token, "confirm": "restart"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "Server restart failed." in response.text
+    assert "Pending restart work cleared." not in response.text
+    assert "backend-secret" not in response.text
+    assert get_pending_work(db_path, kind=KIND_CONFIG) is not None
+
+
+def test_service_restart_clears_migrated_legacy_pending_restart(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services.pending_work import KIND_CONFIG, list_pending_work
+
+    password = "owner action password"
+    setup_owner_user(tmp_path, "owner", password)
+    _stub_dashboard(monkeypatch)
+    _stub_service_backend(
+        monkeypatch,
+        running=True,
+        success=True,
+        message="restarted",
+    )
+    db_path = tmp_path / "web" / "web.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS web_pending_restarts (
+                instance TEXT PRIMARY KEY,
+                reason TEXT NOT NULL,
+                source_action TEXT NOT NULL,
+                details TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                created_by_username TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO web_pending_restarts(
+                instance,
+                reason,
+                source_action,
+                details,
+                created_at,
+                updated_at,
+                created_by_username
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "default",
+                KIND_CONFIG,
+                "config.save",
+                "max_players",
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T00:00:00+00:00",
+                "owner",
+            ),
+        )
+    assert list_pending_work(db_path)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _action_csrf_token(client)
+
+    response = client.post(
+        "/service/restart",
+        data={"csrf_token": csrf_token, "confirm": "restart"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert list_pending_work(db_path) == []
+    dashboard_response = client.get("/dashboard", follow_redirects=False)
+    jobs_response = client.get("/jobs", follow_redirects=False)
+    assert "Pending operator work" not in dashboard_response.text
+    assert "Config changes" not in jobs_response.text
+    assert "No pending operator work." in jobs_response.text
 
 
 def test_service_backend_failure_renders_controlled_result_and_audit(
@@ -2097,7 +2248,8 @@ def test_service_backend_failure_renders_controlled_result_and_audit(
 
     events = _audit_events(tmp_path)
     assert response.status_code == 200
-    assert "Start failure" in response.text
+    assert "Server start failed." in response.text
+    assert "Review diagnostic details below." in response.text
     assert "password=***" in response.text
     assert "token=***" in response.text
     assert "backend-secret" not in response.text

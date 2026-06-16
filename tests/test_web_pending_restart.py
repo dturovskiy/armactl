@@ -182,3 +182,55 @@ def test_existing_pending_restart_marker_migrates_to_pending_work(tmp_path: Path
     assert item.source_path == "/config"
     assert item.title == "Config changes"
     assert item.details == "max_players"
+
+
+
+def test_clear_restart_pending_work_clears_legacy_marker_source(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+    db_path.parent.mkdir(parents=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE web_pending_restarts (
+                instance TEXT PRIMARY KEY,
+                reason TEXT NOT NULL,
+                source_action TEXT NOT NULL,
+                details TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                created_by_username TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO web_pending_restarts(
+                instance,
+                reason,
+                source_action,
+                details,
+                created_at,
+                updated_at,
+                created_by_username
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "default",
+                KIND_CONFIG,
+                "config.save",
+                "max_players",
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T00:00:00+00:00",
+                "owner",
+            ),
+        )
+
+    assert get_pending_work(db_path, kind=KIND_CONFIG) is not None
+
+    assert clear_restart_pending_work(db_path) >= 1
+    assert list_pending_work(db_path) == []
+    with sqlite3.connect(db_path) as connection:
+        legacy_count = connection.execute(
+            "SELECT count(*) FROM web_pending_restarts"
+        ).fetchone()[0]
+    assert legacy_count == 0

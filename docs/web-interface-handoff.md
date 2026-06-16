@@ -228,7 +228,9 @@ Completed foundation:
     Background jobs, with precise empty states. Pending work is
     web/operator metadata in
     `web_pending_work`, not a fake `web_jobs` row, and successful web restart
-    clears only restart-related pending work.
+    clears only restart-related pending work, including legacy migrated
+    pending-restart rows. The service result page now shows operator-friendly
+    restart copy and keeps backend diagnostics secondary and redacted.
 
 Planned but not implemented:
 
