@@ -155,7 +155,7 @@ def test_ensure_web_db_creates_schema_metadata(tmp_path: Path):
     assert created_path == db_path
     assert db_path.exists()
     assert stat.S_IMODE(db_path.stat().st_mode) == 0o600
-    assert _schema_version(db_path) == "4"
+    assert _schema_version(db_path) == "5"
 
 
 def test_ensure_web_runtime_creates_env_db_and_auth_tables(tmp_path: Path):
@@ -164,7 +164,7 @@ def test_ensure_web_runtime_creates_env_db_and_auth_tables(tmp_path: Path):
     assert config.runtime_dir == tmp_path / "web"
     assert config.env_path.exists()
     assert config.db_path.exists()
-    assert _schema_version(config.db_path) == "4"
+    assert _schema_version(config.db_path) == "5"
 
     tables = _sqlite_tables(config.db_path)
     assert "web_schema_meta" in tables
@@ -173,6 +173,7 @@ def test_ensure_web_runtime_creates_env_db_and_auth_tables(tmp_path: Path):
     assert "web_csrf_tokens" in tables
     assert "web_jobs" in tables
     assert "web_login_rate_limits" in tables
+    assert "web_pending_restarts" in tables
     assert tables.isdisjoint(
         {
             "auth",

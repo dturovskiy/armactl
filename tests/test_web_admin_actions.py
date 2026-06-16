@@ -80,16 +80,17 @@ def _state(config_path: Path) -> ServerState:
 
 def _authed_client(tmp_path: Path, monkeypatch, page: dict | None = None):
     from armactl.web.app import create_app
-    from armactl.web.routes import management
 
-    monkeypatch.setattr(
-        management,
+    password = "owner admins password"
+    setup_owner_user(tmp_path, "owner", password)
+    app = create_app(data_root=tmp_path)
+    _patch_management_global(
+        app,
+        monkeypatch,
         "load_admins_page",
         lambda instance: page or _admins_page(),
     )
-    password = "owner admins password"
-    setup_owner_user(tmp_path, "owner", password)
-    client = _client(create_app(data_root=tmp_path))
+    client = _client(app)
     login_response = _login(client, "owner", password)
     assert login_response.status_code == 303
     return client
@@ -104,6 +105,23 @@ def _admins_csrf_token(client) -> str:
 def _audit_events(data_root: Path) -> list[dict]:
     audit_path = data_root / "logs" / "web" / "audit.log"
     return [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+
+
+def _patch_management_global(app, monkeypatch, name: str, value) -> None:
+    from armactl.web.routes import management
+
+    patched = False
+    for route in getattr(app, "routes", []):
+        endpoint = getattr(route, "endpoint", None)
+        globals_dict = getattr(endpoint, "__globals__", None)
+        if (
+            isinstance(globals_dict, dict)
+            and globals_dict.get("__name__") == management.__name__
+            and name in globals_dict
+        ):
+            monkeypatch.setitem(globals_dict, name, value)
+            patched = True
+    assert patched, f"management route global was not patched: {name}"
 
 
 def test_admin_action_helper_calls_admins_manager_add_and_reports_update(
@@ -188,18 +206,24 @@ def test_admins_routes_require_authentication(tmp_path: Path):
 
 def test_admins_post_requires_manage_permission(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
-    from armactl.web.routes import management
     from armactl.web.services import admin_actions
 
     setup_owner_user(tmp_path, "owner", "owner admins password")
-    monkeypatch.setattr(management, "load_admins_page", lambda instance: _admins_page())
-    monkeypatch.setattr(
-        management,
+    app = create_app(data_root=tmp_path)
+    _patch_management_global(
+        app,
+        monkeypatch,
+        "load_admins_page",
+        lambda instance: _admins_page(),
+    )
+    _patch_management_global(
+        app,
+        monkeypatch,
         "require_permission",
         lambda current, permission: permission == ADMINS_VIEW,
     )
     monkeypatch.setattr(admin_actions, "run_admin_action_and_audit", AssertionError)
-    client = _client(create_app(data_root=tmp_path))
+    client = _client(app)
     _login(client, "owner", "owner admins password")
     csrf_token = _admins_csrf_token(client)
 
@@ -289,6 +313,13 @@ def test_admins_add_success_writes_safe_audit(tmp_path: Path, monkeypatch):
     assert event["target"] == "76561198000000002"
     assert event["success"] is True
     assert event["details"] == {"changed": "yes"}
+    from armactl.web.services.pending_restart import get_pending_restart
+
+    marker = get_pending_restart(tmp_path / "web" / "web.db")
+    assert marker is not None
+    assert marker.reason == "admins"
+    assert marker.source_action == "admin.add"
+    assert marker.details == "76561198000000002"
 
 
 def test_admins_update_success_writes_update_audit(tmp_path: Path, monkeypatch):
@@ -422,6 +453,9 @@ def test_admins_unchanged_remove_does_not_show_restart_required_notice(
     event = _audit_events(tmp_path)[0]
     assert event["action"] == "admin.remove"
     assert event["details"] == {"changed": "no"}
+    from armactl.web.services.pending_restart import get_pending_restart
+
+    assert get_pending_restart(tmp_path / "web" / "web.db") is None
 
 
 def test_admins_backend_error_is_controlled_and_audited(tmp_path: Path, monkeypatch):

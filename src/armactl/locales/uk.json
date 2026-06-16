@@ -951,9 +951,7 @@
     "Add or update game admin": "Додати або оновити ігрового адміна",
     "Admin reference": "Посилання або ID адміна",
     "Add or update admin": "Додати або оновити адміна",
-    "Admin added.": "Адміна додано.",
     "Admin updated.": "Адміна оновлено.",
-    "Admin removed.": "Адміна видалено.",
     "Admin was unchanged.": "Адмін не змінився.",
     "Admin reference is required.": "Потрібне посилання або ID адміна.",
     "Admin label is invalid.": "Мітка адміна некоректна.",
@@ -1053,6 +1051,14 @@
     "Boolean field value is invalid.": "Значення boolean-поля некоректне.",
     "Failed to create config backup.": "Не вдалося створити backup конфігу.",
     "Live refresh active": "Оновлення наживо активне",
-    "Dashboard data may be stale.": "Дані dashboard можуть бути застарілими."
+    "Dashboard data may be stale.": "Дані dashboard можуть бути застарілими.",
+    "Pending restart": "Очікується перезапуск",
+    "Server changes were saved but are not applied yet.": "Зміни сервера збережені, але ще не застосовані.",
+    "Pending change": "Очікувана зміна",
+    "Source action": "Дія-джерело",
+    "Config changes": "Зміни конфігу",
+    "Admin changes": "Зміни адмінів",
+    "Mod changes": "Зміни модів",
+    "Saved changes": "Збережені зміни"
   }
 }

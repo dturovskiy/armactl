@@ -126,6 +126,12 @@ POST + CSRF + schedule permissions and audit timer set/enable/disable,
 restart-now, and game-service autostart enable/disable through
 `service_manager` without shelling out to the CLI.
 
+Saved config, game-admin, and mod changes should create a web-runtime
+pending-restart marker when they actually change server state. This marker is
+shown on the dashboard as operator work still waiting for a game-server restart
+and is cleared only after a successful web-triggered server restart. It is not a
+background job and must not be inserted into `web_jobs` as fake progress.
+
 UI follow-up: `/schedule` is accepted as functional, but the page should be
 revisited after the core management flows are complete. The timer schedule,
 timer enable/disable, game-service autostart, and restart-now controls should be

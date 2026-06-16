@@ -29,6 +29,7 @@ from armactl.web.auth.permissions import (
 from armactl.web.facade import load_dashboard_snapshot
 from armactl.web.i18n import resolve_language, translation_helpers
 from armactl.web.jobs.store import list_recent_jobs
+from armactl.web.services.pending_restart import get_pending_restart
 from armactl.web.views.dashboard import (
     build_dashboard_status_payload,
     build_dashboard_view,
@@ -86,6 +87,7 @@ def _render_dashboard(request: Request, current: CurrentSession) -> Response:
     form_csrf = get_form_csrf_token(request, current)
     can_view_jobs = permissions["can_view_jobs"]
     recent_jobs = list_recent_jobs(current.config.db_path, limit=3) if can_view_jobs else []
+    pending_restart = get_pending_restart(current.config.db_path, instance="default")
     response = templates.TemplateResponse(
         request=request,
         name="dashboard.html",
@@ -95,6 +97,7 @@ def _render_dashboard(request: Request, current: CurrentSession) -> Response:
             "current_user": current.user,
             "csrf_token": form_csrf.token,
             "recent_jobs": recent_jobs,
+            "pending_restart": pending_restart,
         },
     )
     if form_csrf.should_set_cookie:

@@ -34,7 +34,13 @@ from armactl.web.facade import (
     load_config_page,
     load_mods_page,
 )
-from armactl.web.services import admin_actions, config_edit, mod_actions, player_moderation
+from armactl.web.services import (
+    admin_actions,
+    config_edit,
+    mod_actions,
+    pending_restart,
+    player_moderation,
+)
 
 router = APIRouter()
 PageLoader = Callable[[str], dict[str, Any]]
@@ -173,6 +179,23 @@ def _render_admins_page(
     return response
 
 
+def _mark_pending_restart_for_result(
+    current: CurrentSession,
+    *,
+    reason: str,
+    source_action: str,
+    details: object = "",
+) -> None:
+    pending_restart.mark_pending_restart(
+        current.config.db_path,
+        instance=paths.DEFAULT_INSTANCE_NAME,
+        reason=reason,
+        source_action=source_action,
+        username=current.user.username,
+        details=details,
+    )
+
+
 def _run_mod_action(
     request: Request,
     *,
@@ -226,6 +249,13 @@ def _run_mod_action(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
+    if result.success and result.changed:
+        _mark_pending_restart_for_result(
+            current,
+            reason=pending_restart.REASON_MODS,
+            source_action=result.action,
+            details=result.target,
+        )
     result_status = status.HTTP_200_OK if result.success else status.HTTP_400_BAD_REQUEST
     return _render_mods_page(request, current, result=result, status_code=result_status)
 
@@ -281,6 +311,13 @@ def _run_admin_action(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
+    if result.success and result.changed:
+        _mark_pending_restart_for_result(
+            current,
+            reason=pending_restart.REASON_ADMINS,
+            source_action=result.action,
+            details=result.target,
+        )
     result_status = status.HTTP_200_OK if result.success else status.HTTP_400_BAD_REQUEST
     return _render_admins_page(request, current, result=result, status_code=result_status)
 
@@ -370,6 +407,14 @@ def save_config_page(
 
     if not result.changed_fields:
         return RedirectResponse("/config?unchanged=1", status_code=status.HTTP_303_SEE_OTHER)
+    pending_restart.mark_pending_restart(
+        current.config.db_path,
+        instance=paths.DEFAULT_INSTANCE_NAME,
+        reason=pending_restart.REASON_CONFIG,
+        source_action=config_edit.CONFIG_SAVE_ACTION,
+        username=current.user.username,
+        details=", ".join(result.changed_fields),
+    )
     return RedirectResponse("/config?saved=1", status_code=status.HTTP_303_SEE_OTHER)
 
 

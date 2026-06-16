@@ -1878,6 +1878,32 @@ def test_service_start_calls_backend_and_writes_audit(
     assert "route-secret" not in _audit_log_text(tmp_path)
 
 
+def test_dashboard_shows_pending_restart_marker(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.services.pending_restart import mark_pending_restart
+
+    password = "owner pending password"
+    setup_owner_user(tmp_path, "owner", password)
+    _stub_dashboard(monkeypatch)
+    mark_pending_restart(
+        tmp_path / "web" / "web.db",
+        reason="config",
+        source_action="config.save",
+        username="owner",
+        details="max_players",
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Pending restart" in response.text
+    assert "Server changes were saved but are not applied yet." in response.text
+    assert "Config changes" in response.text
+    assert "max_players" in response.text
+
+
 def test_service_stop_and_restart_require_confirmation(
     tmp_path: Path,
     monkeypatch,
@@ -1913,6 +1939,43 @@ def test_service_stop_and_restart_require_confirmation(
     assert restart_response.status_code == 400
     assert "Confirmation is required to restart the server." in restart_response.text
     assert not (tmp_path / "logs" / "web" / "audit.log").exists()
+
+
+def test_service_restart_clears_pending_restart_marker(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.services.pending_restart import (
+        get_pending_restart,
+        mark_pending_restart,
+    )
+
+    password = "owner action password"
+    setup_owner_user(tmp_path, "owner", password)
+    _stub_dashboard(monkeypatch)
+    _stub_service_backend(
+        monkeypatch,
+        running=True,
+        success=True,
+        message="restarted",
+    )
+    mark_pending_restart(
+        tmp_path / "web" / "web.db",
+        reason="config",
+        source_action="config.save",
+        username="owner",
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _action_csrf_token(client)
+
+    response = client.post(
+        "/service/restart",
+        data={"csrf_token": csrf_token, "confirm": "restart"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "Restart success" in response.text
+    assert get_pending_restart(tmp_path / "web" / "web.db") is None
 
 
 def test_service_backend_failure_renders_controlled_result_and_audit(

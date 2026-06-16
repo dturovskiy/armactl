@@ -17,7 +17,7 @@ from armactl.web.auth.dependencies import (
     require_permission,
 )
 from armactl.web.auth.permissions import ACTIONS_RUN
-from armactl.web.services import service_actions
+from armactl.web.services import pending_restart, service_actions
 
 router = APIRouter()
 
@@ -119,4 +119,9 @@ def service_action(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
+    if normalized == "restart" and result.success and result.performed:
+        pending_restart.clear_pending_restart(
+            current.config.db_path,
+            instance=paths.DEFAULT_INSTANCE_NAME,
+        )
     return _render_result(request, current, result)

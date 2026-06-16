@@ -463,6 +463,15 @@
     "Boolean field value is invalid.": "Boolean field value is invalid.",
     "Failed to create config backup.": "Failed to create config backup.",
     "Live refresh active": "Live refresh active",
-    "Dashboard data may be stale.": "Dashboard data may be stale."
+    "Dashboard data may be stale.": "Dashboard data may be stale.",
+    "Pending restart": "Pending restart",
+    "Server changes were saved but are not applied yet.": "Server changes were saved but are not applied yet.",
+    "Pending change": "Pending change",
+    "Source action": "Source action",
+    "Details": "Details",
+    "Config changes": "Config changes",
+    "Admin changes": "Admin changes",
+    "Mod changes": "Mod changes",
+    "Saved changes": "Saved changes"
   }
 }
