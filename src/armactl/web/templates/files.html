@@ -9,8 +9,11 @@
   <button type="submit">{{ t("Log out") }}</button>
 </form>
 {% endblock %}
+{% block extra_scripts %}
+<script defer src="{{ url_for('static', path='/js/files.js') }}?v={{ web_static_version }}"></script>
+{% endblock %}
 {% block content %}
-<section id="file-browser" class="panel full-width files-panel">
+<section id="file-browser" class="panel full-width files-panel" data-file-browser>
   <div class="section-heading-row">
     <div>
       <h2>{{ t("File browser") }}</h2>
@@ -94,7 +97,7 @@
               <td>{{ entry.modified_at }}</td>
               <td>
                 {% if entry.preview_href %}
-                  <a class="text-link" href="{{ entry.preview_href }}#file-preview">{{ t("Preview") }}</a>
+                  <a class="text-link" href="{{ entry.preview_href }}#file-preview" data-file-preview-link>{{ t("Preview") }}</a>
                 {% else %}
                   <span class="muted">{{ t("Preview unavailable") }}</span>
                 {% endif %}
@@ -117,8 +120,9 @@
     <p class="muted">{{ t("Select a file root to browse.") }}</p>
   {% endif %}
 
-  {% if preview %}
-    <section id="file-preview" class="file-preview-block">
+  <div id="file-preview" class="file-preview-shell" data-file-preview-target data-loading-text="{{ t('Loading preview...') }}" data-error-text="{{ t('Preview could not be loaded without a page reload.') }}">
+    {% if preview %}
+    <section class="file-preview-block">
       <div class="section-heading-row">
         <h2>{{ t("Preview") }}: {{ preview.metadata.name }}</h2>
         <span class="muted">{{ preview.metadata.size_text }}</span>
@@ -132,6 +136,7 @@
         <p class="panel notice-panel file-state">{{ t(preview.error or "Preview unavailable") }}</p>
       {% endif %}
     </section>
-  {% endif %}
+    {% endif %}
+  </div>
 </section>
 {% endblock %}

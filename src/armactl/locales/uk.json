@@ -879,6 +879,8 @@
     "File": "Файл",
     "Parent directory": "Батьківський каталог",
     "Preview unavailable": "Перегляд недоступний",
+    "Loading preview...": "Завантаження перегляду...",
+    "Preview could not be loaded without a page reload.": "Не вдалося завантажити перегляд без перезавантаження сторінки.",
     "Preview unavailable.": "Перегляд недоступний.",
     "Download": "Завантажити",
     "Download unavailable": "Завантаження недоступне",

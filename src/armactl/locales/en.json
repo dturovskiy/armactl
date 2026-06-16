@@ -289,6 +289,8 @@
     "File": "File",
     "Parent directory": "Parent directory",
     "Preview unavailable": "Preview unavailable",
+    "Loading preview...": "Loading preview...",
+    "Preview could not be loaded without a page reload.": "Preview could not be loaded without a page reload.",
     "Preview unavailable.": "Preview unavailable.",
     "Download": "Download",
     "Download unavailable": "Download unavailable",
