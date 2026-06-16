@@ -237,6 +237,24 @@ Upload threat model:
 - if future scanning is added, it should be best-effort defense-in-depth, not a
   replacement for path, size, permission, and no-execute rules.
 
+## Logs UI polish
+
+The current web logs/report views are read-only, bounded, allowlisted, and good
+enough for operator use. Future polish should stay read-only unless explicitly
+scoped otherwise:
+
+- render audit-log JSONL as readable rows or pretty JSON instead of one dense
+  raw line per event;
+- add download/export for the selected bounded log/report view;
+- add optional live follow or auto-refresh with clear pause/refresh controls;
+- add client/server-side filters for level, source, and free-text search;
+- highlight important levels such as `ERROR`, `WARNING`, and failed web audit
+  actions;
+- keep arbitrary filesystem paths out of the logs UI and use only fixed
+  allowlisted sources;
+- reuse the planned floating notification system for refresh/export results so
+  the page does not jump.
+
 ## Security review gate for premium and break-glass features
 
 Premium, mega, diagnostics, terminal, IP allowlist management, host controls,

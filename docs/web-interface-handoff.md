@@ -391,3 +391,7 @@ unrelated feature work:
   import, source, unpack, or auto-apply uploaded content. Keep filename/path/size
   validation, bounded redacted preview, no overwrite by default, and add tests
   around these guarantees before expanding upload workflows.
+- Logs polish: `/logs` and `/report` are accepted as functional read-only
+  operator views. Future work should make audit JSONL readable, add bounded
+  download/export, optional live follow or auto-refresh, filters/search, and
+  `ERROR`/`WARNING` highlighting while keeping sources fixed and allowlisted.

@@ -293,6 +293,10 @@
 - [x] Додати VM smoke checklist docs для web panel
 - [x] Додати reverse proxy / HTTPS deployment docs
 - [x] Додати read-only logs/report web views з bounded/redacted output
+- [ ] Додати prettier audit JSONL rendering для `/logs` без raw стіни JSON
+- [ ] Додати logs/report download-export для allowlisted bounded sources
+- [ ] Додати logs live follow/auto-refresh з pause/refresh controls
+- [ ] Додати logs filters/search/highlighting для level/source/text і `ERROR`/`WARNING`
 - [x] Підключити install/repair flows до background jobs без blocking HTTP requests
 - [ ] Підключити update flow до background jobs без blocking HTTP requests
 - [x] Додати safe web edit/save для базових полів `config.json` через `config_manager`
