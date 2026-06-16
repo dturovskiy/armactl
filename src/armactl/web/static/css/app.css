@@ -195,6 +195,11 @@ h2 {
   scroll-margin-top: 16px;
 }
 
+#file-browser,
+#file-preview {
+  scroll-margin-top: 16px;
+}
+
 .empty-state {
   background: var(--empty-bg);
 }

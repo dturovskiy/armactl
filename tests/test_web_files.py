@@ -195,7 +195,7 @@ def test_listing_safe_directory_works(tmp_path: Path):
     assert "subdir" in response.text
     assert "Directory" in response.text
     assert "File" in response.text
-    assert 'href="/files/server/preview?path=world.txt"' in response.text
+    assert 'href="/files/server/preview?path=world.txt#file-preview"' in response.text
     assert 'href="/files/server/download?path=world.txt"' in response.text
     assert 'href="/files/server/download?path=subdir"' not in response.text
 
@@ -209,7 +209,7 @@ def test_parent_directory_navigation_for_nested_directory(tmp_path: Path):
 
     assert response.status_code == 200
     assert "Parent directory" in response.text
-    assert 'href="/files/server?path=subdir"' in response.text
+    assert 'href="/files/server?path=subdir#file-browser"' in response.text
 
 
 def test_dotdot_traversal_is_rejected(tmp_path: Path):
@@ -507,7 +507,7 @@ def test_upload_form_visible_for_owner(tmp_path: Path):
     response = client.get("/files/server", follow_redirects=False)
 
     assert response.status_code == 200
-    assert 'action="/files/server/upload"' in response.text
+    assert 'action="/files/server/upload#file-browser"' in response.text
     assert 'enctype="multipart/form-data"' in response.text
     assert 'name="upload"' in response.text
 

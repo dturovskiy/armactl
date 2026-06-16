@@ -10,7 +10,7 @@
 </form>
 {% endblock %}
 {% block content %}
-<section class="panel full-width files-panel">
+<section id="file-browser" class="panel full-width files-panel">
   <div class="section-heading-row">
     <div>
       <h2>{{ t("File browser") }}</h2>
@@ -21,7 +21,7 @@
   <div class="nav-card-grid file-root-grid">
     {% for root in roots %}
       {% if root.available %}
-        <a class="nav-card{% if current_root and current_root.root_id == root.root_id %} active{% endif %}" href="/files/{{ root.root_id }}">
+        <a class="nav-card{% if current_root and current_root.root_id == root.root_id %} active{% endif %}" href="/files/{{ root.root_id }}#file-browser">
           <strong>{{ t(root.label) }}</strong>
           <span>{{ root.path }}</span>
         </a>
@@ -46,17 +46,17 @@
           {% if crumb.is_current %}
             <strong>{{ crumb.label }}</strong>
           {% else %}
-            <a href="{{ crumb.href }}">{{ crumb.label }}</a>
+            <a href="{{ crumb.href }}#file-browser">{{ crumb.label }}</a>
           {% endif %}
         {% endfor %}
       </nav>
       {% if directory.parent_href %}
-        <a class="text-link" href="{{ directory.parent_href }}">{{ t("Parent directory") }}</a>
+        <a class="text-link" href="{{ directory.parent_href }}#file-browser">{{ t("Parent directory") }}</a>
       {% endif %}
     </div>
 
     {% if can_upload %}
-      <form method="post" action="/files/{{ directory.root.root_id }}/upload" enctype="multipart/form-data" class="inline-form upload-form">
+      <form method="post" action="/files/{{ directory.root.root_id }}/upload#file-browser" enctype="multipart/form-data" class="inline-form upload-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="path" value="{{ directory.relative_path }}">
         <label>
@@ -84,7 +84,7 @@
             <tr>
               <td>
                 {% if entry.is_dir %}
-                  <a class="text-link" href="{{ entry.href }}">{{ entry.name }}</a>
+                  <a class="text-link" href="{{ entry.href }}#file-browser">{{ entry.name }}</a>
                 {% else %}
                   {{ entry.name }}
                 {% endif %}
@@ -94,7 +94,7 @@
               <td>{{ entry.modified_at }}</td>
               <td>
                 {% if entry.preview_href %}
-                  <a class="text-link" href="{{ entry.preview_href }}">{{ t("Preview") }}</a>
+                  <a class="text-link" href="{{ entry.preview_href }}#file-preview">{{ t("Preview") }}</a>
                 {% else %}
                   <span class="muted">{{ t("Preview unavailable") }}</span>
                 {% endif %}
@@ -118,7 +118,7 @@
   {% endif %}
 
   {% if preview %}
-    <section class="file-preview-block">
+    <section id="file-preview" class="file-preview-block">
       <div class="section-heading-row">
         <h2>{{ t("Preview") }}: {{ preview.metadata.name }}</h2>
         <span class="muted">{{ preview.metadata.size_text }}</span>
