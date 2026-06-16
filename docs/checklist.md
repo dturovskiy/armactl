@@ -280,6 +280,8 @@
 - [ ] Спроєктувати break-glass web terminal як disabled-by-default future flow з IP allowlist/trusted proxy/extra auth/audit
 - [x] Додати web i18n adapter і theme preferences поверх існуючих `src/armactl/locales/*.json`
 - [x] Додати fast preferences UX: миттєве перемикання теми і lightweight language switch без зайвого важкого dashboard reload
+- [ ] Додати floating toast notifications для save/action result без стрибків на верх сторінки
+- [ ] Додати topbar notification indicator/center для pending restart, saved-but-not-applied work і важливих operator warnings
 - [ ] Додати security review gate для premium/mega, diagnostics, terminal, IP allowlist і host controls
 - [x] Додати background job metadata model перед long-running operations
 - [x] Додати background dispatcher/read-only jobs UI foundation перед install/repair/update flows
@@ -313,6 +315,8 @@
 - [x] Додати safe read-only filesystem browser foundation
 - [x] Додати download single file для web file browser
 - [x] Додати upload одного нового файла в server root для web file browser без overwrite
+- [ ] Додати threat-model note/tests для uploads: no execute, no auto-unpack, size/path/name limits, bounded redacted preview
+- [ ] Додати safe single-file delete для web file browser: files only, no dirs, confirmation, CSRF, audit, no symlink/traversal escape
 - [ ] Додати atomic overwrite для web file browser
 - [ ] Додати delete/rename для web file browser
 - [ ] Додати archive extraction flow після окремого threat model

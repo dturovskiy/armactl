@@ -177,6 +177,66 @@ normal server management. Any sudo/root use through the browser must be an
 explicit operator-provisioned decision, never a default armactl installation
 behavior.
 
+## Notifications and pending operator work
+
+The web UI should avoid pushing important operator messages to the top of long
+pages when the operator is working lower on the page. Current inline result
+panels are functional, but they should be upgraded in a focused UI slice:
+
+- show save/action results as short-lived floating toast notifications near the
+  side of the viewport, with accessible text and no secret payloads;
+- keep destructive or restart-required warnings persistent until resolved;
+- add a notification icon/indicator in the top bar for pending operator work
+  such as saved config/admin/mod changes that still require restart;
+- keep the dashboard pending-restart marker as the source of truth for
+  restart-required work, not duplicated fake jobs;
+- make notification entries link back to the relevant page/section, for
+  example config, admins, mods, schedule, files, logs, or jobs;
+- ensure all notifications come from server-side state or explicit safe client
+  events, not from trusting query parameters alone.
+
+This should be implemented after the core management actions are in place so
+the UI can cover config, admins, mods, schedule, files, jobs, and logs
+consistently instead of adding one-off messages per page.
+
+## File manager write operations
+
+The first file-manager slices intentionally added safe browsing, preview,
+single-file download, and upload of one new file. Delete, overwrite, rename,
+directory operations, archive extraction, and restore flows remain future work
+because they can destroy server state or become filesystem escape primitives.
+
+The next practical file slice should be single-file delete for cleanup of
+operator-owned artifacts such as old backups and logs. Requirements:
+
+- allow only fixed web file roots and relative paths already enforced by the
+  filesystem adapter;
+- reject absolute paths, traversal, `.git`, `.venv`, symlink escapes, source
+  tree paths, system paths, unavailable roots, and directories;
+- require authenticated POST, `files:write`, CSRF, and explicit confirmation;
+- do not delete directories or recursively remove anything in the first delete
+  slice;
+- write a JSONL audit event with user, root, relative path, size if known,
+  success/failure, and no secret file contents;
+- show the result through the future notification system or a local anchored
+  result panel without jumping the operator to the top of the page;
+- keep a clear recovery story: backups that are deleted through web are gone,
+  so the UI must make that explicit before confirmation.
+
+Upload threat model:
+
+- uploaded files may be malicious by content, so armactl must never execute,
+  source, import, or unpack uploaded files automatically;
+- uploads should remain limited to allowlisted roots and conservative file
+  sizes;
+- filenames must stay sanitized and must not overwrite existing files unless a
+  later overwrite flow adds explicit confirmation and audit;
+- preview must remain bounded and redacted;
+- archive extraction must be treated as a separate high-risk feature with zip
+  slip protection, file count/size limits, symlink rejection, and audit;
+- if future scanning is added, it should be best-effort defense-in-depth, not a
+  replacement for path, size, permission, and no-execute rules.
+
 ## Security review gate for premium and break-glass features
 
 Premium, mega, diagnostics, terminal, IP allowlist management, host controls,

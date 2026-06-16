@@ -370,3 +370,24 @@ Every web-panel step should answer these before merge/next task:
 - Are package data and bootstrap changes included when templates/static/deps are
   added?
 - Are docs/checklist updated when scope changes?
+
+## Planned safety/UX slices
+
+Keep these as focused follow-up slices, not as drive-by changes mixed into
+unrelated feature work:
+
+- Floating notifications: move save/action success and error results into
+  anchored toast-style UI so forms and previews do not jump to the top of the
+  page after POST/GET actions.
+- Notification indicator: add a topbar indicator/center for persistent operator
+  work such as saved config/admin/mod changes that still require a game-server
+  restart, plus important exposure/runtime warnings.
+- File delete: implement safe single-file deletion only after the notification
+  slice. It must be POST-only, authenticated, permission-checked, CSRF-checked,
+  confirmed by the operator, audited, and constrained to the existing file
+  browser roots/path validation. Do not add recursive directory deletion in the
+  first delete slice.
+- Upload safety: treat uploaded files as untrusted bytes. Do not execute,
+  import, source, unpack, or auto-apply uploaded content. Keep filename/path/size
+  validation, bounded redacted preview, no overwrite by default, and add tests
+  around these guarantees before expanding upload workflows.
