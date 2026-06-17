@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import builtins
-import importlib
 import re
-import sys
 import warnings
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,18 +12,6 @@ from starlette.exceptions import StarletteDeprecationWarning
 from armactl.web.auth.cookies import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
 from armactl.web.auth.setup import setup_owner_user
 from armactl.web.i18n import LANGUAGE_COOKIE_NAME
-
-
-def _matches_prefix(module_name: str, prefixes: tuple[str, ...]) -> bool:
-    return any(
-        module_name == prefix or module_name.startswith(f"{prefix}.") for prefix in prefixes
-    )
-
-
-def _forget_modules(*prefixes: str) -> None:
-    for module_name in list(sys.modules):
-        if _matches_prefix(module_name, prefixes):
-            sys.modules.pop(module_name)
 
 
 def _client(app, base_url: str = "http://testserver"):
@@ -68,46 +53,13 @@ def _write_audit(data_root: Path, text: str) -> Path:
     return path
 
 
-def _patch_route_global(app, module_name: str, monkeypatch, name: str, value) -> None:
-    module = sys.modules.get(module_name)
-    module_globals = getattr(module, "__dict__", None)
-    if module is not None and hasattr(module, name):
-        monkeypatch.setattr(module, name, value)
-    for route in getattr(app, "routes", []):
-        endpoint = getattr(route, "endpoint", None)
-        globals_dict = getattr(endpoint, "__globals__", None)
-        if (
-            isinstance(globals_dict, dict)
-            and name in globals_dict
-            and globals_dict is not module_globals
-            and (
-                module_globals is None
-                or globals_dict.get("__name__") == module_name
-            )
-        ):
-            monkeypatch.setitem(globals_dict, name, value)
-
-
-def test_log_view_import_does_not_import_tui_textual(monkeypatch):
-    forbidden = ("armactl.tui", "textual")
-    _forget_modules("armactl.web.services.log_views", *forbidden)
-    original_import = builtins.__import__
-    blocked_imports: list[str] = []
-
-    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if _matches_prefix(name, forbidden):
-            blocked_imports.append(name)
-            raise AssertionError(f"log view imported forbidden dependency {name!r}")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", guarded_import)
-
-    module = importlib.import_module("armactl.web.services.log_views")
-
-    assert module.__name__ == "armactl.web.services.log_views"
-    assert blocked_imports == []
-    assert "armactl.tui" not in sys.modules
-    assert "textual" not in sys.modules
+def test_log_view_import_does_not_import_tui_textual(
+    assert_import_does_not_import_modules,
+):
+    assert_import_does_not_import_modules(
+        "armactl.web.services.log_views",
+        ("armactl.tui", "textual"),
+    )
 
 
 def test_unauthenticated_logs_redirect_to_login(tmp_path: Path):
@@ -142,20 +94,15 @@ def test_authenticated_owner_can_open_audit_logs(tmp_path: Path):
     assert CSRF_COOKIE_NAME not in response.text
 
 
-def test_logs_permission_denied_returns_controlled_403(tmp_path: Path, monkeypatch):
+def test_logs_permission_denied_returns_controlled_403(
+    tmp_path: Path, set_web_owner_permissions
+):
     from armactl.web.app import create_app
-    from armactl.web.routes import logs as logs_route
 
     password = "owner logs password"
     setup_owner_user(tmp_path, "owner", password)
+    set_web_owner_permissions(set())
     app = create_app(data_root=tmp_path)
-    _patch_route_global(
-        app,
-        logs_route.__name__,
-        monkeypatch,
-        "require_permission",
-        lambda current, permission: False,
-    )
     client = _client(app)
     _login(client, "owner", password)
 

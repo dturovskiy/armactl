@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import builtins
-import importlib
 import sqlite3
-import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -42,19 +39,6 @@ from armactl.web.jobs.store import MAX_JOB_OUTPUT_CHARS
 from armactl.web.runtime import ensure_web_db
 
 FORBIDDEN_IMPORT_PREFIXES = ("armactl.tui", "textual")
-
-
-def _matches_prefix(module_name: str, prefixes: tuple[str, ...]) -> bool:
-    return any(
-        module_name == prefix or module_name.startswith(f"{prefix}.")
-        for prefix in prefixes
-    )
-
-
-def _forget_modules(*prefixes: str) -> None:
-    for module_name in list(sys.modules):
-        if _matches_prefix(module_name, prefixes):
-            sys.modules.pop(module_name)
 
 
 def _sqlite_tables(db_path: Path) -> set[str]:
@@ -325,26 +309,10 @@ def test_handler_output_is_bounded_and_redacted(tmp_path: Path):
     assert "ARMACTL_WEB_SESSION_SECRET=***" in result.job.stderr_tail
 
 
-def test_web_jobs_import_does_not_import_tui_or_textual(monkeypatch):
-    _forget_modules("armactl.web.jobs", "armactl.tui", "textual")
-    original_import = builtins.__import__
-    blocked_imports: list[str] = []
-
-    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if _matches_prefix(name, FORBIDDEN_IMPORT_PREFIXES):
-            blocked_imports.append(name)
-            raise AssertionError(f"web jobs imported forbidden dependency {name!r}")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", guarded_import)
-
-    module = importlib.import_module("armactl.web.jobs")
-
-    assert callable(module.create_job)
-    assert blocked_imports == []
-    assert not any(
-        _matches_prefix(module_name, FORBIDDEN_IMPORT_PREFIXES) for module_name in sys.modules
-    )
+def test_web_jobs_import_does_not_import_tui_or_textual(
+    assert_import_does_not_import_modules,
+):
+    assert_import_does_not_import_modules("armactl.web.jobs", FORBIDDEN_IMPORT_PREFIXES)
 
 
 def test_server_job_dispatcher_registers_explicit_install_repair_handlers():
@@ -473,23 +441,10 @@ def test_start_server_job_worker_dispatches_in_background_thread(
     assert calls == [(db_path, job.id)]
 
 
-def test_server_job_module_import_does_not_import_tui_textual(monkeypatch):
-    forbidden = FORBIDDEN_IMPORT_PREFIXES
-    _forget_modules("armactl.web.jobs.server", *forbidden)
-    original_import = builtins.__import__
-    blocked_imports: list[str] = []
-
-    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if _matches_prefix(name, forbidden):
-            blocked_imports.append(name)
-            raise AssertionError(f"server jobs imported forbidden dependency {name!r}")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", guarded_import)
-
-    module = importlib.import_module("armactl.web.jobs.server")
-
-    assert module.SERVER_INSTALL_JOB_KIND == SERVER_INSTALL_JOB_KIND
-    assert blocked_imports == []
-    assert "armactl.tui" not in sys.modules
-    assert "textual" not in sys.modules
+def test_server_job_module_import_does_not_import_tui_textual(
+    assert_import_does_not_import_modules,
+):
+    assert_import_does_not_import_modules(
+        "armactl.web.jobs.server",
+        FORBIDDEN_IMPORT_PREFIXES,
+    )

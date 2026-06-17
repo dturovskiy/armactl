@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import builtins
-import importlib
 import json
 import re
 import sqlite3
-import sys
 import warnings
 from dataclasses import replace
 from pathlib import Path
@@ -20,19 +17,6 @@ from armactl.web.auth.setup import setup_owner_user
 from armactl.web.auth.users import get_user_by_username
 from armactl.web.i18n import LANGUAGE_COOKIE_NAME, THEME_COOKIE_NAME
 from armactl.web.runtime import ensure_web_runtime, save_web_runtime_config
-
-
-def _matches_prefix(module_name: str, prefixes: tuple[str, ...]) -> bool:
-    return any(
-        module_name == prefix or module_name.startswith(f"{prefix}.")
-        for prefix in prefixes
-    )
-
-
-def _forget_modules(*prefixes: str) -> None:
-    for module_name in list(sys.modules):
-        if _matches_prefix(module_name, prefixes):
-            sys.modules.pop(module_name)
 
 
 def _snapshot() -> dict:
@@ -554,26 +538,11 @@ def _stub_service_backend(
     return calls
 
 
-def test_create_app_import_does_not_import_tui_or_textual(monkeypatch):
+def test_create_app_import_does_not_import_tui_or_textual(
+    assert_import_does_not_import_modules,
+):
     forbidden = ("armactl.tui", "textual")
-    _forget_modules("armactl.web.app", *forbidden)
-    original_import = builtins.__import__
-    blocked_imports: list[str] = []
-
-    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if _matches_prefix(name, forbidden):
-            blocked_imports.append(name)
-            raise AssertionError(f"web app imported forbidden dependency {name!r}")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", guarded_import)
-
-    module = importlib.import_module("armactl.web.app")
-
-    assert callable(module.create_app)
-    assert blocked_imports == []
-    assert "armactl.tui" not in sys.modules
-    assert "textual" not in sys.modules
+    assert_import_does_not_import_modules("armactl.web.app", forbidden)
 
 
 def test_healthz_returns_ok():

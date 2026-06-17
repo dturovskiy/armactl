@@ -85,7 +85,6 @@ def _authed_client(tmp_path: Path, monkeypatch, page: dict | None = None):
     setup_owner_user(tmp_path, "owner", password)
     app = create_app(data_root=tmp_path)
     _patch_management_global(
-        app,
         monkeypatch,
         "load_admins_page",
         lambda instance: page or _admins_page(),
@@ -107,29 +106,10 @@ def _audit_events(data_root: Path) -> list[dict]:
     return [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
 
 
-def _patch_management_global(app, monkeypatch, name: str, value) -> None:
+def _patch_management_global(monkeypatch, name: str, value) -> None:
     from armactl.web.routes import management
 
-    module_globals = management.__dict__
-    patched = False
-    if hasattr(management, name):
-        monkeypatch.setattr(management, name, value)
-        patched = True
-    for route in getattr(app, "routes", []):
-        endpoint = getattr(route, "endpoint", None)
-        globals_dict = getattr(endpoint, "__globals__", None)
-        if (
-            isinstance(globals_dict, dict)
-            and name in globals_dict
-            and globals_dict is not module_globals
-            and (
-                module_globals is None
-                or globals_dict.get("__name__") == management.__name__
-            )
-        ):
-            monkeypatch.setitem(globals_dict, name, value)
-            patched = True
-    assert patched, f"management route global was not patched: {name}"
+    monkeypatch.setattr(management, name, value)
 
 
 def test_admin_action_helper_calls_admins_manager_add_and_reports_update(
@@ -212,23 +192,19 @@ def test_admins_routes_require_authentication(tmp_path: Path):
     assert remove_response.headers["location"] == "/login"
 
 
-def test_admins_post_requires_manage_permission(tmp_path: Path, monkeypatch):
+def test_admins_post_requires_manage_permission(
+    tmp_path: Path, monkeypatch, set_web_owner_permissions
+):
     from armactl.web.app import create_app
     from armactl.web.services import admin_actions
 
     setup_owner_user(tmp_path, "owner", "owner admins password")
+    set_web_owner_permissions({ADMINS_VIEW})
     app = create_app(data_root=tmp_path)
     _patch_management_global(
-        app,
         monkeypatch,
         "load_admins_page",
         lambda instance: _admins_page(),
-    )
-    _patch_management_global(
-        app,
-        monkeypatch,
-        "require_permission",
-        lambda current, permission: permission == ADMINS_VIEW,
     )
     monkeypatch.setattr(admin_actions, "run_admin_action_and_audit", AssertionError)
     client = _client(app)

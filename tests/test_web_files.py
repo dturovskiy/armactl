@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import builtins
-import importlib
 import re
-import sys
 import warnings
 from pathlib import Path
 
@@ -14,18 +11,6 @@ from starlette.exceptions import StarletteDeprecationWarning
 
 from armactl.web.auth.cookies import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
 from armactl.web.auth.setup import setup_owner_user
-
-
-def _matches_prefix(module_name: str, prefixes: tuple[str, ...]) -> bool:
-    return any(
-        module_name == prefix or module_name.startswith(f"{prefix}.") for prefix in prefixes
-    )
-
-
-def _forget_modules(*prefixes: str) -> None:
-    for module_name in list(sys.modules):
-        if _matches_prefix(module_name, prefixes):
-            sys.modules.pop(module_name)
 
 
 def _client(app, base_url: str = "http://testserver"):
@@ -74,74 +59,24 @@ def _login_owner(data_root: Path):
     return client
 
 
-def _patch_route_global(app, module_name: str, monkeypatch, name: str, value) -> None:
-    module = sys.modules.get(module_name)
-    module_globals = getattr(module, "__dict__", None)
-    if module is not None and hasattr(module, name):
-        monkeypatch.setattr(module, name, value)
-    for route in getattr(app, "routes", []):
-        endpoint = getattr(route, "endpoint", None)
-        globals_dict = getattr(endpoint, "__globals__", None)
-        if (
-            isinstance(globals_dict, dict)
-            and name in globals_dict
-            and globals_dict is not module_globals
-            and (
-                module_globals is None
-                or globals_dict.get("__name__") == module_name
-            )
-        ):
-            monkeypatch.setitem(globals_dict, name, value)
-
-
 def _files_csrf_token(client, url: str = "/files/server") -> str:
     response = client.get(url, follow_redirects=False)
     assert response.status_code == 200
     return _form_token(response.text)
 
 
-def test_file_adapter_import_does_not_import_tui_textual(monkeypatch):
+def test_file_adapter_import_does_not_import_tui_textual(
+    assert_import_does_not_import_modules,
+):
     forbidden = ("armactl.tui", "textual")
-    _forget_modules("armactl.web.services.filesystem", *forbidden)
-    original_import = builtins.__import__
-    blocked_imports: list[str] = []
-
-    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if _matches_prefix(name, forbidden):
-            blocked_imports.append(name)
-            raise AssertionError(f"filesystem adapter imported forbidden dependency {name!r}")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", guarded_import)
-
-    module = importlib.import_module("armactl.web.services.filesystem")
-
-    assert module.__name__ == "armactl.web.services.filesystem"
-    assert blocked_imports == []
-    assert "armactl.tui" not in sys.modules
-    assert "textual" not in sys.modules
+    assert_import_does_not_import_modules("armactl.web.services.filesystem", forbidden)
 
 
-def test_files_route_import_does_not_import_tui_textual(monkeypatch):
+def test_files_route_import_does_not_import_tui_textual(
+    assert_import_does_not_import_modules,
+):
     forbidden = ("armactl.tui", "textual")
-    _forget_modules("armactl.web.routes.files", *forbidden)
-    original_import = builtins.__import__
-    blocked_imports: list[str] = []
-
-    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if _matches_prefix(name, forbidden):
-            blocked_imports.append(name)
-            raise AssertionError(f"files route imported forbidden dependency {name!r}")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", guarded_import)
-
-    module = importlib.import_module("armactl.web.routes.files")
-
-    assert module.__name__ == "armactl.web.routes.files"
-    assert blocked_imports == []
-    assert "armactl.tui" not in sys.modules
-    assert "textual" not in sys.modules
+    assert_import_does_not_import_modules("armactl.web.routes.files", forbidden)
 
 
 def test_unauthenticated_files_redirects_to_login(tmp_path: Path):
@@ -155,20 +90,15 @@ def test_unauthenticated_files_redirects_to_login(tmp_path: Path):
     assert response.headers["location"] == "/login"
 
 
-def test_files_permission_denied_returns_controlled_403(tmp_path: Path, monkeypatch):
+def test_files_permission_denied_returns_controlled_403(
+    tmp_path: Path, set_web_owner_permissions
+):
     from armactl.web.app import create_app
-    from armactl.web.routes import files as files_route
 
     password = "owner files password"
     setup_owner_user(tmp_path, "owner", password)
+    set_web_owner_permissions(set())
     app = create_app(data_root=tmp_path)
-    _patch_route_global(
-        app,
-        files_route.__name__,
-        monkeypatch,
-        "require_permission",
-        lambda current, permission: False,
-    )
     client = _client(app)
     _login(client, "owner", password)
 
@@ -395,20 +325,15 @@ def test_unauthenticated_download_redirects_to_login(tmp_path: Path):
     assert response.headers["location"] == "/login"
 
 
-def test_download_permission_denied_returns_controlled_403(tmp_path: Path, monkeypatch):
+def test_download_permission_denied_returns_controlled_403(
+    tmp_path: Path, set_web_owner_permissions
+):
     from armactl.web.app import create_app
-    from armactl.web.routes import files as files_route
 
     password = "owner files password"
     setup_owner_user(tmp_path, "owner", password)
+    set_web_owner_permissions(set())
     app = create_app(data_root=tmp_path)
-    _patch_route_global(
-        app,
-        files_route.__name__,
-        monkeypatch,
-        "require_permission",
-        lambda current, permission: False,
-    )
     client = _client(app)
     _login(client, "owner", password)
 
@@ -578,22 +503,17 @@ def test_unauthenticated_upload_redirects_to_login(tmp_path: Path):
     assert response.headers["location"] == "/login"
 
 
-def test_upload_permission_denied_without_files_write(tmp_path: Path, monkeypatch):
+def test_upload_permission_denied_without_files_write(
+    tmp_path: Path, set_web_owner_permissions
+):
     from armactl.web.app import create_app
     from armactl.web.auth.permissions import FILES_READ
-    from armactl.web.routes import files as files_route
 
     _server_root(tmp_path)
     password = "owner files password"
     setup_owner_user(tmp_path, "owner", password)
+    set_web_owner_permissions({FILES_READ})
     app = create_app(data_root=tmp_path)
-    _patch_route_global(
-        app,
-        files_route.__name__,
-        monkeypatch,
-        "require_permission",
-        lambda current, permission: permission == FILES_READ,
-    )
     client = _client(app)
     _login(client, "owner", password)
     token = _files_csrf_token(client)
@@ -716,7 +636,6 @@ def test_upload_existing_target_is_rejected_without_overwrite(tmp_path: Path):
 
 def test_upload_too_large_is_rejected_without_partial_file(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
-    from armactl.web.routes import files as files_route
     from armactl.web.services import filesystem
 
     server = _server_root(tmp_path)
@@ -724,13 +643,6 @@ def test_upload_too_large_is_rejected_without_partial_file(tmp_path: Path, monke
     setup_owner_user(tmp_path, "owner", password)
     app = create_app(data_root=tmp_path)
     monkeypatch.setattr(filesystem, "MAX_UPLOAD_BYTES", 4)
-    _patch_route_global(
-        app,
-        files_route.__name__,
-        monkeypatch,
-        "filesystem",
-        filesystem,
-    )
     client = _client(app)
     _login(client, "owner", password)
     token = _files_csrf_token(client)
@@ -793,22 +705,15 @@ def test_upload_git_and_venv_destination_or_filename_rejected(tmp_path: Path):
     assert not (server / ".git").is_file()
 
 
-def test_upload_form_hidden_without_files_write(tmp_path: Path, monkeypatch):
+def test_upload_form_hidden_without_files_write(tmp_path: Path, set_web_owner_permissions):
     from armactl.web.app import create_app
     from armactl.web.auth.permissions import FILES_READ
-    from armactl.web.routes import files as files_route
 
     _server_root(tmp_path)
     password = "owner files password"
     setup_owner_user(tmp_path, "owner", password)
+    set_web_owner_permissions({FILES_READ})
     app = create_app(data_root=tmp_path)
-    _patch_route_global(
-        app,
-        files_route.__name__,
-        monkeypatch,
-        "require_permission",
-        lambda current, permission: permission == FILES_READ,
-    )
     client = _client(app)
     _login(client, "owner", password)
 

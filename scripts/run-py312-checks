@@ -1,0 +1,69 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PROJECT_ROOT=$(dirname -- "$SCRIPT_DIR")
+IMAGE="${ARMACTL_PY312_IMAGE:-python:3.12-bookworm}"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  ./scripts/run-py312-checks
+  ./scripts/run-py312-checks -- tests/test_web_app.py
+
+Runs pytest and ruff inside a disposable Python 3.12 Docker container.
+The repository is mounted read-only; dependencies and test temp files stay
+inside the container.
+
+Environment:
+  ARMACTL_PY312_IMAGE  Docker image to use (default: python:3.12-bookworm)
+EOF
+}
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+case "${1:-}" in
+    -h|--help)
+        usage
+        exit 0
+        ;;
+esac
+
+if ! command -v docker >/dev/null 2>&1; then
+    fail "docker command not found"
+fi
+
+if [ ! -f "$PROJECT_ROOT/pyproject.toml" ]; then
+    fail "pyproject.toml not found; run this from the armactl repository"
+fi
+
+if [ "$#" -gt 0 ] && [ "$1" = "--" ]; then
+    shift
+else
+    set -- tests "$@"
+fi
+
+cd "$PROJECT_ROOT"
+
+docker run --rm \
+    -e PYTHONDONTWRITEBYTECODE=1 \
+    -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    -e PIP_NO_CACHE_DIR=1 \
+    -e RUFF_CACHE_DIR=/tmp/armactl-ruff-cache \
+    -v "$PROJECT_ROOT:/work:ro" \
+    -w /work \
+    "$IMAGE" \
+    sh -ceu '
+        python --version
+        python -m venv /tmp/armactl-py312-venv
+        . /tmp/armactl-py312-venv/bin/activate
+        python -m pip install --quiet --upgrade pip
+        python -m pip install --quiet "/work[dev,web]"
+        export PYTHONPATH=/work/src
+        git config --global --add safe.directory /work
+        python -m pytest -q -p no:cacheprovider "$@"
+        python -m ruff check --no-cache src tests scripts
+    ' sh "$@"

@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import builtins
-import importlib
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,19 +9,6 @@ from armactl.service_manager import ServiceResult
 from armactl.web.runtime import ensure_web_runtime
 
 FORBIDDEN_IMPORT_PREFIXES = ("armactl.tui", "textual")
-
-
-def _matches_prefix(module_name: str, prefixes: tuple[str, ...]) -> bool:
-    return any(
-        module_name == prefix or module_name.startswith(f"{prefix}.")
-        for prefix in prefixes
-    )
-
-
-def _forget_modules(*prefixes: str) -> None:
-    for module_name in list(sys.modules):
-        if _matches_prefix(module_name, prefixes):
-            sys.modules.pop(module_name)
 
 
 def _copy_web_template(project_root: Path) -> None:
@@ -227,22 +211,10 @@ def test_web_service_status_uses_service_manager_and_redacts_config(
     assert "session_secret" not in str(status)
 
 
-def test_web_service_module_does_not_import_tui_or_textual(monkeypatch):
-    _forget_modules("armactl.web.service", "armactl.tui", "textual")
-    original_import = builtins.__import__
-    blocked_imports: list[str] = []
-
-    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if _matches_prefix(name, FORBIDDEN_IMPORT_PREFIXES):
-            blocked_imports.append(name)
-            raise AssertionError(f"web service imported forbidden dependency {name!r}")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", guarded_import)
-
-    module = importlib.import_module("armactl.web.service")
-
-    assert module.web_service_name() == "armactl-web.service"
-    assert blocked_imports == []
-    assert "armactl.tui" not in sys.modules
-    assert "textual" not in sys.modules
+def test_web_service_module_does_not_import_tui_or_textual(
+    assert_import_does_not_import_modules,
+):
+    assert_import_does_not_import_modules(
+        "armactl.web.service",
+        FORBIDDEN_IMPORT_PREFIXES,
+    )

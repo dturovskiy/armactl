@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import builtins
-import importlib
 import sqlite3
-import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -43,19 +40,6 @@ FORBIDDEN_IMPORT_PREFIXES = (
     "uvicorn",
     "armactl.web.routes",
 )
-
-
-def _matches_prefix(module_name: str, prefixes: tuple[str, ...]) -> bool:
-    return any(
-        module_name == prefix or module_name.startswith(f"{prefix}.")
-        for prefix in prefixes
-    )
-
-
-def _forget_modules(*prefixes: str) -> None:
-    for module_name in list(sys.modules):
-        if _matches_prefix(module_name, prefixes):
-            sys.modules.pop(module_name)
 
 
 def _sqlite_tables(db_path: Path) -> set[str]:
@@ -499,31 +483,18 @@ def test_csrf_token_does_not_validate_for_revoked_or_expired_session(tmp_path: P
     assert validate_csrf_token(db_path, expired_session.session.id, expired_csrf.token) is False
 
 
-def test_auth_package_import_does_not_import_tui_routes_or_asgi(monkeypatch):
-    _forget_modules("armactl.web.auth", "argon2", *FORBIDDEN_IMPORT_PREFIXES)
-    original_import = builtins.__import__
-    blocked_imports: list[str] = []
-
-    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if _matches_prefix(name, FORBIDDEN_IMPORT_PREFIXES):
-            blocked_imports.append(name)
-            raise AssertionError(f"web auth imported forbidden dependency {name!r}")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", guarded_import)
-
-    module = importlib.import_module("armactl.web.auth")
-
-    assert module.UserRecord.__name__ == "UserRecord"
-    assert "armactl.web.auth.csrf" not in sys.modules
-    assert "armactl.web.auth.passwords" not in sys.modules
-    assert "armactl.web.auth.permissions" not in sys.modules
-    assert "armactl.web.auth.sessions" not in sys.modules
-    assert "armactl.web.auth.setup" not in sys.modules
-    assert "armactl.web.auth.tokens" not in sys.modules
-    assert "armactl.web.auth.users" not in sys.modules
-    assert "argon2" not in sys.modules
-    assert blocked_imports == []
-    assert not any(
-        _matches_prefix(module_name, FORBIDDEN_IMPORT_PREFIXES) for module_name in sys.modules
+def test_auth_package_import_does_not_import_tui_routes_or_asgi(
+    assert_import_does_not_import_modules,
+):
+    forbidden = (
+        "armactl.web.auth.csrf",
+        "armactl.web.auth.passwords",
+        "armactl.web.auth.permissions",
+        "armactl.web.auth.sessions",
+        "armactl.web.auth.setup",
+        "armactl.web.auth.tokens",
+        "armactl.web.auth.users",
+        "argon2",
+        *FORBIDDEN_IMPORT_PREFIXES,
     )
+    assert_import_does_not_import_modules("armactl.web.auth", forbidden)

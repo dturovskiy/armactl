@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import builtins
 import importlib
 import json
-import sys
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,14 +22,6 @@ from armactl.status_summary import ConfigSummary, ModsSummary, ModSummaryEntry
 
 def _import_facade():
     return importlib.import_module("armactl.web.facade")
-
-
-def _forget_modules(*prefixes: str) -> None:
-    for module_name in list(sys.modules):
-        if any(
-            module_name == prefix or module_name.startswith(f"{prefix}.") for prefix in prefixes
-        ):
-            sys.modules.pop(module_name)
 
 
 def _state(
@@ -230,26 +220,11 @@ def _fail_if_called(name: str) -> Callable[..., Any]:
     return fail
 
 
-def test_facade_import_does_not_import_tui_textual_or_click(monkeypatch):
-    forbidden = ("armactl.web.facade", "armactl.tui", "textual", "click")
-    _forget_modules("armactl.web.facade", "armactl.tui", "textual")
-    original_import = builtins.__import__
-    blocked_imports: list[str] = []
-
-    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if any(name == prefix or name.startswith(f"{prefix}.") for prefix in forbidden[1:]):
-            blocked_imports.append(name)
-            raise AssertionError(f"facade imported forbidden dependency {name!r}")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", guarded_import)
-
-    module = importlib.import_module("armactl.web.facade")
-
-    assert module.__name__ == "armactl.web.facade"
-    assert blocked_imports == []
-    assert "armactl.tui" not in sys.modules
-    assert "textual" not in sys.modules
+def test_facade_import_does_not_import_tui_textual_or_click(
+    assert_import_does_not_import_modules,
+):
+    forbidden = ("armactl.tui", "textual", "click")
+    assert_import_does_not_import_modules("armactl.web.facade", forbidden)
 
 
 def test_dashboard_snapshot_for_stopped_server(monkeypatch):

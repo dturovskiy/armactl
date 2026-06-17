@@ -31,6 +31,17 @@ separate local experiment. Do not split related changes across both checkouts.
 `scripts/run-host-tests` owns the test/lint workflow. It bootstraps the
 repo-local dev environment by default, runs pytest, and then runs ruff.
 
+To reproduce GitHub Actions' Python 3.12 runtime locally without changing the
+host venv, use the disposable Docker check:
+
+```bash
+./scripts/run-py312-checks
+./scripts/run-py312-checks -- tests/test_web_app.py
+```
+
+The repository is mounted read-only in the container; dependencies and test
+temporary files stay inside Docker.
+
 Tests are isolated from the operator's saved UI language. The test suite forces
 English as the active language so local Ukrainian UI settings do not change test
 expectations.

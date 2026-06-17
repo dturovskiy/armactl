@@ -80,26 +80,10 @@ def _state(config_path: Path) -> ServerState:
     )
 
 
-def _patch_management_global(app, monkeypatch, name: str, value) -> None:
-    """Patch management globals used by already-registered FastAPI endpoints."""
+def _patch_management_global(monkeypatch, name: str, value) -> None:
     from armactl.web.routes import management
 
-    module_globals = management.__dict__
-    if hasattr(management, name):
-        monkeypatch.setattr(management, name, value)
-    for route in getattr(app, "routes", []):
-        endpoint = getattr(route, "endpoint", None)
-        globals_dict = getattr(endpoint, "__globals__", None)
-        if (
-            isinstance(globals_dict, dict)
-            and name in globals_dict
-            and globals_dict is not module_globals
-            and (
-                module_globals is None
-                or globals_dict.get("__name__") == management.__name__
-            )
-        ):
-            monkeypatch.setitem(globals_dict, name, value)
+    monkeypatch.setattr(management, name, value)
 
 
 def _authed_client(tmp_path: Path, monkeypatch, page: dict | None = None):
@@ -111,7 +95,7 @@ def _authed_client(tmp_path: Path, monkeypatch, page: dict | None = None):
     password = "owner mods password"
     setup_owner_user(tmp_path, "owner", password)
     app = create_app(data_root=tmp_path)
-    _patch_management_global(app, monkeypatch, "load_mods_page", load_page)
+    _patch_management_global(monkeypatch, "load_mods_page", load_page)
     client = _client(app)
     login_response = _login(client, "owner", password)
     assert login_response.status_code == 303
@@ -210,19 +194,16 @@ def test_mods_routes_require_authentication(tmp_path: Path):
     assert disable_response.headers["location"] == "/login"
 
 
-def test_mods_post_requires_manage_permission(tmp_path: Path, monkeypatch):
+def test_mods_post_requires_manage_permission(
+    tmp_path: Path, monkeypatch, set_web_owner_permissions
+):
     from armactl.web.app import create_app
     from armactl.web.services import mod_actions
 
     setup_owner_user(tmp_path, "owner", "owner mods password")
+    set_web_owner_permissions({MODS_VIEW})
     app = create_app(data_root=tmp_path)
-    _patch_management_global(app, monkeypatch, "load_mods_page", lambda instance: _mods_page())
-    _patch_management_global(
-        app,
-        monkeypatch,
-        "require_permission",
-        lambda current, permission: permission == MODS_VIEW,
-    )
+    _patch_management_global(monkeypatch, "load_mods_page", lambda instance: _mods_page())
     monkeypatch.setattr(mod_actions, "run_mod_action_and_audit", AssertionError)
     client = _client(app)
     _login(client, "owner", "owner mods password")
@@ -569,7 +550,7 @@ def test_mods_html_and_audit_do_not_expose_auth_secrets(tmp_path: Path, monkeypa
 
     monkeypatch.setattr(mod_actions.mods_manager, "add_mod_detailed", add_mod)
     app = create_app(data_root=tmp_path)
-    _patch_management_global(app, monkeypatch, "load_mods_page", lambda instance: _mods_page())
+    _patch_management_global(monkeypatch, "load_mods_page", lambda instance: _mods_page())
     client = _client(app)
     login_response = _login(client, "owner", password)
     assert login_response.status_code == 303

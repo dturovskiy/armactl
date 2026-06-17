@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import builtins
-import importlib
 import json
 import re
-import sys
 import warnings
 from copy import deepcopy
 from pathlib import Path
@@ -18,19 +15,6 @@ from starlette.exceptions import StarletteDeprecationWarning
 from armactl.state import PortInfo, ServerState
 from armactl.web.auth.cookies import SESSION_COOKIE_NAME
 from armactl.web.auth.setup import setup_owner_user
-
-
-def _matches_prefix(module_name: str, prefixes: tuple[str, ...]) -> bool:
-    return any(
-        module_name == prefix or module_name.startswith(f"{prefix}.")
-        for prefix in prefixes
-    )
-
-
-def _forget_modules(*prefixes: str) -> None:
-    for module_name in list(sys.modules):
-        if _matches_prefix(module_name, prefixes):
-            sys.modules.pop(module_name)
 
 
 def _client(app):
@@ -120,26 +104,6 @@ def _patch_discovery(monkeypatch, config_path: Path) -> None:
     state = _state_for(config_path)
     monkeypatch.setattr(facade.discovery, "discover", lambda instance, save=False: state)
     monkeypatch.setattr(config_edit.discovery, "discover", lambda instance, save=False: state)
-
-
-def _patch_route_global(app, module_name: str, monkeypatch, name: str, value) -> None:
-    module = sys.modules.get(module_name)
-    module_globals = getattr(module, "__dict__", None)
-    if module is not None and hasattr(module, name):
-        monkeypatch.setattr(module, name, value)
-    for route in getattr(app, "routes", []):
-        endpoint = getattr(route, "endpoint", None)
-        globals_dict = getattr(endpoint, "__globals__", None)
-        if (
-            isinstance(globals_dict, dict)
-            and name in globals_dict
-            and globals_dict is not module_globals
-            and (
-                module_globals is None
-                or globals_dict.get("__name__") == module_name
-            )
-        ):
-            monkeypatch.setitem(globals_dict, name, value)
 
 
 def _authed_client(tmp_path: Path, monkeypatch, config_path: Path):
@@ -272,25 +236,15 @@ def test_config_edit_unauthenticated_redirects_to_login(tmp_path: Path):
 def test_config_edit_without_settings_permission_gets_403(
     tmp_path: Path,
     monkeypatch,
+    set_web_owner_permissions,
 ):
     from armactl.web.auth.permissions import CONFIG_VIEW, SETTINGS_MANAGE
-    from armactl.web.routes import management
     from armactl.web.services import config_edit
 
     config_path = _write_config(tmp_path)
+    set_web_owner_permissions({CONFIG_VIEW})
     client = _authed_client(tmp_path, monkeypatch, config_path)
     monkeypatch.setattr(config_edit, "save_default_config", pytest.fail)
-
-    def fake_require_permission(current, permission: str) -> bool:
-        return permission == CONFIG_VIEW
-
-    _patch_route_global(
-        client.app,
-        management.__name__,
-        monkeypatch,
-        "require_permission",
-        fake_require_permission,
-    )
 
     get_response = client.get("/config", follow_redirects=False)
     post_response = client.post("/config", data={}, follow_redirects=False)
@@ -539,21 +493,10 @@ def test_config_edit_does_not_render_secrets(tmp_path: Path, monkeypatch):
     assert session_token not in response.text
 
 
-def test_config_edit_import_does_not_import_tui_textual(monkeypatch):
-    _forget_modules("armactl.web.services.config_edit", "armactl.tui", "textual")
-    original_import = builtins.__import__
-    blocked_imports: list[str] = []
-
-    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "textual" or name.startswith("textual.") or name.startswith("armactl.tui"):
-            blocked_imports.append(name)
-            raise AssertionError(f"config edit imported forbidden dependency {name!r}")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", guarded_import)
-
-    module = importlib.import_module("armactl.web.services.config_edit")
-
-    assert module.__name__ == "armactl.web.services.config_edit"
-    assert blocked_imports == []
-    assert "textual" not in sys.modules
+def test_config_edit_import_does_not_import_tui_textual(
+    assert_import_does_not_import_modules,
+):
+    assert_import_does_not_import_modules(
+        "armactl.web.services.config_edit",
+        ("armactl.tui", "textual"),
+    )

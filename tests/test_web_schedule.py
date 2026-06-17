@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 import warnings
 from pathlib import Path
 
@@ -123,10 +122,8 @@ def _authed_client(tmp_path: Path, monkeypatch, page: dict | None = None):
     password = "owner schedule password"
     setup_owner_user(tmp_path, "owner", password)
     app = create_app(data_root=tmp_path)
-    _patch_route_global(
-        app,
-        schedule_route.__name__,
-        monkeypatch,
+    monkeypatch.setattr(
+        schedule_route,
         "load_schedule_page",
         lambda instance: page or _schedule_page(),
     )
@@ -145,30 +142,6 @@ def _schedule_csrf_token(client) -> str:
 def _audit_events(data_root: Path) -> list[dict]:
     audit_path = data_root / "logs" / "web" / "audit.log"
     return [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
-
-
-def _patch_route_global(app, module_name: str, monkeypatch, name: str, value) -> None:
-    patched = False
-    module = sys.modules.get(module_name)
-    module_globals = getattr(module, "__dict__", None)
-    if module is not None and hasattr(module, name):
-        monkeypatch.setattr(module, name, value)
-        patched = True
-    for route in getattr(app, "routes", []):
-        endpoint = getattr(route, "endpoint", None)
-        globals_dict = getattr(endpoint, "__globals__", None)
-        if (
-            isinstance(globals_dict, dict)
-            and name in globals_dict
-            and globals_dict is not module_globals
-            and (
-                module_globals is None
-                or globals_dict.get("__name__") == module_name
-            )
-        ):
-            monkeypatch.setitem(globals_dict, name, value)
-            patched = True
-    assert patched, f"route global was not patched: {module_name}.{name}"
 
 
 def test_schedule_js_asset_is_served(tmp_path: Path):
@@ -198,26 +171,16 @@ def test_schedule_page_requires_authentication(tmp_path: Path):
     assert post_response.headers["location"] == "/login"
 
 
-def test_schedule_permission_denied_skips_backend(tmp_path: Path, monkeypatch):
+def test_schedule_permission_denied_skips_backend(
+    tmp_path: Path, monkeypatch, set_web_owner_permissions
+):
     from armactl.web.app import create_app
     from armactl.web.routes import schedule as schedule_route
 
     setup_owner_user(tmp_path, "owner", "owner schedule password")
+    set_web_owner_permissions(set())
     app = create_app(data_root=tmp_path)
-    _patch_route_global(
-        app,
-        schedule_route.__name__,
-        monkeypatch,
-        "load_schedule_page",
-        lambda instance: None,
-    )
-    _patch_route_global(
-        app,
-        schedule_route.__name__,
-        monkeypatch,
-        "require_permission",
-        lambda current, permission: False,
-    )
+    monkeypatch.setattr(schedule_route, "load_schedule_page", AssertionError)
     client = _client(app)
     _login(client, "owner", "owner schedule password")
 
@@ -634,13 +597,7 @@ def test_dashboard_links_to_schedule_page_when_permission_allows(
 
     setup_owner_user(tmp_path, "owner", "owner dashboard password")
     app = create_app(data_root=tmp_path)
-    _patch_route_global(
-        app,
-        dashboard.__name__,
-        monkeypatch,
-        "load_dashboard_snapshot",
-        snapshot,
-    )
+    monkeypatch.setattr(dashboard, "load_dashboard_snapshot", snapshot)
     client = _client(app)
     _login(client, "owner", "owner dashboard password")
 

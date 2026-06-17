@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 import sqlite3
-import sys
 import warnings
 from pathlib import Path
 from types import SimpleNamespace
@@ -78,30 +77,6 @@ def _panel(*players: ModerationPlayer) -> PlayerModerationPanel:
     )
 
 
-def _patch_route_global(app, module_name: str, monkeypatch, name: str, value) -> None:
-    patched = False
-    module = sys.modules.get(module_name)
-    module_globals = getattr(module, "__dict__", None)
-    if module is not None and hasattr(module, name):
-        monkeypatch.setattr(module, name, value)
-        patched = True
-    for route in getattr(app, "routes", []):
-        endpoint = getattr(route, "endpoint", None)
-        globals_dict = getattr(endpoint, "__globals__", None)
-        if (
-            isinstance(globals_dict, dict)
-            and name in globals_dict
-            and globals_dict is not module_globals
-            and (
-                module_globals is None
-                or globals_dict.get("__name__") == module_name
-            )
-        ):
-            monkeypatch.setitem(globals_dict, name, value)
-            patched = True
-    assert patched, f"route global was not patched: {module_name}.{name}"
-
-
 def _authed_client(tmp_path: Path, monkeypatch, *, db_path: Path | None = None):
     from armactl.web.app import create_app
     from armactl.web.routes import players as players_route
@@ -109,10 +84,8 @@ def _authed_client(tmp_path: Path, monkeypatch, *, db_path: Path | None = None):
     setup_owner_user(tmp_path, "owner", "owner players password")
     app = create_app(data_root=tmp_path)
     if db_path is not None:
-        _patch_route_global(
-            app,
-            players_route.__name__,
-            monkeypatch,
+        monkeypatch.setattr(
+            players_route,
             "player_registry",
             SimpleNamespace(
                 **{
@@ -243,19 +216,14 @@ def test_players_route_requires_authentication(tmp_path: Path):
     assert post_response.headers["location"] == "/login"
 
 
-def test_players_route_requires_players_view_permission(tmp_path: Path, monkeypatch):
+def test_players_route_requires_players_view_permission(
+    tmp_path: Path, set_web_owner_permissions
+):
     from armactl.web.app import create_app
-    from armactl.web.routes import players as players_route
 
     setup_owner_user(tmp_path, "owner", "owner players password")
+    set_web_owner_permissions(set())
     app = create_app(data_root=tmp_path)
-    _patch_route_global(
-        app,
-        players_route.__name__,
-        monkeypatch,
-        "require_permission",
-        lambda current, permission: False,
-    )
     client = _client(app)
     _login(client, "owner", "owner players password")
 
@@ -312,10 +280,8 @@ def test_players_refresh_records_reliable_current_players(
     db_path = tmp_path / "default" / "players.db"
     setup_owner_user(tmp_path, "owner", "owner players password")
     app = create_app(data_root=tmp_path)
-    _patch_route_global(
-        app,
-        players_route.__name__,
-        monkeypatch,
+    monkeypatch.setattr(
+        players_route,
         "player_registry",
         SimpleNamespace(
             **{
@@ -332,10 +298,8 @@ def test_players_refresh_records_reliable_current_players(
             player_registry_db_path=lambda instance, data_root=None: db_path,
         ),
     )
-    _patch_route_global(
-        app,
-        players_route.__name__,
-        monkeypatch,
+    monkeypatch.setattr(
+        players_route,
         "player_moderation",
         SimpleNamespace(
             load_player_moderation_panel=lambda instance: _panel(
@@ -369,10 +333,8 @@ def test_players_refresh_uses_runtime_data_root(tmp_path: Path, monkeypatch):
 
     setup_owner_user(tmp_path, "owner", "owner players password")
     app = create_app(data_root=tmp_path)
-    _patch_route_global(
-        app,
-        players_route.__name__,
-        monkeypatch,
+    monkeypatch.setattr(
+        players_route,
         "player_moderation",
         SimpleNamespace(
             load_player_moderation_panel=lambda instance: _panel(_reliable_player("Alpha"))

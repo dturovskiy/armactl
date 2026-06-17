@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import builtins
-import importlib
 import sqlite3
 import stat
-import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -27,19 +24,6 @@ from armactl.web.runtime import (
 )
 
 FORBIDDEN_IMPORT_PREFIXES = ("armactl.tui", "textual")
-
-
-def _matches_prefix(module_name: str, prefixes: tuple[str, ...]) -> bool:
-    return any(
-        module_name == prefix or module_name.startswith(f"{prefix}.")
-        for prefix in prefixes
-    )
-
-
-def _forget_modules(*prefixes: str) -> None:
-    for module_name in list(sys.modules):
-        if _matches_prefix(module_name, prefixes):
-            sys.modules.pop(module_name)
 
 
 def _sqlite_tables(db_path: Path) -> set[str]:
@@ -240,23 +224,10 @@ def test_config_rejects_reserved_arma_game_port(tmp_path: Path):
         load_web_runtime_config(tmp_path)
 
 
-def test_web_runtime_package_import_does_not_import_tui_or_textual(monkeypatch):
-    _forget_modules("armactl.web.runtime", "armactl.tui", "textual")
-    original_import = builtins.__import__
-    blocked_imports: list[str] = []
-
-    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if _matches_prefix(name, FORBIDDEN_IMPORT_PREFIXES):
-            blocked_imports.append(name)
-            raise AssertionError(f"web runtime imported forbidden dependency {name!r}")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", guarded_import)
-
-    module = importlib.import_module("armactl.web.runtime")
-
-    assert callable(module.ensure_web_runtime)
-    assert blocked_imports == []
-    assert not any(
-        _matches_prefix(module_name, FORBIDDEN_IMPORT_PREFIXES) for module_name in sys.modules
+def test_web_runtime_package_import_does_not_import_tui_or_textual(
+    assert_import_does_not_import_modules,
+):
+    assert_import_does_not_import_modules(
+        "armactl.web.runtime",
+        FORBIDDEN_IMPORT_PREFIXES,
     )
