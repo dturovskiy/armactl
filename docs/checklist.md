@@ -237,6 +237,11 @@
 
 - [x] Зафіксувати web architecture plan у `docs/web-interface-plan.md`
 - [x] Зафіксувати web architecture guardrails: route/service/facade межі, mutating-action contract, pending-work vs jobs, і стабільні правила тестування
+- [ ] Провести web architecture cleanup перед наступними великими web-фічами: розділити routes/management.py на окремі config/mods/admins/bot routers без зміни поведінки
+- [ ] Розділити oversized web modules: facade.py за page/domain DTO, services/filesystem.py за roots/listing/preview/download/upload перед delete/edit/overwrite flows
+- [ ] Розбити oversized tests/test_web_app.py на focused web test modules і прибрати залежність від patching route globals / imported FastAPI endpoint internals
+- [ ] Провести audit broad except Exception у web routes/services: залишити тільки documented fail-closed/degradation cases, решту замінити контрольованими domain errors
+- [ ] Додати повний web system audit як окремий gate: Arkady проходить docs/web-system-audit.md перед великим ризиковим слайсом і після нього, з findings/blockers/follow-up у handoff
 - [x] Відділити тести від збереженої UI-мови оператора
 - [x] Зафіксувати, що `website/` є marketing/static site, не management panel
 - [x] Зафіксувати per-VM deployment model для Proxmox
@@ -309,6 +314,7 @@
 - [ ] Підключити update flow до background jobs без blocking HTTP requests
 - [x] Додати safe web edit/save для базових полів `config.json` через `config_manager`
 - [x] Додати audit logging для safe web config save з changed fields і backup path
+- [x] Додати audit logging для file upload і web install/repair job enqueue після VM smoke audit cleanup
 - [x] Додати stacked web pending operator work для config/admins/mods окремо від `web_jobs`, з compact dashboard table, dense details на `/jobs` і clear після successful web restart
 - [x] Додати shared operator UI primitives для dashboard/config pages
 - [x] Додати safe web add/update/remove для game admins через `admins_manager` з auth/CSRF/`admins:manage`/audit
@@ -334,7 +340,7 @@
 - [x] Додати safe read-only filesystem browser foundation
 - [x] Додати download single file для web file browser
 - [x] Додати upload одного нового файла в server root для web file browser без overwrite
-- [ ] Додати threat-model note/tests для uploads: no execute, no auto-unpack, size/path/name limits, bounded redacted preview
+- [ ] Додати повний threat-model note для uploads beyond current guards: no execute, no auto-unpack, size/path/name limits, bounded redacted preview; upload-new-file already has path/name/size checks and audit
 - [ ] Якщо future text editor для `/files` потрібний, обмежити root/path/extension/size, додати backup/audit, і не використовувати його як primary config editor
 - [ ] Додати safe single-file delete для web file browser: files only, no dirs, `files:delete`, confirmation, CSRF, audit, no symlink/traversal escape
 - [ ] Додати atomic overwrite для web file browser з окремим permission/confirmation/backup/audit

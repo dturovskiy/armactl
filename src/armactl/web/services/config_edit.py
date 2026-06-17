@@ -22,6 +22,10 @@ class ConfigEditError(ValueError):
 class ConfigAuditError(RuntimeError):
     """Raised when a saved config change could not be audited."""
 
+    def __init__(self, message: str, *, result: ConfigEditResult) -> None:
+        super().__init__(message)
+        self.result = result
+
 
 @dataclass(frozen=True)
 class ConfigEditResult:
@@ -323,5 +327,5 @@ def save_default_config_and_audit(
             backup_path=result.backup_path,
         )
     except AuditLogError as exc:
-        raise ConfigAuditError("Config saved but audit logging failed.") from exc
+        raise ConfigAuditError("Config saved but audit logging failed.", result=result) from exc
     return result

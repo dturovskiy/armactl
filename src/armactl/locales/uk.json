@@ -1109,6 +1109,13 @@
     "Mod changes": "Зміни модів",
     "Saved changes": "Збережені зміни",
     "Steam nickname lookup is ambiguous. Paste the profile URL or SteamID64.": "Нікнейм Steam неоднозначний. Вставте URL профілю або SteamID64.",
-    "Paste a SteamID64, IdentityId, steamcommunity.com profile URL, or Steam vanity slug.": "Вставте SteamID64, IdentityId, URL профілю steamcommunity.com або Steam vanity slug."
+    "Paste a SteamID64, IdentityId, steamcommunity.com profile URL, or Steam vanity slug.": "Вставте SteamID64, IdentityId, URL профілю steamcommunity.com або Steam vanity slug.",
+    "Storage": "Сховище",
+    "Restart tracking warning": "Попередження відстеження перезапуску",
+    "Restart tracking failed": "Не вдалося відстежити перезапуск",
+    "Fallback storage": "Резервне сховище",
+    "Primary storage": "Основне сховище",
+    "Restart-required work was saved to fallback storage because normal pending storage failed.": "Завдання, що потребує перезапуску, збережено у резервному сховищі, бо основне сховище pending work недоступне.",
+    "Changes were saved and require restart, but pending restart storage failed.": "Зміни збережено і потрібен перезапуск, але зберегти pending restart не вдалося."
   }
 }

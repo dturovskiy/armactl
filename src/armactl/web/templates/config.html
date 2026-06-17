@@ -35,6 +35,18 @@
   <p class="muted">{{ t(config_audit_error) }}</p>
 </section>
 {% endif %}
+{% if config_pending_work_warning %}
+<section class="notice-panel notice-warning full-width result-warning config-message">
+  <h2>{{ t("Restart tracking warning") }}</h2>
+  <p class="muted">{{ t(config_pending_work_warning) }}</p>
+</section>
+{% endif %}
+{% if config_pending_work_error %}
+<section class="notice-panel notice-error full-width result-failure config-message">
+  <h2>{{ t("Restart tracking failed") }}</h2>
+  <p class="error">{{ t(config_pending_work_error) }}</p>
+</section>
+{% endif %}
 
 <section class="dashboard-section config-summary-section">
   <h2>{{ t("Server Config") }}</h2>

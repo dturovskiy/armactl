@@ -89,6 +89,8 @@ def _render_config_page(
     save_error: str = "",
     unchanged: bool = False,
     audit_error: str = "",
+    pending_work_warning: str = "",
+    pending_work_error: str = "",
     status_code: int = status.HTTP_200_OK,
 ) -> Response:
     if not require_permission(current, CONFIG_VIEW):
@@ -108,6 +110,8 @@ def _render_config_page(
             "config_save_error": save_error,
             "config_unchanged": unchanged,
             "config_audit_error": audit_error,
+            "config_pending_work_warning": pending_work_warning,
+            "config_pending_work_error": pending_work_error,
         },
         status_code=status_code,
     )
@@ -121,6 +125,8 @@ def _render_mods_page(
     current: CurrentSession,
     *,
     result: mod_actions.ModActionResult | None = None,
+    pending_work_warning: str = "",
+    pending_work_error: str = "",
     status_code: int = status.HTTP_200_OK,
 ) -> Response:
     if not require_permission(current, MODS_VIEW):
@@ -136,6 +142,8 @@ def _render_mods_page(
             "csrf_token": form_csrf.token,
             "page": page,
             "result": result,
+            "pending_work_warning": pending_work_warning,
+            "pending_work_error": pending_work_error,
             "can_manage_mods": require_permission(current, MODS_MANAGE),
         },
         status_code=status_code,
@@ -150,6 +158,8 @@ def _render_admins_page(
     current: CurrentSession,
     *,
     result: admin_actions.AdminActionResult | None = None,
+    pending_work_warning: str = "",
+    pending_work_error: str = "",
     status_code: int = status.HTTP_200_OK,
 ) -> Response:
     if not require_permission(current, ADMINS_VIEW):
@@ -169,6 +179,8 @@ def _render_admins_page(
             "csrf_token": form_csrf.token,
             "page": page,
             "result": result,
+            "pending_work_warning": pending_work_warning,
+            "pending_work_error": pending_work_error,
             "can_manage_admins": require_permission(current, ADMINS_MANAGE),
             "player_panel": player_panel,
         },
@@ -185,8 +197,8 @@ def _mark_restart_pending_for_result(
     kind: str,
     source_action: str,
     details: object = "",
-) -> None:
-    pending_work.mark_restart_pending(
+) -> str:
+    _item, fallback_used = pending_work.mark_restart_pending_safely(
         current.config.db_path,
         instance=paths.DEFAULT_INSTANCE_NAME,
         kind=kind,
@@ -194,6 +206,7 @@ def _mark_restart_pending_for_result(
         username=current.user.username,
         details=details,
     )
+    return pending_work.PENDING_WORK_FALLBACK_WARNING if fallback_used else ""
 
 
 def _run_mod_action(
@@ -249,15 +262,33 @@ def _run_mod_action(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-    if result.success and result.changed:
-        _mark_restart_pending_for_result(
-            current,
-            kind=pending_work.KIND_MODS,
-            source_action=result.action,
-            details=result.target,
-        )
+    pending_warning = ""
+    if result.changed:
+        try:
+            pending_warning = _mark_restart_pending_for_result(
+                current,
+                kind=pending_work.KIND_MODS,
+                source_action=result.action,
+                details=result.target,
+            )
+        except pending_work.PendingWorkFallbackError as error:
+            return _render_mods_page(
+                request,
+                current,
+                result=result,
+                pending_work_error=str(error),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
     result_status = status.HTTP_200_OK if result.success else status.HTTP_400_BAD_REQUEST
-    return _render_mods_page(request, current, result=result, status_code=result_status)
+    if pending_warning:
+        result_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+    return _render_mods_page(
+        request,
+        current,
+        result=result,
+        pending_work_warning=pending_warning,
+        status_code=result_status,
+    )
 
 
 def _run_admin_action(
@@ -311,15 +342,33 @@ def _run_admin_action(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-    if result.success and result.changed:
-        _mark_restart_pending_for_result(
-            current,
-            kind=pending_work.KIND_ADMINS,
-            source_action=result.action,
-            details=result.target,
-        )
+    pending_warning = ""
+    if result.changed:
+        try:
+            pending_warning = _mark_restart_pending_for_result(
+                current,
+                kind=pending_work.KIND_ADMINS,
+                source_action=result.action,
+                details=result.target,
+            )
+        except pending_work.PendingWorkFallbackError as error:
+            return _render_admins_page(
+                request,
+                current,
+                result=result,
+                pending_work_error=str(error),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
     result_status = status.HTTP_200_OK if result.success else status.HTTP_400_BAD_REQUEST
-    return _render_admins_page(request, current, result=result, status_code=result_status)
+    if pending_warning:
+        result_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+    return _render_admins_page(
+        request,
+        current,
+        result=result,
+        pending_work_warning=pending_warning,
+        status_code=result_status,
+    )
 
 
 def _authenticated_page(
@@ -397,24 +446,57 @@ def save_config_page(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
     except config_edit.ConfigAuditError as error:
+        result = error.result
+        try:
+            pending_warning = _mark_restart_pending_for_result(
+                current,
+                kind=pending_work.KIND_CONFIG,
+                source_action=config_edit.CONFIG_SAVE_ACTION,
+                details=", ".join(result.changed_fields),
+            )
+        except pending_work.PendingWorkFallbackError as pending_error:
+            return _render_config_page(
+                request,
+                current,
+                saved=True,
+                audit_error=str(error),
+                pending_work_error=str(pending_error),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
         return _render_config_page(
             request,
             current,
             saved=True,
             audit_error=str(error),
+            pending_work_warning=pending_warning,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
     if not result.changed_fields:
         return RedirectResponse("/config?unchanged=1", status_code=status.HTTP_303_SEE_OTHER)
-    pending_work.mark_restart_pending(
-        current.config.db_path,
-        instance=paths.DEFAULT_INSTANCE_NAME,
-        kind=pending_work.KIND_CONFIG,
-        source_action=config_edit.CONFIG_SAVE_ACTION,
-        username=current.user.username,
-        details=", ".join(result.changed_fields),
-    )
+    try:
+        pending_warning = _mark_restart_pending_for_result(
+            current,
+            kind=pending_work.KIND_CONFIG,
+            source_action=config_edit.CONFIG_SAVE_ACTION,
+            details=", ".join(result.changed_fields),
+        )
+    except pending_work.PendingWorkFallbackError as error:
+        return _render_config_page(
+            request,
+            current,
+            saved=True,
+            pending_work_error=str(error),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    if pending_warning:
+        return _render_config_page(
+            request,
+            current,
+            saved=True,
+            pending_work_warning=pending_warning,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
     return RedirectResponse("/config?saved=1", status_code=status.HTTP_303_SEE_OTHER)
 
 

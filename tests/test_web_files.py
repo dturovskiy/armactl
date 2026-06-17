@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import warnings
 from pathlib import Path
@@ -63,6 +64,11 @@ def _files_csrf_token(client, url: str = "/files/server") -> str:
     response = client.get(url, follow_redirects=False)
     assert response.status_code == 200
     return _form_token(response.text)
+
+
+def _audit_events(data_root: Path) -> list[dict]:
+    audit_path = data_root / "logs" / "web" / "audit.log"
+    return [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
 
 
 def test_file_adapter_import_does_not_import_tui_textual(
@@ -458,9 +464,110 @@ def test_authenticated_owner_can_upload_new_file(tmp_path: Path):
         follow_redirects=False,
     )
 
+    events = _audit_events(tmp_path)
+
     assert response.status_code == 303
     assert response.headers["location"] == "/files/server"
     assert (server / "new.txt").read_bytes() == b"uploaded content"
+    assert events[-1]["username"] == "owner"
+    assert events[-1]["action"] == "file.upload"
+    assert events[-1]["target"] == "server:new.txt"
+    assert events[-1]["details"] == {"path": "new.txt", "root": "server", "size": "16"}
+
+
+def test_upload_audit_failure_does_not_publish_file_and_keeps_path_guards(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import file_uploads
+    from armactl.web.services.audit import AuditLogError
+
+    server = _server_root(tmp_path)
+    client = _login_owner(tmp_path)
+    token = _files_csrf_token(client)
+
+    def fail_audit(*args, **kwargs):
+        raise AuditLogError("disk full")
+
+    monkeypatch.setattr(file_uploads, "append_audit_event", fail_audit)
+
+    response = client.post(
+        "/files/server/upload",
+        data={"path": "", "csrf_token": token},
+        files={"upload": ("new.txt", b"uploaded content", "text/plain")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 500
+    assert response.text == "File upload was not published because audit logging failed."
+    assert "Traceback" not in response.text
+    assert not (server / "new.txt").exists()
+    assert not any(path.name.startswith(".armactl-upload-") for path in server.iterdir())
+
+    traversal_response = client.post(
+        "/files/server/upload",
+        data={"path": "../config", "csrf_token": token},
+        files={"upload": ("evil.txt", b"evil", "text/plain")},
+        follow_redirects=False,
+    )
+
+    assert traversal_response.status_code == 400
+    assert traversal_response.text == "Unsafe file path."
+    assert not (server / "evil.txt").exists()
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    try:
+        (server / "escape").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        return
+
+    symlink_response = client.post(
+        "/files/server/upload",
+        data={"path": "escape", "csrf_token": token},
+        files={"upload": ("evil.txt", b"evil", "text/plain")},
+        follow_redirects=False,
+    )
+
+    assert symlink_response.status_code == 400
+    assert symlink_response.text == "Unsafe file path."
+    assert not (outside / "evil.txt").exists()
+
+
+def test_upload_publish_failure_after_audit_is_controlled_and_audited(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import file_uploads
+    from armactl.web.services import filesystem
+
+    server = _server_root(tmp_path)
+    client = _login_owner(tmp_path)
+    token = _files_csrf_token(client)
+    audit_actions: list[tuple[str, bool]] = []
+
+    def record_audit(audit_log_path, *, action, success, **kwargs):
+        audit_actions.append((action, success))
+
+    def fail_publish(staged):
+        raise filesystem.UploadUnavailableError(filesystem.UploadUnavailableError.public_message)
+
+    monkeypatch.setattr(file_uploads, "append_audit_event", record_audit)
+    monkeypatch.setattr(file_uploads.filesystem, "publish_staged_upload", fail_publish)
+
+    response = client.post(
+        "/files/server/upload",
+        data={"path": "", "csrf_token": token},
+        files={"upload": ("new.txt", b"uploaded content", "text/plain")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 500
+    assert response.text == "File upload was audited but publishing failed."
+    assert "Traceback" not in response.text
+    assert not (server / "new.txt").exists()
+    assert not any(path.name.startswith(".armactl-upload-") for path in server.iterdir())
+    assert audit_actions == [("file.upload", True), ("file.upload.publish-failed", False)]
 
 
 def test_upload_form_visible_for_owner(tmp_path: Path):
@@ -613,6 +720,33 @@ def test_upload_invalid_filename_is_rejected(tmp_path: Path):
         filesystem.upload_file(tmp_path, "server", "", "bad/name.txt", BytesIO(b"bad"))
 
     assert not (server / "name.txt").exists()
+
+
+def test_stage_upload_does_not_publish_until_explicit_publish(tmp_path: Path):
+    from io import BytesIO
+
+    from armactl.web.services import filesystem
+
+    server = _server_root(tmp_path)
+
+    staged = filesystem.stage_upload_file(
+        tmp_path,
+        "server",
+        "",
+        "new.txt",
+        BytesIO(b"uploaded content"),
+    )
+
+    assert staged.temp_path.exists()
+    assert staged.temp_path.name.startswith(".armactl-upload-")
+    assert not (server / "new.txt").exists()
+
+    uploaded = filesystem.publish_staged_upload(staged)
+
+    assert uploaded.path == server / "new.txt"
+    assert uploaded.path.read_bytes() == b"uploaded content"
+    assert filesystem.cleanup_staged_upload(staged) is True
+    assert not staged.temp_path.exists()
 
 
 def test_upload_existing_target_is_rejected_without_overwrite(tmp_path: Path):

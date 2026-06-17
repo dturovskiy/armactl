@@ -434,7 +434,7 @@ def test_schedule_enable_disable_restart_and_autostart_routes(
     tmp_path: Path,
     monkeypatch,
 ):
-    from armactl.web.services import schedule_actions
+    from armactl.web.services import pending_work, schedule_actions
 
     calls: list[tuple[str, str]] = []
     client = _authed_client(tmp_path, monkeypatch)
@@ -460,6 +460,15 @@ def test_schedule_enable_disable_restart_and_autostart_routes(
     monkeypatch.setattr(schedule_actions.service_manager, "disable_service", disable)
     monkeypatch.setattr(schedule_actions.service_manager, "start_service", start)
     csrf_token = _schedule_csrf_token(client)
+    db_path = tmp_path / "web" / "web.db"
+    pending_work.mark_restart_pending(
+        db_path,
+        instance="default",
+        kind=pending_work.KIND_CONFIG,
+        source_action="config.save",
+        username="owner",
+    )
+    assert pending_work.list_pending_work(db_path, instance="default")
 
     enable_response = client.post(
         "/schedule/enable",
@@ -509,6 +518,7 @@ def test_schedule_enable_disable_restart_and_autostart_routes(
         in missing_autostart_confirm_response.text
     )
     assert autostart_disable_response.status_code == 200
+    assert pending_work.list_pending_work(db_path, instance="default") == []
     assert calls == [
         ("enable", "armareforger-restart.timer"),
         ("disable", "armareforger-restart.timer"),

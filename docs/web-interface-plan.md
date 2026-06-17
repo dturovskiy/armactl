@@ -949,7 +949,10 @@ Rules:
 - The file manager is not the config editor. Do not expose `config.json` raw
   editing through `/files`; normal config work belongs in `/config` and any raw
   editor belongs to a `/config` break-glass mode.
-- Delete/rename should be added after upload/download/list are proven safe.
+- Delete/rename/edit/overwrite should be added only after
+  upload/download/list are proven safe, with CSRF, confirmation for destructive
+  actions, audit, path jail checks, no symlink escape, and backup/quarantine or
+  rollback where practical.
 - Keep the repository root out of the allowed roots.
 - Do not allow upload into `.git`, `.venv`, system unit directories, or the
   armactl source tree.
@@ -960,9 +963,11 @@ Rules:
 The current web slices implement the safe browser foundation: fixed root
 selection, relative-path directory listing, metadata, bounded redacted text
 preview, single-file attachment download, and single-file upload for new
-targets under the `server` root without overwrite. Other roots remain
-browse/download only for now. They do not implement overwrite, delete, rename,
-remote mount support, or archive extraction.
+targets under the `server` root without overwrite. Upload-new-file is staged in
+a temporary file first; no final uploaded file is published unless `file.upload`
+audit was written first. Other roots remain browse/download only for now. They
+do not implement overwrite, delete, rename, remote mount support, or archive
+extraction.
 
 This is not SFTP in the MVP. Because the web panel runs inside the same VM as
 the game server, file operations should be implemented as safe local filesystem
@@ -1194,6 +1199,10 @@ must have all of these before it is exposed:
 - pending operator work entry when the saved change needs a later restart or
   manual step.
 
+Keep responsibilities separated: routes are HTTP glue, service modules own
+workflow/audit/pending-work/rollback or correction behavior, and low-level
+adapters expose pure filesystem/system/database operations.
+
 Delete, overwrite, raw JSON edit, host controls, terminal/command palette, ban
 management, and premium/mega-only tools must go through this contract before UI
 work starts.
@@ -1217,9 +1226,13 @@ Pending operator work and background jobs are different concepts:
   scheduled follow-up", usually a game server restart;
 - background jobs are queued/running/completed long-running operations.
 
-Dashboard may show a compact pending-work summary. The operations/jobs page may
-show dense details. Do not hide pending work just because there are no
-background jobs, and do not store pending restart state as a fake job.
+Pending work stacks by category, such as config, mods, and admins, and clears
+only after a successful relevant action such as a game-server restart or the
+restart helper. Dashboard may show a compact pending-work summary. The
+operations/jobs page must keep pending operator work and background jobs as two
+separate sections with precise empty states. Do not hide pending work just
+because there are no background jobs, and do not store pending restart state as
+a fake job.
 
 ### Testing rules
 
@@ -1250,6 +1263,21 @@ Use shared web UI primitives before adding page-specific layout hacks:
 Avoid inserting large page-top notices that shift forms under the user's mouse.
 Dashboard stays an operator overview; deeper settings, diagnostics, mod
 runtime config, raw JSON, and danger-zone actions belong on dedicated pages.
+
+### System audit gate
+
+Large or risky web slices should run the module-by-module audit described in docs/web-system-audit.md. Use it twice when the slice touches security, persistence, routing boundaries, file operations, jobs, permissions, or deployment behavior: once before implementation to confirm the current boundary, and once after implementation to catch new shortcuts before merge or VM smoke. The audit output should list blockers, should-fix items, follow-ups, accepted risks, tests, and docs updates.
+
+### Known architecture debt
+
+Pay this down before adding another large web feature slice. These are refactors only; they should preserve current behavior and tests.
+
+- Split the current broad routes/management.py into domain routers for config, mods, admins, and bot flows. Routes should stay HTTP glue and should not own workflow, audit, pending-work, or rollback logic.
+- Split facade.py by page/domain DTO once the current web flows stabilize. Dashboard/status aggregation, config summaries, mods/admins/bot summaries, and schedule state should not keep growing in one file.
+- Split services/filesystem.py before adding delete, text edit, overwrite, rename, or archive extraction. Keep path jail/root resolution separate from listing, preview, download, upload staging, and future destructive actions.
+- Split the oversized tests/test_web_app.py into focused route/static/dashboard/preference/service tests. New tests should patch service/facade seams, not imported route globals or FastAPI endpoint internals.
+- Audit broad except Exception usage in web routes/services. Keep documented fail-closed diagnostics and dashboard degradation paths, but prefer explicit domain errors for mutating workflows.
+- Treat best-effort cleanup, such as cancelling a just-created job after audit failure, as explicit behavior with a comment/test instead of an invisible workaround.
 
 Internal API readiness:
 
@@ -1570,10 +1598,10 @@ not the foreground debug runner.
   background jobs. It is stored in `web_pending_work`, not `web_jobs`, and can be
   present even when there are no background jobs. Empty states say either
   "No pending operator work." or "No background jobs." precisely.
-- Use the job model for future install, repair, SteamCMD update, and large file
-  actions.
-- Until explicit handlers and routes exist for those operations, keep
-  install/repair/update out of web.
+- Install and repair now use explicit background job handlers and enqueue routes.
+- Use the job model for future SteamCMD update and large file actions.
+- Until explicit handlers and routes exist for future operations, keep them out
+  of web rather than blocking request threads.
 
 ### Phase 4 - Config, mods, admins, and bot editing
 

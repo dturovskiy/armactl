@@ -21,10 +21,22 @@
     <dt>{{ t("Message") }}</dt><dd class="wrap-value">{{ t(result.message) }}</dd>
   </dl>
 </section>
-{% if result.success and result.changed %}
+{% if result.changed %}
 <section class="notice-panel full-width notice-restart">
   <h2>{{ t("Restart required") }}</h2>
   <p>{{ t("Restart the server to apply mod changes.") }}</p>
+</section>
+{% endif %}
+{% if pending_work_warning %}
+<section class="notice-panel notice-warning full-width result-warning mods-message">
+  <h2>{{ t("Restart tracking warning") }}</h2>
+  <p class="muted">{{ t(pending_work_warning) }}</p>
+</section>
+{% endif %}
+{% if pending_work_error %}
+<section class="notice-panel notice-error full-width result-failure mods-message">
+  <h2>{{ t("Restart tracking failed") }}</h2>
+  <p class="error">{{ t(pending_work_error) }}</p>
 </section>
 {% endif %}
 {% endif %}

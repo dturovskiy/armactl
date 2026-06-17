@@ -157,6 +157,11 @@ Keep CLI/TUI access as the fallback path while web rollout is in progress.
 
 ## Reverse proxy and HTTPS deployment
 
+Production-safe baseline: expose the panel through a reverse proxy with HTTPS
+and set `ARMACTL_WEB_HTTPS_REQUIRED=true`. Direct `0.0.0.0:8765` without
+HTTPS-required cookies plus VPN, firewall/proxy allow rules, or a future
+app-level IP allowlist is not production-safe.
+
 Safe default: keep armactl web bound to `127.0.0.1:8765` when the reverse proxy
 runs on the same game VM.
 
@@ -186,6 +191,10 @@ access:
 it for public HTTPS deployments. If it is enabled, plain HTTP browser testing
 will not send the session cookie; test through HTTPS, an SSH tunnel with the
 setting disabled for local-only smoke, or a local reverse proxy.
+
+A public port-forward to `http://GAME_VM:8765` without TLS is only acceptable as
+a short smoke/test window. Remove it immediately after the check, and do not
+leave it as the production access path.
 
 Do not expose direct `http://GAME_VM:8765` to the internet. Public `80` and
 `443` should belong to the reverse proxy, not to `armactl-web` directly.
@@ -290,14 +299,15 @@ install, or repair the server:
 ./armactl status
 ```
 
-Web install/repair flows are planned for future background jobs and are not
-available from the dashboard yet.
+Web install/repair flows enqueue explicit background jobs. They are not
+pending operator work and should not block HTTP requests.
 
 ### External bind warning appears
 
 The panel is bound to `0.0.0.0`, `::`, a non-loopback IP, or an unknown host. If
 this is intentional, put the panel behind HTTPS, VPN, and firewall/proxy allow
-rules, and set HTTPS-required cookies for public HTTPS deployments:
+rules, and set HTTPS-required cookies for public HTTPS deployments. A direct
+external bind without those protections is unsafe for production:
 
 ```bash
 ./armactl web init --https-required

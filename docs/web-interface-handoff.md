@@ -45,7 +45,9 @@ explicitly a release task.
   calls.
 - Keep routes thin: auth, permission, CSRF/input validation, one service/facade
   call, and response rendering. Put multi-step workflows in `services/` or
-  facades.
+  facades. Services own workflow, audit, pending-work, rollback, and correction
+  audit behavior. Low-level adapters should stay pure filesystem/system/db
+  operations without HTTP/session knowledge.
 - Every mutating web action needs auth, explicit permission, POST+CSRF,
   bounded input, audit logging, controlled errors, and backups/pending-work
   handling when applicable.
@@ -61,9 +63,11 @@ explicitly a release task.
 - Ban/unban flows must be separate from web users/roles, require reliable
   identity/SteamID64/supported backend IDs, POST+CSRF, confirmation, audit, and
   backup/rollback where file-backed.
-- Keep ServerAdminTools runtime settings in future Mod Settings or Diagnostics
-  surfaces. Dashboard shows SAT only for real health/guard problems, and SAT
-  runtime edits must be narrow field edits with backup/audit.
+- Keep ServerAdminTools and other mod runtime settings in future Mod
+  Settings or Diagnostics surfaces, not dashboard noise. Dashboard shows SAT
+  only for real health/guard problems, and SAT admins/gameMasters/bans edits
+  must be narrow field edits that preserve unrelated SAT settings, with backup
+  and audit.
 - Keep the current web MVP Linux/systemd-first. Windows backend support needs a
   future platform adapter for services, logs, paths, firewall/process/metrics,
   and install/update flow.
@@ -87,7 +91,10 @@ explicitly a release task.
   imported.
 - Keep `website/` separate. It is the public marketing site, not the
   authenticated management panel.
-- Do not expose arbitrary host filesystem access.
+- Do not expose arbitrary host filesystem access. Future file edit/delete,
+  overwrite, rename, and archive extraction flows need fixed roots, path jail,
+  traversal and symlink-escape rejection, CSRF, explicit confirmation for
+  destructive actions, audit, and backup/quarantine or rollback where practical.
 - Do not run install/repair/update as blocking HTTP requests.
 - Treat web as an always-on service: `armactl web run` is for foreground
   development/debugging, while production uses `armactl-web.service`.
@@ -114,6 +121,27 @@ explicitly a release task.
   keys, raw hardcoded template text, and layout overflow before UI polish.
   Resolve language per web request/session/user and do not call the TUI-style
   global `toggle_lang()` / `save_lang()` helpers during HTTP request handling.
+
+## Current mutating route audit inventory
+
+This inventory covers the current FastAPI POST routes. There are no registered
+PUT, PATCH, or DELETE routes in the web app at this point. Cookie-only/auth
+state is documented explicitly so it does not get mistaken for missing operator
+audit coverage.
+
+| Route/action | Permission | CSRF | Audit | Pending work | Secret handling |
+|--------------|------------|------|-------|--------------|-----------------|
+| `POST /login` | Public login when owner exists | login CSRF cookie/form token | No web action audit; auth/session/rate-limit state only | No | Password never logged; generic errors; throttle stores digest-only state |
+| `POST /logout` | Authenticated session | Yes | No web action audit; session revocation only | No | Clears session/CSRF cookies |
+| `POST /preferences/language`, `POST /preferences/theme` | None; authenticated requests validate session CSRF | Yes when authenticated | No audit; local web preference cookie only | No | Values are normalized allowlisted UI preferences |
+| `POST /service/{start,stop,restart}` | `actions:run` | Yes; stop/restart require confirmation | `start`, `stop`, `restart` | Successful performed `restart` clears restart-related pending work | Backend messages are redacted before audit/rendering |
+| `POST /jobs/server/install`, `POST /jobs/server/repair` | `actions:run` | Yes | `job.server-install.enqueue`, `job.server-repair.enqueue` | No; these are background jobs in `web_jobs`, not pending operator work | Job metadata/output tails are bounded and redacted |
+| `POST /files/{root_id}/upload` | `files:write` plus root upload allowlist | Yes | `file.upload` before final publish; `file.upload.publish-failed` if audited publish fails | No; upload-new-file does not imply a known restart/apply step | Audit stores root/path/size only, no file contents |
+| `POST /config` | `settings:manage` | Yes | `config.save` when fields change | Stacks `config` restart work when changed | Allowlisted non-secret fields only; backup path/details redacted |
+| `POST /mods/add`, `/mods/disable`, `/mods/enable`, `/mods/remove` | `mods:manage`; remove requires confirmation | Yes | `mod.add`, `mod.update`, `mod.disable`, `mod.enable`, `mod.remove` | Stacks `mods` restart work when changed | IDs/names/messages are bounded and redacted |
+| `POST /admins/add`, `/admins/remove` | `admins:manage`; remove requires confirmation | Yes | `admin.add`, `admin.update`, `admin.remove` | Stacks `admins` restart work when changed | Admin references/labels/messages are bounded and redacted |
+| `POST /players/refresh` | `players:view` | Yes | `players.refresh` | No | Stores reliable IDs/nickname history only; no IP storage by default |
+| `POST /schedule/set`, `/schedule/enable`, `/schedule/disable`, `/schedule/autostart/enable`, `/schedule/autostart/disable`, `/schedule/restart-now` | `schedule:manage`; restart-now and autostart-disable require confirmation | Yes | `schedule.set`, `schedule.enable`, `schedule.disable`, `service.autostart-enable`, `service.autostart-disable`, `schedule.restart-now` | Successful performed `schedule.restart-now` clears restart-related pending work | Schedule/service messages are bounded and redacted |
 
 ## Current implementation status
 

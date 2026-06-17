@@ -7,6 +7,7 @@ import re
 import warnings
 from pathlib import Path
 
+import pytest
 from starlette.exceptions import StarletteDeprecationWarning
 
 from armactl.config_manager import ConfigError
@@ -78,17 +79,37 @@ def _state(config_path: Path) -> ServerState:
     )
 
 
+def _write_admin_config(tmp_path: Path, admins: list[str]) -> Path:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "bindAddress": "0.0.0.0",
+                "bindPort": 2001,
+                "publicPort": 2001,
+                "game": {
+                    "name": "Test Server",
+                    "scenarioId": "Scenario.conf",
+                    "maxPlayers": 32,
+                    "admins": admins,
+                    "mods": [],
+                },
+            },
+            indent=2,
+        )
+    )
+    return config_path
+
+
 def _authed_client(tmp_path: Path, monkeypatch, page: dict | None = None):
-    from armactl.web.app import create_app
+    from armactl.web.routes import management
 
     password = "owner admins password"
     setup_owner_user(tmp_path, "owner", password)
+    monkeypatch.setattr(management, "load_admins_page", lambda instance: page or _admins_page())
+    from armactl.web.app import create_app
+
     app = create_app(data_root=tmp_path)
-    _patch_management_global(
-        monkeypatch,
-        "load_admins_page",
-        lambda instance: page or _admins_page(),
-    )
     client = _client(app)
     login_response = _login(client, "owner", password)
     assert login_response.status_code == 303
@@ -341,6 +362,192 @@ def test_admins_update_success_writes_update_audit(tmp_path: Path, monkeypatch):
     assert event["action"] == "admin.update"
     assert event["success"] is True
     assert event["target"] == "76561198000000002"
+
+
+def test_admins_pending_db_failure_writes_fallback_and_warns(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import admin_actions, pending_work
+
+    config_path = _write_admin_config(tmp_path, [])
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        admin_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def fail_pending_db(*args, **kwargs):
+        raise RuntimeError("web.db locked token=raw-pending-secret")
+
+    monkeypatch.setattr(pending_work, "mark_restart_pending", fail_pending_db)
+    csrf_token = _admins_csrf_token(client)
+
+    response = client.post(
+        "/admins/add",
+        data={
+            "csrf_token": csrf_token,
+            "admin_reference": "ABCDEF1234567890",
+            "label": "Captain token=raw-admin-secret",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 500
+    assert "Admin added." in response.text
+    assert "Restart the server to apply admin changes." in response.text
+    assert "Restart tracking warning" in response.text
+    assert pending_work.PENDING_WORK_FALLBACK_WARNING in response.text
+    assert "raw-pending-secret" not in response.text
+    assert "raw-admin-secret" not in response.text
+    item = pending_work.get_fallback_pending_work(
+        tmp_path / "web" / "web.db",
+        kind=pending_work.KIND_ADMINS,
+    )
+    assert item is not None
+    assert item.is_fallback is True
+    assert item.source_action == "admin.add"
+    assert item.details == "ABCDEF1234567890"
+    assert "raw-admin-secret" not in pending_work.fallback_pending_work_path(
+        tmp_path / "web" / "web.db"
+    ).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("initial_admins", "expected_action"),
+    [([], "admin.add"), (["ABCDEF1234567890"], "admin.update")],
+)
+def test_admins_add_or_update_audit_failure_after_change_still_marks_pending_work(
+    tmp_path: Path,
+    monkeypatch,
+    initial_admins: list[str],
+    expected_action: str,
+):
+    from armactl.web.services import admin_actions
+    from armactl.web.services.audit import AuditLogError
+    from armactl.web.services.pending_work import KIND_ADMINS, get_pending_work
+
+    config_path = _write_admin_config(tmp_path, initial_admins)
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        admin_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def fail_audit(*args, **kwargs):
+        raise AuditLogError("disk full token=raw-audit-secret")
+
+    monkeypatch.setattr(admin_actions, "append_audit_event", fail_audit)
+    csrf_token = _admins_csrf_token(client)
+
+    response = client.post(
+        "/admins/add",
+        data={
+            "csrf_token": csrf_token,
+            "admin_reference": "ABCDEF1234567890",
+            "label": "Captain token=raw-admin-secret",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Admin action completed but audit logging failed." in response.text
+    assert "Restart the server to apply admin changes." in response.text
+    assert "raw-admin-secret" not in response.text
+    updated = json.loads(config_path.read_text())
+    assert updated["game"]["admins"] == ["ABCDEF1234567890"]
+    item = get_pending_work(tmp_path / "web" / "web.db", kind=KIND_ADMINS)
+    assert item is not None
+    assert item.source_action == expected_action
+    assert item.details == "ABCDEF1234567890"
+    audit_path = tmp_path / "logs" / "web" / "audit.log"
+    audit_text = audit_path.read_text(encoding="utf-8") if audit_path.exists() else ""
+    assert "raw-admin-secret" not in audit_text
+    assert "raw-audit-secret" not in audit_text
+
+
+def test_admins_remove_audit_failure_after_change_still_marks_pending_work(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import admin_actions
+    from armactl.web.services.audit import AuditLogError
+    from armactl.web.services.pending_work import KIND_ADMINS, get_pending_work
+
+    config_path = _write_admin_config(tmp_path, ["ABCDEF1234567890"])
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        admin_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def fail_audit(*args, **kwargs):
+        raise AuditLogError("disk full")
+
+    monkeypatch.setattr(admin_actions, "append_audit_event", fail_audit)
+    csrf_token = _admins_csrf_token(client)
+
+    response = client.post(
+        "/admins/remove",
+        data={
+            "csrf_token": csrf_token,
+            "admin_reference": "ABCDEF1234567890",
+            "confirm": "remove",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Admin action completed but audit logging failed." in response.text
+    assert "Restart the server to apply admin changes." in response.text
+    updated = json.loads(config_path.read_text())
+    assert updated["game"]["admins"] == []
+    item = get_pending_work(tmp_path / "web" / "web.db", kind=KIND_ADMINS)
+    assert item is not None
+    assert item.source_action == "admin.remove"
+    assert item.details == "ABCDEF1234567890"
+
+
+def test_admins_audit_failure_without_change_does_not_request_restart(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import admin_actions
+    from armactl.web.services.audit import AuditLogError
+    from armactl.web.services.pending_work import list_pending_work
+
+    config_path = _write_admin_config(tmp_path, [])
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        admin_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def fail_audit(*args, **kwargs):
+        raise AuditLogError("disk full")
+
+    monkeypatch.setattr(admin_actions, "append_audit_event", fail_audit)
+    csrf_token = _admins_csrf_token(client)
+
+    response = client.post(
+        "/admins/remove",
+        data={
+            "csrf_token": csrf_token,
+            "admin_reference": "ABCDEF1234567890",
+            "confirm": "remove",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Admin action completed but audit logging failed." in response.text
+    assert "Restart the server to apply admin changes." not in response.text
+    assert json.loads(config_path.read_text())["game"]["admins"] == []
+    assert list_pending_work(tmp_path / "web" / "web.db") == []
 
 
 def test_admins_remove_requires_confirmation(tmp_path: Path, monkeypatch):

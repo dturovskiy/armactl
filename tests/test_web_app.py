@@ -1826,6 +1826,43 @@ def test_jobs_page_distinguishes_empty_pending_work_and_background_jobs(tmp_path
     assert "No jobs yet." not in response.text
 
 
+def test_dashboard_and_jobs_show_fallback_pending_work_without_leaking_secrets(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services.pending_work import KIND_CONFIG, mark_restart_pending_fallback
+
+    password = "owner fallback password"
+    setup_owner_user(tmp_path, "owner", password)
+    _stub_dashboard(monkeypatch)
+    mark_restart_pending_fallback(
+        tmp_path / "web" / "web.db",
+        kind=KIND_CONFIG,
+        source_action="config.save",
+        username="owner token=raw-user-secret",
+        details="max_players password=raw-detail-secret token=raw-token",
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    dashboard_response = client.get("/dashboard", follow_redirects=False)
+    jobs_response = client.get("/jobs", follow_redirects=False)
+
+    for response in (dashboard_response, jobs_response):
+        assert response.status_code == 200
+        assert "Pending operator work" in response.text
+        assert "Config changes" in response.text
+        assert "Fallback storage" in response.text
+        assert "Restart game server" in response.text
+        assert "raw-user-secret" not in response.text
+        assert "raw-detail-secret" not in response.text
+        assert "raw-token" not in response.text
+    assert "max_players" in jobs_response.text
+    assert "No pending operator work." not in dashboard_response.text
+    assert "No pending operator work." not in jobs_response.text
+
+
 def test_jobs_page_shows_pending_work_when_background_jobs_empty_and_redacts_details(
     tmp_path: Path,
 ):
@@ -2063,8 +2100,10 @@ def test_service_restart_clears_all_restart_related_pending_work(
         KIND_ADMINS,
         KIND_CONFIG,
         KIND_MODS,
+        list_fallback_pending_work,
         list_pending_work,
         mark_restart_pending,
+        mark_restart_pending_fallback,
         upsert_pending_work,
     )
 
@@ -2096,6 +2135,14 @@ def test_service_restart_clears_all_restart_related_pending_work(
         source_action="mod.add",
         username="owner",
     )
+    mark_restart_pending_fallback(
+        db_path,
+        kind=KIND_CONFIG,
+        source_action="config.save",
+        username="owner",
+        details="fallback config",
+    )
+    assert list_fallback_pending_work(db_path)
     upsert_pending_work(
         db_path,
         kind="schedule",
@@ -2124,6 +2171,7 @@ def test_service_restart_clears_all_restart_related_pending_work(
     assert "raw helper text" not in response.text
     assert "backend-secret" not in response.text
     remaining = list_pending_work(db_path)
+    assert list_fallback_pending_work(db_path) == []
     assert len(remaining) == 1
     assert remaining[0].kind == "schedule"
     assert remaining[0].resolution_action == "reload schedule"
@@ -2575,6 +2623,7 @@ def test_post_install_and_repair_create_queued_jobs_without_running_backend(
         follow_redirects=False,
     )
     jobs = list_recent_jobs(tmp_path / "web" / "web.db")
+    audit_events = _audit_events(tmp_path)
 
     assert install_response.status_code == 303
     assert install_response.headers["location"] == "/jobs"
@@ -2582,7 +2631,54 @@ def test_post_install_and_repair_create_queued_jobs_without_running_backend(
     assert repair_response.headers["location"] == "/jobs"
     assert [job.kind for job in jobs[:2]] == ["server:repair", "server:install"]
     assert all(job.status == "queued" for job in jobs[:2])
+    assert [event["action"] for event in audit_events[-2:]] == [
+        "job.server-install.enqueue",
+        "job.server-repair.enqueue",
+    ]
+    assert audit_events[-2]["details"]["job_kind"] == "server:install"
+    assert audit_events[-2]["details"]["created"] == "true"
+    assert audit_events[-1]["details"]["job_kind"] == "server:repair"
+    assert audit_events[-1]["details"]["created"] == "true"
     assert scheduled == [jobs[1].id, jobs[0].id]
+
+
+def test_install_job_audit_failure_cancels_created_job(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs.store import list_recent_jobs
+    from armactl.web.services import server_job_actions
+    from armactl.web.services.audit import AuditLogError
+
+    def fail_audit(*args, **kwargs):
+        raise AuditLogError("disk full")
+
+    def fail_worker(*args, **kwargs):
+        raise AssertionError("worker should not start when audit fails")
+
+    monkeypatch.setattr(server_job_actions, "append_audit_event", fail_audit)
+    monkeypatch.setattr(server_job_actions.server_jobs, "start_server_job_worker", fail_worker)
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+
+    response = client.post(
+        "/jobs/server/install",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    jobs = list_recent_jobs(tmp_path / "web" / "web.db")
+
+    assert response.status_code == 500
+    assert response.text == "Job queued but audit logging failed."
+    assert len(jobs) == 1
+    assert jobs[0].kind == "server:install"
+    assert jobs[0].status == "cancelled"
+    assert jobs[0].result_message == "Cancelled because audit logging failed."
 
 
 def test_jobs_page_shows_queued_install_repair_jobs(tmp_path: Path, monkeypatch):

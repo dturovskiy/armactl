@@ -51,23 +51,31 @@ venv_python_healthy() {
     "$VENV_PY" -c "import encodings, armactl" >/dev/null 2>&1
 }
 
+run_bootstrap() {
+    message="$1"
+    echo "$message" >&2
+    if [ ! -x "$BOOTSTRAP_SCRIPT" ]; then
+        echo "Missing bootstrap script: $BOOTSTRAP_SCRIPT" >&2
+        exit 1
+    fi
+    if [ ! -t 0 ]; then
+        echo "armactl dependency setup needs an interactive TTY." >&2
+        echo "Run ./scripts/bootstrap.sh $BOOTSTRAP_MODE from an interactive shell, install dependencies manually, or run .venv/bin/python -m armactl ... after the venv is ready." >&2
+        exit 1
+    fi
+    "$BOOTSTRAP_SCRIPT" "$BOOTSTRAP_MODE"
+}
+
 if [ -n "$ARMACTL_PYTHON" ]; then
     exec "$ARMACTL_PYTHON" -m armactl "$@"
 fi
 
 if [ ! -x "$VENV_PY" ]; then
-    echo "armactl first-run setup: preparing local environment..." >&2
-    if [ ! -x "$BOOTSTRAP_SCRIPT" ]; then
-        echo "Missing bootstrap script: $BOOTSTRAP_SCRIPT" >&2
-        exit 1
-    fi
-    "$BOOTSTRAP_SCRIPT" "$BOOTSTRAP_MODE"
+    run_bootstrap "armactl first-run setup: preparing local environment..."
 elif venv_needs_refresh; then
-    echo "armactl dependency sync: refreshing local environment..." >&2
-    "$BOOTSTRAP_SCRIPT" "$BOOTSTRAP_MODE"
+    run_bootstrap "armactl dependency sync: refreshing local environment..."
 elif ! venv_python_healthy; then
-    echo "armactl dependency sync: local environment is not runnable; refreshing..." >&2
-    "$BOOTSTRAP_SCRIPT" "$BOOTSTRAP_MODE"
+    run_bootstrap "armactl dependency sync: local environment is not runnable; refreshing..."
 fi
 
 exec "$VENV_PY" -m armactl "$@"

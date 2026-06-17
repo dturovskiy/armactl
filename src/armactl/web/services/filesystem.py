@@ -220,6 +220,20 @@ class UploadedFile:
 
 
 @dataclass(frozen=True)
+class StagedUpload:
+    """Temporary upload bytes validated for one final no-overwrite target."""
+
+    root: FileRoot
+    filename: str
+    temp_path: Path
+    target_path: Path
+    relative_path: str
+    directory_relative_path: str
+    directory_href: str
+    size: int
+
+
+@dataclass(frozen=True)
 class ResolvedBrowserPath:
     """Resolved path after root and relative-path validation."""
 
@@ -607,22 +621,15 @@ def _fsync_directory(directory: Path) -> None:
         os.close(fd)
 
 
-def upload_file(
+def _validated_upload_target(
     data_root: Path | None,
     root_id: str,
     directory_path: object | None,
     filename: object | None,
-    source: BinaryIO,
     *,
-    instance: str = paths.DEFAULT_INSTANCE_NAME,
-    max_bytes: int | None = None,
-) -> UploadedFile:
-    """Upload one new file into a safe directory without overwriting."""
+    instance: str,
+) -> tuple[ResolvedBrowserPath, str, ResolvedBrowserPath]:
     safe_filename = _safe_upload_filename(filename)
-    limit = MAX_UPLOAD_BYTES if max_bytes is None else max_bytes
-    if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
-        raise UploadUnavailableError(UploadUnavailableError.public_message)
-
     directory = resolve_browser_path(data_root, root_id, directory_path, instance=instance)
     if not root_allows_upload(directory.root):
         raise UploadUnavailableError(UploadUnavailableError.public_message)
@@ -635,10 +642,34 @@ def upload_file(
         raise UploadTargetExistsError(UploadTargetExistsError.public_message)
     if target.resolved_path.exists():
         raise UploadTargetExistsError(UploadTargetExistsError.public_message)
+    return directory, safe_filename, target
+
+
+def stage_upload_file(
+    data_root: Path | None,
+    root_id: str,
+    directory_path: object | None,
+    filename: object | None,
+    source: BinaryIO,
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    max_bytes: int | None = None,
+) -> StagedUpload:
+    """Validate and write upload bytes to a temporary staged file."""
+    limit = MAX_UPLOAD_BYTES if max_bytes is None else max_bytes
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+        raise UploadUnavailableError(UploadUnavailableError.public_message)
+
+    directory, safe_filename, target = _validated_upload_target(
+        data_root,
+        root_id,
+        directory_path,
+        filename,
+        instance=instance,
+    )
 
     temp_path: Path | None = None
     total = 0
-    published = False
     try:
         with tempfile.NamedTemporaryFile(
             dir=directory.resolved_path,
@@ -658,36 +689,90 @@ def upload_file(
                 temp_file.write(chunk)
             temp_file.flush()
             os.fsync(temp_file.fileno())
-
-        try:
-            os.link(temp_path, target.requested_path)
-        except FileExistsError as exc:
-            raise UploadTargetExistsError(UploadTargetExistsError.public_message) from exc
-        published = True
-        _fsync_directory(directory.resolved_path)
     except FileBrowserError:
+        if temp_path is not None:
+            cleanup_staged_upload_path(temp_path)
         raise
     except OSError as exc:
-        raise UploadUnavailableError(UploadUnavailableError.public_message) from exc
-    finally:
         if temp_path is not None:
-            try:
-                temp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+            cleanup_staged_upload_path(temp_path)
+        raise UploadUnavailableError(UploadUnavailableError.public_message) from exc
 
-    if not published:
+    if temp_path is None:
         raise UploadUnavailableError(UploadUnavailableError.public_message)
 
-    return UploadedFile(
+    return StagedUpload(
         root=directory.root,
         filename=safe_filename,
-        path=target.requested_path,
-        relative_path=target_relative_path,
+        temp_path=temp_path,
+        target_path=target.requested_path,
+        relative_path=target.relative_path,
         directory_relative_path=directory.relative_path,
         directory_href=_files_href(directory.root.root_id, directory.relative_path),
         size=total,
     )
+
+
+def cleanup_staged_upload_path(temp_path: Path) -> bool:
+    """Best-effort cleanup for one staged upload temp path."""
+    try:
+        temp_path.unlink(missing_ok=True)
+    except OSError:
+        return False
+    return True
+
+
+def cleanup_staged_upload(staged: StagedUpload) -> bool:
+    """Best-effort cleanup for one staged upload."""
+    return cleanup_staged_upload_path(staged.temp_path)
+
+
+def publish_staged_upload(staged: StagedUpload) -> UploadedFile:
+    """Atomically publish a staged upload to its final target without overwrite."""
+    if staged.target_path.exists() or staged.target_path.is_symlink():
+        raise UploadTargetExistsError(UploadTargetExistsError.public_message)
+    try:
+        os.link(staged.temp_path, staged.target_path)
+    except FileExistsError as exc:
+        raise UploadTargetExistsError(UploadTargetExistsError.public_message) from exc
+    except OSError as exc:
+        raise UploadUnavailableError(UploadUnavailableError.public_message) from exc
+    _fsync_directory(staged.target_path.parent)
+    return UploadedFile(
+        root=staged.root,
+        filename=staged.filename,
+        path=staged.target_path,
+        relative_path=staged.relative_path,
+        directory_relative_path=staged.directory_relative_path,
+        directory_href=staged.directory_href,
+        size=staged.size,
+    )
+
+
+def upload_file(
+    data_root: Path | None,
+    root_id: str,
+    directory_path: object | None,
+    filename: object | None,
+    source: BinaryIO,
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    max_bytes: int | None = None,
+) -> UploadedFile:
+    """Upload one new file into a safe directory without overwriting."""
+    staged = stage_upload_file(
+        data_root,
+        root_id,
+        directory_path,
+        filename,
+        source,
+        instance=instance,
+        max_bytes=max_bytes,
+    )
+    try:
+        return publish_staged_upload(staged)
+    finally:
+        cleanup_staged_upload(staged)
 
 
 def resolve_download_file(

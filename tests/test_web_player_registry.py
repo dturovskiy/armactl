@@ -134,6 +134,21 @@ def test_registry_db_creation_has_no_ip_columns(tmp_path: Path):
     assert "password" not in columns
 
 
+def test_registry_db_creation_uses_private_file_mode(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+
+    player_registry.ensure_player_registry_db(db_path)
+
+    assert db_path.stat().st_mode & 0o777 == 0o600
+
+    db_path.chmod(0o644)
+    player_registry.ensure_player_registry_db(db_path)
+
+    assert db_path.stat().st_mode & 0o777 == 0o600
+
+
 def test_record_snapshot_stores_reliable_players_and_ignores_unreliable(
     tmp_path: Path,
 ):

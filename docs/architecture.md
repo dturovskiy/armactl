@@ -212,7 +212,9 @@ its allowed write area:
 
 Absolute paths, symlink traversal outside allowed roots, source repository
 paths, `.git`, `.venv`, and system unit directories are out of scope for browser
-file access.
+file access. Future browser file edit/delete/overwrite flows require POST+CSRF,
+explicit confirmation for destructive actions, audit, path jail checks, no
+symlink escape, and backup/quarantine or rollback where practical.
 
 ---
 
@@ -272,7 +274,12 @@ For the web panel, `docs/web-interface-plan.md` is the detailed architecture
 guardrail document. In short: routes stay thin, facades/views build DTOs,
 services own web workflows, existing backend modules remain the source of truth,
 mutating actions require auth/permission/CSRF/audit/backup where applicable,
-and pending operator work is separate from background jobs.
+and pending operator work is separate from background jobs. Pending work stacks
+by category and clears only after a successful relevant action, while `/jobs`
+keeps pending work and background jobs in separate sections. Route handlers are
+HTTP glue only; web service modules own workflow, audit, pending-work, and
+rollback/compensation decisions; low-level adapters perform pure filesystem,
+systemd, or database operations without route/session knowledge.
 
 Windows backend support is future platform architecture, not part of the current
 Linux/systemd web MVP. Adding it requires service/log/path/firewall/process/metrics

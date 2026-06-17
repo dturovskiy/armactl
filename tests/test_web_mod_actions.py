@@ -80,6 +80,28 @@ def _state(config_path: Path) -> ServerState:
     )
 
 
+def _write_mod_config(tmp_path: Path, mods: list[dict[str, str]]) -> Path:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "bindAddress": "0.0.0.0",
+                "bindPort": 2001,
+                "publicPort": 2001,
+                "game": {
+                    "name": "Test Server",
+                    "scenarioId": "Scenario.conf",
+                    "maxPlayers": 32,
+                    "admins": [],
+                    "mods": mods,
+                },
+            },
+            indent=2,
+        )
+    )
+    return config_path
+
+
 def _patch_management_global(monkeypatch, name: str, value) -> None:
     from armactl.web.routes import management
 
@@ -87,15 +109,17 @@ def _patch_management_global(monkeypatch, name: str, value) -> None:
 
 
 def _authed_client(tmp_path: Path, monkeypatch, page: dict | None = None):
-    from armactl.web.app import create_app
+    from armactl.web.routes import management
 
     def load_page(instance: str) -> dict:
         return page or _mods_page()
 
     password = "owner mods password"
     setup_owner_user(tmp_path, "owner", password)
+    monkeypatch.setattr(management, "load_mods_page", load_page)
+    from armactl.web.app import create_app
+
     app = create_app(data_root=tmp_path)
-    _patch_management_global(monkeypatch, "load_mods_page", load_page)
     client = _client(app)
     login_response = _login(client, "owner", password)
     assert login_response.status_code == 303
@@ -346,6 +370,157 @@ def test_mods_add_unchanged_writes_audit_without_restart_notice(
     assert event["details"]["changed"] == "no"
     from armactl.web.services.pending_work import list_pending_work
 
+    assert list_pending_work(tmp_path / "web" / "web.db") == []
+
+
+def test_mods_pending_db_failure_writes_fallback_and_warns(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions, pending_work
+
+    config_path = _write_mod_config(tmp_path, [])
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def fail_pending_db(*args, **kwargs):
+        raise RuntimeError("web.db locked token=raw-pending-secret")
+
+    monkeypatch.setattr(pending_work, "mark_restart_pending", fail_pending_db)
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/add",
+        data={
+            "csrf_token": csrf_token,
+            "mod_id": "cccccccccccccccc",
+            "name": "Charlie token=raw-mod-secret",
+            "version": "1.2.3",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 500
+    assert "Mod added." in response.text
+    assert "Restart the server to apply mod changes." in response.text
+    assert "Restart tracking warning" in response.text
+    assert pending_work.PENDING_WORK_FALLBACK_WARNING in response.text
+    assert "raw-pending-secret" not in response.text
+    assert "raw-mod-secret" not in response.text
+    item = pending_work.get_fallback_pending_work(
+        tmp_path / "web" / "web.db",
+        kind=pending_work.KIND_MODS,
+    )
+    assert item is not None
+    assert item.is_fallback is True
+    assert item.source_action == "mod.add"
+    assert item.details == "CCCCCCCCCCCCCCCC"
+    assert "raw-mod-secret" not in pending_work.fallback_pending_work_path(
+        tmp_path / "web" / "web.db"
+    ).read_text(encoding="utf-8")
+
+
+def test_mods_audit_failure_after_change_still_marks_pending_work(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions
+    from armactl.web.services.audit import AuditLogError
+    from armactl.web.services.pending_work import KIND_MODS, get_pending_work
+
+    config_path = _write_mod_config(tmp_path, [])
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def fail_audit(*args, **kwargs):
+        raise AuditLogError("disk full token=raw-audit-secret")
+
+    monkeypatch.setattr(mod_actions, "append_audit_event", fail_audit)
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/add",
+        data={
+            "csrf_token": csrf_token,
+            "mod_id": "cccccccccccccccc",
+            "name": "Charlie token=raw-mod-secret",
+            "version": "1.2.3",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Mod action completed but audit logging failed." in response.text
+    assert "Restart the server to apply mod changes." in response.text
+    assert "raw-mod-secret" not in response.text
+    updated = json.loads(config_path.read_text())
+    assert updated["game"]["mods"] == [
+        {
+            "modId": "CCCCCCCCCCCCCCCC",
+            "name": "Charlie token=raw-mod-secret",
+            "version": "1.2.3",
+        }
+    ]
+    item = get_pending_work(tmp_path / "web" / "web.db", kind=KIND_MODS)
+    assert item is not None
+    assert item.source_action == "mod.add"
+    assert item.details == "CCCCCCCCCCCCCCCC"
+    audit_path = tmp_path / "logs" / "web" / "audit.log"
+    audit_text = audit_path.read_text(encoding="utf-8") if audit_path.exists() else ""
+    assert "raw-mod-secret" not in audit_text
+    assert "raw-audit-secret" not in audit_text
+
+
+def test_mods_audit_failure_without_change_does_not_request_restart(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions
+    from armactl.web.services.audit import AuditLogError
+    from armactl.web.services.pending_work import list_pending_work
+
+    config_path = _write_mod_config(
+        tmp_path,
+        [{"modId": "AAAAAAAAAAAAAAAA", "name": "Active Alpha", "version": "1.0"}],
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def fail_audit(*args, **kwargs):
+        raise AuditLogError("disk full")
+
+    monkeypatch.setattr(mod_actions, "append_audit_event", fail_audit)
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/add",
+        data={
+            "csrf_token": csrf_token,
+            "mod_id": "AAAAAAAAAAAAAAAA",
+            "name": "Active Alpha",
+            "version": "1.0",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Mod action completed but audit logging failed." in response.text
+    assert "Restart the server to apply mod changes." not in response.text
+    assert json.loads(config_path.read_text())["game"]["mods"] == [
+        {"modId": "AAAAAAAAAAAAAAAA", "name": "Active Alpha", "version": "1.0"}
+    ]
     assert list_pending_work(tmp_path / "web" / "web.db") == []
 
 

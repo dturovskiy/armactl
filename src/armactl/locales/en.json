@@ -524,6 +524,13 @@
     "Saved changes": "Saved changes",
     "Steam nickname lookup is ambiguous. Paste the profile URL or SteamID64.": "Steam nickname lookup is ambiguous. Paste the profile URL or SteamID64.",
     "Paste a SteamID64, IdentityId, steamcommunity.com profile URL, or Steam vanity slug.": "Paste a SteamID64, IdentityId, steamcommunity.com profile URL, or Steam vanity slug.",
-    "Steam profile reference is required.": "Steam profile reference is required."
+    "Steam profile reference is required.": "Steam profile reference is required.",
+    "Storage": "Storage",
+    "Restart tracking warning": "Restart tracking warning",
+    "Restart tracking failed": "Restart tracking failed",
+    "Fallback storage": "Fallback storage",
+    "Primary storage": "Primary storage",
+    "Restart-required work was saved to fallback storage because normal pending storage failed.": "Restart-required work was saved to fallback storage because normal pending storage failed.",
+    "Changes were saved and require restart, but pending restart storage failed.": "Changes were saved and require restart, but pending restart storage failed."
   }
 }

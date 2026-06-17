@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -17,6 +19,14 @@ KIND_ADMINS = "admins"
 KIND_MODS = "mods"
 KIND_SCHEDULE = "schedule"
 RESOLUTION_RESTART_GAME_SERVER = "restart game server"
+FALLBACK_PENDING_WORK_FILENAME = "pending-work-fallback.json"
+FALLBACK_PENDING_WORK_FILE_MODE = 0o600
+PENDING_WORK_FALLBACK_WARNING = (
+    "Restart-required work was saved to fallback storage because normal pending storage failed."
+)
+PENDING_WORK_STORAGE_FAILED_MESSAGE = (
+    "Changes were saved and require restart, but pending restart storage failed."
+)
 DEFAULT_PENDING_WORK_LIMIT = 50
 MAX_TEXT_LENGTH = 500
 MAX_SHORT_TEXT_LENGTH = 160
@@ -38,6 +48,10 @@ _SECRET_ASSIGNMENT_RE = re.compile(
 )
 
 
+class PendingWorkFallbackError(RuntimeError):
+    """Raised when fallback pending-work storage cannot be written."""
+
+
 @dataclass(frozen=True)
 class PendingWorkItem:
     """One saved operator action waiting for a human resolution step."""
@@ -53,6 +67,7 @@ class PendingWorkItem:
     created_at: str
     updated_at: str
     created_by_username: str
+    storage: str = "db"
 
     @property
     def kind_label(self) -> str:
@@ -63,6 +78,16 @@ class PendingWorkItem:
         if self.resolution_action == RESOLUTION_RESTART_GAME_SERVER:
             return "Restart game server"
         return self.resolution_action
+
+    @property
+    def is_fallback(self) -> bool:
+        return self.storage == "fallback"
+
+    @property
+    def storage_label(self) -> str:
+        if self.is_fallback:
+            return "Fallback storage"
+        return "Primary storage"
 
 
 def _utc_timestamp() -> str:
@@ -106,6 +131,11 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     return connection
 
 
+def fallback_pending_work_path(db_path: Path) -> Path:
+    """Return the sidecar path used when web.db cannot store pending work."""
+    return Path(db_path).with_name(FALLBACK_PENDING_WORK_FILENAME)
+
+
 def _row_to_item(row: sqlite3.Row) -> PendingWorkItem:
     return PendingWorkItem(
         id=row["id"],
@@ -120,6 +150,125 @@ def _row_to_item(row: sqlite3.Row) -> PendingWorkItem:
         updated_at=row["updated_at"],
         created_by_username=row["created_by_username"],
     )
+
+
+def _pending_work_key(item: PendingWorkItem) -> tuple[str, str, str]:
+    return (item.instance, item.kind, item.resolution_action)
+
+
+def _read_fallback_records(sidecar_path: Path) -> list[dict[str, object]]:
+    if not sidecar_path.is_file():
+        return []
+    try:
+        payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    records = payload.get("items", []) if isinstance(payload, dict) else []
+    return [record for record in records if isinstance(record, dict)]
+
+
+def _fallback_record_to_item(record: dict[str, object], index: int) -> PendingWorkItem | None:
+    kind = _safe_text(record.get("kind"), max_length=80) or "saved"
+    resolution_action = (
+        _safe_text(record.get("resolution_action"), max_length=MAX_SHORT_TEXT_LENGTH)
+        or RESOLUTION_RESTART_GAME_SERVER
+    )
+    created_at = _safe_text(record.get("created_at"), max_length=MAX_SHORT_TEXT_LENGTH)
+    updated_at = _safe_text(record.get("updated_at"), max_length=MAX_SHORT_TEXT_LENGTH)
+    timestamp = updated_at or created_at or _utc_timestamp()
+    return PendingWorkItem(
+        id=-(index + 1),
+        instance=_normalize_instance(str(record.get("instance") or "")),
+        kind=kind,
+        source_path=_safe_source_path(record.get("source_path") or _default_source_path(kind)),
+        source_action=_safe_text(record.get("source_action"), max_length=MAX_SHORT_TEXT_LENGTH),
+        title=(
+            _safe_text(record.get("title"), max_length=MAX_SHORT_TEXT_LENGTH)
+            or _default_title(kind)
+        ),
+        details=_safe_text(record.get("details")),
+        resolution_action=resolution_action,
+        created_at=created_at or timestamp,
+        updated_at=updated_at or timestamp,
+        created_by_username=(
+            _safe_text(record.get("created_by_username"), max_length=MAX_SHORT_TEXT_LENGTH)
+            or "unknown"
+        ),
+        storage="fallback",
+    )
+
+
+def _fallback_record_from_item(item: PendingWorkItem) -> dict[str, object]:
+    return {
+        "instance": item.instance,
+        "kind": item.kind,
+        "source_path": item.source_path,
+        "source_action": item.source_action,
+        "title": item.title,
+        "details": item.details,
+        "resolution_action": item.resolution_action,
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+        "created_by_username": item.created_by_username,
+    }
+
+
+def _fallback_record(
+    *,
+    kind: str,
+    source_path: str,
+    source_action: str,
+    title: str,
+    username: str,
+    details: object,
+    instance: str,
+    resolution_action: str,
+    created_at: str,
+    updated_at: str,
+) -> dict[str, object]:
+    safe_kind = _safe_text(kind, max_length=80) or "saved"
+    return {
+        "instance": _normalize_instance(instance),
+        "kind": safe_kind,
+        "source_path": _safe_source_path(source_path),
+        "source_action": _safe_text(source_action, max_length=MAX_SHORT_TEXT_LENGTH),
+        "title": _safe_text(title, max_length=MAX_SHORT_TEXT_LENGTH) or _default_title(safe_kind),
+        "details": _safe_text(details),
+        "resolution_action": (
+            _safe_text(resolution_action, max_length=MAX_SHORT_TEXT_LENGTH)
+            or RESOLUTION_RESTART_GAME_SERVER
+        ),
+        "created_at": created_at,
+        "updated_at": updated_at,
+        "created_by_username": (
+            _safe_text(username, max_length=MAX_SHORT_TEXT_LENGTH) or "unknown"
+        ),
+    }
+
+
+def _write_fallback_records(sidecar_path: Path, records: list[dict[str, object]]) -> None:
+    try:
+        sidecar_path.parent.mkdir(parents=True, exist_ok=True)
+        if not records:
+            sidecar_path.unlink(missing_ok=True)
+            return
+        payload = {"version": 1, "items": records}
+        tmp_path = sidecar_path.with_name(f"{sidecar_path.name}.tmp")
+        fd = os.open(
+            tmp_path,
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+            FALLBACK_PENDING_WORK_FILE_MODE,
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n")
+        os.replace(tmp_path, sidecar_path)
+        sidecar_path.chmod(FALLBACK_PENDING_WORK_FILE_MODE)
+    except OSError as exc:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except (NameError, OSError):
+            pass
+        raise PendingWorkFallbackError("Failed to write fallback pending work.") from exc
 
 
 def upsert_pending_work(
@@ -220,6 +369,133 @@ def mark_restart_pending(
     )
 
 
+def upsert_fallback_pending_work(
+    db_path: Path,
+    *,
+    kind: str,
+    source_path: str,
+    title: str,
+    username: str,
+    details: object = "",
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    source_action: str = "",
+    resolution_action: str = RESOLUTION_RESTART_GAME_SERVER,
+) -> PendingWorkItem:
+    """Create or update fallback pending work without relying on web.db."""
+    sidecar_path = fallback_pending_work_path(db_path)
+    now = _utc_timestamp()
+    candidate = _fallback_record(
+        kind=kind,
+        source_path=source_path,
+        source_action=source_action,
+        title=title,
+        username=username,
+        details=details,
+        instance=instance,
+        resolution_action=resolution_action,
+        created_at=now,
+        updated_at=now,
+    )
+    candidate_key = (
+        str(candidate["instance"]),
+        str(candidate["kind"]),
+        str(candidate["resolution_action"]),
+    )
+    records: list[dict[str, object]] = []
+    replaced = False
+    for index, raw_record in enumerate(_read_fallback_records(sidecar_path)):
+        item = _fallback_record_to_item(raw_record, index)
+        if item is None:
+            continue
+        record = _fallback_record_from_item(item)
+        if _pending_work_key(item) == candidate_key:
+            candidate["created_at"] = item.created_at
+            record = candidate
+            replaced = True
+        records.append(record)
+    if not replaced:
+        records.append(candidate)
+    _write_fallback_records(sidecar_path, records)
+    item = get_fallback_pending_work(
+        db_path,
+        instance=str(candidate["instance"]),
+        kind=str(candidate["kind"]),
+        resolution_action=str(candidate["resolution_action"]),
+    )
+    assert item is not None
+    return item
+
+
+def mark_restart_pending_fallback(
+    db_path: Path,
+    *,
+    kind: str,
+    username: str,
+    details: object = "",
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    source_action: str = "",
+    source_path: str | None = None,
+    title: str | None = None,
+) -> PendingWorkItem:
+    """Record restart-required work in a private sidecar fallback file."""
+    return upsert_fallback_pending_work(
+        db_path,
+        kind=kind,
+        source_path=source_path or _default_source_path(kind),
+        source_action=source_action,
+        title=title or _default_title(kind),
+        username=username,
+        details=details,
+        instance=instance,
+        resolution_action=RESOLUTION_RESTART_GAME_SERVER,
+    )
+
+
+def mark_restart_pending_safely(
+    db_path: Path,
+    *,
+    kind: str,
+    username: str,
+    details: object = "",
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    source_action: str = "",
+    source_path: str | None = None,
+    title: str | None = None,
+) -> tuple[PendingWorkItem, bool]:
+    """Record restart-required work, falling back to sidecar storage if web.db fails."""
+    try:
+        return (
+            mark_restart_pending(
+                db_path,
+                kind=kind,
+                username=username,
+                details=details,
+                instance=instance,
+                source_action=source_action,
+                source_path=source_path,
+                title=title,
+            ),
+            False,
+        )
+    except Exception:
+        try:
+            return (
+                mark_restart_pending_fallback(
+                    db_path,
+                    kind=kind,
+                    username=username,
+                    details=details,
+                    instance=instance,
+                    source_action=source_action,
+                    source_path=source_path,
+                    title=title,
+                ),
+                True,
+            )
+        except Exception as exc:
+            raise PendingWorkFallbackError(PENDING_WORK_STORAGE_FAILED_MESSAGE) from exc
+
+
 def get_pending_work(
     db_path: Path,
     *,
@@ -268,6 +544,71 @@ def list_pending_work(
     return [_row_to_item(row) for row in rows]
 
 
+def list_fallback_pending_work(
+    db_path: Path,
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    limit: int = DEFAULT_PENDING_WORK_LIMIT,
+) -> list[PendingWorkItem]:
+    """List fallback pending work from the private sidecar file."""
+    normalized_instance = _normalize_instance(instance)
+    bounded_limit = max(1, min(limit, DEFAULT_PENDING_WORK_LIMIT))
+    items: list[PendingWorkItem] = []
+    for index, raw_record in enumerate(_read_fallback_records(fallback_pending_work_path(db_path))):
+        item = _fallback_record_to_item(raw_record, index)
+        if item is not None and item.instance == normalized_instance:
+            items.append(item)
+    items.sort(key=lambda item: (item.updated_at, item.created_at, item.kind), reverse=True)
+    return items[:bounded_limit]
+
+
+def get_fallback_pending_work(
+    db_path: Path,
+    *,
+    kind: str,
+    resolution_action: str = RESOLUTION_RESTART_GAME_SERVER,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> PendingWorkItem | None:
+    """Return one fallback pending work item, if present."""
+    normalized_instance = _normalize_instance(instance)
+    for item in list_fallback_pending_work(db_path, instance=normalized_instance):
+        if item.kind == kind and item.resolution_action == resolution_action:
+            return item
+    return None
+
+
+def list_pending_work_with_fallback(
+    db_path: Path,
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    limit: int = DEFAULT_PENDING_WORK_LIMIT,
+) -> list[PendingWorkItem]:
+    """List DB pending work plus non-duplicated fallback markers."""
+    bounded_limit = max(1, min(limit, DEFAULT_PENDING_WORK_LIMIT))
+    normal_items: list[PendingWorkItem]
+    try:
+        normal_items = list_pending_work(
+            db_path,
+            instance=instance,
+            limit=DEFAULT_PENDING_WORK_LIMIT,
+        )
+    except Exception:
+        normal_items = []
+    normal_keys = {_pending_work_key(item) for item in normal_items}
+    fallback_items = [
+        item
+        for item in list_fallback_pending_work(
+            db_path,
+            instance=instance,
+            limit=DEFAULT_PENDING_WORK_LIMIT,
+        )
+        if _pending_work_key(item) not in normal_keys
+    ]
+    items = [*normal_items, *fallback_items]
+    items.sort(key=lambda item: (item.updated_at, item.created_at, item.kind), reverse=True)
+    return items[:bounded_limit]
+
+
 def clear_pending_work(
     db_path: Path,
     *,
@@ -293,6 +634,32 @@ def clear_pending_work(
     return cursor.rowcount
 
 
+def clear_restart_pending_fallback(
+    db_path: Path,
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> int:
+    """Clear restart-related fallback pending work for one instance."""
+    normalized_instance = _normalize_instance(instance)
+    sidecar_path = fallback_pending_work_path(db_path)
+    remaining: list[dict[str, object]] = []
+    cleared = 0
+    for index, raw_record in enumerate(_read_fallback_records(sidecar_path)):
+        item = _fallback_record_to_item(raw_record, index)
+        if item is None:
+            continue
+        if (
+            item.instance == normalized_instance
+            and item.resolution_action == RESOLUTION_RESTART_GAME_SERVER
+        ):
+            cleared += 1
+            continue
+        remaining.append(_fallback_record_from_item(item))
+    if cleared:
+        _write_fallback_records(sidecar_path, remaining)
+    return cleared
+
+
 def clear_restart_pending_work(
     db_path: Path,
     *,
@@ -312,4 +679,8 @@ def clear_restart_pending_work(
             "DELETE FROM web_pending_restarts WHERE instance = ?",
             (normalized_instance,),
         )
-    return work_cursor.rowcount + legacy_cursor.rowcount
+    return (
+        work_cursor.rowcount
+        + legacy_cursor.rowcount
+        + clear_restart_pending_fallback(db_path, instance=normalized_instance)
+    )

@@ -9,12 +9,18 @@ from armactl.web.runtime import ensure_web_db
 from armactl.web.services.pending_work import (
     KIND_ADMINS,
     KIND_CONFIG,
+    KIND_MODS,
     RESOLUTION_RESTART_GAME_SERVER,
     clear_pending_work,
+    clear_restart_pending_fallback,
     clear_restart_pending_work,
+    fallback_pending_work_path,
     get_pending_work,
+    list_fallback_pending_work,
     list_pending_work,
+    list_pending_work_with_fallback,
     mark_restart_pending,
+    mark_restart_pending_fallback,
     upsert_pending_work,
 )
 
@@ -82,6 +88,81 @@ def test_pending_work_stacks_categories_and_upserts_same_category(tmp_path: Path
     assert updated_config.details == "scenario_id"
     assert updated_config.created_by_username == "operator"
     assert admin in items
+
+
+def test_fallback_pending_work_roundtrip_is_private_and_redacted(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+
+    item = mark_restart_pending_fallback(
+        db_path,
+        kind=KIND_CONFIG,
+        source_action="config.save",
+        username="owner token=raw-user-secret",
+        details=(
+            "max_players password=raw-password token=raw-token "
+            "ARMACTL_WEB_SESSION_SECRET=session-secret"
+        ),
+    )
+
+    sidecar_path = fallback_pending_work_path(db_path)
+    assert sidecar_path.is_file()
+    assert sidecar_path.stat().st_mode & 0o777 == 0o600
+    sidecar_text = sidecar_path.read_text(encoding="utf-8")
+    assert item.is_fallback is True
+    assert item.storage_label == "Fallback storage"
+    assert item.source_path == "/config"
+    assert item.source_action == "config.save"
+    assert item.resolution_action == RESOLUTION_RESTART_GAME_SERVER
+    assert "raw-password" not in item.details
+    assert "raw-token" not in item.details
+    assert "session-secret" not in item.details
+    assert "raw-user-secret" not in item.created_by_username
+    assert "raw-password" not in sidecar_text
+    assert "raw-token" not in sidecar_text
+    assert "session-secret" not in sidecar_text
+    assert "raw-user-secret" not in sidecar_text
+    assert list_pending_work_with_fallback(db_path) == [item]
+
+
+def test_normal_pending_work_suppresses_duplicate_fallback_marker(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+    fallback = mark_restart_pending_fallback(
+        db_path,
+        kind=KIND_CONFIG,
+        source_action="config.save",
+        username="owner",
+        details="fallback detail",
+    )
+    normal = mark_restart_pending(
+        db_path,
+        kind=KIND_CONFIG,
+        source_action="config.save",
+        username="owner",
+        details="normal detail",
+    )
+
+    items = list_pending_work_with_fallback(db_path)
+
+    assert fallback.is_fallback is True
+    assert items == [normal]
+    assert items[0].is_fallback is False
+
+
+def test_clear_restart_pending_work_clears_fallback_marker(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+    mark_restart_pending_fallback(
+        db_path,
+        kind=KIND_MODS,
+        source_action="mod.add",
+        username="owner",
+        details="CCCCCCCCCCCCCCCC",
+    )
+
+    assert list_fallback_pending_work(db_path)
+
+    assert clear_restart_pending_work(db_path) == 1
+    assert list_fallback_pending_work(db_path) == []
+    assert clear_restart_pending_fallback(db_path) == 0
 
 
 def test_pending_work_redacts_details(tmp_path: Path):

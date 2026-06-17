@@ -22,7 +22,7 @@ from armactl.web.auth.dependencies import (
     require_permission,
 )
 from armactl.web.auth.permissions import FILES_READ, FILES_WRITE
-from armactl.web.services import filesystem
+from armactl.web.services import file_uploads, filesystem
 
 router = APIRouter()
 
@@ -182,15 +182,22 @@ def files_upload(
         )
 
     try:
-        uploaded = filesystem.upload_file(
+        uploaded = file_uploads.upload_file_and_audit(
             current.config.data_root,
             root_id,
             path,
             upload.filename,
             upload.file,
+            audit_log_path=current.config.audit_log_path,
+            username=current.user.username,
         )
     except filesystem.FileBrowserError as exc:
         return _controlled_file_error(exc)
+    except (file_uploads.FileUploadAuditError, file_uploads.FileUploadPublishError) as exc:
+        return PlainTextResponse(
+            str(exc),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
     return RedirectResponse(uploaded.directory_href, status_code=status.HTTP_303_SEE_OTHER)
 
 

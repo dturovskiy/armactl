@@ -17,9 +17,9 @@ from armactl.web.auth.dependencies import (
     require_permission,
 )
 from armactl.web.auth.permissions import ACTIONS_RUN, JOBS_VIEW
-from armactl.web.jobs import server as server_jobs
 from armactl.web.jobs.store import list_recent_jobs
-from armactl.web.services.pending_work import list_pending_work
+from armactl.web.services import server_job_actions
+from armactl.web.services.pending_work import list_pending_work_with_fallback
 
 router = APIRouter()
 
@@ -34,7 +34,7 @@ def _redirect_to_login(request: Request) -> RedirectResponse:
 
 def _render_jobs(request: Request, current: CurrentSession) -> Response:
     form_csrf = get_form_csrf_token(request, current)
-    pending_work_items = list_pending_work(
+    pending_work_items = list_pending_work_with_fallback(
         current.config.db_path,
         instance=paths.DEFAULT_INSTANCE_NAME,
     )
@@ -66,24 +66,24 @@ def _enqueue_server_job(request: Request, csrf_token: str, action: str) -> Respo
             status_code=status.HTTP_403_FORBIDDEN,
         )
 
-    if action == "install":
-        job = server_jobs.enqueue_server_install(
+    try:
+        server_job_actions.enqueue_server_job_and_start(
             current.config.db_path,
-            requested_by_username=current.user.username,
-            requested_by_user_id=current.user.id,
+            action=action,
+            audit_log_path=current.config.audit_log_path,
+            username=current.user.username,
+            user_id=current.user.id,
         )
-    elif action == "repair":
-        job = server_jobs.enqueue_server_repair(
-            current.config.db_path,
-            requested_by_username=current.user.username,
-            requested_by_user_id=current.user.id,
-        )
-    else:
+    except server_job_actions.ServerJobActionError:
         return PlainTextResponse(
             "Unknown job action.",
             status_code=status.HTTP_400_BAD_REQUEST,
         )
-    server_jobs.start_server_job_worker(current.config.db_path, job.id)
+    except server_job_actions.ServerJobAuditError as exc:
+        return PlainTextResponse(
+            str(exc),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
     return RedirectResponse("/jobs", status_code=status.HTTP_303_SEE_OTHER)
 
 

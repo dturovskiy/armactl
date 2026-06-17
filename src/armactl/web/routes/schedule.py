@@ -18,7 +18,7 @@ from armactl.web.auth.dependencies import (
 )
 from armactl.web.auth.permissions import SCHEDULE_MANAGE, SCHEDULE_VIEW
 from armactl.web.facade import load_schedule_page
-from armactl.web.services import schedule_actions
+from armactl.web.services import pending_work, schedule_actions
 
 router = APIRouter()
 
@@ -125,6 +125,12 @@ def _run_schedule_action(
             current,
             result=result,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    if normalized == schedule_actions.ACTION_RESTART_NOW and result.success and result.performed:
+        pending_work.clear_restart_pending_work(
+            current.config.db_path,
+            instance=paths.DEFAULT_INSTANCE_NAME,
         )
 
     result_status = status.HTTP_200_OK if result.success else status.HTTP_400_BAD_REQUEST

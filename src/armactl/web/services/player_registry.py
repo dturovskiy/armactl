@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ from armactl.web.services.player_moderation import ModerationPlayer
 
 PLAYER_REGISTRY_DB_NAME = "players.db"
 MAX_PLAYER_TEXT_LENGTH = 160
+PRIVATE_PLAYER_REGISTRY_FILE_MODE = 0o600
 DEFAULT_PLAYER_LIST_LIMIT = 100
 
 
@@ -77,9 +79,22 @@ def player_registry_db_path(
     return paths.instance_root(instance, data_root) / PLAYER_REGISTRY_DB_NAME
 
 
+def _ensure_private_db_file(db_path: Path) -> None:
+    if db_path.exists():
+        return
+
+    fd = os.open(
+        db_path,
+        os.O_RDWR | os.O_CREAT | os.O_EXCL,
+        PRIVATE_PLAYER_REGISTRY_FILE_MODE,
+    )
+    os.close(fd)
+
+
 def ensure_player_registry_db(db_path: Path) -> Path:
     """Create the player registry database if needed."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_private_db_file(db_path)
     with sqlite3.connect(db_path) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute(
@@ -114,6 +129,7 @@ def ensure_player_registry_db(db_path: Path) -> Path:
             ON player_names(name)
             """
         )
+    db_path.chmod(PRIVATE_PLAYER_REGISTRY_FILE_MODE)
     return db_path
 
 
