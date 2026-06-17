@@ -268,6 +268,12 @@ ExecStart=/home/<user>/armactl-data/default/start-armareforger.sh
 7. **Backup before write** — будь-яка зміна конфігу створює backup
 8. **Marketing site is separate** — top-level `website/` не є authenticated management panel
 
+For the web panel, `docs/web-interface-plan.md` is the detailed architecture
+guardrail document. In short: routes stay thin, facades/views build DTOs,
+services own web workflows, existing backend modules remain the source of truth,
+mutating actions require auth/permission/CSRF/audit/backup where applicable,
+and pending operator work is separate from background jobs.
+
 ---
 
 ## 5. Потоки даних

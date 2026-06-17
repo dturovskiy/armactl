@@ -24,6 +24,9 @@ explicitly a release task.
 - Use branch `feat/web-interface` unless the maintainer asks for a smaller
   sub-branch.
 - Do not edit or commit the Windows `E:\Projects\armactl` checkout.
+- Use one checkout per task. Do not split uncommitted changes across Windows and
+  WSL copies. If another checkout needs the result, sync it only through
+  `git pull --ff-only` after the reviewed commit is pushed.
 - Keep changes small and reviewable.
 - Do not commit from the implementation chat. Leave changes in the working tree
   for the review chat.
@@ -31,6 +34,8 @@ explicitly a release task.
 
 ## Implementation rules
 
+- Follow the web architecture guardrails in `docs/web-interface-plan.md` before
+  adding new routes, services, UI actions, tests, or storage tables.
 - Keep backend logic in reusable Python modules, not in TUI screens or web route
   handlers.
 - Do not import Textual/TUI code from web code.
@@ -38,6 +43,19 @@ explicitly a release task.
   existing Python backend modules directly.
 - Add a web-facing facade/DTO layer before routes start combining many backend
   calls.
+- Keep routes thin: auth, permission, CSRF/input validation, one service/facade
+  call, and response rendering. Put multi-step workflows in `services/` or
+  facades.
+- Every mutating web action needs auth, explicit permission, POST+CSRF,
+  bounded input, audit logging, controlled errors, and backups/pending-work
+  handling when applicable.
+- Keep pending operator work separate from background jobs. Do not fake pending
+  restart work as a queued job, and do not hide pending work just because the
+  background job list is empty.
+- Write web tests against stable service/facade boundaries. Avoid mutating
+  `sys.modules` in the main pytest process; use subprocess checks for import
+  safety and avoid fragile endpoint-global monkeypatching after routers are
+  imported.
 - Keep `website/` separate. It is the public marketing site, not the
   authenticated management panel.
 - Do not expose arbitrary host filesystem access.

@@ -1051,6 +1051,98 @@ plain dataclasses or dictionaries suitable for templates, JSON responses, job
 records, and tests. Keep `click`, Textual widgets, and terminal formatting out
 of that facade.
 
+## Web architecture guardrails
+
+Treat these rules as the default for every future web slice. They are meant to
+keep the web panel from turning into a second TUI, a raw shell wrapper, or a
+parallel source of truth.
+
+### Layer boundaries
+
+- `routes/` are HTTP adapters only: authenticate, authorize, validate request
+  data, call one facade/service, and render a template or return JSON.
+- `facade.py` and `views/` build read-only DTOs for templates and polling JSON.
+  They may combine backend data, but they must not mutate server state.
+- `services/` contains web-owned workflows such as config edits, admin actions,
+  mod actions, filesystem containment, audit, pending work, and job dispatch.
+  Services call existing backend modules; they do not call CLI commands.
+- Existing backend modules under `src/armactl/` remain the source of truth for
+  game server behavior, config, mods, admins, services, logs, and schedules.
+- TUI/Textual code is not an API boundary. Web code must not import screens or
+  widgets from the TUI package.
+
+### Mutating action contract
+
+Every web action that changes server, host, filesystem, user, or runtime state
+must have all of these before it is exposed:
+
+- authenticated session;
+- explicit permission check, not just a role/tier name;
+- POST-only route with CSRF validation;
+- bounded and validated input;
+- audit record with redacted details;
+- backup or rollback path when editing operator-owned files;
+- controlled success/failure result that does not expose secrets;
+- pending operator work entry when the saved change needs a later restart or
+  manual step.
+
+Delete, overwrite, raw JSON edit, host controls, terminal/command palette, ban
+management, and premium/mega-only tools must go through this contract before UI
+work starts.
+
+### Web runtime data
+
+`~/armactl-data/web/` may store web-only runtime data: users, sessions, CSRF
+state, rate limits, background jobs, pending operator work, and web audit
+metadata. It must not become a replacement source of truth for game config,
+mods, admins, schedules, service state, or logs.
+
+Instance-scoped data that belongs to a game instance, such as `players.db`,
+belongs under that instance root. Keep IP storage off by default unless a later
+privacy/security review explicitly approves it.
+
+### Pending work and jobs
+
+Pending operator work and background jobs are different concepts:
+
+- pending operator work means "a saved operator change still needs a manual or
+  scheduled follow-up", usually a game server restart;
+- background jobs are queued/running/completed long-running operations.
+
+Dashboard may show a compact pending-work summary. The operations/jobs page may
+show dense details. Do not hide pending work just because there are no
+background jobs, and do not store pending restart state as a fake job.
+
+### Testing rules
+
+Prefer tests that exercise the public app factory and web routes through
+TestClient, with backend services/facades monkeypatched at stable module
+boundaries. Avoid patching fragile endpoint globals after routers have already
+been imported unless a test specifically proves that behavior.
+
+For import-safety tests, use subprocess checks instead of mutating
+`sys.modules` inside the main pytest process. Do not make tests depend on the
+operator's saved UI language, global TUI language state, real systemd units, or
+network availability.
+
+When a test needs alternate backend behavior, patch the service or facade the
+route calls, create the app after the patch when possible, and assert that the
+route did not fall through to real backend/systemd code.
+
+### UI primitives
+
+Use shared web UI primitives before adding page-specific layout hacks:
+
+- status pills for state;
+- key-value lists and value blocks for details;
+- compact tables for repeated operational rows;
+- floating notifications for transient save/action results;
+- topbar notification center for pending work and important warnings.
+
+Avoid inserting large page-top notices that shift forms under the user's mouse.
+Dashboard stays an operator overview; deeper settings, diagnostics, mod
+runtime config, raw JSON, and danger-zone actions belong on dedicated pages.
+
 Internal API readiness:
 
 | Area | Readiness for web | Needed adapter work |

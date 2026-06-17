@@ -236,6 +236,7 @@
 ## Phase 16 — Web interface (planned)
 
 - [x] Зафіксувати web architecture plan у `docs/web-interface-plan.md`
+- [x] Зафіксувати web architecture guardrails: route/service/facade межі, mutating-action contract, pending-work vs jobs, і стабільні правила тестування
 - [x] Відділити тести від збереженої UI-мови оператора
 - [x] Зафіксувати, що `website/` є marketing/static site, не management panel
 - [x] Зафіксувати per-VM deployment model для Proxmox
