@@ -391,6 +391,9 @@ unrelated feature work:
 - Notification indicator: add a topbar indicator/center for persistent operator
   work such as saved config/admin/mod changes that still require a game-server
   restart, plus important exposure/runtime warnings.
+- Scheduled restart notice: when the restart timer actually runs, surface an
+  informational notification with safe proof from an allowlisted systemd
+  timer/service journal line or equivalent audit/source metadata.
 - File delete: implement safe single-file deletion only after the notification
   slice. It must be POST-only, authenticated, permission-checked, CSRF-checked,
   confirmed by the operator, audited, and constrained to the existing file

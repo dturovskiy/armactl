@@ -227,6 +227,9 @@ panels are functional, but they should be upgraded in a focused UI slice:
 - keep destructive or restart-required warnings persistent until resolved;
 - add a notification icon/indicator in the top bar for pending operator work
   such as saved config/admin/mod changes that still require restart;
+- add a persistent informational notification when a scheduled game-server
+  restart actually happened, backed by safe proof from an allowlisted systemd
+  timer/service journal line or parsed audit/source metadata;
 - keep the web-runtime pending-work store as the source of truth for
   restart-required operator work, not duplicated fake jobs;
 - make notification entries link back to the relevant page/section, for

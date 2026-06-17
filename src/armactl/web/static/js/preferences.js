@@ -36,11 +36,19 @@
       const prefix = button.dataset.themeLabelPrefix || "Theme";
       const label = nextTheme === "dark" ? button.dataset.themeLabelDark : button.dataset.themeLabelLight;
       const nextLabel = `${prefix}: ${label || nextTheme}`;
-      const icon = button.querySelector("[data-theme-icon]");
+      const modeLabel = button.querySelector("[data-theme-label]");
+      const darkIcon = button.querySelector("[data-theme-icon-dark]");
+      const lightIcon = button.querySelector("[data-theme-icon-light]");
       button.setAttribute("aria-label", nextLabel);
       button.setAttribute("title", nextLabel);
-      if (icon) {
-        icon.textContent = nextTheme === "dark" ? "☾" : "☀";
+      if (darkIcon) {
+        darkIcon.classList.toggle("is-hidden", nextTheme !== "dark");
+      }
+      if (lightIcon) {
+        lightIcon.classList.toggle("is-hidden", nextTheme !== "light");
+      }
+      if (modeLabel) {
+        modeLabel.textContent = label || nextTheme;
       } else {
         button.textContent = nextLabel;
       }

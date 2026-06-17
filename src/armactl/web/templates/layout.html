@@ -21,9 +21,15 @@
         <div class="preference-controls" aria-label="{{ t('Preferences') }}">
           <details class="language-menu">
             <summary class="icon-control language-summary" aria-label="{{ tr('Language: {language}', language=web_language_name) }}" title="{{ tr('Language: {language}', language=web_language_name) }}">
-              <span class="control-icon" aria-hidden="true">◎</span>
+              <span class="control-svg language-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <circle cx="12" cy="12" r="9"></circle>
+                  <path d="M3 12h18"></path>
+                  <path d="M12 3c2.4 2.5 3.6 5.5 3.6 9S14.4 18.5 12 21"></path>
+                  <path d="M12 3C9.6 5.5 8.4 8.5 8.4 12S9.6 18.5 12 21"></path>
+                </svg>
+              </span>
               <span class="control-code">{{ web_language|upper }}</span>
-              <span class="control-chevron" aria-hidden="true">⌄</span>
             </summary>
             <div class="language-options">
               {% for language in web_languages %}
@@ -48,7 +54,25 @@
             <input type="hidden" name="theme" value="{{ web_next_theme }}" data-theme-input>
             <input type="hidden" name="next" value="{{ request.url.path }}">
             <button class="icon-control theme-toggle-button" type="submit" data-theme-button data-theme-label-prefix="{{ t('Theme') }}" data-theme-label-light="{{ t('light') }}" data-theme-label-dark="{{ t('dark') }}" aria-label="{{ tr('Theme: {theme}', theme=t(web_next_theme)) }}" title="{{ tr('Theme: {theme}', theme=t(web_next_theme)) }}">
-              <span class="control-icon" data-theme-icon aria-hidden="true">{% if web_next_theme == "dark" %}☾{% else %}☀{% endif %}</span>
+              <span class="control-svg theme-icon{% if web_next_theme != "dark" %} is-hidden{% endif %}" data-theme-icon-dark aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M20.2 14.4A8 8 0 0 1 9.6 3.8a8.5 8.5 0 1 0 10.6 10.6Z"></path>
+                </svg>
+              </span>
+              <span class="control-svg theme-icon{% if web_next_theme != "light" %} is-hidden{% endif %}" data-theme-icon-light aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <circle cx="12" cy="12" r="4"></circle>
+                  <path d="M12 2v2"></path>
+                  <path d="M12 20v2"></path>
+                  <path d="m4.9 4.9 1.4 1.4"></path>
+                  <path d="m17.7 17.7 1.4 1.4"></path>
+                  <path d="M2 12h2"></path>
+                  <path d="M20 12h2"></path>
+                  <path d="m4.9 19.1 1.4-1.4"></path>
+                  <path d="m17.7 6.3 1.4-1.4"></path>
+                </svg>
+              </span>
+              <span class="theme-mode-label" data-theme-label>{% if web_next_theme == "dark" %}{{ t("dark") }}{% else %}{{ t("light") }}{% endif %}</span>
             </button>
           </form>
         </div>

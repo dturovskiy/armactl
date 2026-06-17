@@ -621,7 +621,15 @@ def test_login_template_has_language_and_theme_controls(tmp_path: Path):
     assert 'class="icon-control language-summary"' in response.text
     assert 'class="language-option language-option-active"' in response.text
     assert 'class="icon-control theme-toggle-button"' in response.text
-    assert 'data-theme-icon' in response.text
+    assert 'data-theme-label' in response.text
+    assert 'class="control-svg language-icon"' in response.text
+    assert "data-theme-icon-dark" in response.text
+    assert "data-theme-icon-light" in response.text
+    assert "control-image" not in response.text
+    assert "control-chevron" not in response.text
+    assert "◎" not in response.text
+    assert "☾" not in response.text
+    assert "☀" not in response.text
     assert '/static/js/preferences.js' in response.text
     assert '/static/img/armactl_dashboard.png?v=' in response.text
     assert '/static/css/app.css?v=' in response.text

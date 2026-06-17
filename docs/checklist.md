@@ -283,6 +283,7 @@
 - [x] Додати fast preferences UX: миттєве перемикання теми і lightweight language switch без зайвого важкого dashboard reload
 - [ ] Додати floating toast notifications для save/action result без стрибків на верх сторінки
 - [ ] Додати topbar notification indicator/center для pending operator work, saved-but-not-applied work і важливих operator warnings
+- [ ] Додати notification про фактичний плановий restart сервера з safe proof із allowlisted systemd timer/service log або audit/source metadata
 - [ ] Додати security review gate для premium/mega, diagnostics, terminal, IP allowlist і host controls
 - [x] Додати background job metadata model перед long-running operations
 - [x] Додати background dispatcher/read-only jobs UI foundation перед install/repair/update flows
