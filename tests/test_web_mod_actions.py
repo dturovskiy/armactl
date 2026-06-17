@@ -93,8 +93,9 @@ def _patch_management_global(app, monkeypatch, name: str, value) -> None:
         if (
             isinstance(globals_dict, dict)
             and name in globals_dict
+            and globals_dict is not module_globals
             and (
-                globals_dict is module_globals
+                module_globals is None
                 or globals_dict.get("__name__") == management.__name__
             )
         ):

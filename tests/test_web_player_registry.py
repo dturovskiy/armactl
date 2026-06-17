@@ -91,8 +91,9 @@ def _patch_route_global(app, module_name: str, monkeypatch, name: str, value) ->
         if (
             isinstance(globals_dict, dict)
             and name in globals_dict
+            and globals_dict is not module_globals
             and (
-                globals_dict is module_globals
+                module_globals is None
                 or globals_dict.get("__name__") == module_name
             )
         ):

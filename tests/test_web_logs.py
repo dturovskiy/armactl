@@ -68,6 +68,26 @@ def _write_audit(data_root: Path, text: str) -> Path:
     return path
 
 
+def _patch_route_global(app, module_name: str, monkeypatch, name: str, value) -> None:
+    module = sys.modules.get(module_name)
+    module_globals = getattr(module, "__dict__", None)
+    if module is not None and hasattr(module, name):
+        monkeypatch.setattr(module, name, value)
+    for route in getattr(app, "routes", []):
+        endpoint = getattr(route, "endpoint", None)
+        globals_dict = getattr(endpoint, "__globals__", None)
+        if (
+            isinstance(globals_dict, dict)
+            and name in globals_dict
+            and globals_dict is not module_globals
+            and (
+                module_globals is None
+                or globals_dict.get("__name__") == module_name
+            )
+        ):
+            monkeypatch.setitem(globals_dict, name, value)
+
+
 def test_log_view_import_does_not_import_tui_textual(monkeypatch):
     forbidden = ("armactl.tui", "textual")
     _forget_modules("armactl.web.services.log_views", *forbidden)
@@ -128,12 +148,14 @@ def test_logs_permission_denied_returns_controlled_403(tmp_path: Path, monkeypat
 
     password = "owner logs password"
     setup_owner_user(tmp_path, "owner", password)
-    monkeypatch.setattr(
-        logs_route,
+    app = create_app(data_root=tmp_path)
+    _patch_route_global(
+        app,
+        logs_route.__name__,
+        monkeypatch,
         "require_permission",
         lambda current, permission: False,
     )
-    app = create_app(data_root=tmp_path)
     client = _client(app)
     _login(client, "owner", password)
 
