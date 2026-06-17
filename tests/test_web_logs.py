@@ -124,18 +124,16 @@ def test_authenticated_owner_can_open_audit_logs(tmp_path: Path):
 
 def test_logs_permission_denied_returns_controlled_403(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
+    from armactl.web.routes import logs as logs_route
 
     password = "owner logs password"
     setup_owner_user(tmp_path, "owner", password)
+    monkeypatch.setattr(
+        logs_route,
+        "require_permission",
+        lambda current, permission: False,
+    )
     app = create_app(data_root=tmp_path)
-    for route in app.routes:
-        if getattr(route, "path", "") == "/logs":
-            monkeypatch.setitem(
-                route.endpoint.__globals__,
-                "require_permission",
-                lambda current, permission: False,
-            )
-            break
     client = _client(app)
     _login(client, "owner", password)
 

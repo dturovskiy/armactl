@@ -84,19 +84,13 @@ def _patch_management_global(app, monkeypatch, name: str, value) -> None:
     """Patch management globals used by already-registered FastAPI endpoints."""
     from armactl.web.routes import management
 
-    patched = False
+    if hasattr(management, name):
+        monkeypatch.setattr(management, name, value)
     for route in getattr(app, "routes", []):
         endpoint = getattr(route, "endpoint", None)
         globals_dict = getattr(endpoint, "__globals__", None)
-        if (
-            isinstance(globals_dict, dict)
-            and globals_dict.get("__name__") == management.__name__
-            and name in globals_dict
-        ):
+        if isinstance(globals_dict, dict) and name in globals_dict:
             monkeypatch.setitem(globals_dict, name, value)
-            patched = True
-    if not patched:
-        monkeypatch.setattr(management, name, value)
 
 
 def _authed_client(tmp_path: Path, monkeypatch, page: dict | None = None):

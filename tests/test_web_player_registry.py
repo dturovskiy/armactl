@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import sys
 import warnings
 from pathlib import Path
 from types import SimpleNamespace
@@ -79,14 +80,14 @@ def _panel(*players: ModerationPlayer) -> PlayerModerationPanel:
 
 def _patch_route_global(app, module_name: str, monkeypatch, name: str, value) -> None:
     patched = False
+    module = sys.modules.get(module_name)
+    if module is not None and hasattr(module, name):
+        monkeypatch.setattr(module, name, value)
+        patched = True
     for route in getattr(app, "routes", []):
         endpoint = getattr(route, "endpoint", None)
         globals_dict = getattr(endpoint, "__globals__", None)
-        if (
-            isinstance(globals_dict, dict)
-            and globals_dict.get("__name__") == module_name
-            and name in globals_dict
-        ):
+        if isinstance(globals_dict, dict) and name in globals_dict:
             monkeypatch.setitem(globals_dict, name, value)
             patched = True
     assert patched, f"route global was not patched: {module_name}.{name}"
