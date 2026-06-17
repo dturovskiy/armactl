@@ -803,7 +803,7 @@ def test_dashboard_status_payload_handles_unavailable_numeric_metrics():
     assert all(meter["available"] is False for meter in dashboard["host_meters"])
 
 
-def test_dashboard_view_model_moves_sat_unavailable_to_diagnostics():
+def test_dashboard_view_model_omits_neutral_sat_unavailable_notice():
     from armactl.web.views.dashboard import build_dashboard_view
 
     snapshot = _view_snapshot("running")
@@ -821,6 +821,4 @@ def test_dashboard_view_model_moves_sat_unavailable_to_diagnostics():
     )
 
     assert all(card["title"] != "Diagnostics summary" for card in dashboard["server_cards"])
-    assert dashboard["diagnostics"][-1]["title"] == "ServerAdminTools"
-    assert dashboard["diagnostics"][-1]["severity"] == "notice"
-    assert dashboard["diagnostics"][-1]["message"] == "ServerAdminTools config is not present."
+    assert all(item["title"] != "ServerAdminTools" for item in dashboard["diagnostics"])

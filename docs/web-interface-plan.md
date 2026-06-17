@@ -203,6 +203,12 @@ for every editable setting. Split settings by operator intent and risk:
 - Mod settings: separate pages or subpages for per-mod runtime configuration,
   such as ServerAdminTools. Dashboard should show only a short neutral/alert
   summary and link to details.
+- ServerAdminTools specifically belongs to future mod runtime settings and
+  diagnostics pages. The dashboard must not show a persistent warning/notice
+  just because the SAT config is absent; absence is normal when the mod is not
+  installed or not configured. Dashboard should surface SAT only when a real
+  guard/health problem exists, such as invalid JSON, default/example-only
+  admins, or a configured SAT mod whose runtime config is missing.
 - Network and advanced server settings: game port, A2S, RCON, passwords, and
   other sensitive settings that need stronger validation, explanations, and
   restart warnings than the basic config form.

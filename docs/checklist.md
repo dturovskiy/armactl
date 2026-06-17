@@ -312,6 +312,7 @@
 - [ ] Додати edit/save/delete flows для bot і розширених config полів через backend modules
 - [ ] Спроєктувати bulk paste/import/export/clear all/advanced modpack workflows для web mods окремим future flow
 - [ ] Спроєктувати окремі mod settings pages для SAT та інших модів з власними runtime config checks
+- [x] Прибрати нейтральне SAT-missing повідомлення з dashboard; показувати SAT на dashboard тільки як реальну health/guard проблему
 - [ ] Спроєктувати network/advanced server settings page для game/A2S/RCON ports і sensitive server options
 - [ ] Спроєктувати diagnostics page для SAT/config/ports/paths/telemetry/log health checks
 - [ ] Спроєктувати advanced danger zone для raw JSON, backup restore і destructive maintenance actions

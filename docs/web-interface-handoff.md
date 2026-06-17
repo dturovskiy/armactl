@@ -192,9 +192,11 @@ Completed foundation:
     seconds and updates marked DOM fields without replacing the no-JS
     server-rendered dashboard fallback. WebSocket remains out of scope.
 27. Dashboard snapshot layout polish: the main config card spans the full
-    dashboard width, service/live/mod cards sit below as compact tiles, and
-    ServerAdminTools unavailable state moved into diagnostics instead of
-    appearing as unavailable plus Warning: none.
+    dashboard width and service/live/mod cards sit below as compact tiles.
+    Neutral ServerAdminTools-missing state is not dashboard-worthy by itself.
+    Keep SAT on the dashboard only for real guard/health problems; put normal
+    SAT absence and runtime config details into future Diagnostics / Mod
+    Settings pages.
 28. Dashboard visual meters: the dashboard status DTO now includes safe numeric
     FPS/CPU/RAM/disk metrics, the server-rendered dashboard shows compact
     meters with a no-JS text fallback, and package-local `dashboard.js` updates

@@ -516,17 +516,6 @@ def _diagnostics(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str, 
                     ],
                 }
             )
-        elif sat and not sat.get("available"):
-            diagnostics.append(
-                {
-                    "severity": "notice",
-                    "title": "ServerAdminTools",
-                    "message": "ServerAdminTools config is not present.",
-                    "items": [
-                        _item("Status", "unavailable", translate_value=True),
-                    ],
-                }
-            )
 
     errors = snapshot.get("errors") or []
     if errors:
