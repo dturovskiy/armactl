@@ -277,6 +277,7 @@
 - [x] Додати game server boot/autostart policy, dashboard warning і web enable/disable controls
 - [ ] Переглянути UI `/schedule`: рознести timer/autostart/restart-now у спокійніші секції без візуального перевантаження
 - [ ] Спроєктувати host reboot/shutdown controls як owner/admin-only future flow з double-confirm і audit
+- [ ] Спроєктувати Windows backend adapter як future architecture: service manager, logs, paths, firewall/process/metrics, install/update flow; не змішувати з Linux/systemd web MVP
 - [ ] Спроєктувати diagnostic command palette для allowlisted debug/report commands без raw shell
 - [ ] Спроєктувати break-glass web terminal як disabled-by-default future flow з IP allowlist/trusted proxy/extra auth/audit
 - [x] Додати web i18n adapter і theme preferences поверх існуючих `src/armactl/locales/*.json`
@@ -290,6 +291,9 @@
 - [x] Додати background dispatcher/read-only jobs UI foundation перед install/repair/update flows
 - [x] Додати read-only management pages для config/mods/admins/bot через backend modules
 - [ ] Спроєктувати settings IA: dashboard summary, basic config, mods, mod settings, network/advanced, diagnostics, danger zone
+- [ ] Додати config schema inventory для `config.json`: supported fields, UI groups Basic/Gameplay/Visibility-Crossplay/Network-A2S-RCON/Security/Advanced/Danger Zone, safe vs advanced editor decision
+- [ ] Розширити `/config` safe controls для third-person view і crossplay/platform support тільки після перевірки точних Arma Reforger config keys у current schema/backend або official docs
+- [ ] Зафіксувати, що normal `config.json` editing живе у `/config`, не у `/files`; secrets/RCON/admin sensitive fields не показувати casually
 - [x] Додати `armactl-web.service` template і service commands
 - [x] Додати login rate limiting / auth abuse throttling для web login
 - [x] Додати явне HTTPS/external-bind warning у web UI/runtime summary
@@ -312,29 +316,33 @@
 - [ ] Додати edit/save/delete flows для bot і розширених config полів через backend modules
 - [ ] Спроєктувати bulk paste/import/export/clear all/advanced modpack workflows для web mods окремим future flow
 - [ ] Спроєктувати окремі mod settings pages для SAT та інших модів з власними runtime config checks
+- [ ] Спроєктувати SAT runtime edits для admins/gameMasters/bans як narrow field updates з backup/audit, не full overwrite unrelated SAT config
 - [x] Прибрати нейтральне SAT-missing повідомлення з dashboard; показувати SAT на dashboard тільки як реальну health/guard проблему
 - [ ] Спроєктувати network/advanced server settings page для game/A2S/RCON ports і sensitive server options
 - [ ] Спроєктувати diagnostics page для SAT/config/ports/paths/telemetry/log health checks
 - [ ] Спроєктувати advanced danger zone для raw JSON, backup restore і destructive maintenance actions
-- [ ] Спроєктувати emergency/admin-only raw JSON config editor окремо від нормального web config flow
+- [ ] Розділити config permissions: `settings:manage` для allowlisted safe fields, `settings:advanced` для ports/RCON/A2S/crossplay/platform/third-person/security, `config:raw_edit` для break-glass raw JSON
+- [ ] Спроєктувати owner/mega-eligible emergency raw JSON config editor як окремий button/mode у `/config`, не `/files`, з explicit permission/CSRF/double confirm/JSON validation/backup/audit/redacted errors/pending-work behavior
 - [x] Додати web moderation foundation на `/admins`: current players, server-rendered search, add-to-game-admin only with reliable identity
 - [x] Додати instance-scoped player registry foundation (`players.db`) для reliable IDs, nickname history, first/last seen і seen count
 - [x] Додати explicit web refresh ingestion з current RCON/player_view roster без вигаданих ID і без IP storage
 - [x] Додати `/players` read-only registry page з search по nickname/ID
-- [ ] Розширити player registry до sessions, activity duration, details pages і recent/history views
-- [ ] Додати додаткове player identity ingestion з logs/SAT adapters без вигаданих ID
-- [ ] Додати moderation UI: nickname search/sort, player details, and add-to-game-admin action when reliable player identity is known
-- [ ] Додати ban list management з auth/permissions/CSRF/audit/backups
+- [ ] Розширити `Players / Moderation` до detail page per reliable player, session history (`connected_at`, `disconnected_at`, played duration), activity duration і recent/history views
+- [ ] Додати додаткове player identity ingestion з logs/SAT adapters без вигаданих ID і без IP storage by default
+- [ ] Додати moderation UI: nickname/ID search-filter, player details, and add-to-game-admin action when reliable player/admin reference is known; `/admins` лишається quick-add convenience
+- [ ] Додати ban list management тільки по reliable identity/admin reference/SteamID64/backend ID з reason/actor/timestamp/optional expiry, auth/permissions/POST+CSRF/confirmation/audit/backups/rollback
 - [x] Додати safe read-only filesystem browser foundation
 - [x] Додати download single file для web file browser
 - [x] Додати upload одного нового файла в server root для web file browser без overwrite
 - [ ] Додати threat-model note/tests для uploads: no execute, no auto-unpack, size/path/name limits, bounded redacted preview
-- [ ] Додати safe single-file delete для web file browser: files only, no dirs, confirmation, CSRF, audit, no symlink/traversal escape
-- [ ] Додати atomic overwrite для web file browser
+- [ ] Якщо future text editor для `/files` потрібний, обмежити root/path/extension/size, додати backup/audit, і не використовувати його як primary config editor
+- [ ] Додати safe single-file delete для web file browser: files only, no dirs, `files:delete`, confirmation, CSRF, audit, no symlink/traversal escape
+- [ ] Додати atomic overwrite для web file browser з окремим permission/confirmation/backup/audit
 - [ ] Додати delete/rename для web file browser
 - [ ] Додати archive extraction flow після окремого threat model
 - [ ] Додати optional entitlement/feature-flag model, якщо продукт матиме платні tiers
 - [ ] Спроєктувати web product tiers: basic/plus/premium/mega окремо від ролей і permissions
+- [ ] Додати explicit permission gates і audit для dangerous features: raw config editor, advanced config, host controls, command palette, terminal, banlist, file edit/delete/overwrite, SAT runtime edits, user/tier/allowlist management
 - [ ] Спроєктувати admin-only web user/role/tier management для Deus/Yaroslav operators
 - [ ] Спроєктувати IP allowlist management UI/API з CIDR, labels, expiry, audit і trusted-proxy rules
 - [ ] Додати remote HTTPS login smoke checklist

@@ -32,6 +32,10 @@ The source repository and runtime data remain separate:
 ## Non-goals for the first version
 
 - Do not expose arbitrary host filesystem access.
+- Do not make `/files` the primary way to edit `config.json`. Normal config
+  changes belong in structured `/config` controls.
+- Do not add Windows service/log/process support to the Linux/systemd-first web
+  MVP.
 - Do not run game-server installation or repair flows as long blocking HTTP
   requests.
 - Do not make the static `website/` marketing page the management UI.
@@ -196,8 +200,8 @@ for every editable setting. Split settings by operator intent and risk:
 
 - Dashboard: short server state, important warnings, pending work summary, and
   links to detailed pages only.
-- Basic server config: safe common fields such as name, scenario, player count,
-  visibility, BattlEye, and distances.
+- Basic server config (`/config`): safe common fields such as name, scenario,
+  player count, visibility, BattlEye, and distances.
 - Mods: active/disabled mod list, add/update/disable/delete controls, ordering,
   bulk paste/import/export, and future Workshop/catalog helpers.
 - Mod settings: separate pages or subpages for per-mod runtime configuration,
@@ -214,9 +218,38 @@ for every editable setting. Split settings by operator intent and risk:
   restart warnings than the basic config form.
 - Diagnostics: SAT/config/ports/paths/telemetry/log health checks and controlled
   troubleshooting actions.
-- Advanced / danger zone: raw JSON editor, backup restore, destructive file
-  actions, and other break-glass workflows that need explicit confirmation,
-  audit logging, and clear rollback/recovery notes.
+- Advanced / danger zone: owner/admin-only raw JSON editor exposed as a
+  deliberate mode inside `/config`, backup restore, destructive file actions,
+  and other break-glass workflows that need explicit confirmation, audit
+  logging, and clear rollback/recovery notes.
+
+Config editor expansion should start with a schema inventory, not guessed form
+fields. Before adding new controls, list the supported `config.json` fields from
+the current config/backend schema and official Arma Reforger documentation, then
+map each field to a UI group: Basic, Gameplay, Visibility/Crossplay,
+Network/A2S/RCON, Security, Advanced, or Danger Zone. For each field, decide
+whether it belongs in the safe structured editor or an advanced flow. Future
+third-person view and crossplay/platform support controls belong in `/config`
+only after their exact keys and backend validation are verified.
+
+Form controls should match the data shape: booleans become toggles or
+checkboxes, supported platform/crossplay lists become checkbox groups or
+segmented controls, and numeric fields stay numeric inputs with bounds and
+validation. Secrets, RCON/admin passwords, tokens, and other sensitive fields
+must not be exposed casually on normal config pages.
+
+Emergency raw config editing is a separate break-glass flow, not the normal
+config workflow. If added, it must be an owner/admin-only button or mode inside
+`/config`, never in `/files`, and require an explicit permission, CSRF, double
+confirmation, JSON validation, backup before save, audit logging, redacted
+errors, and clear restart-required or pending-work behavior.
+
+ServerAdminTools runtime config belongs to future `Mod Settings` or
+`Diagnostics`, not dashboard noise. The dashboard should show SAT only for real
+health or guard problems; neutral absence is normal. SAT admin guard remains a
+backend/startup protection. Any future SAT admins, gameMasters, bans, or other
+runtime config edits must be narrow field edits with backup and audit, not a
+full overwrite of unrelated SAT settings.
 
 Do not add every new setting to `/config` or `/dashboard`. Prefer focused pages
 with thin routes and service-layer validation so dangerous settings do not make
@@ -253,6 +286,12 @@ The first file-manager slices intentionally added safe browsing, preview,
 single-file download, and upload of one new file. Delete, overwrite, rename,
 directory operations, archive extraction, and restore flows remain future work
 because they can destroy server state or become filesystem escape primitives.
+
+`/files` remains for safe browsing, download, upload, and future bounded delete
+flows. It must not become a general raw config editor. Text preview is for
+inspection, not the primary `config.json` workflow. If future text-file editing
+is added, it must be separate from `/config`, limited by root/path/extension and
+size, and include backup plus audit logging.
 
 The next practical file slice should be single-file delete for cleanup of
 operator-owned artifacts such as old backups and logs. Requirements:
@@ -305,10 +344,11 @@ scoped otherwise:
 
 ## Security review gate for premium and break-glass features
 
-Premium, mega, diagnostics, terminal, IP allowlist management, host controls,
-and any paid entitlement checks must pass a separate security review before
-implementation is considered production-ready. Treat this as a release gate,
-not a nice-to-have.
+Premium, mega, diagnostics command palette, terminal, IP allowlist management,
+host controls, raw config editor, banlist management, file delete, SAT runtime
+edits, and any paid entitlement checks must pass a separate security review
+before implementation is considered production-ready. Treat this as a release
+gate, not a nice-to-have.
 
 The review must cover:
 
@@ -329,6 +369,28 @@ The review must cover:
 - **Backend enforcement:** hiding a button in the UI is never enough. Every
   route, JSON endpoint, job enqueue path, and action handler must enforce auth,
   permission, CSRF, tier/policy requirements, and audit behavior.
+- **Dangerous feature gates:** raw config editor, host controls, diagnostics
+  command palette, terminal, banlist management, file delete, and SAT runtime
+  edits need explicit permissions and audit records. Product tiers can map to
+  those permissions, but a tier name alone must not authorize the action. Add
+  the permission to `auth/permissions.py`, enforce it in the route/service, and
+  only then expose the UI control.
+
+  Baseline permission split for future work:
+
+  | Feature | Minimum permission | Extra gates |
+  |---------|--------------------|-------------|
+  | Structured config edit | `settings:manage` | allowlisted fields only, backup, audit, pending work |
+  | Advanced config fields, including ports, RCON/A2S, crossplay, platform policy, third-person, and security toggles | `settings:advanced` | schema inventory, safe widgets, validation, redacted errors, explicit restart warning |
+  | Emergency raw JSON config editor | `config:raw_edit` | owner/mega eligibility, double confirmation, JSON validation, backup before save, audit, pending work, secrets redacted |
+  | File text edit/upload | `files:write` plus `files:edit` when editing existing files | allowlisted roots, extension/size/path checks, backup/audit, no primary config editing through `/files` |
+  | File delete/overwrite/rename/archive extraction | `files:delete` or operation-specific permission | files only unless separately designed, CSRF, confirmation, traversal/symlink checks, audit, backup/restore path when practical |
+  | Ban/unban | `bans:manage` | reliable identity only, reason/actor/timestamp, optional expiry, confirmation, audit, backup/rollback for file-backed state |
+  | SAT and other mod runtime settings | `mods:settings` or `sat:manage` | narrow field updates, preserve unrelated config, backup, audit, diagnostics link |
+  | Diagnostics command palette | `diagnostics:run` | registered handlers only, bounded/redacted output, no arbitrary shell strings |
+  | Break-glass terminal | `terminal:use` | disabled by default, owner/mega eligibility, IP allowlist/trusted proxy, extra re-auth, transcript/audit, no broad sudo |
+  | Host reboot/shutdown | `host:manage` | owner/mega eligibility, IP allowlist/trusted proxy, double confirmation, audit, never scheduled by default |
+  | Web user/role/tier/allowlist administration | `users:manage` and/or `allowlist:manage` | extra re-auth, audit, recovery path via SSH/local CLI |
 - **Command execution:** diagnostics must use registered allowlisted handlers.
   Do not accept arbitrary shell strings, pipes, redirects, environment
   injection, sudo prompts, or root shell input.
@@ -807,7 +869,9 @@ Initial tier direction:
   files, mods/admins/bot flows, and the diagnostics command palette;
 - `mega`: internal/platform-owner level for Deus/Yaroslav-style operators,
   including user management, tier/role assignment, IP allowlist management,
-  break-glass terminal eligibility, and future host controls.
+  break-glass terminal eligibility, and future host controls. `mega` grants
+  eligibility only; routes still need explicit permissions such as
+  `config:raw_edit`, `terminal:use`, `host:manage`, or `allowlist:manage`.
 
 `mega` should be treated as privileged operator access, not simply a public
 paid tier. It should be small, auditable, and separated from ordinary customer
@@ -825,8 +889,9 @@ A future management UI/API should support:
   configured proxies.
 
 Sensitive features such as diagnostics command palette, break-glass terminal,
-allowlist management, and host controls should require both permission checks
-and the relevant policy checks, not only a tier name.
+raw config editor, allowlist management, host controls, banlist management,
+file delete, and SAT runtime edits should require both permission checks and
+the relevant policy checks, not only a tier name.
 
 Recommended direction:
 
@@ -881,6 +946,9 @@ Rules:
 - Overwrites should be explicit and atomic.
 - Config writes should continue to go through `config_manager`, not raw upload
   replacement, unless the user is in a deliberate advanced flow.
+- The file manager is not the config editor. Do not expose `config.json` raw
+  editing through `/files`; normal config work belongs in `/config` and any raw
+  editor belongs to a `/config` break-glass mode.
 - Delete/rename should be added after upload/download/list are proven safe.
 - Keep the repository root out of the allowed roots.
 - Do not allow upload into `.git`, `.venv`, system unit directories, or the
@@ -931,14 +999,22 @@ Recording current players is an explicit CSRF-protected POST refresh, not a
 write-on-GET. Only reliable `player_view`/RCON roster identities are stored;
 slot-only rows are ignored and no IP addresses are stored.
 
+`/admins` may keep a convenience quick add-to-admin action for current players
+with a reliable admin reference, but the full player database and moderation
+workflow belongs on a dedicated `Players / Moderation` page or section.
+
 Goals:
 
-- collect durable player identifiers and nicknames when players join or are seen
-  online;
-- keep first-seen, last-seen, last nickname, known aliases, session count, and
-  approximate total playtime;
+- collect the list of players who connected and played when a reliable identity
+  source is available;
+- store reliable identity/admin reference, current nickname, nickname history,
+  first seen, last seen, seen count, source, and confidence;
+- add future session history with `connected_at`, `disconnected_at`, and played
+  duration once reliable join/leave events are available;
 - show active, recent, and inactive players in the web panel;
-- provide search by nickname and player identifier;
+- provide search and filters by nickname and player identifier;
+- add a detail page per reliable player with aliases, observations, sessions,
+  admin status, and moderation history;
 - support a ban list with reason, created-by web user, timestamp, optional
   expiry, active/revoked state, and audit trail;
 - expose ban/unban actions through authenticated, permission-protected,
@@ -980,7 +1056,13 @@ Ban management must not be a blind JSON editor. It needs a moderation service
 that writes through the correct backend adapter for the selected ban mechanism,
 creates a backup before changing any config-backed ban list, validates the
 result, and records an audit event. If ServerAdminTools bans are used, update
-only the relevant ban fields and preserve unrelated SAT settings.
+only the relevant SAT ban fields and preserve unrelated SAT settings. Ban and
+unban actions must target a reliable identity/admin reference, SteamID64, or
+other supported backend ID; never a nickname-only or A2S-slot-only row. Store
+reason, actor, timestamp, active/revoked state, and optional expiry later.
+Require auth, explicit `bans:manage`-style permission, POST + CSRF,
+confirmation, audit logging, and backup/rollback where the backend is
+file-backed. Keep bans separate from web users, roles, and product tiers.
 
 Suggested web views:
 
@@ -997,6 +1079,8 @@ Security and product notes:
 
 - add explicit permissions such as players:view, players:manage, and
   bans:manage;
+- keep bans and player moderation separate from web users, roles, and product
+  tiers;
 - redact or avoid sensitive tokens/secrets in player diagnostics;
 - audit all ban/unban decisions;
 - treat player history as operator data that may contain personally identifying
@@ -1056,6 +1140,24 @@ groups multi-step workflows into stable functions. That facade should return
 plain dataclasses or dictionaries suitable for templates, JSON responses, job
 records, and tests. Keep `click`, Textual widgets, and terminal formatting out
 of that facade.
+
+## Future Windows backend adapter
+
+The current backend and web MVP are Linux/systemd-first. Windows support is a
+future platform architecture task, not something to mix into the current Linux
+web implementation route by route.
+
+Windows support needs explicit backend abstractions for:
+
+- service manager: systemd versus Windows Service, NSSM, or Task Scheduler;
+- logs: journalctl versus files and Windows Event Log;
+- path discovery and runtime data locations;
+- firewall, process, and metrics collection;
+- install, repair, update, and service-template flows.
+
+Design and test those adapters before wiring them into the web panel. Until
+then, keep web implementation and docs scoped to the Linux VM deployment model
+described in this plan.
 
 ## Web architecture guardrails
 
@@ -1155,11 +1257,11 @@ Internal API readiness:
 |------|-------------------|---------------------|
 | Read-only status/dashboard | High | Implemented through one dashboard DTO from discovery, service/timer status, metrics, players, config summary, mods, web runtime, and safe bot summary |
 | Start/stop/restart | High | Default-instance web controls are implemented with auth, confirmation, CSRF, audit log, and route-level permission checks |
-| Players/moderation | Medium | Current-player moderation foundation is implemented on `/admins` using `player_view`/RCON roster data and add-to-game-admin only for reliable IDs; `/players` and instance-scoped `players.db` are implemented for reliable IDs, nickname history, first/last seen, and seen count; future session/activity history, details views, extra ingestion adapters, and ban-list management remain; do not infer IDs from nicknames or A2S counts |
-| Config/mods/admins/bot settings | Medium-high | Basic allowlisted config editing is implemented through `config_manager`; basic mod add/update/enable/disable/remove is implemented through `mods_manager`; game admin add/update/remove is implemented through `admins_manager`; bot mutations, advanced modpack/bulk mod flows, advanced admin bulk/raw flows, and broader config fields remain future work with form validation, CSRF, and redacted error rendering |
+| Players/moderation | Medium | Current-player moderation foundation is implemented on `/admins` using `player_view`/RCON roster data and add-to-game-admin only for reliable IDs; `/players` and instance-scoped `players.db` are implemented for reliable IDs, nickname history, first/last seen, and seen count; future session/activity history with duration, detail views, extra ingestion adapters, and ban-list management remain; do not infer IDs from nicknames or A2S counts, and do not store IPs by default |
+| Config/mods/admins/bot settings | Medium-high | Basic allowlisted config editing is implemented through `config_manager`; future config expansion must start with a verified config schema inventory and safe controls in `/config`, not `/files`; raw JSON remains an owner/admin-only `/config` break-glass flow; basic mod add/update/enable/disable/remove is implemented through `mods_manager`; game admin add/update/remove is implemented through `admins_manager`; bot mutations, advanced modpack/bulk mod flows, advanced admin bulk/raw flows, and broader config fields remain future work with form validation, CSRF, and redacted error rendering |
 | Logs/report | Medium-high | Bounded read-only audit, fixed journal, and redacted report preview views are implemented; add streaming/download later without `os.execvp` |
 | Install/repair/update | Medium | Install and repair enqueue explicit web background jobs; update remains future work; never block a request thread |
-| File manager | Medium | Safe adapter, browser foundation, single-file download, and server-root upload-new-file are implemented; overwrite/delete/rename and remote mount support remain future work |
+| File manager | Medium | Safe adapter, browser foundation, single-file download, and server-root upload-new-file are implemented; overwrite/delete/rename and remote mount support remain future work; `/files` must not become the raw `config.json` editor |
 | Web users/roles/entitlements | Low | Implement new `web.db` models; do not reuse game admins as web users |
 
 ## Existing feature inventory
@@ -1173,14 +1275,14 @@ logic from TUI screens.
 | Dashboard/status | Implemented in TUI, CLI, and the web read-only dashboard | discovery, state, status_summary, metrics, player_view, ports, bot_config | Keep future routes thin and continue extending the facade instead of route-local aggregation |
 | Server controls | Implemented | `service_manager`, CLI `start/stop/restart`, TUI `ManageScreen` | Web start/stop/restart now wraps existing calls for the default instance; schedule controls are implemented separately and job-backed operations remain future work |
 | Logs/report | Implemented for journal/report, TUI live view, and bounded read-only web views | `logs`, `report`, `TailLogScreen` | Web exposes fixed sources and redacted report preview; add browser streaming/download later |
-| Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Web supports allowlisted basic field edits through `config_manager`; generic/raw JSON and secrets remain out of scope |
+| Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Web supports allowlisted basic field edits through `config_manager` behind `settings:manage`; future web expansion should inventory verified fields into Basic, Gameplay, Visibility/Crossplay, Network/A2S/RCON, Security, Advanced, and Danger Zone groups; advanced fields need `settings:advanced`; generic/raw JSON and secrets remain out of scope except for a future owner/mega-eligible `/config` break-glass mode with `config:raw_edit` |
 | Mods manager | Implemented beyond basic parity | `mods_manager`, `mods_state`, `addon_cleanup`, `ModManagerScreen` | Web can view active/disabled mods and add/update/enable/disable/remove one mod at a time through `mods_manager` with auth, CSRF, `mods:manage`, confirmation for remove, and audit; bulk paste/import/export/clear-all/modpack workflows remain future |
 | Server admins | Implemented for Arma `game.admins` | `admins_manager`, `AdminManagerScreen` | Web can view game admins and add/update/remove one admin at a time through `admins_manager` with auth, CSRF, `admins:manage`, confirmation for remove, and audit; keep game admins separate from web users/roles |
-| Player registry and bans | Registry foundation implemented, bans future | `player_view` can show current online data; logs/RCON/SAT may become ingestion sources after adapter review | `/admins` exposes current players with server-rendered search and add-to-game-admin only when a reliable identity ID is available; `/players` stores reliable IDs and nickname history in instance-scoped SQLite through explicit refresh; next steps are recent/history/detail views, session duration, extra ingestion adapters, and ban-list management with auth, permissions, CSRF, confirmation, backups, audit logging, and no IP storage by default |
+| Player registry and bans | Registry foundation implemented, bans future | `player_view` can show current online data; logs/RCON/SAT may become ingestion sources after adapter review | `/admins` exposes current players with server-rendered search and add-to-game-admin only when a reliable identity ID is available; `/players` stores reliable IDs and nickname history in instance-scoped SQLite through explicit refresh; next steps are recent/history/detail views, session duration with connected/disconnected timestamps, extra ingestion adapters, and ban-list management with reliable IDs only, auth, permissions, CSRF, confirmation, backups, audit logging, and no IP storage by default |
 | Backups/cleanup | Partially implemented | `config_manager` backups, `cleaner`, `CleanupScreen` | Config backups exist; full server backup/restore is future work |
 | Schedule | Implemented for restart timer | `service_manager`, `ScheduleScreen`, CLI `schedule` | Web can show/set/enable/disable restart schedule, trigger restart-now, show next/last run, and warn on disabled game-service autostart; task chains are future |
 | Telegram bot | Implemented | `bot_config`, `bot_manager`, `telegram_bot`, `BotConfigScreen` | Read-only bot status page exists; future config/service flows can reuse the same `.env` and service-manager path |
-| File manager | Browsing, single-file download, and server-root upload-new-file implemented | `paths`, new web filesystem adapter | Browser lists fixed local roots, bounded redacted text previews, validated single-file downloads, and no-overwrite uploads to the `server` root; overwrite/delete/rename remain future work |
+| File manager | Browsing, single-file download, and server-root upload-new-file implemented | `paths`, new web filesystem adapter | Browser lists fixed local roots, bounded redacted text previews, validated single-file downloads, and no-overwrite uploads to the `server` root; overwrite/delete/rename remain future work; do not use `/files` as the normal config editor |
 | Web users/roles | Partially implemented | `web.db` owner user, password hashes, sessions, CSRF primitives, login/logout cookie wiring, and code-level permission categories exist | Add editable users/roles/tier assignment only after the permission matrix and owner-only admin UI are designed |
 | Paid features | Not implemented | none | Add explicit entitlement/tier model only if productized; keep basic/plus/premium/mega separate from low-level permissions |
 

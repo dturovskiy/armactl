@@ -106,7 +106,7 @@ armactl/
 | `logs.py` | Читання journalctl логів |
 | `metrics.py` | Runtime метрики сервера: CPU/RAM, PID-level state, Server FPS/frame-time telemetry |
 | `ports.py` | Перевірка listening портів (ss) |
-| `web/` | Planned ASGI web adapter over backend modules |
+| `web/` | Planned ASGI web adapter over backend modules; routes enforce explicit permissions and should not authorize dangerous features from product tier names alone |
 
 ---
 
@@ -273,6 +273,10 @@ guardrail document. In short: routes stay thin, facades/views build DTOs,
 services own web workflows, existing backend modules remain the source of truth,
 mutating actions require auth/permission/CSRF/audit/backup where applicable,
 and pending operator work is separate from background jobs.
+
+Windows backend support is future platform architecture, not part of the current
+Linux/systemd web MVP. Adding it requires service/log/path/firewall/process/metrics
+and install/update adapters before web routes should target Windows hosts.
 
 ---
 

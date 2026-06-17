@@ -49,6 +49,35 @@ explicitly a release task.
 - Every mutating web action needs auth, explicit permission, POST+CSRF,
   bounded input, audit logging, controlled errors, and backups/pending-work
   handling when applicable.
+- Normal `config.json` editing belongs on `/config` with structured safe
+  controls. Do not turn `/files` into the primary config editor.
+- Any raw JSON config editor must be a future owner/admin-only break-glass
+  button or mode inside `/config`, with explicit permission, CSRF, double
+  confirmation, JSON validation, backup, audit, redacted errors, and pending
+  restart/work behavior.
+- Player registry and moderation must use reliable identity/admin references;
+  never invent IDs from nicknames or A2S slot-only data, and do not store player
+  IPs by default without a future privacy/security review.
+- Ban/unban flows must be separate from web users/roles, require reliable
+  identity/SteamID64/supported backend IDs, POST+CSRF, confirmation, audit, and
+  backup/rollback where file-backed.
+- Keep ServerAdminTools runtime settings in future Mod Settings or Diagnostics
+  surfaces. Dashboard shows SAT only for real health/guard problems, and SAT
+  runtime edits must be narrow field edits with backup/audit.
+- Keep the current web MVP Linux/systemd-first. Windows backend support needs a
+  future platform adapter for services, logs, paths, firewall/process/metrics,
+  and install/update flow.
+- Keep product tiers, roles, and low-level permissions separate. Dangerous
+  features such as raw config editor, advanced config, host controls, command
+  palette, terminal, banlist, file edit/delete/overwrite, and SAT runtime edits
+  need explicit permission gates and audit. A tier such as `mega` is eligibility,
+  not authorization by itself; every route/action still checks a named
+  permission.
+- Treat config editing as three levels: `settings:manage` for existing
+  allowlisted safe fields, `settings:advanced` for future ports/RCON/A2S,
+  crossplay/platform/third-person/security fields, and `config:raw_edit` for
+  owner/mega-eligible break-glass raw JSON with double confirmation, validation,
+  backup, audit, redacted errors, and pending-work behavior.
 - Keep pending operator work separate from background jobs. Do not fake pending
   restart work as a queued job, and do not hide pending work just because the
   background job list is empty.
@@ -183,7 +212,8 @@ Completed foundation:
     Saves create a web-specific adjacent backup before using `config_manager`
     atomic write, never expose secrets, and never auto-restart the server. Raw
     JSON editing remains future emergency/admin-only work, not part of the
-    normal operator config flow.
+    normal operator config flow. Future raw JSON editing must be an
+    owner/admin-only break-glass mode inside `/config`, not `/files`.
     Config saves also append a safe audit entry with changed field names and
     backup path.
 26. Lightweight dashboard live refresh: `/dashboard/status.json` exposes a
@@ -228,9 +258,10 @@ Completed foundation:
     It shows current players, filters by nickname or reliable ID through a
     server-rendered GET query, and reuses the existing admin action flow to add
     a player as a game admin only when a stable admin reference is available.
-    Players without reliable identity stay read-only. No player registry,
-    IP storage, ban/unban action, or banlist manager is implemented in this
-    slice.
+    Players without reliable identity stay read-only. This `/admins` surface is
+    only a quick-add convenience; the full registry and moderation workflow
+    belongs to `/players` and future Players / Moderation views. No IP storage,
+    ban/unban action, or banlist manager is implemented in this slice.
 33. Player registry foundation: `/players` now provides a read-only
     instance-scoped player registry backed by `<instance>/players.db`, not
     `web.db`. The registry stores only reliable IDs, current nickname,
@@ -270,13 +301,33 @@ Planned but not implemented:
   the remaining management flows are in place.
 - Host reboot/shutdown controls are useful later, but must be separate from
   game-server controls, owner/admin-only, double-confirmed, and audited.
+- Windows backend support is future architecture, not MVP. Keep current web
+  work Linux/systemd-first until service/log/path/firewall/process/metrics and
+  install/update adapters are designed and tested.
+- Config editor expansion should start with a verified `config.json` schema
+  inventory, UI grouping, and safe-vs-advanced field decisions. Future
+  third-person and crossplay/platform controls belong in `/config` only after
+  exact Arma Reforger keys are verified; booleans should be toggles/checkboxes,
+  platform lists checkbox groups or segmented controls, numeric fields validated
+  inputs, and secrets kept out of casual views.
+- Emergency raw JSON config editing remains future owner/admin-only break-glass
+  work inside `/config`, not `/files`, with permission, CSRF, double
+  confirmation, JSON validation, backup, audit, redacted errors, and clear
+  restart-required/pending-work behavior.
+- `/files` remains for safe browse/download/upload/delete flows. Future text
+  editing, if added, must be separate from `/config`, root/path/extension/size
+  limited, backed up, and audited.
+- ServerAdminTools runtime config belongs to future Mod Settings or Diagnostics.
+  Dashboard should show SAT only for real health/guard problems, and SAT
+  admins/gameMasters/bans edits must preserve unrelated SAT config.
 
 - Player registry and moderation are now part of the web roadmap. Store player
   identity/activity data per instance, for example in ~/armactl-data/INSTANCE/players.db,
   not only in the web runtime database. Use reliable RCON/log/SAT adapters for
   IDs and nicknames, never infer stable identity from nicknames or A2S counts,
-  and require auth, permissions, CSRF, audit logging, and backups for ban/unban
-  flows.
+  and require auth, permissions, POST+CSRF, confirmation, audit logging, and
+  backups/rollback for ban/unban flows. Store no player IPs by default unless a
+  later privacy/security review explicitly approves it.
 
 Next recommended implementation order:
 
@@ -298,22 +349,27 @@ Next recommended implementation order:
    Before implementing terminal, host controls, premium diagnostics, or
    allowlist management, add and pass the security review gate from
    `docs/web-interface-plan.md`.
-6. Add update flow to explicit background job handlers if a safe backend API is
+6. Complete the config schema inventory before extending `/config`: verify exact
+   Arma Reforger keys, group fields, and decide safe editor versus advanced
+   editor behavior.
+7. Add update flow to explicit background job handlers if a safe backend API is
    introduced.
-7. Add edit/save/delete flows for bot settings and extended config fields
+8. Add edit/save/delete flows for bot settings and extended config fields
    through existing backend modules; keep any raw JSON config editor as a
-   separate emergency/admin-only design. Advanced/bulk admin workflows remain
-   future and should still avoid mixing game admins with web users/roles.
-   Advanced modpack workflows such as bulk paste, import/export, and clear-all
-   remain future and should keep remove/cleanup confirmations explicit.
-8. Add atomic overwrite/delete/rename flows on top of the safe filesystem
-   adapter after single-file upload has been reviewed.
-9. Add player registry details/history and ban-list management after the
+   separate owner/admin-only `/config` break-glass design. Advanced/bulk admin
+   workflows remain future and should still avoid mixing game admins with web
+   users/roles. Advanced modpack workflows such as bulk paste, import/export,
+   and clear-all remain future and should keep remove/cleanup confirmations
+   explicit.
+9. Add atomic overwrite/delete/rename flows on top of the safe filesystem
+   adapter after single-file upload has been reviewed; do not use `/files` as
+   the normal config editor.
+10. Add player registry details/history and ban-list management after the
    identity ingestion source is validated on a real server log/RCON sample.
-   The future step should add recent/history/detail views, session duration,
-   banlist manager, explicit permissions, CSRF, confirmation, backups when a
-   config-backed list changes, audit logging, and no player IP storage by
-   default.
+   The future step should add recent/history/detail views, session duration with
+   connected/disconnected timestamps, banlist manager, explicit permissions,
+   POST+CSRF, confirmation, backups/rollback when a file-backed list changes,
+   audit logging, and no player IP storage by default.
 
 ## Implementation prompt template
 
