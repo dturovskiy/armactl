@@ -110,14 +110,22 @@ def _audit_events(data_root: Path) -> list[dict]:
 def _patch_management_global(app, monkeypatch, name: str, value) -> None:
     from armactl.web.routes import management
 
+    module_globals = management.__dict__
     patched = False
+    if hasattr(management, name):
+        monkeypatch.setattr(management, name, value)
+        patched = True
     for route in getattr(app, "routes", []):
         endpoint = getattr(route, "endpoint", None)
         globals_dict = getattr(endpoint, "__globals__", None)
         if (
             isinstance(globals_dict, dict)
-            and globals_dict.get("__name__") == management.__name__
             and name in globals_dict
+            and globals_dict is not module_globals
+            and (
+                module_globals is None
+                or globals_dict.get("__name__") == management.__name__
+            )
         ):
             monkeypatch.setitem(globals_dict, name, value)
             patched = True

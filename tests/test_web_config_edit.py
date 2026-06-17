@@ -122,6 +122,26 @@ def _patch_discovery(monkeypatch, config_path: Path) -> None:
     monkeypatch.setattr(config_edit.discovery, "discover", lambda instance, save=False: state)
 
 
+def _patch_route_global(app, module_name: str, monkeypatch, name: str, value) -> None:
+    module = sys.modules.get(module_name)
+    module_globals = getattr(module, "__dict__", None)
+    if module is not None and hasattr(module, name):
+        monkeypatch.setattr(module, name, value)
+    for route in getattr(app, "routes", []):
+        endpoint = getattr(route, "endpoint", None)
+        globals_dict = getattr(endpoint, "__globals__", None)
+        if (
+            isinstance(globals_dict, dict)
+            and name in globals_dict
+            and globals_dict is not module_globals
+            and (
+                module_globals is None
+                or globals_dict.get("__name__") == module_name
+            )
+        ):
+            monkeypatch.setitem(globals_dict, name, value)
+
+
 def _authed_client(tmp_path: Path, monkeypatch, config_path: Path):
     from armactl.web.app import create_app
 
@@ -254,6 +274,7 @@ def test_config_edit_without_settings_permission_gets_403(
     monkeypatch,
 ):
     from armactl.web.auth.permissions import CONFIG_VIEW, SETTINGS_MANAGE
+    from armactl.web.routes import management
     from armactl.web.services import config_edit
 
     config_path = _write_config(tmp_path)
@@ -263,30 +284,22 @@ def test_config_edit_without_settings_permission_gets_403(
     def fake_require_permission(current, permission: str) -> bool:
         return permission == CONFIG_VIEW
 
-    originals: dict[int, tuple[dict[str, Any], Any]] = {}
-    for route in client.app.routes:
-        if getattr(route, "path", "") == "/config":
-            globals_dict = route.endpoint.__globals__
-            key = id(globals_dict)
-            if key not in originals:
-                originals[key] = (
-                    globals_dict,
-                    globals_dict["require_permission"],
-                )
-            globals_dict["require_permission"] = fake_require_permission
+    _patch_route_global(
+        client.app,
+        management.__name__,
+        monkeypatch,
+        "require_permission",
+        fake_require_permission,
+    )
 
-    try:
-        get_response = client.get("/config", follow_redirects=False)
-        post_response = client.post("/config", data={}, follow_redirects=False)
+    get_response = client.get("/config", follow_redirects=False)
+    post_response = client.post("/config", data={}, follow_redirects=False)
 
-        assert SETTINGS_MANAGE != CONFIG_VIEW
-        assert get_response.status_code == 200
-        assert 'method="post" action="/config"' not in get_response.text
-        assert post_response.status_code == 403
-        assert post_response.text == "Permission denied."
-    finally:
-        for globals_dict, original in originals.values():
-            globals_dict["require_permission"] = original
+    assert SETTINGS_MANAGE != CONFIG_VIEW
+    assert get_response.status_code == 200
+    assert 'method="post" action="/config"' not in get_response.text
+    assert post_response.status_code == 403
+    assert post_response.text == "Permission denied."
 
 
 def test_config_edit_requires_csrf(tmp_path: Path, monkeypatch):

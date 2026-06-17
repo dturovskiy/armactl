@@ -74,6 +74,26 @@ def _login_owner(data_root: Path):
     return client
 
 
+def _patch_route_global(app, module_name: str, monkeypatch, name: str, value) -> None:
+    module = sys.modules.get(module_name)
+    module_globals = getattr(module, "__dict__", None)
+    if module is not None and hasattr(module, name):
+        monkeypatch.setattr(module, name, value)
+    for route in getattr(app, "routes", []):
+        endpoint = getattr(route, "endpoint", None)
+        globals_dict = getattr(endpoint, "__globals__", None)
+        if (
+            isinstance(globals_dict, dict)
+            and name in globals_dict
+            and globals_dict is not module_globals
+            and (
+                module_globals is None
+                or globals_dict.get("__name__") == module_name
+            )
+        ):
+            monkeypatch.setitem(globals_dict, name, value)
+
+
 def _files_csrf_token(client, url: str = "/files/server") -> str:
     response = client.get(url, follow_redirects=False)
     assert response.status_code == 200
@@ -137,18 +157,18 @@ def test_unauthenticated_files_redirects_to_login(tmp_path: Path):
 
 def test_files_permission_denied_returns_controlled_403(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
+    from armactl.web.routes import files as files_route
 
     password = "owner files password"
     setup_owner_user(tmp_path, "owner", password)
     app = create_app(data_root=tmp_path)
-    for route in app.routes:
-        if getattr(route, "path", "") == "/files":
-            monkeypatch.setitem(
-                route.endpoint.__globals__,
-                "require_permission",
-                lambda current, permission: False,
-            )
-            break
+    _patch_route_global(
+        app,
+        files_route.__name__,
+        monkeypatch,
+        "require_permission",
+        lambda current, permission: False,
+    )
     client = _client(app)
     _login(client, "owner", password)
 
@@ -377,18 +397,18 @@ def test_unauthenticated_download_redirects_to_login(tmp_path: Path):
 
 def test_download_permission_denied_returns_controlled_403(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
+    from armactl.web.routes import files as files_route
 
     password = "owner files password"
     setup_owner_user(tmp_path, "owner", password)
     app = create_app(data_root=tmp_path)
-    for route in app.routes:
-        if getattr(route, "path", "") == "/files/{root_id}/download":
-            monkeypatch.setitem(
-                route.endpoint.__globals__,
-                "require_permission",
-                lambda current, permission: False,
-            )
-            break
+    _patch_route_global(
+        app,
+        files_route.__name__,
+        monkeypatch,
+        "require_permission",
+        lambda current, permission: False,
+    )
     client = _client(app)
     _login(client, "owner", password)
 
@@ -561,19 +581,19 @@ def test_unauthenticated_upload_redirects_to_login(tmp_path: Path):
 def test_upload_permission_denied_without_files_write(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
     from armactl.web.auth.permissions import FILES_READ
+    from armactl.web.routes import files as files_route
 
     _server_root(tmp_path)
     password = "owner files password"
     setup_owner_user(tmp_path, "owner", password)
     app = create_app(data_root=tmp_path)
-    for route in app.routes:
-        if getattr(route, "path", "") == "/files/{root_id}/upload":
-            monkeypatch.setitem(
-                route.endpoint.__globals__,
-                "require_permission",
-                lambda current, permission: permission == FILES_READ,
-            )
-            break
+    _patch_route_global(
+        app,
+        files_route.__name__,
+        monkeypatch,
+        "require_permission",
+        lambda current, permission: permission == FILES_READ,
+    )
     client = _client(app)
     _login(client, "owner", password)
     token = _files_csrf_token(client)
@@ -696,15 +716,21 @@ def test_upload_existing_target_is_rejected_without_overwrite(tmp_path: Path):
 
 def test_upload_too_large_is_rejected_without_partial_file(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
+    from armactl.web.routes import files as files_route
+    from armactl.web.services import filesystem
 
     server = _server_root(tmp_path)
     password = "owner files password"
     setup_owner_user(tmp_path, "owner", password)
     app = create_app(data_root=tmp_path)
-    for route in app.routes:
-        if getattr(route, "path", "") == "/files/{root_id}/upload":
-            monkeypatch.setattr(route.endpoint.__globals__["filesystem"], "MAX_UPLOAD_BYTES", 4)
-            break
+    monkeypatch.setattr(filesystem, "MAX_UPLOAD_BYTES", 4)
+    _patch_route_global(
+        app,
+        files_route.__name__,
+        monkeypatch,
+        "filesystem",
+        filesystem,
+    )
     client = _client(app)
     _login(client, "owner", password)
     token = _files_csrf_token(client)
@@ -770,19 +796,19 @@ def test_upload_git_and_venv_destination_or_filename_rejected(tmp_path: Path):
 def test_upload_form_hidden_without_files_write(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
     from armactl.web.auth.permissions import FILES_READ
+    from armactl.web.routes import files as files_route
 
     _server_root(tmp_path)
     password = "owner files password"
     setup_owner_user(tmp_path, "owner", password)
     app = create_app(data_root=tmp_path)
-    for route in app.routes:
-        if getattr(route, "path", "") == "/files/{root_id}":
-            monkeypatch.setitem(
-                route.endpoint.__globals__,
-                "require_permission",
-                lambda current, permission: permission == FILES_READ,
-            )
-            break
+    _patch_route_global(
+        app,
+        files_route.__name__,
+        monkeypatch,
+        "require_permission",
+        lambda current, permission: permission == FILES_READ,
+    )
     client = _client(app)
     _login(client, "owner", password)
 
