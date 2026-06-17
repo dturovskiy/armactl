@@ -150,13 +150,21 @@ def _audit_events(data_root: Path) -> list[dict]:
 def _patch_route_global(app, module_name: str, monkeypatch, name: str, value) -> None:
     patched = False
     module = sys.modules.get(module_name)
+    module_globals = getattr(module, "__dict__", None)
     if module is not None and hasattr(module, name):
         monkeypatch.setattr(module, name, value)
         patched = True
     for route in getattr(app, "routes", []):
         endpoint = getattr(route, "endpoint", None)
         globals_dict = getattr(endpoint, "__globals__", None)
-        if isinstance(globals_dict, dict) and name in globals_dict:
+        if (
+            isinstance(globals_dict, dict)
+            and name in globals_dict
+            and (
+                globals_dict is module_globals
+                or globals_dict.get("__name__") == module_name
+            )
+        ):
             monkeypatch.setitem(globals_dict, name, value)
             patched = True
     assert patched, f"route global was not patched: {module_name}.{name}"
