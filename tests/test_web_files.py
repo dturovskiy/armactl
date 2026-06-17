@@ -538,8 +538,7 @@ def test_upload_publish_failure_after_audit_is_controlled_and_audited(
     tmp_path: Path,
     monkeypatch,
 ):
-    from armactl.web.services import file_uploads
-    from armactl.web.services import filesystem
+    from armactl.web.services import file_uploads, filesystem
 
     server = _server_root(tmp_path)
     client = _login_owner(tmp_path)
