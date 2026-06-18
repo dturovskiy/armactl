@@ -207,7 +207,7 @@ def _server_service_name() -> str:
 def _load_journal(service_name: str, lines: int) -> _LoadedOutput:
     try:
         output = logs.get_logs_text(service_name, lines=lines)
-    except Exception:  # noqa: BLE001 - fixed diagnostics should not traceback to callers.
+    except Exception:  # noqa: BLE001 - diagnostics fail controlled.
         return _LoadedOutput("", available=False, error="Log source unavailable.")
     return _LoadedOutput(output)
 

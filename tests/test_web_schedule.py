@@ -15,12 +15,12 @@ from armactl.web.auth.cookies import SESSION_COOKIE_NAME
 from armactl.web.auth.setup import setup_owner_user
 
 
-def _client(app):
+def _client(app, *, raise_server_exceptions: bool = True):
     with warnings.catch_warnings():
         warnings.simplefilter("error", StarletteDeprecationWarning)
         from fastapi.testclient import TestClient
 
-        return TestClient(app)
+        return TestClient(app, raise_server_exceptions=raise_server_exceptions)
 
 
 def _form_token(html: str) -> str:
@@ -533,6 +533,49 @@ def test_schedule_enable_disable_restart_and_autostart_routes(
         "service.autostart-enable",
         "service.autostart-disable",
     ]
+
+
+def test_schedule_unexpected_restart_exception_does_not_clear_pending_work(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.routes import schedule as schedule_route
+    from armactl.web.services import pending_work, schedule_actions
+
+    setup_owner_user(tmp_path, "owner", "owner schedule password")
+    app = create_app(data_root=tmp_path)
+    monkeypatch.setattr(schedule_route, "load_schedule_page", lambda instance: _schedule_page())
+
+    def fail_action(*args, **kwargs):
+        raise RuntimeError("unexpected schedule bug token=raw-schedule-secret")
+
+    monkeypatch.setattr(schedule_actions, "run_schedule_action_and_audit", fail_action)
+    db_path = tmp_path / "web" / "web.db"
+    pending_work.mark_restart_pending(
+        db_path,
+        instance="default",
+        kind=pending_work.KIND_CONFIG,
+        source_action="config.save",
+        username="owner",
+    )
+    client = _client(app, raise_server_exceptions=False)
+    _login(client, "owner", "owner schedule password")
+    csrf_token = _schedule_csrf_token(client)
+
+    response = client.post(
+        "/schedule/restart-now",
+        data={"csrf_token": csrf_token, "confirm": "schedule.restart-now"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 500
+    assert "Internal Server Error" in response.text
+    assert "Schedule action is unavailable." not in response.text
+    assert "raw-schedule-secret" not in response.text
+    assert "Traceback" not in response.text
+    assert pending_work.get_pending_work(db_path, kind=pending_work.KIND_CONFIG) is not None
+    assert not (tmp_path / "logs" / "web" / "audit.log").exists()
 
 
 def test_schedule_autostart_actions_require_installed_service(

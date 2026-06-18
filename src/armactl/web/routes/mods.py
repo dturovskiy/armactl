@@ -91,23 +91,6 @@ def _run_mod_action(
             "Unknown mod action.",
             status_code=status.HTTP_400_BAD_REQUEST,
         )
-    except Exception:
-        result = mod_actions.ModActionResult(
-            action=action,
-            instance=paths.DEFAULT_INSTANCE_NAME,
-            target="",
-            success=False,
-            changed=False,
-            message="Mod action is unavailable.",
-            exit_code=1,
-            audit_written=False,
-        )
-        return _render_mods_page(
-            request,
-            current,
-            result=result,
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
 
     pending_warning = ""
     if result.changed:

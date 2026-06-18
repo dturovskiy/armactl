@@ -71,7 +71,7 @@ def _render_dashboard(request: Request, current: CurrentSession) -> Response:
     templates = request.app.state.templates
     try:
         snapshot, dashboard, permissions = _load_dashboard_model(current)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - dashboard rendering must degrade safely.
         return templates.TemplateResponse(
             request=request,
             name="dashboard_error.html",
@@ -142,7 +142,7 @@ def dashboard_status_json(request: Request) -> Response:
 
     try:
         snapshot, dashboard, _permissions = _load_dashboard_model(current)
-    except Exception:
+    except Exception:  # noqa: BLE001 - dashboard polling must degrade safely.
         return JSONResponse(
             {"ok": False, "error": "Dashboard data is unavailable."},
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

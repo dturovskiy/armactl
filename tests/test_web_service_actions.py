@@ -141,6 +141,18 @@ def test_service_action_redacts_backend_message(monkeypatch):
     assert "token=***" in result.message
 
 
+def test_service_manager_exception_is_not_converted_to_controlled_result(monkeypatch):
+    _patch_state(monkeypatch, _state(running=False))
+
+    def start(service_name: str) -> ServiceResult:
+        raise RuntimeError("unexpected service bug token=raw-service-secret")
+
+    monkeypatch.setattr(service_actions.service_manager, "start_service", start)
+
+    with pytest.raises(RuntimeError, match="unexpected service bug"):
+        service_actions.run_service_action("start")
+
+
 def test_service_action_audit_writes_safe_jsonl(monkeypatch, tmp_path: Path):
     calls: list[tuple[str, str]] = []
     _patch_state(monkeypatch, _state(running=False))

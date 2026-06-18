@@ -112,7 +112,7 @@ def _admin_label(value: Any) -> str:
 def _config_path(instance: str) -> Path:
     try:
         state = discovery.discover(instance=instance, save=False)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - discovery preflight fails closed.
         raise AdminActionError("Server config path is unavailable.") from exc
     if not state.config_path:
         raise AdminActionError("Server config path is unavailable.")
@@ -185,13 +185,6 @@ def add_or_update_admin(
             target=reference,
             message=error,
         )
-    except Exception:
-        return _failure(
-            action=ACTION_ADD,
-            instance=normalized_instance,
-            target=reference,
-            message="Admin action is unavailable.",
-        )
 
     action = ACTION_ADD if created else ACTION_UPDATE
     return _result(
@@ -229,13 +222,6 @@ def remove_admin(
             instance=normalized_instance,
             target=reference,
             message=error,
-        )
-    except Exception:
-        return _failure(
-            action=ACTION_REMOVE,
-            instance=normalized_instance,
-            target=reference,
-            message="Admin action is unavailable.",
         )
 
     if not removed:

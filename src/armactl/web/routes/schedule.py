@@ -107,25 +107,6 @@ def _run_schedule_action(
             "Unknown schedule action.",
             status_code=status.HTTP_400_BAD_REQUEST,
         )
-    except Exception:
-        result = schedule_actions.ScheduleActionResult(
-            action=normalized,
-            instance=paths.DEFAULT_INSTANCE_NAME,
-            target="",
-            success=False,
-            message="Schedule action is unavailable.",
-            exit_code=1,
-            performed=False,
-            schedule="",
-            schedule_entries=[],
-            audit_written=False,
-        )
-        return _render_schedule(
-            request,
-            current,
-            result=result,
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
 
     if normalized == schedule_actions.ACTION_RESTART_NOW and result.success and result.performed:
         pending_work.clear_restart_pending_work(

@@ -143,6 +143,39 @@ audit coverage.
 | `POST /players/refresh` | `players:view` | Yes | `players.refresh` | No | Stores reliable IDs/nickname history only; no IP storage by default |
 | `POST /schedule/set`, `/schedule/enable`, `/schedule/disable`, `/schedule/autostart/enable`, `/schedule/autostart/disable`, `/schedule/restart-now` | `schedule:manage`; restart-now and autostart-disable require confirmation | Yes | `schedule.set`, `schedule.enable`, `schedule.disable`, `service.autostart-enable`, `service.autostart-disable`, `schedule.restart-now` | Successful performed `schedule.restart-now` clears restart-related pending work | Schedule/service messages are bounded and redacted |
 
+## Broad Exception Audit Inventory
+
+As of the mutating-route cleanup slice, broad except Exception usage in
+src/armactl/web/routes and src/armactl/web/services has been audited.
+
+Removed/replaced:
+
+- routes/mods.py and routes/admins.py no longer catch generic backend
+  exceptions around mutating action workflows. Domain/config failures are
+  returned by mod_actions/admin_actions as controlled, redacted results;
+  unexpected RuntimeError-style bugs propagate as generic 500 responses instead
+  of fake action results.
+- routes/service.py and routes/schedule.py no longer catch generic workflow
+  exceptions. ServiceResult failures remain controlled; unexpected exceptions
+  do not clear pending work or render completed/unavailable action panels.
+- services/mod_actions.py and services/admin_actions.py no longer catch generic
+  manager exceptions after validation/config discovery. ConfigError remains the
+  explicit controlled domain failure path.
+- services/service_actions.py no longer catches generic service-manager
+  execution exceptions after preflight checks.
+
+Intentionally remaining broad catches:
+
+| Location | Classification | Reason |
+|----------|----------------|--------|
+| routes/dashboard.py | legit degradation fallback | Read-only dashboard HTML/status JSON return controlled unavailable responses instead of tracebacks. |
+| services/log_views.py | legit fail-closed diagnostics | Fixed log/report sources are diagnostics; unavailable sources render bounded controlled placeholders. |
+| services/player_moderation.py | legit degradation fallback | Current-player moderation panel is best-effort UI data and must not block the admins page. |
+| services/mod_actions.py, services/admin_actions.py | legit fail-closed preflight | Discovery failure happens before mutation and becomes a controlled config-path unavailable domain result. |
+| services/service_actions.py, services/schedule_actions.py | legit fail-closed preflight | Discovery failure happens before service/timer mutation and returns controlled unavailable results. |
+| services/pending_work.py | legit fallback/degradation | web.db write/list failures fall back to private sidecar storage or sidecar-only listing. |
+| services/server_job_actions.py | best-effort cleanup | If audit fails after creating a job, cancellation is attempted but the original audit failure remains the reported error. |
+
 ## Current implementation status
 
 Completed foundation:

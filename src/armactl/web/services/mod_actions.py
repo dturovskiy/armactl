@@ -101,7 +101,7 @@ def _mod_id(value: Any) -> str:
 def _config_path(instance: str) -> Path:
     try:
         state = discovery.discover(instance=instance, save=False)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - discovery preflight fails closed.
         raise ModActionError("Server config path is unavailable.") from exc
     if not state.config_path:
         raise ModActionError("Server config path is unavailable.")
@@ -199,13 +199,6 @@ def add_or_update_mod(
             target=mod_id,
             message=error,
         )
-    except Exception:
-        return _failure(
-            action=ACTION_ADD,
-            instance=normalized_instance,
-            target=mod_id,
-            message="Mod action is unavailable.",
-        )
 
     if result.status == "added":
         return _result(
@@ -266,13 +259,6 @@ def disable_mod(
             target=mod_id,
             message=error,
         )
-    except Exception:
-        return _failure(
-            action=ACTION_DISABLE,
-            instance=normalized_instance,
-            target=mod_id,
-            message="Mod action is unavailable.",
-        )
 
     return _result(
         action=ACTION_DISABLE,
@@ -303,13 +289,6 @@ def enable_mod(
             target=mod_id,
             message=error,
         )
-    except Exception:
-        return _failure(
-            action=ACTION_ENABLE,
-            instance=normalized_instance,
-            target=mod_id,
-            message="Mod action is unavailable.",
-        )
 
     return _result(
         action=ACTION_ENABLE,
@@ -339,13 +318,6 @@ def remove_mod(
             instance=normalized_instance,
             target=mod_id,
             message=error,
-        )
-    except Exception:
-        return _failure(
-            action=ACTION_REMOVE,
-            instance=normalized_instance,
-            target=mod_id,
-            message="Mod action is unavailable.",
         )
 
     return _result(

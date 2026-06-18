@@ -107,7 +107,7 @@ def enqueue_server_job_and_start(
                     job.id,
                     result_message="Cancelled because audit logging failed.",
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 - best-effort cleanup only.
                 pass
         raise ServerJobAuditError(JOB_AUDIT_FAILED_MESSAGE) from exc
 

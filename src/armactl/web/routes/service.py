@@ -151,23 +151,6 @@ def service_action(
             "Unknown service action.",
             status_code=status.HTTP_400_BAD_REQUEST,
         )
-    except Exception:
-        result = service_actions.ServiceActionResult(
-            action=normalized,
-            instance=paths.DEFAULT_INSTANCE_NAME,
-            service_name="",
-            success=False,
-            message="Service action is unavailable.",
-            exit_code=1,
-            performed=False,
-            audit_written=False,
-        )
-        return _render_result(
-            request,
-            current,
-            result,
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
 
     pending_restart_work_cleared = False
     if normalized == "restart" and result.success and result.performed:

@@ -135,7 +135,7 @@ def run_service_action(
 
     try:
         state = discovery.discover(instance=instance, save=False)
-    except Exception:
+    except Exception:  # noqa: BLE001 - discovery preflight fails closed.
         return _result(
             action=normalized,
             instance=instance,
@@ -190,18 +190,7 @@ def run_service_action(
         )
 
     manager = _manager_for_action(normalized)
-    try:
-        backend_result = manager(service_name)
-    except Exception:
-        return _result(
-            action=normalized,
-            instance=instance,
-            service_name=service_name,
-            success=False,
-            message="Service action is unavailable.",
-            exit_code=1,
-            performed=True,
-        )
+    backend_result = manager(service_name)
 
     return _result(
         action=normalized,

@@ -1276,7 +1276,13 @@ Pay this down before adding another large web feature slice. These are refactors
 - Split facade.py by page/domain DTO once the current web flows stabilize. Dashboard/status aggregation, config summaries, mods/admins/bot summaries, and schedule state should not keep growing in one file.
 - Split services/filesystem.py before adding delete, text edit, overwrite, rename, or archive extraction. Keep path jail/root resolution separate from listing, preview, download, upload staging, and future destructive actions.
 - Split the oversized tests/test_web_app.py into focused route/static/dashboard/preference/service tests. New tests should patch service/facade seams, not imported route globals or FastAPI endpoint internals.
-- Audit broad except Exception usage in web routes/services. Keep documented fail-closed diagnostics and dashboard degradation paths, but prefer explicit domain errors for mutating workflows.
+- Done: audited broad except Exception usage in web routes/services for the mutating-route cleanup slice. Removed generic catches from mods/admins/service/schedule routes, removed generic manager catches from mods/admins action services, and let unexpected service-manager exceptions propagate instead of rendering fake action results. Remaining broad catches are documented fail-closed/degradation or best-effort cleanup cases only:
+  - routes/dashboard.py: dashboard HTML and status JSON degrade to controlled unavailable responses.
+  - services/log_views.py: fixed diagnostics/report preview fail closed without tracebacks.
+  - services/player_moderation.py: current-player panel degrades to unavailable UI data.
+  - services/mod_actions.py, admin_actions.py, service_actions.py, schedule_actions.py: discovery preflight failures become controlled unavailable/domain results before mutation.
+  - services/pending_work.py: web.db failures fall back to private sidecar storage/listing.
+  - services/server_job_actions.py: audit-failure cleanup cancels just-created jobs best-effort while preserving the original audit error.
 - Treat best-effort cleanup, such as cancelling a just-created job after audit failure, as explicit behavior with a comment/test instead of an invisible workaround.
 - The `web_jobs` duplicate-active persistence blocker is closed for install/repair: schema maintenance cancels old duplicate `queued`/`running` rows deterministically, active lookup uses an indexed `(kind, instance, status, created_at, id)` path, and `/jobs` surfaces job-store integrity warnings instead of hiding them as deferred debt.
 - Follow-up owner: next jobs/update slice. Run `EXPLAIN QUERY PLAN` plus latency checks on production-scale job history before adding update jobs or a standalone worker daemon.

@@ -18,12 +18,12 @@ from armactl.web.auth.setup import setup_owner_user
 from armactl.web.auth.users import get_user_by_username
 
 
-def _client(app):
+def _client(app, *, raise_server_exceptions: bool = True):
     with warnings.catch_warnings():
         warnings.simplefilter("error", StarletteDeprecationWarning)
         from fastapi.testclient import TestClient
 
-        return TestClient(app)
+        return TestClient(app, raise_server_exceptions=raise_server_exceptions)
 
 
 def _form_token(html: str) -> str:
@@ -178,7 +178,7 @@ def test_admin_action_helper_returns_controlled_backend_error(
     )
 
     def add_admin(path: Path, admin_reference: str, name: str = "") -> bool:
-        raise RuntimeError("backend exploded token=raw-admin-secret")
+        raise ConfigError("backend failed token=raw-admin-secret")
 
     monkeypatch.setattr(admin_actions.admins_manager, "add_admin", add_admin)
 
@@ -190,8 +190,62 @@ def test_admin_action_helper_returns_controlled_backend_error(
 
     assert result.success is False
     assert result.changed is False
-    assert result.message == "Admin action is unavailable."
+    assert result.message == "backend failed token=***"
     assert "raw-admin-secret" not in result.message
+
+
+def test_admins_unexpected_backend_exception_is_not_rendered_as_action_result(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services import admin_actions
+    from armactl.web.services.pending_work import list_pending_work
+
+    config_path = _write_admin_config(tmp_path, [])
+    setup_owner_user(tmp_path, "owner", "owner admins password")
+    _patch_admins_page(monkeypatch)
+    monkeypatch.setattr(
+        admin_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def add_admin(path: Path, admin_reference: str, name: str = "") -> bool:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+        payload["game"]["admins"] = [admin_reference]
+        config_path.write_text(json.dumps(payload), encoding="utf-8")
+        raise RuntimeError("unexpected mutation bug token=raw-admin-secret")
+
+    monkeypatch.setattr(admin_actions.admins_manager, "add_admin", add_admin)
+    client = _client(
+        create_app(data_root=tmp_path),
+        raise_server_exceptions=False,
+    )
+    _login(client, "owner", "owner admins password")
+    csrf_token = _admins_csrf_token(client)
+
+    response = client.post(
+        "/admins/add",
+        data={
+            "csrf_token": csrf_token,
+            "admin_reference": "76561198000000002",
+            "label": "Captain token=raw-admin-secret",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 500
+    assert "Internal Server Error" in response.text
+    assert "Admin added." not in response.text
+    assert "Admin action is unavailable." not in response.text
+    assert "raw-admin-secret" not in response.text
+    assert "Traceback" not in response.text
+    assert json.loads(config_path.read_text(encoding="utf-8"))["game"]["admins"] == [
+        "76561198000000002"
+    ]
+    assert list_pending_work(tmp_path / "web" / "web.db") == []
+    assert not (tmp_path / "logs" / "web" / "audit.log").exists()
 
 
 def test_admins_routes_require_authentication(tmp_path: Path):

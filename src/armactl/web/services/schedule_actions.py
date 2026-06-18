@@ -184,7 +184,7 @@ def _result(
 def _discover(instance: str) -> ServerState | None:
     try:
         return discovery.discover(instance=instance, save=False)
-    except Exception:
+    except Exception:  # noqa: BLE001 - discovery preflight fails closed.
         return None
 
 

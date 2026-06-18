@@ -111,7 +111,7 @@ def load_player_moderation_panel(
             state=state,
             include_roster=True,
         )
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - player panel degrades safely.
         return PlayerModerationPanel(
             available=False,
             query=normalized_query,

@@ -291,12 +291,21 @@ def _incomplete_snapshot() -> dict:
     return snapshot
 
 
-def _client(app, base_url: str = "http://testserver"):
+def _client(
+    app,
+    base_url: str = "http://testserver",
+    *,
+    raise_server_exceptions: bool = True,
+):
     with warnings.catch_warnings():
         warnings.simplefilter("error", StarletteDeprecationWarning)
         from fastapi.testclient import TestClient
 
-        return TestClient(app, base_url=base_url)
+        return TestClient(
+            app,
+            base_url=base_url,
+            raise_server_exceptions=raise_server_exceptions,
+        )
 
 
 def _form_token(html: str) -> str:
@@ -2401,6 +2410,56 @@ def test_failed_service_restart_does_not_clear_pending_work(
     assert "Pending restart work cleared." not in response.text
     assert "backend-secret" not in response.text
     assert get_pending_work(db_path, kind=KIND_CONFIG) is not None
+
+
+def test_service_unexpected_backend_exception_does_not_clear_pending_work(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services import service_actions
+    from armactl.web.services.pending_work import (
+        KIND_CONFIG,
+        get_pending_work,
+        mark_restart_pending,
+    )
+
+    password = "owner action password"
+    setup_owner_user(tmp_path, "owner", password)
+    _stub_dashboard(monkeypatch)
+
+    def fail_action(*args, **kwargs):
+        raise RuntimeError("unexpected service bug token=raw-service-secret")
+
+    monkeypatch.setattr(service_actions, "run_service_action_and_audit", fail_action)
+    db_path = tmp_path / "web" / "web.db"
+    mark_restart_pending(
+        db_path,
+        kind=KIND_CONFIG,
+        source_action="config.save",
+        username="owner",
+    )
+    client = _client(
+        create_app(data_root=tmp_path),
+        raise_server_exceptions=False,
+    )
+    _login(client, "owner", password)
+    csrf_token = _action_csrf_token(client)
+
+    response = client.post(
+        "/service/restart",
+        data={"csrf_token": csrf_token, "confirm": "restart"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 500
+    assert "Internal Server Error" in response.text
+    assert "Server restart completed." not in response.text
+    assert "Service action is unavailable." not in response.text
+    assert "raw-service-secret" not in response.text
+    assert "Traceback" not in response.text
+    assert get_pending_work(db_path, kind=KIND_CONFIG) is not None
+    assert not (tmp_path / "logs" / "web" / "audit.log").exists()
 
 
 def test_service_restart_clears_migrated_legacy_pending_restart(

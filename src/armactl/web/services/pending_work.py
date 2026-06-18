@@ -477,7 +477,7 @@ def mark_restart_pending_safely(
             ),
             False,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - web.db failure falls back to private sidecar.
         try:
             return (
                 mark_restart_pending_fallback(
@@ -492,7 +492,7 @@ def mark_restart_pending_safely(
                 ),
                 True,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - both stores failed.
             raise PendingWorkFallbackError(PENDING_WORK_STORAGE_FAILED_MESSAGE) from exc
 
 
@@ -592,7 +592,7 @@ def list_pending_work_with_fallback(
             instance=instance,
             limit=DEFAULT_PENDING_WORK_LIMIT,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - listing degrades to fallback sidecar records.
         normal_items = []
     normal_keys = {_pending_work_key(item) for item in normal_items}
     fallback_items = [

@@ -19,12 +19,12 @@ from armactl.web.auth.setup import setup_owner_user
 from armactl.web.auth.users import get_user_by_username
 
 
-def _client(app):
+def _client(app, *, raise_server_exceptions: bool = True):
     with warnings.catch_warnings():
         warnings.simplefilter("error", StarletteDeprecationWarning)
         from fastapi.testclient import TestClient
 
-        return TestClient(app)
+        return TestClient(app, raise_server_exceptions=raise_server_exceptions)
 
 
 def _form_token(html: str) -> str:
@@ -180,7 +180,7 @@ def test_mod_action_helper_returns_controlled_backend_error(
     )
 
     def add_mod(path: Path, mod_id: str, name: str = "", version: str = "") -> ModAddResult:
-        raise RuntimeError("backend exploded token=raw-mod-secret")
+        raise ConfigError("backend failed token=raw-mod-secret")
 
     monkeypatch.setattr(mod_actions.mods_manager, "add_mod_detailed", add_mod)
 
@@ -192,8 +192,73 @@ def test_mod_action_helper_returns_controlled_backend_error(
 
     assert result.success is False
     assert result.changed is False
-    assert result.message == "Mod action is unavailable."
+    assert result.message == "backend failed token=***"
     assert "raw-mod-secret" not in result.message
+
+
+def test_mods_unexpected_backend_exception_is_not_rendered_as_action_result(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services import mod_actions
+    from armactl.web.services.pending_work import list_pending_work
+
+    config_path = _write_mod_config(tmp_path, [])
+    setup_owner_user(tmp_path, "owner", "owner mods password")
+    _patch_mods_page(monkeypatch)
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def add_mod(path: Path, mod_id: str, name: str = "", version: str = "") -> ModAddResult:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+        payload["game"]["mods"] = [
+            {
+                "modId": mod_id,
+                "name": name,
+                "version": version,
+            }
+        ]
+        config_path.write_text(json.dumps(payload), encoding="utf-8")
+        raise RuntimeError("unexpected mutation bug token=raw-mod-secret")
+
+    monkeypatch.setattr(mod_actions.mods_manager, "add_mod_detailed", add_mod)
+    client = _client(
+        create_app(data_root=tmp_path),
+        raise_server_exceptions=False,
+    )
+    _login(client, "owner", "owner mods password")
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/add",
+        data={
+            "csrf_token": csrf_token,
+            "mod_id": "CCCCCCCCCCCCCCCC",
+            "name": "Charlie token=raw-mod-secret",
+            "version": "1.2.3",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 500
+    assert "Internal Server Error" in response.text
+    assert "Mod added." not in response.text
+    assert "Mod action is unavailable." not in response.text
+    assert "raw-mod-secret" not in response.text
+    assert "Traceback" not in response.text
+    assert json.loads(config_path.read_text(encoding="utf-8"))["game"]["mods"] == [
+        {
+            "modId": "CCCCCCCCCCCCCCCC",
+            "name": "Charlie token=raw-mod-secret",
+            "version": "1.2.3",
+        }
+    ]
+    assert list_pending_work(tmp_path / "web" / "web.db") == []
+    assert not (tmp_path / "logs" / "web" / "audit.log").exists()
 
 
 def test_mods_routes_require_authentication(tmp_path: Path):
