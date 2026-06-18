@@ -1174,7 +1174,7 @@ parallel source of truth.
 
 - `routes/` are HTTP adapters only: authenticate, authorize, validate request
   data, call one facade/service, and render a template or return JSON.
-- `facade.py` and `views/` build read-only DTOs for templates and polling JSON.
+- `page_models/` and `views/` build read-only DTOs for templates and polling JSON; `facade.py` is a legacy re-export shim only.
   They may combine backend data, but they must not mutate server state.
 - `services/` contains web-owned workflows such as config edits, admin actions,
   mod actions, filesystem containment, audit, pending work, and job dispatch.
@@ -1277,9 +1277,10 @@ Pay this down before adding another large web feature slice. These are refactors
 Before starting a project-wide modularity refactor, run the baseline audit in `docs/system-modularity-audit.md` and turn the findings into small ordered slices. Do not mix that baseline audit with feature work.
 
 - Done: split the broad routes/management.py surface into domain routers for config, mods, admins, and bot flows without changing URLs, permissions, templates, CSRF checks, audit calls, or pending-work behavior.
-- Split facade.py by page/domain DTO once the current web flows stabilize. Dashboard/status aggregation, config summaries, mods/admins/bot summaries, and schedule state should not keep growing in one file.
-- Split services/filesystem.py before adding delete, text edit, overwrite, rename, or archive extraction. Keep path jail/root resolution separate from listing, preview, download, upload staging, and future destructive actions.
-- Split the oversized tests/test_web_app.py into focused route/static/dashboard/preference/service tests. New tests should patch service/facade seams, not imported route globals or FastAPI endpoint internals.
+- Completed: split `facade.py` by page/domain DTO. Dashboard/status aggregation, config, mods, admins, bot, and schedule page loaders now live under `src/armactl/web/page_models/`; `facade.py` is only a compatibility re-export layer.
+- Remaining: split `services/filesystem.py` before adding delete, text edit, overwrite, rename, or archive extraction. Keep path jail/root resolution separate from listing, preview, download, upload staging, and future destructive actions.
+- Remaining: split the oversized `tests/test_web_app.py` into focused route/static/dashboard/preference/service tests. New tests should patch service/facade seams, not imported route globals or FastAPI endpoint internals.
+- Remaining: repeat the architecture/modularity audit after the refactor slices so follow-up feature work starts from the updated module boundaries.
 - Done: audited broad except Exception usage in web routes/services for the mutating-route cleanup slice. Removed generic catches from mods/admins/service/schedule routes, removed generic manager catches from mods/admins action services, and let unexpected service-manager exceptions propagate instead of rendering fake action results. Remaining broad catches are documented fail-closed/degradation or best-effort cleanup cases only:
   - routes/dashboard.py: dashboard HTML and status JSON degrade to controlled unavailable responses.
   - services/log_views.py: fixed diagnostics/report preview fail closed without tracebacks.
@@ -1584,7 +1585,7 @@ not the foreground debug runner.
 
 - Status endpoint and dashboard.
 - Metrics and player view.
-- Read-only config, mods, game admins, and Telegram bot detail pages are implemented through the web facade.
+- Read-only config, mods, game admins, and Telegram bot detail pages are implemented through domain page-model loaders.
 - Read-only logs/report views are implemented with fixed sources, bounded output, and redaction.
 - No mutating actions in this phase except login/logout.
 

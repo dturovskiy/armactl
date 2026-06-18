@@ -1,4 +1,4 @@
-# Tests for the read-only web dashboard facade.
+# Tests for web page DTO loaders.
 
 from __future__ import annotations
 
@@ -20,8 +20,28 @@ from armactl.state import PortInfo, ServerState
 from armactl.status_summary import ConfigSummary, ModsSummary, ModSummaryEntry
 
 
-def _import_facade():
-    return importlib.import_module("armactl.web.facade")
+def _import_dashboard_model():
+    return importlib.import_module("armactl.web.page_models.dashboard")
+
+
+def _import_common_model():
+    return importlib.import_module("armactl.web.page_models.common")
+
+
+def _import_config_model():
+    return importlib.import_module("armactl.web.page_models.config")
+
+
+def _import_mods_model():
+    return importlib.import_module("armactl.web.page_models.mods")
+
+
+def _import_admins_model():
+    return importlib.import_module("armactl.web.page_models.admins")
+
+
+def _import_bot_model():
+    return importlib.import_module("armactl.web.page_models.bot")
 
 
 def _state(
@@ -51,9 +71,10 @@ def _state(
     )
 
 
-def _install_bot_fakes(monkeypatch, facade, *, enabled: bool = False) -> None:
+def _install_bot_fakes(monkeypatch, *, enabled: bool = False) -> None:
+    bot_model = _import_bot_model()
     monkeypatch.setattr(
-        facade.bot_config,
+        bot_model.bot_config,
         "load_bot_config",
         lambda instance: SimpleNamespace(
             enabled=enabled,
@@ -64,7 +85,7 @@ def _install_bot_fakes(monkeypatch, facade, *, enabled: bool = False) -> None:
         ),
     )
     monkeypatch.setattr(
-        facade.paths,
+        bot_model.paths,
         "bot_service_file",
         lambda: Path("/nonexistent/armactl-bot.service"),
     )
@@ -77,7 +98,7 @@ def _install_common_fakes(
     service_active: bool = False,
     players: PlayerView | None = None,
 ) -> Any:
-    facade = _import_facade()
+    facade = _import_dashboard_model()
 
     monkeypatch.setattr(facade.discovery, "discover", lambda instance, save=False: server_state)
     monkeypatch.setattr(
@@ -209,7 +230,7 @@ def _install_common_fakes(
             }
         ),
     )
-    _install_bot_fakes(monkeypatch, facade)
+    _install_bot_fakes(monkeypatch)
     return facade
 
 
@@ -220,11 +241,20 @@ def _fail_if_called(name: str) -> Callable[..., Any]:
     return fail
 
 
-def test_facade_import_does_not_import_tui_textual_or_click(
+def test_page_model_imports_do_not_import_tui_textual_or_click(
     assert_import_does_not_import_modules,
 ):
     forbidden = ("armactl.tui", "textual", "click")
-    assert_import_does_not_import_modules("armactl.web.facade", forbidden)
+    for module_name in (
+        "armactl.web.page_models.dashboard",
+        "armactl.web.page_models.config",
+        "armactl.web.page_models.mods",
+        "armactl.web.page_models.admins",
+        "armactl.web.page_models.bot",
+        "armactl.web.page_models.schedule",
+        "armactl.web.facade",
+    ):
+        assert_import_does_not_import_modules(module_name, forbidden)
 
 
 def test_dashboard_snapshot_for_stopped_server(monkeypatch):
@@ -407,7 +437,7 @@ def test_dashboard_snapshot_includes_external_bind_warning(monkeypatch, tmp_path
 
 def test_dashboard_snapshot_for_no_server_skips_server_sections(monkeypatch):
     server_state = _state(installed=False, config_exists=False, config_path="")
-    facade = _import_facade()
+    facade = _import_dashboard_model()
     monkeypatch.setattr(facade.discovery, "discover", lambda instance, save=False: server_state)
     monkeypatch.setattr(facade.service_manager, "get_service_status", _fail_if_called("service"))
     monkeypatch.setattr(facade.service_manager, "get_timer_status", _fail_if_called("timer"))
@@ -433,7 +463,7 @@ def test_dashboard_snapshot_for_no_server_skips_server_sections(monkeypatch):
         "inspect_sat_admin_config",
         _fail_if_called("sat"),
     )
-    _install_bot_fakes(monkeypatch, facade)
+    _install_bot_fakes(monkeypatch)
 
     snapshot = facade.load_dashboard_snapshot("default")
 
@@ -523,7 +553,11 @@ def test_dashboard_snapshot_degrades_when_sections_raise(monkeypatch):
 
 
 def test_management_page_snapshots_are_safe_read_only(monkeypatch):
-    facade = _import_facade()
+    common_model = _import_common_model()
+    config_model = _import_config_model()
+    mods_model = _import_mods_model()
+    admins_model = _import_admins_model()
+    bot_model = _import_bot_model()
     server_state = _state(installed=True, running=False)
     config = {
         "bindPort": 2400,
@@ -539,10 +573,14 @@ def test_management_page_snapshots_are_safe_read_only(monkeypatch):
         "rcon": {"port": 20000, "password": "rcon-password-secret"},
     }
 
-    monkeypatch.setattr(facade.discovery, "discover", lambda instance, save=False: server_state)
-    monkeypatch.setattr(facade.config_manager, "load_config", lambda config_path: config)
     monkeypatch.setattr(
-        facade.mods_manager,
+        common_model.discovery,
+        "discover",
+        lambda instance, save=False: server_state,
+    )
+    monkeypatch.setattr(config_model.config_manager, "load_config", lambda config_path: config)
+    monkeypatch.setattr(
+        mods_model.mods_manager,
         "get_mods",
         lambda config_path: [
             {"modId": "mod-a", "name": "Mod A", "version": "1.0"},
@@ -550,24 +588,28 @@ def test_management_page_snapshots_are_safe_read_only(monkeypatch):
         ],
     )
     monkeypatch.setattr(
-        facade.admins_manager,
+        admins_model.admins_manager,
         "admins_state_path_for_config",
         lambda config_path: Path("/srv/armactl-data/default/config/admins-state.json"),
     )
     monkeypatch.setattr(
-        facade.admins_manager,
+        admins_model.admins_manager,
         "load_admins",
         lambda config_path: [
             {"identityId": "ABC123", "name": "Local Captain", "source": "local"}
         ],
     )
-    monkeypatch.setattr(facade.admins_manager, "get_admins", _fail_if_called("get_admins"))
-    _install_bot_fakes(monkeypatch, facade, enabled=True)
+    monkeypatch.setattr(
+        admins_model.admins_manager,
+        "get_admins",
+        _fail_if_called("get_admins"),
+    )
+    _install_bot_fakes(monkeypatch, enabled=True)
 
-    config_page = facade.load_config_page("default")
-    mods_page = facade.load_mods_page("default")
-    admins_page = facade.load_admins_page("default")
-    bot_page = facade.load_bot_page("default")
+    config_page = config_model.load_config_page("default")
+    mods_page = mods_model.load_mods_page("default")
+    admins_page = admins_model.load_admins_page("default")
+    bot_page = bot_model.load_bot_page("default")
     payload = json.dumps([config_page, mods_page, admins_page, bot_page])
 
     assert config_page["config"]["server_name"] == "Read Only Server"
@@ -589,16 +631,23 @@ def test_management_page_snapshots_are_safe_read_only(monkeypatch):
 
 
 def test_management_pages_handle_missing_config_without_loading_backends(monkeypatch):
-    facade = _import_facade()
+    common_model = _import_common_model()
+    config_model = _import_config_model()
+    mods_model = _import_mods_model()
+    admins_model = _import_admins_model()
     server_state = _state(installed=True, running=False, config_exists=False, config_path="")
-    monkeypatch.setattr(facade.discovery, "discover", lambda instance, save=False: server_state)
-    monkeypatch.setattr(facade.config_manager, "load_config", _fail_if_called("load_config"))
-    monkeypatch.setattr(facade.mods_manager, "get_mods", _fail_if_called("get_mods"))
-    monkeypatch.setattr(facade.admins_manager, "load_admins", _fail_if_called("load_admins"))
+    monkeypatch.setattr(
+        common_model.discovery,
+        "discover",
+        lambda instance, save=False: server_state,
+    )
+    monkeypatch.setattr(config_model.config_manager, "load_config", _fail_if_called("load_config"))
+    monkeypatch.setattr(mods_model.mods_manager, "get_mods", _fail_if_called("get_mods"))
+    monkeypatch.setattr(admins_model.admins_manager, "load_admins", _fail_if_called("load_admins"))
 
-    config_page = facade.load_config_page("default")
-    mods_page = facade.load_mods_page("default")
-    admins_page = facade.load_admins_page("default")
+    config_page = config_model.load_config_page("default")
+    mods_page = mods_model.load_mods_page("default")
+    admins_page = admins_model.load_admins_page("default")
 
     assert config_page["available"] is False
     assert mods_page["available"] is False

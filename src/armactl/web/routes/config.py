@@ -6,7 +6,6 @@ from fastapi import APIRouter, Form, Request, status
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 from armactl import paths
-from armactl.web import facade
 from armactl.web.auth.cookies import set_csrf_cookie
 from armactl.web.auth.csrf import validate_csrf_token
 from armactl.web.auth.dependencies import (
@@ -17,6 +16,7 @@ from armactl.web.auth.dependencies import (
     require_permission,
 )
 from armactl.web.auth.permissions import CONFIG_VIEW, SETTINGS_MANAGE
+from armactl.web.page_models.config import load_config_page
 from armactl.web.routes._common import mark_restart_pending_for_result, redirect_to_login
 from armactl.web.services import config_edit, pending_work
 
@@ -39,7 +39,7 @@ def _render_config_page(
         return permission_denied_response()
 
     form_csrf = get_form_csrf_token(request, current)
-    page = facade.load_config_page(paths.DEFAULT_INSTANCE_NAME)
+    page = load_config_page(paths.DEFAULT_INSTANCE_NAME)
     response = request.app.state.templates.TemplateResponse(
         request=request,
         name="config.html",

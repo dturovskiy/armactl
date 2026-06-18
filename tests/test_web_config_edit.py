@@ -98,11 +98,11 @@ def _state_for(config_path: Path) -> ServerState:
 
 
 def _patch_discovery(monkeypatch, config_path: Path) -> None:
-    from armactl.web import facade
+    from armactl.web.page_models import common as page_common
     from armactl.web.services import config_edit
 
     state = _state_for(config_path)
-    monkeypatch.setattr(facade.discovery, "discover", lambda instance, save=False: state)
+    monkeypatch.setattr(page_common.discovery, "discover", lambda instance, save=False: state)
     monkeypatch.setattr(config_edit.discovery, "discover", lambda instance, save=False: state)
 
 

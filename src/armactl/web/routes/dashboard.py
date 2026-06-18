@@ -26,9 +26,9 @@ from armactl.web.auth.permissions import (
     MODS_VIEW,
     SCHEDULE_VIEW,
 )
-from armactl.web.facade import load_dashboard_snapshot
 from armactl.web.i18n import resolve_language, translation_helpers
 from armactl.web.jobs.store import list_recent_jobs
+from armactl.web.page_models.dashboard import load_dashboard_snapshot
 from armactl.web.services.pending_work import list_pending_work_with_fallback
 from armactl.web.views.dashboard import (
     build_dashboard_status_payload,

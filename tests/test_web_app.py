@@ -425,7 +425,10 @@ def _management_pages() -> dict[str, dict]:
 
 
 def _stub_management_pages(monkeypatch, pages: dict[str, dict] | None = None) -> list[str]:
-    from armactl.web import facade
+    from armactl.web.routes import admins as admins_route
+    from armactl.web.routes import bot as bot_route
+    from armactl.web.routes import config as config_route
+    from armactl.web.routes import mods as mods_route
     from armactl.web.services import player_moderation
 
     page_data = pages or _management_pages()
@@ -439,9 +442,9 @@ def _stub_management_pages(monkeypatch, pages: dict[str, dict] | None = None) ->
 
         return load
 
-    monkeypatch.setattr(facade, "load_config_page", fake_loader("config"))
-    monkeypatch.setattr(facade, "load_mods_page", fake_loader("mods"))
-    monkeypatch.setattr(facade, "load_admins_page", fake_loader("admins"))
+    monkeypatch.setattr(config_route, "load_config_page", fake_loader("config"))
+    monkeypatch.setattr(mods_route, "load_mods_page", fake_loader("mods"))
+    monkeypatch.setattr(admins_route, "load_admins_page", fake_loader("admins"))
     monkeypatch.setattr(
         player_moderation,
         "load_player_moderation_panel",
@@ -456,7 +459,7 @@ def _stub_management_pages(monkeypatch, pages: dict[str, dict] | None = None) ->
             "error": "",
         },
     )
-    monkeypatch.setattr(facade, "load_bot_page", fake_loader("bot"))
+    monkeypatch.setattr(bot_route, "load_bot_page", fake_loader("bot"))
     return calls
 
 

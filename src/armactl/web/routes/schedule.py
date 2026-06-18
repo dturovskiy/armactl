@@ -17,7 +17,7 @@ from armactl.web.auth.dependencies import (
     require_permission,
 )
 from armactl.web.auth.permissions import SCHEDULE_MANAGE, SCHEDULE_VIEW
-from armactl.web.facade import load_schedule_page
+from armactl.web.page_models.schedule import load_schedule_page
 from armactl.web.services import pending_work, schedule_actions
 
 router = APIRouter()

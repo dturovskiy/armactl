@@ -182,7 +182,7 @@ Completed foundation:
 
 1. `src/armactl/web/` package skeleton and import-safety tests.
 2. Optional web dependencies, package-data/bootstrap support, and `scripts/run-web`.
-3. Web-facing facade/DTO layer for read-only dashboard data.
+3. Web-facing page-model/DTO layer for read-only dashboard data.
 4. FastAPI app factory, `/healthz`, package-local templates/static assets, and
    minimal read-only dashboard routes.
 5. Web runtime storage/config/db foundation under `~/armactl-data/web/`.
@@ -206,7 +206,7 @@ Completed foundation:
 13. Expanded read-only dashboard parity: the dashboard now shows safe
     lifecycle, service/timer, paths, config, players, telemetry, host, ports,
     mods, web runtime, Telegram-bot summary, empty-state, and partial-data
-    sections via the web facade.
+    sections via the dashboard page-model loader.
 14. Controlled default-instance start/stop/restart actions: POST-only routes
     require auth, actions:run permission, CSRF, confirmation for stop/restart,
     and append safe JSONL audit entries before rendering controlled results.
@@ -356,8 +356,14 @@ Completed foundation:
 35. Web management route split: /config, /mods, /admins, and /bot now live in
     explicit domain routers under src/armactl/web/routes/. The split preserves
     existing URLs, permissions, templates, CSRF checks, audit calls, and
-    pending-work behavior. facade.py, services/filesystem.py, and the broader
-    tests/test_web_app.py split remain separate architecture cleanup debt.
+    pending-work behavior. services/filesystem.py and the broader
+    tests/test_web_app.py split remain architecture cleanup debt.
+36. Web page-model split: the old facade.py monolith has been split into
+    domain DTO loaders under src/armactl/web/page_models/ for dashboard,
+    config, mods, admins, bot, and schedule. Route modules import their domain
+    loader directly. The remaining facade.py is a thin compatibility re-export
+    layer only; it contains no DTO-building logic. Repeat the
+    architecture/modularity audit after the remaining refactor slices.
 
 Planned but not implemented:
 

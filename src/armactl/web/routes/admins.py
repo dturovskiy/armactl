@@ -6,7 +6,6 @@ from fastapi import APIRouter, Form, Request, status
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
 from armactl import paths
-from armactl.web import facade
 from armactl.web.auth.cookies import set_csrf_cookie
 from armactl.web.auth.csrf import validate_csrf_token
 from armactl.web.auth.dependencies import (
@@ -17,6 +16,7 @@ from armactl.web.auth.dependencies import (
     require_permission,
 )
 from armactl.web.auth.permissions import ADMINS_MANAGE, ADMINS_VIEW
+from armactl.web.page_models.admins import load_admins_page
 from armactl.web.routes._common import mark_restart_pending_for_result, redirect_to_login
 from armactl.web.services import admin_actions, pending_work, player_moderation
 
@@ -36,7 +36,7 @@ def _render_admins_page(
         return permission_denied_response()
 
     form_csrf = get_form_csrf_token(request, current)
-    page = facade.load_admins_page(paths.DEFAULT_INSTANCE_NAME)
+    page = load_admins_page(paths.DEFAULT_INSTANCE_NAME)
     player_panel = player_moderation.load_player_moderation_panel(
         paths.DEFAULT_INSTANCE_NAME,
         query=request.query_params.get("player_search", ""),
