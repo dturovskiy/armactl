@@ -30,14 +30,18 @@ def _redirect_to_login(request: Request) -> RedirectResponse:
     return response
 
 
+def _backend_success(result: service_actions.ServiceActionResult) -> bool:
+    return result.success if result.backend_success is None else result.backend_success
+
+
 def _operator_result_title(result: service_actions.ServiceActionResult) -> str:
     if result.action == "restart":
-        return "Server restart completed." if result.success else "Server restart failed."
+        return "Server restart completed." if _backend_success(result) else "Server restart failed."
     if result.action == "start":
-        return "Server start completed." if result.success else "Server start failed."
+        return "Server start completed." if _backend_success(result) else "Server start failed."
     if result.action == "stop":
-        return "Server stop completed." if result.success else "Server stop failed."
-    return "Service action completed." if result.success else "Service action failed."
+        return "Server stop completed." if _backend_success(result) else "Server stop failed."
+    return "Service action completed." if _backend_success(result) else "Service action failed."
 
 
 def _operator_result_message(
@@ -45,11 +49,14 @@ def _operator_result_message(
     *,
     pending_restart_work_cleared: bool,
 ) -> str:
-    if result.action == "restart" and result.success:
+    backend_success = _backend_success(result)
+    if result.action == "restart" and backend_success:
+        if not result.audit_written:
+            return result.message
         if pending_restart_work_cleared:
             return "Pending restart work cleared."
         return "No pending restart work was waiting."
-    if result.action == "restart" and not result.success and result.performed:
+    if result.action == "restart" and result.performed:
         return "Pending restart work was not cleared."
     if result.success:
         return "The service action completed successfully."
@@ -62,6 +69,7 @@ def _service_result_view(
     result: service_actions.ServiceActionResult,
     *,
     pending_restart_work_cleared: bool,
+    pending_restart_work_warning: str,
 ) -> dict[str, object]:
     show_backend_message = not (result.action == "restart" and result.success)
     return {
@@ -70,7 +78,9 @@ def _service_result_view(
             result,
             pending_restart_work_cleared=pending_restart_work_cleared,
         ),
+        "backend_success": _backend_success(result),
         "pending_restart_work_cleared": pending_restart_work_cleared,
+        "pending_restart_work_warning": pending_restart_work_warning,
         "show_backend_message": show_backend_message,
     }
 
@@ -82,6 +92,7 @@ def _render_result(
     *,
     status_code: int = status.HTTP_200_OK,
     pending_restart_work_cleared: bool = False,
+    pending_restart_work_warning: str = "",
 ) -> Response:
     form_csrf = get_form_csrf_token(request, current)
     response = request.app.state.templates.TemplateResponse(
@@ -94,6 +105,7 @@ def _render_result(
             "result_view": _service_result_view(
                 result,
                 pending_restart_work_cleared=pending_restart_work_cleared,
+                pending_restart_work_warning=pending_restart_work_warning,
             ),
         },
         status_code=status_code,
@@ -153,17 +165,18 @@ def service_action(
         )
 
     pending_restart_work_cleared = False
-    if normalized == "restart" and result.success and result.performed:
-        pending_restart_work_cleared = (
-            pending_work.clear_restart_pending_work(
-                current.config.db_path,
-                instance=paths.DEFAULT_INSTANCE_NAME,
-            )
-            > 0
+    pending_restart_work_warning = ""
+    if normalized == "restart" and _backend_success(result) and result.performed:
+        clear_result = pending_work.clear_restart_pending_work_safely(
+            current.config.db_path,
+            instance=paths.DEFAULT_INSTANCE_NAME,
         )
+        pending_restart_work_cleared = clear_result.total_cleared > 0
+        pending_restart_work_warning = clear_result.warning
     return _render_result(
         request,
         current,
         result,
         pending_restart_work_cleared=pending_restart_work_cleared,
+        pending_restart_work_warning=pending_restart_work_warning,
     )

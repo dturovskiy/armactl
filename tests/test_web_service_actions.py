@@ -165,7 +165,8 @@ def test_service_action_audit_writes_safe_jsonl(monkeypatch, tmp_path: Path):
         username="owner",
     )
 
-    event = json.loads(audit_path.read_text(encoding="utf-8"))
+    events = [json.loads(line) for line in audit_path.read_text(encoding='utf-8').splitlines()]
+    event = [item for item in events if (item.get('details') or {}).get('phase') == 'outcome'][0]
     assert result.success is True
     assert event["username"] == "owner"
     assert event["action"] == "start"

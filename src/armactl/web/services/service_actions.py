@@ -35,6 +35,9 @@ class ServiceActionResult:
     exit_code: int
     performed: bool
     audit_written: bool = True
+    intent_audited: bool = True
+    backend_success: bool | None = None
+    backend_message: str = ""
 
     @property
     def status_label(self) -> str:
@@ -203,6 +206,35 @@ def run_service_action(
     )
 
 
+def _append_service_action_intent(action, *, audit_log_path, username, instance, target):
+    append_audit_event(
+        audit_log_path,
+        username=username,
+        action=action,
+        instance=instance,
+        target=target,
+        success=True,
+        message="Service action requested.",
+        exit_code=0,
+        details={"phase": "intent"},
+    )
+
+
+def _service_intent_audit_failure(action, instance, service_name):
+    return ServiceActionResult(
+        action=action,
+        instance=instance,
+        service_name=service_name,
+        success=False,
+        message="Service action was not run because audit logging failed.",
+        exit_code=1,
+        performed=False,
+        audit_written=False,
+        intent_audited=False,
+        backend_success=False,
+    )
+
+
 def audit_service_action_result(
     result: ServiceActionResult,
     *,
@@ -220,12 +252,15 @@ def audit_service_action_result(
             success=result.success,
             message=result.message,
             exit_code=result.exit_code,
+            details={"phase": "outcome", "performed": "yes" if result.performed else "no"},
         )
     except AuditLogError:
         return replace(
             result,
             success=False,
             message="Service action completed but audit logging failed.",
+            backend_success=result.success,
+            backend_message=result.message,
             exit_code=1,
             audit_written=False,
         )
@@ -239,8 +274,27 @@ def run_service_action_and_audit(
     username: str,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
 ) -> ServiceActionResult:
-    """Run a service action and append a safe audit event."""
-    result = run_service_action(action, instance=instance)
+    """Run a service action and append safe audit events."""
+    normalized = normalize_service_action(action)
+    if normalized not in SUPPORTED_ACTIONS:
+        raise ServiceActionError("Unknown service action.")
+    normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
+    intent_target = service_manager.service_unit_name(normalized_instance)
+    try:
+        _append_service_action_intent(
+            normalized,
+            audit_log_path=audit_log_path,
+            username=username,
+            instance=normalized_instance,
+            target=intent_target,
+        )
+    except AuditLogError:
+        return _service_intent_audit_failure(
+            normalized,
+            normalized_instance,
+            intent_target,
+        )
+    result = run_service_action(normalized, instance=normalized_instance)
     return audit_service_action_result(
         result,
         audit_log_path=audit_log_path,

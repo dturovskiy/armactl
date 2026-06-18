@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import shutil
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -33,6 +33,16 @@ class ConfigEditResult:
 
     config_path: Path
     backup_path: Path | None
+    changed_fields: tuple[str, ...]
+    intent_audited: bool = True
+    backend_success: bool = True
+    audit_written: bool = True
+
+
+@dataclass(frozen=True)
+class _PreparedConfigEdit:
+    config_path: Path
+    updated_config: dict[str, Any]
     changed_fields: tuple[str, ...]
 
 
@@ -219,8 +229,7 @@ def create_web_config_backup(config_path: Path) -> Path:
     return backup_path
 
 
-def save_basic_config_file(config_path: Path | str, form: Mapping[str, Any]) -> ConfigEditResult:
-    """Apply an allowlisted web config edit to one config file."""
+def _prepare_basic_config_edit(config_path, form):
     path = Path(config_path)
     if not path.is_file():
         raise ConfigEditError("Config file was not found.")
@@ -233,22 +242,34 @@ def save_basic_config_file(config_path: Path | str, form: Mapping[str, Any]) -> 
 
     updated = _updated_config(data, form)
     changed_fields = _changed_fields(data, updated)
-    if not changed_fields:
+    return _PreparedConfigEdit(
+        config_path=path,
+        updated_config=updated,
+        changed_fields=changed_fields,
+    )
+
+
+def _apply_prepared_config_edit(prepared):
+    if not prepared.changed_fields:
         return ConfigEditResult(
-            config_path=path,
+            config_path=prepared.config_path,
             backup_path=None,
-            changed_fields=changed_fields,
+            changed_fields=prepared.changed_fields,
         )
-    backup_path = create_web_config_backup(path)
+    backup_path = create_web_config_backup(prepared.config_path)
     try:
-        config_manager.save_config(path, updated, backup=False)
+        config_manager.save_config(prepared.config_path, prepared.updated_config, backup=False)
     except config_manager.ConfigError as exc:
         raise ConfigEditError(redact_sensitive_text(exc)) from exc
     return ConfigEditResult(
-        config_path=path,
+        config_path=prepared.config_path,
         backup_path=backup_path,
-        changed_fields=changed_fields,
+        changed_fields=prepared.changed_fields,
     )
+
+
+def save_basic_config_file(config_path, form):
+    return _apply_prepared_config_edit(_prepare_basic_config_edit(config_path, form))
 
 
 def save_default_config(instance: str, form: Mapping[str, Any]) -> ConfigEditResult:
@@ -269,6 +290,7 @@ def _audit_config_save(
     message: str,
     changed_fields: tuple[str, ...],
     backup_path: Path | str | None = None,
+    phase: str = "outcome",
 ) -> None:
     append_audit_event(
         audit_log_path,
@@ -280,24 +302,22 @@ def _audit_config_save(
         message=message,
         exit_code=0 if success else 1,
         details={
+            "phase": phase,
             "changed_fields": changed_fields,
             "backup_path": str(backup_path) if backup_path else "",
         },
     )
 
 
-def save_default_config_and_audit(
-    instance: str,
-    form: Mapping[str, Any],
-    *,
-    audit_log_path: Path,
-    username: str,
-) -> ConfigEditResult:
-    """Save allowlisted config fields and append a safe web audit event."""
+def save_default_config_and_audit(instance, form, *, audit_log_path, username):
     normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
     target = "config.json"
     try:
-        result = save_default_config(normalized_instance, form)
+        state = discovery.discover(instance=normalized_instance, save=False)
+        if not state.config_path:
+            raise ConfigEditError("Server config path is unavailable.")
+        prepared = _prepare_basic_config_edit(state.config_path, form)
+        target = str(prepared.config_path)
     except ConfigEditError as error:
         try:
             _audit_config_save(
@@ -312,8 +332,43 @@ def save_default_config_and_audit(
         except AuditLogError:
             pass
         raise
-    if not result.changed_fields:
-        return result
+    if not prepared.changed_fields:
+        return ConfigEditResult(
+            config_path=prepared.config_path,
+            backup_path=None,
+            changed_fields=prepared.changed_fields,
+        )
+
+    try:
+        _audit_config_save(
+            audit_log_path=audit_log_path,
+            username=username,
+            instance=normalized_instance,
+            target=target,
+            success=True,
+            message="Config save requested.",
+            changed_fields=prepared.changed_fields,
+            phase="intent",
+        )
+    except AuditLogError as exc:
+        raise ConfigEditError("Config was not saved because audit logging failed.") from exc
+
+    try:
+        result = _apply_prepared_config_edit(prepared)
+    except ConfigEditError as error:
+        try:
+            _audit_config_save(
+                audit_log_path=audit_log_path,
+                username=username,
+                instance=normalized_instance,
+                target=target,
+                success=False,
+                message=str(error),
+                changed_fields=prepared.changed_fields,
+            )
+        except AuditLogError:
+            pass
+        raise
 
     try:
         _audit_config_save(
@@ -327,5 +382,7 @@ def save_default_config_and_audit(
             backup_path=result.backup_path,
         )
     except AuditLogError as exc:
-        raise ConfigAuditError("Config saved but audit logging failed.", result=result) from exc
+        raise ConfigAuditError(
+            "Config saved but audit logging failed.", result=replace(result, audit_written=False)
+        ) from exc
     return result

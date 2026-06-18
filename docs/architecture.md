@@ -285,6 +285,11 @@ Windows backend support is future platform architecture, not part of the current
 Linux/systemd web MVP. Adding it requires service/log/path/firewall/process/metrics
 and install/update adapters before web routes should target Windows hosts.
 
+For broad modularity or platform work, use `docs/system-modularity-audit.md` before
+implementation. That audit is the source of truth for checking whether CLI, TUI,
+web, bot, backend modules, platform adapters, persistence, tests, and docs still
+have clean boundaries for adding future features without hidden shortcuts.
+
 ---
 
 ## 5. Потоки даних

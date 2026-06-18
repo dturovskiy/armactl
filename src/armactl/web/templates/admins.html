@@ -19,6 +19,12 @@
     <dt>{{ t("Status") }}</dt><dd><span class="status-pill status-pill-{{ result.status_label }}">{{ t(result.status_label) }}</span></dd>
     <dt>{{ t("Changed") }}</dt><dd>{{ t("yes") if result.changed else t("no") }}</dd>
     <dt>{{ t("Message") }}</dt><dd class="wrap-value">{{ t(result.message) }}</dd>
+    {% if result.backend_success is not none %}
+      <dt>{{ t("Backend success") }}</dt><dd>{{ t("yes") if result.backend_success else t("no") }}</dd>
+    {% endif %}
+    {% if result.backend_message %}
+      <dt>{{ t("Backend message") }}</dt><dd class="wrap-value">{{ t(result.backend_message) }}</dd>
+    {% endif %}
   </dl>
 </section>
 {% if pending_work_warning %}

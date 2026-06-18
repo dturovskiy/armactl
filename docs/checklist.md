@@ -242,6 +242,8 @@
 - [ ] Розбити oversized tests/test_web_app.py на focused web test modules і прибрати залежність від patching route globals / imported FastAPI endpoint internals
 - [x] Провести audit broad except Exception у web routes/services: mutating route/service catches очищені; documented fail-closed/degradation cases зафіксовані у plan/handoff
 - [ ] Додати повний web system audit як окремий gate: Arkady проходить docs/web-system-audit.md перед великим ризиковим слайсом і після нього, з findings/blockers/follow-up у handoff
+- [x] Додати system-wide modularity audit protocol у `docs/system-modularity-audit.md` для Аркадія перед великими platform/domain/refactor slices
+- [ ] Провести baseline system modularity audit по всьому проекту: CLI/TUI/web/bot, backend modules, platform adapters, persistence, tests/CI, docs; результат оформити окремим audit-results файлом з blockers/should-fix/follow-up
 - [x] Відділити тести від збереженої UI-мови оператора
 - [x] Зафіксувати, що `website/` є marketing/static site, не management panel
 - [x] Зафіксувати per-VM deployment model для Proxmox

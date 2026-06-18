@@ -129,7 +129,8 @@ def _mods_csrf_token(client) -> str:
 
 def _audit_events(data_root: Path) -> list[dict]:
     audit_path = data_root / "logs" / "web" / "audit.log"
-    return [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+    events = [json.loads(line) for line in audit_path.read_text(encoding='utf-8').splitlines()]
+    return [event for event in events if (event.get('details') or {}).get('phase') != 'intent']
 
 
 def test_mod_action_helper_calls_mods_manager_add_and_reports_update(
@@ -258,7 +259,8 @@ def test_mods_unexpected_backend_exception_is_not_rendered_as_action_result(
         }
     ]
     assert list_pending_work(tmp_path / "web" / "web.db") == []
-    assert not (tmp_path / "logs" / "web" / "audit.log").exists()
+    audit_text = (tmp_path / 'logs' / 'web' / 'audit.log').read_text(encoding='utf-8')
+    assert 'raw-mod-secret' not in audit_text
 
 
 def test_mods_routes_require_authentication(tmp_path: Path):
@@ -490,7 +492,7 @@ def test_mods_audit_failure_after_change_still_marks_pending_work(
 ):
     from armactl.web.services import mod_actions
     from armactl.web.services.audit import AuditLogError
-    from armactl.web.services.pending_work import KIND_MODS, get_pending_work
+    from armactl.web.services.pending_work import list_pending_work
 
     config_path = _write_mod_config(tmp_path, [])
     client = _authed_client(tmp_path, monkeypatch)
@@ -518,21 +520,11 @@ def test_mods_audit_failure_after_change_still_marks_pending_work(
     )
 
     assert response.status_code == 400
-    assert "Mod action completed but audit logging failed." in response.text
-    assert "Restart the server to apply mod changes." in response.text
-    assert "raw-mod-secret" not in response.text
-    updated = json.loads(config_path.read_text())
-    assert updated["game"]["mods"] == [
-        {
-            "modId": "CCCCCCCCCCCCCCCC",
-            "name": "Charlie token=raw-mod-secret",
-            "version": "1.2.3",
-        }
-    ]
-    item = get_pending_work(tmp_path / "web" / "web.db", kind=KIND_MODS)
-    assert item is not None
-    assert item.source_action == "mod.add"
-    assert item.details == "CCCCCCCCCCCCCCCC"
+    assert 'Mod action was not run because audit logging failed.' in response.text
+    assert 'Restart the server to apply mod changes.' not in response.text
+    assert 'raw-mod-secret' not in response.text
+    assert json.loads(config_path.read_text())['game']['mods'] == []
+    assert list_pending_work(tmp_path / 'web' / 'web.db') == []
     audit_path = tmp_path / "logs" / "web" / "audit.log"
     audit_text = audit_path.read_text(encoding="utf-8") if audit_path.exists() else ""
     assert "raw-mod-secret" not in audit_text
@@ -576,7 +568,7 @@ def test_mods_audit_failure_without_change_does_not_request_restart(
     )
 
     assert response.status_code == 400
-    assert "Mod action completed but audit logging failed." in response.text
+    assert 'Mod action was not run because audit logging failed.' in response.text
     assert "Restart the server to apply mod changes." not in response.text
     assert json.loads(config_path.read_text())["game"]["mods"] == [
         {"modId": "AAAAAAAAAAAAAAAA", "name": "Active Alpha", "version": "1.0"}

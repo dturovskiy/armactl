@@ -1268,9 +1268,13 @@ runtime config, raw JSON, and danger-zone actions belong on dedicated pages.
 
 Large or risky web slices should run the module-by-module audit described in docs/web-system-audit.md. Use it twice when the slice touches security, persistence, routing boundaries, file operations, jobs, permissions, or deployment behavior: once before implementation to confirm the current boundary, and once after implementation to catch new shortcuts before merge or VM smoke. The audit output should list blockers, should-fix items, follow-ups, deferred non-blocking items, tests, and docs updates. Reliability, security, data-loss, privacy, and operator-trust issues must be treated as blockers until fixed.
 
+Whole-project modularity work, platform backend work, player/banlist domain work, and broad architecture cleanup should use `docs/system-modularity-audit.md` instead of treating the issue as web-only. That audit checks CLI/TUI/web/bot adapters, backend modules, platform adapters, persistence, tests, CI, and docs before any large rewrite is attempted.
+
 ### Known architecture debt
 
 Pay this down before adding another large web feature slice. These are refactors only; they should preserve current behavior and tests.
+
+Before starting a project-wide modularity refactor, run the baseline audit in `docs/system-modularity-audit.md` and turn the findings into small ordered slices. Do not mix that baseline audit with feature work.
 
 - Done: split the broad routes/management.py surface into domain routers for config, mods, admins, and bot flows without changing URLs, permissions, templates, CSRF checks, audit calls, or pending-work behavior.
 - Split facade.py by page/domain DTO once the current web flows stabilize. Dashboard/status aggregation, config summaries, mods/admins/bot summaries, and schedule state should not keep growing in one file.

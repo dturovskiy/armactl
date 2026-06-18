@@ -141,7 +141,8 @@ def _schedule_csrf_token(client) -> str:
 
 def _audit_events(data_root: Path) -> list[dict]:
     audit_path = data_root / "logs" / "web" / "audit.log"
-    return [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+    events = [json.loads(line) for line in audit_path.read_text(encoding='utf-8').splitlines()]
+    return [event for event in events if (event.get('details') or {}).get('phase') != 'intent']
 
 
 def test_schedule_js_asset_is_served(tmp_path: Path):
@@ -662,3 +663,46 @@ def test_dashboard_links_to_schedule_page_when_permission_allows(
     assert "Boot Policy" in response.text
     assert "scheduled restarts will not guarantee boot-start" in response.text
     assert client.cookies.get(SESSION_COOKIE_NAME)
+
+def test_schedule_restart_now_backend_success_audit_failure_clears_pending_work(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import pending_work, schedule_actions
+    from armactl.web.services.audit import AuditLogError, append_audit_event
+
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        schedule_actions.discovery,
+        'discover',
+        lambda instance, save=False: _state(),
+    )
+
+    def start(service_name: str) -> ServiceResult:
+        return ServiceResult(True, 'restart queued', 0)
+    monkeypatch.setattr(schedule_actions.service_manager, 'start_service', start)
+    db_path = tmp_path / 'web' / 'web.db'
+    pending_work.mark_restart_pending(
+        db_path,
+        instance='default',
+        kind=pending_work.KIND_CONFIG,
+        source_action='config.save',
+        username='owner',
+    )
+
+    def fail_outcome(*args, **kwargs):
+        if (kwargs.get('details') or {}).get('phase') == 'outcome':
+            raise AuditLogError('disk full')
+        return append_audit_event(*args, **kwargs)
+
+    monkeypatch.setattr(schedule_actions, 'append_audit_event', fail_outcome)
+    csrf_token = _schedule_csrf_token(client)
+    response = client.post(
+        '/schedule/restart-now',
+        data={'csrf_token': csrf_token, 'confirm': 'schedule.restart-now'},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert 'Schedule action completed but audit logging failed.' in response.text
+    assert pending_work.get_pending_work(db_path, kind=pending_work.KIND_CONFIG) is None

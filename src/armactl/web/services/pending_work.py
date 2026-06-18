@@ -27,6 +27,9 @@ PENDING_WORK_FALLBACK_WARNING = (
 PENDING_WORK_STORAGE_FAILED_MESSAGE = (
     "Changes were saved and require restart, but pending restart storage failed."
 )
+PENDING_WORK_CLEAR_WARNING = (
+    "Restart completed, but some restart-related pending work could not be cleared."
+)
 DEFAULT_PENDING_WORK_LIMIT = 50
 MAX_TEXT_LENGTH = 500
 MAX_SHORT_TEXT_LENGTH = 160
@@ -88,6 +91,22 @@ class PendingWorkItem:
         if self.is_fallback:
             return "Fallback storage"
         return "Primary storage"
+
+
+@dataclass(frozen=True)
+class PendingWorkClearResult:
+    db_cleared: int = 0
+    legacy_cleared: int = 0
+    fallback_cleared: int = 0
+    errors: tuple[str, ...] = ()
+
+    @property
+    def total_cleared(self) -> int:
+        return self.db_cleared + self.legacy_cleared + self.fallback_cleared
+
+    @property
+    def warning(self) -> str:
+        return PENDING_WORK_CLEAR_WARNING if self.errors else ""
 
 
 def _utc_timestamp() -> str:
@@ -660,27 +679,48 @@ def clear_restart_pending_fallback(
     return cleared
 
 
-def clear_restart_pending_work(
-    db_path: Path,
-    *,
-    instance: str = paths.DEFAULT_INSTANCE_NAME,
-) -> int:
-    """Clear only pending work resolved by a successful game server restart."""
+def clear_restart_pending_work_safely(db_path, *, instance=paths.DEFAULT_INSTANCE_NAME):
     normalized_instance = _normalize_instance(instance)
-    with _connect(db_path) as connection:
-        work_cursor = connection.execute(
-            """
-            DELETE FROM web_pending_work
-            WHERE instance = ? AND resolution_action = ?
-            """,
-            (normalized_instance, RESOLUTION_RESTART_GAME_SERVER),
+    db_cleared = 0
+    legacy_cleared = 0
+    fallback_cleared = 0
+    errors: list[str] = []
+    try:
+        db_cleared = clear_pending_work(
+            db_path,
+            instance=normalized_instance,
+            resolution_action=RESOLUTION_RESTART_GAME_SERVER,
         )
-        legacy_cursor = connection.execute(
-            "DELETE FROM web_pending_restarts WHERE instance = ?",
-            (normalized_instance,),
+        with _connect(db_path) as connection:
+            legacy_cursor = connection.execute(
+                "DELETE FROM web_pending_restarts WHERE instance = ?",
+                (normalized_instance,),
+            )
+            work_cursor = connection.execute(
+                "DELETE FROM web_pending_work WHERE instance = ? AND resolution_action = ?",
+                (normalized_instance, RESOLUTION_RESTART_GAME_SERVER),
+            )
+            db_cleared += work_cursor.rowcount
+        legacy_cleared = legacy_cursor.rowcount
+    except Exception as exc:
+        errors.append(_safe_text(exc))
+    try:
+        fallback_cleared = clear_restart_pending_fallback(
+            db_path,
+            instance=normalized_instance,
         )
-    return (
-        work_cursor.rowcount
-        + legacy_cursor.rowcount
-        + clear_restart_pending_fallback(db_path, instance=normalized_instance)
+    except Exception as exc:
+        errors.append(_safe_text(exc))
+    return PendingWorkClearResult(
+        db_cleared=db_cleared,
+        legacy_cleared=legacy_cleared,
+        fallback_cleared=fallback_cleared,
+        errors=tuple(errors),
     )
+
+
+def clear_restart_pending_work(db_path, *, instance=paths.DEFAULT_INSTANCE_NAME):
+    clear_result = clear_restart_pending_work_safely(db_path, instance=instance)
+    if clear_result.errors:
+        raise PendingWorkFallbackError(PENDING_WORK_CLEAR_WARNING)
+    return clear_result.total_cleared

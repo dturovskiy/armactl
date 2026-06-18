@@ -1132,6 +1132,8 @@
     "Fallback storage": "Резервне сховище",
     "Primary storage": "Основне сховище",
     "Restart-required work was saved to fallback storage because normal pending storage failed.": "Завдання, що потребує перезапуску, збережено у резервному сховищі, бо основне сховище pending work недоступне.",
-    "Changes were saved and require restart, but pending restart storage failed.": "Зміни збережено і потрібен перезапуск, але зберегти pending restart не вдалося."
+    "Changes were saved and require restart, but pending restart storage failed.": "Зміни збережено і потрібен перезапуск, але зберегти pending restart не вдалося.",
+    "Backend success": "Успіх backend",
+    "Player registry refresh failed": "Не вдалося оновити реєстр гравців"
   }
 }

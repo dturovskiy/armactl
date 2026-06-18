@@ -56,6 +56,9 @@ class ScheduleActionResult:
     schedule: str
     schedule_entries: list[str]
     audit_written: bool = True
+    intent_audited: bool = True
+    backend_success: bool | None = None
+    backend_message: str = ""
 
     @property
     def status_label(self) -> str:
@@ -415,6 +418,37 @@ def run_schedule_action(
     raise ScheduleActionError("Unknown schedule action.")
 
 
+def _append_schedule_action_intent(action, *, audit_log_path, username, instance, target):
+    append_audit_event(
+        audit_log_path,
+        username=username,
+        action=action,
+        instance=instance,
+        target=target,
+        success=True,
+        message="Schedule action requested.",
+        exit_code=0,
+        details={"phase": "intent"},
+    )
+
+
+def _schedule_intent_audit_failure(action, instance, target, schedule_value):
+    return ScheduleActionResult(
+        action=action,
+        instance=instance,
+        target=target,
+        success=False,
+        message="Schedule action was not run because audit logging failed.",
+        exit_code=1,
+        performed=False,
+        schedule=_safe_schedule_string(schedule_value),
+        schedule_entries=[],
+        audit_written=False,
+        intent_audited=False,
+        backend_success=False,
+    )
+
+
 def audit_schedule_action_result(
     result: ScheduleActionResult,
     *,
@@ -433,6 +467,7 @@ def audit_schedule_action_result(
             message=result.message,
             exit_code=result.exit_code,
             details={
+                "phase": "outcome",
                 "schedule": result.schedule,
                 "schedule_entries": result.schedule_entries,
                 "performed": "yes" if result.performed else "no",
@@ -444,6 +479,8 @@ def audit_schedule_action_result(
             success=False,
             message="Schedule action completed but audit logging failed.",
             exit_code=1,
+            backend_success=result.success,
+            backend_message=result.message,
             audit_written=False,
         )
     return result
@@ -457,8 +494,38 @@ def run_schedule_action_and_audit(
     username: str,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
 ) -> ScheduleActionResult:
-    """Run a restart timer action and append a safe audit event."""
-    result = run_schedule_action(action, schedule_value=schedule_value, instance=instance)
+    """Run a restart timer action and append safe audit events."""
+    normalized = normalize_schedule_action(action)
+    if normalized not in SUPPORTED_ACTIONS:
+        raise ScheduleActionError("Unknown schedule action.")
+    normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
+    intent_target = service_manager.timer_unit_name(normalized_instance)
+    if normalized == ACTION_RESTART_NOW:
+        intent_target = _restart_service_name(normalized_instance)
+    elif normalized == ACTION_ENABLE_GAME_AUTOSTART:
+        intent_target = service_manager.service_unit_name(normalized_instance)
+    elif normalized == ACTION_DISABLE_GAME_AUTOSTART:
+        intent_target = service_manager.service_unit_name(normalized_instance)
+    try:
+        _append_schedule_action_intent(
+            normalized,
+            audit_log_path=audit_log_path,
+            username=username,
+            instance=normalized_instance,
+            target=intent_target,
+        )
+    except AuditLogError:
+        return _schedule_intent_audit_failure(
+            normalized,
+            normalized_instance,
+            intent_target,
+            schedule_value,
+        )
+    result = run_schedule_action(
+        normalized,
+        schedule_value=schedule_value,
+        instance=normalized_instance,
+    )
     return audit_schedule_action_result(
         result,
         audit_log_path=audit_log_path,

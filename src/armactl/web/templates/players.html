@@ -12,9 +12,12 @@
 {% endblock %}
 {% block content %}
 {% if refresh_result %}
-<section class="notice-panel full-width result-success">
-  <h2>{{ t("Player registry refreshed") }}</h2>
-  <p>{{ tr("Recorded {stored} reliable player(s); ignored {ignored} unreliable row(s).", stored=refresh_result.stored_count, ignored=refresh_result.ignored_count) }}</p>
+<section class="notice-panel full-width result-{{ refresh_result.status_label }}">
+  <h2>{{ t("Player registry refreshed") if refresh_result.backend_success else t("Player registry refresh failed") }}</h2>
+  <p>{{ t(refresh_result.message) }}</p>
+  {% if refresh_result.backend_success %}
+    <p>{{ tr("Recorded {stored} reliable player(s); ignored {ignored} unreliable row(s).", stored=refresh_result.stored_count, ignored=refresh_result.ignored_count) }}</p>
+  {% endif %}
   {% if audit_error %}
     <p class="error">{{ audit_error }}</p>
   {% endif %}

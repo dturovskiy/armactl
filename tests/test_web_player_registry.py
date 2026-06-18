@@ -290,7 +290,7 @@ def test_players_refresh_records_reliable_current_players(
 ):
     from armactl.web.app import create_app
     from armactl.web.routes import players as players_route
-    from armactl.web.services import player_registry
+    from armactl.web.services import player_actions, player_registry
 
     db_path = tmp_path / "default" / "players.db"
     setup_owner_user(tmp_path, "owner", "owner players password")
@@ -314,7 +314,7 @@ def test_players_refresh_records_reliable_current_players(
         ),
     )
     monkeypatch.setattr(
-        players_route,
+        player_actions,
         "player_moderation",
         SimpleNamespace(
             load_player_moderation_panel=lambda instance: _panel(
@@ -343,13 +343,12 @@ def test_players_refresh_records_reliable_current_players(
 
 def test_players_refresh_uses_runtime_data_root(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
-    from armactl.web.routes import players as players_route
-    from armactl.web.services import player_registry
+    from armactl.web.services import player_actions, player_registry
 
     setup_owner_user(tmp_path, "owner", "owner players password")
     app = create_app(data_root=tmp_path)
     monkeypatch.setattr(
-        players_route,
+        player_actions,
         "player_moderation",
         SimpleNamespace(
             load_player_moderation_panel=lambda instance: _panel(_reliable_player("Alpha"))
@@ -371,3 +370,53 @@ def test_players_refresh_uses_runtime_data_root(tmp_path: Path, monkeypatch):
     assert [player.current_name for player in player_registry.list_known_players(db_path)] == [
         "Alpha"
     ]
+
+def test_players_refresh_route_delegates_persistence_and_audit_to_service(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.routes import players as players_route
+    from armactl.web.services import player_actions
+
+    setup_owner_user(tmp_path, 'owner', 'owner players password')
+    app = create_app(data_root=tmp_path)
+    db_path = tmp_path / 'default' / 'players.db'
+    calls: dict[str, object] = {}
+
+    def refresh_registry_and_audit(instance, **kwargs):
+        calls['instance'] = instance
+        calls.update(kwargs)
+        return player_actions.PlayerRefreshResult(stored_count=1, ignored_count=0)
+
+    monkeypatch.setattr(
+        players_route,
+        'player_actions',
+        SimpleNamespace(refresh_registry_and_audit=refresh_registry_and_audit),
+    )
+    monkeypatch.setattr(
+        players_route,
+        'player_registry',
+        SimpleNamespace(
+            player_registry_db_path=lambda instance, data_root=None: db_path,
+            list_known_players=lambda db_path, query='': [],
+        ),
+    )
+    client = _client(app)
+    _login(client, 'owner', 'owner players password')
+    csrf_token = _players_csrf_token(client)
+
+    response = client.post(
+        '/players/refresh',
+        data={'csrf_token': csrf_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert calls['instance'] == 'default'
+    assert calls['db_path'] == db_path
+    assert calls['audit_log_path'] == tmp_path / 'logs' / 'web' / 'audit.log'
+    assert calls['username'] == 'owner'
+    assert 'Recorded 1 reliable player(s); ignored 0 unreliable row(s).' in response.text
+    assert not db_path.exists()
+    from armactl.web.app import create_app

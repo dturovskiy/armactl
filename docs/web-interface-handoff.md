@@ -459,6 +459,7 @@ Read these files first:
 - docs/checklist.md
 - docs/architecture.md
 - docs/development.md
+- docs/system-modularity-audit.md when the slice touches whole-project boundaries
 
 Task:
 <one focused Phase 16 task>
@@ -483,6 +484,8 @@ Report:
 ```
 
 ## Review prompt template
+
+For web-only risky slices, use `docs/web-system-audit.md`. For whole-project modularity, platform backend, player/banlist domain, or broad refactor work, use `docs/system-modularity-audit.md` first and turn findings into small follow-up slices before implementation.
 
 Use this template for a review chat:
 

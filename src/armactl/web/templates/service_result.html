@@ -15,8 +15,11 @@
     <span class="status-pill status-pill-{{ result.status_label }}">{{ t(result.status_label) }}</span>
   </div>
   <p class="service-result-message">{{ t(result_view.message) }}</p>
-  {% if result.action == "restart" and result.success and result_view.pending_restart_work_cleared %}
+  {% if result.action == "restart" and result_view.backend_success and result_view.pending_restart_work_cleared %}
     <p class="notice-inline notice-success">{{ t("All saved changes that required restart have been applied.") }}</p>
+  {% endif %}
+  {% if result_view.pending_restart_work_warning %}
+    <p class="notice-inline notice-warning">{{ t(result_view.pending_restart_work_warning) }}</p>
   {% endif %}
   <details class="service-result-details">
     <summary>{{ t("Diagnostic details") }}</summary>
@@ -26,7 +29,7 @@
       <dt>{{ t("Service") }}</dt><dd>{{ result.service_name or t("unknown") }}</dd>
       <dt>{{ t("Performed") }}</dt><dd>{{ t("yes") if result.performed else t("no") }}</dd>
       <dt>{{ t("Exit code") }}</dt><dd>{{ result.exit_code }}</dd>
-      {% if result_view.show_backend_message %}<dt>{{ t("Backend message") }}</dt><dd>{{ t(result.message) }}</dd>{% endif %}
+      {% if result_view.show_backend_message %}<dt>{{ t("Backend message") }}</dt><dd>{{ t(result.backend_message or result.message) }}</dd>{% endif %}
     </dl>
   </details>
   <p class="result-actions"><a class="button-link" href="/dashboard">{{ t("Back to dashboard") }}</a></p>

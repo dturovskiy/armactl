@@ -31,12 +31,17 @@ def _redirect_to_login(request: Request) -> RedirectResponse:
     return response
 
 
+def _backend_success(result: schedule_actions.ScheduleActionResult) -> bool:
+    return result.success if result.backend_success is None else result.backend_success
+
+
 def _render_schedule(
     request: Request,
     current: CurrentSession,
     *,
     result: schedule_actions.ScheduleActionResult | None = None,
     status_code: int = status.HTTP_200_OK,
+    pending_restart_work_warning: str = "",
 ) -> Response:
     if not require_permission(current, SCHEDULE_VIEW):
         return permission_denied_response()
@@ -51,6 +56,7 @@ def _render_schedule(
             "csrf_token": form_csrf.token,
             "page": page,
             "result": result,
+            "pending_restart_work_warning": pending_restart_work_warning,
             "can_manage_schedule": require_permission(current, SCHEDULE_MANAGE),
         },
         status_code=status_code,
@@ -108,14 +114,26 @@ def _run_schedule_action(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
-    if normalized == schedule_actions.ACTION_RESTART_NOW and result.success and result.performed:
-        pending_work.clear_restart_pending_work(
+    pending_restart_work_warning = ""
+    if (
+        normalized == schedule_actions.ACTION_RESTART_NOW
+        and _backend_success(result)
+        and result.performed
+    ):
+        clear_result = pending_work.clear_restart_pending_work_safely(
             current.config.db_path,
             instance=paths.DEFAULT_INSTANCE_NAME,
         )
+        pending_restart_work_warning = clear_result.warning
 
     result_status = status.HTTP_200_OK if result.success else status.HTTP_400_BAD_REQUEST
-    return _render_schedule(request, current, result=result, status_code=result_status)
+    return _render_schedule(
+        request,
+        current,
+        result=result,
+        pending_restart_work_warning=pending_restart_work_warning,
+        status_code=result_status,
+    )
 
 
 @router.get("/schedule", response_class=HTMLResponse)

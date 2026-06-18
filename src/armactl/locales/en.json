@@ -547,6 +547,8 @@
     "Fallback storage": "Fallback storage",
     "Primary storage": "Primary storage",
     "Restart-required work was saved to fallback storage because normal pending storage failed.": "Restart-required work was saved to fallback storage because normal pending storage failed.",
-    "Changes were saved and require restart, but pending restart storage failed.": "Changes were saved and require restart, but pending restart storage failed."
+    "Changes were saved and require restart, but pending restart storage failed.": "Changes were saved and require restart, but pending restart storage failed.",
+    "Backend success": "Backend success",
+    "Player registry refresh failed": "Player registry refresh failed"
   }
 }

@@ -45,6 +45,9 @@ class ModActionResult:
     message: str
     exit_code: int
     audit_written: bool = True
+    intent_audited: bool = True
+    backend_success: bool | None = None
+    backend_message: str = ""
     details: dict[str, object] = field(default_factory=dict)
 
     @property
@@ -358,6 +361,35 @@ def run_mod_action(
     raise ModActionError("Unknown mod action.")
 
 
+def _append_mod_action_intent(action, *, audit_log_path, username, instance, target):
+    append_audit_event(
+        audit_log_path,
+        username=username,
+        action=action,
+        instance=instance,
+        target=_safe_text(target),
+        success=True,
+        message="Mod action requested.",
+        exit_code=0,
+        details={"phase": "intent"},
+    )
+
+
+def _mod_intent_audit_failure(action, instance, target):
+    return ModActionResult(
+        action=action,
+        instance=instance,
+        target=_safe_text(target),
+        success=False,
+        changed=False,
+        message="Mod action was not run because audit logging failed.",
+        exit_code=1,
+        audit_written=False,
+        intent_audited=False,
+        backend_success=False,
+    )
+
+
 def audit_mod_action_result(
     result: ModActionResult,
     *,
@@ -365,7 +397,11 @@ def audit_mod_action_result(
     username: str,
 ) -> ModActionResult:
     """Append an audit event for a Workshop mod action result."""
-    details = {"changed": "yes" if result.changed else "no", **result.details}
+    details = {
+        "phase": "outcome",
+        "changed": "yes" if result.changed else "no",
+        **result.details,
+    }
     try:
         append_audit_event(
             audit_log_path,
@@ -384,6 +420,8 @@ def audit_mod_action_result(
             success=False,
             message="Mod action completed but audit logging failed.",
             exit_code=1,
+            backend_success=result.success,
+            backend_message=result.message,
             audit_written=False,
         )
     return result
@@ -399,10 +437,24 @@ def run_mod_action_and_audit(
     audit_log_path: Path,
     username: str,
 ) -> ModActionResult:
-    """Run a Workshop mod action and append a safe audit event."""
+    """Run a Workshop mod action and append safe audit events."""
+    normalized = normalize_mod_action(action)
+    if normalized not in SUPPORTED_ACTIONS:
+        raise ModActionError("Unknown mod action.")
+    normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
+    try:
+        _append_mod_action_intent(
+            normalized,
+            audit_log_path=audit_log_path,
+            username=username,
+            instance=normalized_instance,
+            target=mod_id,
+        )
+    except AuditLogError:
+        return _mod_intent_audit_failure(normalized, normalized_instance, mod_id)
     result = run_mod_action(
-        action,
-        instance=instance,
+        normalized,
+        instance=normalized_instance,
         mod_id=mod_id,
         name=name,
         version=version,

@@ -122,7 +122,8 @@ def _admins_csrf_token(client) -> str:
 
 def _audit_events(data_root: Path) -> list[dict]:
     audit_path = data_root / "logs" / "web" / "audit.log"
-    return [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+    events = [json.loads(line) for line in audit_path.read_text(encoding='utf-8').splitlines()]
+    return [event for event in events if (event.get('details') or {}).get('phase') != 'intent']
 
 
 def _patch_admins_page(monkeypatch, page: dict | None = None) -> None:
@@ -245,7 +246,8 @@ def test_admins_unexpected_backend_exception_is_not_rendered_as_action_result(
         "76561198000000002"
     ]
     assert list_pending_work(tmp_path / "web" / "web.db") == []
-    assert not (tmp_path / "logs" / "web" / "audit.log").exists()
+    audit_text = (tmp_path / 'logs' / 'web' / 'audit.log').read_text(encoding='utf-8')
+    assert 'raw-admin-secret' not in audit_text
 
 
 def test_admins_routes_require_authentication(tmp_path: Path):
@@ -365,7 +367,7 @@ def test_admins_add_success_writes_safe_audit(tmp_path: Path, monkeypatch):
     assert event["instance"] == "default"
     assert event["target"] == "76561198000000002"
     assert event["success"] is True
-    assert event["details"] == {"changed": "yes"}
+    assert event['details']['changed'] == 'yes'
     from armactl.web.services.pending_work import KIND_ADMINS, get_pending_work
 
     item = get_pending_work(tmp_path / "web" / "web.db", kind=KIND_ADMINS)
@@ -474,7 +476,7 @@ def test_admins_add_or_update_audit_failure_after_change_still_marks_pending_wor
 ):
     from armactl.web.services import admin_actions
     from armactl.web.services.audit import AuditLogError
-    from armactl.web.services.pending_work import KIND_ADMINS, get_pending_work
+    from armactl.web.services.pending_work import list_pending_work
 
     config_path = _write_admin_config(tmp_path, initial_admins)
     client = _authed_client(tmp_path, monkeypatch)
@@ -501,15 +503,12 @@ def test_admins_add_or_update_audit_failure_after_change_still_marks_pending_wor
     )
 
     assert response.status_code == 400
-    assert "Admin action completed but audit logging failed." in response.text
-    assert "Restart the server to apply admin changes." in response.text
-    assert "raw-admin-secret" not in response.text
+    assert 'Admin action was not run because audit logging failed.' in response.text
+    assert 'Restart the server to apply admin changes.' not in response.text
+    assert 'raw-admin-secret' not in response.text
     updated = json.loads(config_path.read_text())
-    assert updated["game"]["admins"] == ["ABCDEF1234567890"]
-    item = get_pending_work(tmp_path / "web" / "web.db", kind=KIND_ADMINS)
-    assert item is not None
-    assert item.source_action == expected_action
-    assert item.details == "ABCDEF1234567890"
+    assert updated['game']['admins'] == initial_admins
+    assert list_pending_work(tmp_path / 'web' / 'web.db') == []
     audit_path = tmp_path / "logs" / "web" / "audit.log"
     audit_text = audit_path.read_text(encoding="utf-8") if audit_path.exists() else ""
     assert "raw-admin-secret" not in audit_text
@@ -522,7 +521,7 @@ def test_admins_remove_audit_failure_after_change_still_marks_pending_work(
 ):
     from armactl.web.services import admin_actions
     from armactl.web.services.audit import AuditLogError
-    from armactl.web.services.pending_work import KIND_ADMINS, get_pending_work
+    from armactl.web.services.pending_work import list_pending_work
 
     config_path = _write_admin_config(tmp_path, ["ABCDEF1234567890"])
     client = _authed_client(tmp_path, monkeypatch)
@@ -549,14 +548,11 @@ def test_admins_remove_audit_failure_after_change_still_marks_pending_work(
     )
 
     assert response.status_code == 400
-    assert "Admin action completed but audit logging failed." in response.text
-    assert "Restart the server to apply admin changes." in response.text
+    assert 'Admin action was not run because audit logging failed.' in response.text
+    assert 'Restart the server to apply admin changes.' not in response.text
     updated = json.loads(config_path.read_text())
-    assert updated["game"]["admins"] == []
-    item = get_pending_work(tmp_path / "web" / "web.db", kind=KIND_ADMINS)
-    assert item is not None
-    assert item.source_action == "admin.remove"
-    assert item.details == "ABCDEF1234567890"
+    assert updated['game']['admins'] == ['ABCDEF1234567890']
+    assert list_pending_work(tmp_path / 'web' / 'web.db') == []
 
 
 def test_admins_audit_failure_without_change_does_not_request_restart(
@@ -592,7 +588,7 @@ def test_admins_audit_failure_without_change_does_not_request_restart(
     )
 
     assert response.status_code == 400
-    assert "Admin action completed but audit logging failed." in response.text
+    assert 'Admin action was not run because audit logging failed.' in response.text
     assert "Restart the server to apply admin changes." not in response.text
     assert json.loads(config_path.read_text())["game"]["admins"] == []
     assert list_pending_work(tmp_path / "web" / "web.db") == []
@@ -655,7 +651,7 @@ def test_admins_remove_success_writes_audit(tmp_path: Path, monkeypatch):
     assert event["action"] == "admin.remove"
     assert event["target"] == "76561198000000001"
     assert event["success"] is True
-    assert event["details"] == {"changed": "yes"}
+    assert event['details']['changed'] == 'yes'
 
 
 def test_admins_unchanged_remove_does_not_show_restart_required_notice(
@@ -693,7 +689,7 @@ def test_admins_unchanged_remove_does_not_show_restart_required_notice(
     assert "Restart the server to apply admin changes." not in response.text
     event = _audit_events(tmp_path)[0]
     assert event["action"] == "admin.remove"
-    assert event["details"] == {"changed": "no"}
+    assert event['details']['changed'] == 'no'
     from armactl.web.services.pending_work import list_pending_work
 
     assert list_pending_work(tmp_path / "web" / "web.db") == []

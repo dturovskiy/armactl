@@ -493,7 +493,8 @@ def _audit_log_text(data_root: Path) -> str:
 
 
 def _audit_events(data_root: Path) -> list[dict]:
-    return [json.loads(line) for line in _audit_log_text(data_root).splitlines()]
+    events = [json.loads(line) for line in _audit_log_text(data_root).splitlines()]
+    return [event for event in events if (event.get('details') or {}).get('phase') != 'intent']
 
 
 def _insert_raw_web_job(
@@ -2977,3 +2978,44 @@ def test_jobs_page_shows_queued_install_repair_jobs(tmp_path: Path, monkeypatch)
     assert "server:install" in response.text
     assert "queued" in response.text
     assert "Queued install" in response.text
+
+def test_service_restart_backend_success_audit_failure_clears_pending_work(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services.audit import AuditLogError, append_audit_event
+    from armactl.web.services.pending_work import (
+        KIND_CONFIG,
+        get_pending_work,
+        mark_restart_pending,
+    )
+
+    password = 'owner action password'
+    setup_owner_user(tmp_path, 'owner', password)
+    from armactl.web.services import service_actions
+    _stub_dashboard(monkeypatch)
+    _stub_service_backend(monkeypatch, running=True, success=True, message='restarted')
+    db_path = tmp_path / 'web' / 'web.db'
+    mark_restart_pending(db_path, kind=KIND_CONFIG, source_action='config.save', username='owner')
+
+    def fail_outcome(*args, **kwargs):
+        if (kwargs.get('details') or {}).get('phase') == 'outcome':
+            raise AuditLogError('disk full')
+        return append_audit_event(*args, **kwargs)
+
+    monkeypatch.setattr(service_actions, 'append_audit_event', fail_outcome)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, 'owner', password)
+    csrf_token = _action_csrf_token(client)
+    response = client.post(
+        '/service/restart',
+        data={'csrf_token': csrf_token, 'confirm': 'restart'},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert 'Server restart completed.' in response.text
+    assert 'Service action completed but audit logging failed.' in response.text
+    assert 'All saved changes that required restart have been applied.' in response.text
+    assert get_pending_work(db_path, kind=KIND_CONFIG) is None

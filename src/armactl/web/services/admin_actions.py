@@ -35,6 +35,9 @@ class AdminActionResult:
     message: str
     exit_code: int
     audit_written: bool = True
+    intent_audited: bool = True
+    backend_success: bool | None = None
+    backend_message: str = ""
 
     @property
     def status_label(self) -> str:
@@ -265,6 +268,35 @@ def run_admin_action(
     raise AdminActionError("Unknown admin action.")
 
 
+def _append_admin_action_intent(action, *, audit_log_path, username, instance, target):
+    append_audit_event(
+        audit_log_path,
+        username=username,
+        action=action,
+        instance=instance,
+        target=_safe_text(target),
+        success=True,
+        message="Admin action requested.",
+        exit_code=0,
+        details={"phase": "intent"},
+    )
+
+
+def _admin_intent_audit_failure(action, instance, target):
+    return AdminActionResult(
+        action=action,
+        instance=instance,
+        target=_safe_text(target),
+        success=False,
+        changed=False,
+        message="Admin action was not run because audit logging failed.",
+        exit_code=1,
+        audit_written=False,
+        intent_audited=False,
+        backend_success=False,
+    )
+
+
 def audit_admin_action_result(
     result: AdminActionResult,
     *,
@@ -282,7 +314,7 @@ def audit_admin_action_result(
             success=result.success,
             message=result.message,
             exit_code=result.exit_code,
-            details={"changed": "yes" if result.changed else "no"},
+            details={"phase": "outcome", "changed": "yes" if result.changed else "no"},
         )
     except AuditLogError:
         return replace(
@@ -290,6 +322,8 @@ def audit_admin_action_result(
             success=False,
             message="Admin action completed but audit logging failed.",
             exit_code=1,
+            backend_success=result.success,
+            backend_message=result.message,
             audit_written=False,
         )
     return result
@@ -304,10 +338,24 @@ def run_admin_action_and_audit(
     audit_log_path: Path,
     username: str,
 ) -> AdminActionResult:
-    """Run a game-admin action and append a safe audit event."""
+    """Run a game-admin action and append safe audit events."""
+    normalized = normalize_admin_action(action)
+    if normalized not in SUPPORTED_ACTIONS:
+        raise AdminActionError("Unknown admin action.")
+    normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
+    try:
+        _append_admin_action_intent(
+            normalized,
+            audit_log_path=audit_log_path,
+            username=username,
+            instance=normalized_instance,
+            target=admin_reference,
+        )
+    except AuditLogError:
+        return _admin_intent_audit_failure(normalized, normalized_instance, admin_reference)
     result = run_admin_action(
-        action,
-        instance=instance,
+        normalized,
+        instance=normalized_instance,
         admin_reference=admin_reference,
         label=label,
     )
