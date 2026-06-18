@@ -59,8 +59,8 @@ The reviewer should produce a short audit note with:
 - branch and commit hash reviewed;
 - whether this was pre-audit or post-audit;
 - changed modules reviewed;
-- findings grouped as blocker, should-fix, follow-up, or accepted risk;
+- findings grouped as blocker, should-fix, follow-up, or deferred non-blocking item; reliability, security, data-loss, privacy, and operator-trust risks are blockers unless already fixed in the same slice;
 - tests and smoke checks run;
 - exact docs/checklist updates needed.
 
-If no blockers are found, say that explicitly and list residual risks.
+If no blockers are found, say that explicitly and list only deferred non-blocking items with an owner/next action. Do not mark reliability, security, data-loss, privacy, or operator-trust issues as accepted risks.

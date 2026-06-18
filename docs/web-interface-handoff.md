@@ -234,6 +234,14 @@ Completed foundation:
     server job dispatcher registers safe handlers that stream installer/repair
     generator output into bounded redacted job tails. A durable standalone
     worker daemon remains future hardening; update remains future work.
+    The job-store duplicate-active persistence blocker is closed for these
+    flows: schema maintenance cancels pre-existing duplicate active rows while
+    keeping the oldest active job, active lookup has an indexed
+    `(kind, instance, status, created_at, id)` path, and `/jobs` exposes
+    job-store integrity warnings separately from pending operator work. Follow-up
+    owner: next jobs/update slice. Run query-plan and latency checks on
+    production-scale job history before adding update jobs or a standalone
+    worker daemon.
 25. Basic web config editing: `/config` now supports CSRF-protected
     `settings:manage` edits for allowlisted `game.name`, `game.scenarioId`,
     `game.maxPlayers`, `game.visible`, BattlEye, and server distance fields.
@@ -464,7 +472,7 @@ Check the diff against:
 
 Run relevant tests and `git diff --check` if possible.
 Return findings first with file/line references, then test coverage and a short
-summary. If there are no findings, say so clearly, mention residual risk, and
+summary. If there are no findings, say so clearly, list only deferred non-blocking items with owner/next action, and
 commit the approved changes with a concise message.
 ```
 

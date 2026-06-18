@@ -486,6 +486,34 @@ def _audit_events(data_root: Path) -> list[dict]:
     return [json.loads(line) for line in _audit_log_text(data_root).splitlines()]
 
 
+def _insert_raw_web_job(
+    db_path: Path,
+    *,
+    kind: str,
+    status: str,
+    created_at: str,
+) -> int:
+    with sqlite3.connect(db_path) as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO web_jobs (
+                kind,
+                status,
+                requested_by_username,
+                instance,
+                current_step,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, 'owner', 'default', 'legacy active row', ?, ?)
+            """,
+            (kind, status, created_at, created_at),
+        )
+        job_id = cursor.lastrowid
+    assert job_id is not None
+    return int(job_id)
+
+
 def _service_action_state(
     *,
     installed: bool = True,
@@ -1826,6 +1854,143 @@ def test_jobs_page_distinguishes_empty_pending_work_and_background_jobs(tmp_path
     assert "No jobs yet." not in response.text
 
 
+def test_jobs_page_shows_active_duplicate_job_store_integrity_warning(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services import job_integrity
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    monkeypatch.setattr(
+        job_integrity,
+        "job_store_integrity_diagnostics",
+        lambda db_path: (
+            job_integrity.JobStoreIntegrityDiagnostic(
+                report_type="active_duplicate",
+                severity="warning",
+                job_kind="server:install",
+                instance="default",
+                active_job_ids=(11, 12),
+                kept_job_id=11,
+                duplicate_job_ids=(12,),
+            ),
+        ),
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/jobs", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Job-store integrity" in response.text
+    assert "Duplicate active jobs detected." in response.text
+    assert "Current duplicate active jobs are still present." in response.text
+    assert "Maintenance is required to cancel duplicate active rows." in response.text
+    assert "notice-panel notice-warning" in response.text
+    assert "Job kind" in response.text
+    assert "Active job IDs" in response.text
+    assert "#11" in response.text
+    assert "#12" in response.text
+    assert "Job-store maintenance completed." not in response.text
+    assert "Active jobs #" not in response.text
+    assert "Review cancelled jobs below." not in response.text
+    assert "Web job-store maintenance cancelled duplicate active jobs." not in response.text
+    assert "Pending operator work" in response.text
+    assert "No pending operator work." in response.text
+
+
+def test_jobs_page_shows_repaired_job_store_report_as_neutral_notice(tmp_path: Path):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import SERVER_INSTALL_JOB_KIND
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    db_path = tmp_path / "web" / "web.db"
+    kept = _insert_raw_web_job(
+        db_path,
+        kind=SERVER_INSTALL_JOB_KIND,
+        status="queued",
+        created_at="2026-01-01T00:00:00+00:00",
+    )
+    _insert_raw_web_job(
+        db_path,
+        kind=SERVER_INSTALL_JOB_KIND,
+        status="running",
+        created_at="2026-01-01T00:00:01+00:00",
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/jobs", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Job-store integrity" in response.text
+    assert "Job-store maintenance completed." in response.text
+    assert "Duplicate active jobs were repaired. Oldest active jobs were kept." in response.text
+    assert "Cancelled duplicate jobs remain visible below for audit context." in response.text
+    assert "Repaired duplicate active jobs" in response.text
+    assert "Last repair" in response.text
+    assert "notice-panel diagnostic-notice" in response.text
+    assert "notice-panel notice-warning" not in response.text
+    assert "Duplicate active jobs detected." not in response.text
+    assert "Web job-store maintenance cancelled duplicate active jobs." not in response.text
+    assert "Review cancelled jobs below." not in response.text
+    assert "Cancelled by web job-store maintenance; older active job kept." in response.text
+    assert "Duplicate active job cancelled" in response.text
+    with sqlite3.connect(db_path) as connection:
+        active_rows = connection.execute(
+            """
+            SELECT id
+            FROM web_jobs
+            WHERE kind = ?
+              AND status IN ('queued', 'running')
+            ORDER BY id
+            """,
+            (SERVER_INSTALL_JOB_KIND,),
+        ).fetchall()
+    assert [row[0] for row in active_rows] == [kept]
+
+
+def test_jobs_page_localizes_job_store_integrity_diagnostics_to_ukrainian(
+    tmp_path: Path,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import SERVER_INSTALL_JOB_KIND
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    db_path = tmp_path / "web" / "web.db"
+    _insert_raw_web_job(
+        db_path,
+        kind=SERVER_INSTALL_JOB_KIND,
+        status="queued",
+        created_at="2026-01-01T00:00:00+00:00",
+    )
+    _insert_raw_web_job(
+        db_path,
+        kind=SERVER_INSTALL_JOB_KIND,
+        status="running",
+        created_at="2026-01-01T00:00:01+00:00",
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    _set_cookie(client, LANGUAGE_COOKIE_NAME, "uk")
+
+    response = client.get("/jobs", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Цілісність сховища завдань" in response.text
+    assert "Обслуговування сховища завдань завершено." in response.text
+    assert "Дублікати активних завдань виправлено." in response.text
+    assert "Виправлені дублікати активних завдань" in response.text
+    assert "Job-store maintenance completed." not in response.text
+    assert "Duplicate active jobs were repaired." not in response.text
+    assert "Repaired duplicate active jobs" not in response.text
+    assert "Review cancelled jobs below." not in response.text
+
+
 def test_dashboard_and_jobs_show_fallback_pending_work_without_leaking_secrets(
     tmp_path: Path,
     monkeypatch,
@@ -2640,6 +2805,54 @@ def test_post_install_and_repair_create_queued_jobs_without_running_backend(
     assert audit_events[-1]["details"]["job_kind"] == "server:repair"
     assert audit_events[-1]["details"]["created"] == "true"
     assert scheduled == [jobs[1].id, jobs[0].id]
+
+
+def test_post_install_reuses_existing_active_job_without_creating_duplicate(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import server as server_jobs
+    from armactl.web.jobs.store import list_recent_jobs
+
+    scheduled: list[int] = []
+    monkeypatch.setattr(
+        server_jobs,
+        "start_server_job_worker",
+        lambda db_path, job_id: scheduled.append(job_id),
+    )
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+
+    first_response = client.post(
+        "/jobs/server/install",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    second_response = client.post(
+        "/jobs/server/install",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    jobs = [
+        job
+        for job in list_recent_jobs(tmp_path / "web" / "web.db")
+        if job.kind == "server:install"
+    ]
+    audit_events = _audit_events(tmp_path)
+
+    assert first_response.status_code == 303
+    assert first_response.headers["location"] == "/jobs"
+    assert second_response.status_code == 303
+    assert second_response.headers["location"] == "/jobs"
+    assert len(jobs) == 1
+    assert jobs[0].status == "queued"
+    assert scheduled == [jobs[0].id, jobs[0].id]
+    assert [event["details"]["created"] for event in audit_events[-2:]] == ["true", "false"]
 
 
 def test_install_job_audit_failure_cancels_created_job(

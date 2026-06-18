@@ -12,20 +12,30 @@ from armactl.web.jobs.runner import (
     JobDispatcher,
     JobHandlerResult,
     dispatch_job,
-    enqueue_job,
 )
-from armactl.web.jobs.store import list_recent_jobs
+from armactl.web.jobs.store import get_or_create_active_job
 
 SERVER_INSTALL_JOB_KIND = "server:install"
 SERVER_REPAIR_JOB_KIND = "server:repair"
 SERVER_JOB_KINDS = frozenset({SERVER_INSTALL_JOB_KIND, SERVER_REPAIR_JOB_KIND})
 
 
-def _active_server_job(db_path, kind: str, instance: str) -> JobRecord | None:
-    for job in list_recent_jobs(db_path, limit=100):
-        if job.kind == kind and job.instance == instance and not job.is_terminal:
-            return job
-    return None
+def ensure_server_install_job(
+    db_path,
+    *,
+    requested_by_username: str,
+    requested_by_user_id: int | None = None,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> tuple[JobRecord, bool]:
+    """Return an active install job, creating a queued job if needed."""
+    return get_or_create_active_job(
+        db_path,
+        kind=SERVER_INSTALL_JOB_KIND,
+        requested_by_username=requested_by_username,
+        requested_by_user_id=requested_by_user_id,
+        instance=instance,
+        current_step="Queued install",
+    )
 
 
 def enqueue_server_install(
@@ -35,17 +45,31 @@ def enqueue_server_install(
     requested_by_user_id: int | None = None,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
 ) -> JobRecord:
-    """Create a queued server install job without running the installer."""
-    active_job = _active_server_job(db_path, SERVER_INSTALL_JOB_KIND, instance)
-    if active_job is not None:
-        return active_job
-    return enqueue_job(
+    """Create or return a queued/running server install job."""
+    job, _created = ensure_server_install_job(
         db_path,
-        kind=SERVER_INSTALL_JOB_KIND,
         requested_by_username=requested_by_username,
         requested_by_user_id=requested_by_user_id,
         instance=instance,
-        current_step="Queued install",
+    )
+    return job
+
+
+def ensure_server_repair_job(
+    db_path,
+    *,
+    requested_by_username: str,
+    requested_by_user_id: int | None = None,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> tuple[JobRecord, bool]:
+    """Return an active repair job, creating a queued job if needed."""
+    return get_or_create_active_job(
+        db_path,
+        kind=SERVER_REPAIR_JOB_KIND,
+        requested_by_username=requested_by_username,
+        requested_by_user_id=requested_by_user_id,
+        instance=instance,
+        current_step="Queued repair",
     )
 
 
@@ -56,18 +80,14 @@ def enqueue_server_repair(
     requested_by_user_id: int | None = None,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
 ) -> JobRecord:
-    """Create a queued server repair job without running repair."""
-    active_job = _active_server_job(db_path, SERVER_REPAIR_JOB_KIND, instance)
-    if active_job is not None:
-        return active_job
-    return enqueue_job(
+    """Create or return a queued/running server repair job."""
+    job, _created = ensure_server_repair_job(
         db_path,
-        kind=SERVER_REPAIR_JOB_KIND,
         requested_by_username=requested_by_username,
         requested_by_user_id=requested_by_user_id,
         instance=instance,
-        current_step="Queued repair",
     )
+    return job
 
 
 def _append_generator_output(context: JobContext, lines) -> None:

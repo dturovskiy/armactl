@@ -1266,7 +1266,7 @@ runtime config, raw JSON, and danger-zone actions belong on dedicated pages.
 
 ### System audit gate
 
-Large or risky web slices should run the module-by-module audit described in docs/web-system-audit.md. Use it twice when the slice touches security, persistence, routing boundaries, file operations, jobs, permissions, or deployment behavior: once before implementation to confirm the current boundary, and once after implementation to catch new shortcuts before merge or VM smoke. The audit output should list blockers, should-fix items, follow-ups, accepted risks, tests, and docs updates.
+Large or risky web slices should run the module-by-module audit described in docs/web-system-audit.md. Use it twice when the slice touches security, persistence, routing boundaries, file operations, jobs, permissions, or deployment behavior: once before implementation to confirm the current boundary, and once after implementation to catch new shortcuts before merge or VM smoke. The audit output should list blockers, should-fix items, follow-ups, deferred non-blocking items, tests, and docs updates. Reliability, security, data-loss, privacy, and operator-trust issues must be treated as blockers until fixed.
 
 ### Known architecture debt
 
@@ -1278,6 +1278,8 @@ Pay this down before adding another large web feature slice. These are refactors
 - Split the oversized tests/test_web_app.py into focused route/static/dashboard/preference/service tests. New tests should patch service/facade seams, not imported route globals or FastAPI endpoint internals.
 - Audit broad except Exception usage in web routes/services. Keep documented fail-closed diagnostics and dashboard degradation paths, but prefer explicit domain errors for mutating workflows.
 - Treat best-effort cleanup, such as cancelling a just-created job after audit failure, as explicit behavior with a comment/test instead of an invisible workaround.
+- The `web_jobs` duplicate-active persistence blocker is closed for install/repair: schema maintenance cancels old duplicate `queued`/`running` rows deterministically, active lookup uses an indexed `(kind, instance, status, created_at, id)` path, and `/jobs` surfaces job-store integrity warnings instead of hiding them as deferred debt.
+- Follow-up owner: next jobs/update slice. Run `EXPLAIN QUERY PLAN` plus latency checks on production-scale job history before adding update jobs or a standalone worker daemon.
 
 Internal API readiness:
 
@@ -1598,6 +1600,11 @@ not the foreground debug runner.
   background jobs. It is stored in `web_pending_work`, not `web_jobs`, and can be
   present even when there are no background jobs. Empty states say either
   "No pending operator work." or "No background jobs." precisely.
+- Job-store reliability hardening is in place: schema v7 maintenance cancels
+  duplicate active `queued`/`running` rows by `(kind, instance)` while keeping
+  the oldest active job, active lookup is backed by the
+  `idx_web_jobs_active_lookup` index, and `/jobs` shows job-store integrity
+  warnings separately from pending operator work.
 - Install and repair now use explicit background job handlers and enqueue routes.
 - Use the job model for future SteamCMD update and large file actions.
 - Until explicit handlers and routes exist for future operations, keep them out

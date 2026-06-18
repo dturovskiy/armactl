@@ -6,7 +6,9 @@ import os
 import sqlite3
 from pathlib import Path
 
-WEB_SCHEMA_VERSION = "6"
+from armactl.web.runtime.job_store_maintenance import repair_duplicate_active_jobs
+
+WEB_SCHEMA_VERSION = "7"
 PRIVATE_FILE_MODE = 0o600
 
 
@@ -116,10 +118,18 @@ def ensure_web_db(db_path: Path) -> Path:
             )
             """
         )
+        repair_duplicate_active_jobs(connection)
         connection.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_web_jobs_created_at
             ON web_jobs(created_at)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_web_jobs_active_lookup
+            ON web_jobs(kind, instance, status, created_at, id)
+            WHERE status IN ('queued', 'running')
             """
         )
         connection.execute(

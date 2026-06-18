@@ -312,6 +312,10 @@
 - [ ] Додати logs filters/search/highlighting для level/source/text і `ERROR`/`WARNING`
 - [x] Підключити install/repair flows до background jobs без blocking HTTP requests
 - [ ] Підключити update flow до background jobs без blocking HTTP requests
+- [x] Додати `web_jobs` maintenance migration для старих duplicate active rows: detect/report/resolve дублікати `queued`/`running` за `(kind, instance)` перед production release або наступним install/repair/update slice
+- [x] Додати SQLite migration/index для active job lookup за `(kind, instance, status, created_at, id)` або еквівалентний schema-backed guard
+- [x] Додати diagnostics/health check для `web_jobs`, який показує duplicate active jobs і job-store integrity проблеми у `/jobs` або diagnostics page, а не ховає їх як hidden debt
+- [ ] Follow-up owner: наступний jobs/update slice. Перевірити `EXPLAIN QUERY PLAN` і latency active lookup на production-scale job history перед додаванням update job flow або standalone worker daemon.
 - [x] Додати safe web edit/save для базових полів `config.json` через `config_manager`
 - [x] Додати audit logging для safe web config save з changed fields і backup path
 - [x] Додати audit logging для file upload і web install/repair job enqueue після VM smoke audit cleanup

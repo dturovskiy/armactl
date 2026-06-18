@@ -18,7 +18,7 @@ from armactl.web.auth.dependencies import (
 )
 from armactl.web.auth.permissions import ACTIONS_RUN, JOBS_VIEW
 from armactl.web.jobs.store import list_recent_jobs
-from armactl.web.services import server_job_actions
+from armactl.web.services import job_integrity, server_job_actions
 from armactl.web.services.pending_work import list_pending_work_with_fallback
 
 router = APIRouter()
@@ -34,6 +34,9 @@ def _redirect_to_login(request: Request) -> RedirectResponse:
 
 def _render_jobs(request: Request, current: CurrentSession) -> Response:
     form_csrf = get_form_csrf_token(request, current)
+    job_store_diagnostics = job_integrity.job_store_integrity_diagnostics(
+        current.config.db_path
+    )
     pending_work_items = list_pending_work_with_fallback(
         current.config.db_path,
         instance=paths.DEFAULT_INSTANCE_NAME,
@@ -47,6 +50,7 @@ def _render_jobs(request: Request, current: CurrentSession) -> Response:
             "csrf_token": form_csrf.token,
             "jobs": jobs,
             "pending_work_items": pending_work_items,
+            "job_store_diagnostics": job_store_diagnostics,
         },
     )
     if form_csrf.should_set_cookie:

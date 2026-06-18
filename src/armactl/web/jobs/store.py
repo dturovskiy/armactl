@@ -20,6 +20,9 @@ from armactl.web.jobs.models import (
     JobRecord,
 )
 from armactl.web.runtime.db import ensure_web_db
+from armactl.web.runtime.job_store_maintenance import (
+    repair_duplicate_active_jobs as _repair_duplicate_active_jobs,
+)
 
 MAX_JOB_KIND_LENGTH = 80
 MAX_JOB_ACTOR_LENGTH = 120
@@ -213,6 +216,46 @@ def _fetch_job(connection: sqlite3.Connection, job_id: int) -> JobRecord:
     return _record_from_row(row)
 
 
+def _fetch_active_job(
+    connection: sqlite3.Connection,
+    *,
+    kind: str,
+    instance: str,
+) -> JobRecord | None:
+    row = connection.execute(
+        """
+        SELECT id,
+               kind,
+               status,
+               requested_by_user_id,
+               requested_by_username,
+               instance,
+               progress_current,
+               progress_total,
+               current_step,
+               result_message,
+               stdout_tail,
+               stderr_tail,
+               error_message,
+               error_class,
+               created_at,
+               updated_at,
+               started_at,
+               finished_at
+        FROM web_jobs
+        WHERE kind = ?
+          AND instance = ?
+          AND status IN (?, ?)
+        ORDER BY created_at ASC, id ASC
+        LIMIT 1
+        """,
+        (kind, instance, JOB_STATUS_QUEUED, JOB_STATUS_RUNNING),
+    ).fetchone()
+    if row is None:
+        return None
+    return _record_from_row(row)
+
+
 def _ensure_transition(current_status: str, new_status: str) -> None:
     if current_status in TERMINAL_JOB_STATUSES:
         raise JobTransitionError("Terminal web jobs cannot change status.")
@@ -230,18 +273,24 @@ def _ensure_transition(current_status: str, new_status: str) -> None:
     raise JobTransitionError("Invalid web job status transition.")
 
 
-def create_job(
-    db_path: Path,
+def _normalize_create_job_inputs(
     *,
     kind: str,
     requested_by_username: str,
-    requested_by_user_id: int | None = None,
-    instance: str = paths.DEFAULT_INSTANCE_NAME,
-    current_step: str = "",
-    progress_current: int = 0,
-    progress_total: int = 0,
-) -> JobRecord:
-    """Create queued metadata for a future background job."""
+    requested_by_user_id: int | None,
+    instance: str,
+    current_step: str,
+    progress_current: int,
+    progress_total: int,
+) -> tuple[
+    str,
+    str,
+    int | None,
+    str,
+    str,
+    int,
+    int,
+]:
     normalized_kind = _normalize_kind(kind)
     normalized_username = _normalize_non_empty_text(
         requested_by_username,
@@ -260,6 +309,46 @@ def create_job(
         "progress_current",
     )
     normalized_progress_total = _normalize_non_negative_int(progress_total, "progress_total")
+    return (
+        normalized_kind,
+        normalized_username,
+        normalized_user_id,
+        normalized_instance,
+        normalized_step,
+        normalized_progress_current,
+        normalized_progress_total,
+    )
+
+
+def create_job(
+    db_path: Path,
+    *,
+    kind: str,
+    requested_by_username: str,
+    requested_by_user_id: int | None = None,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    current_step: str = "",
+    progress_current: int = 0,
+    progress_total: int = 0,
+) -> JobRecord:
+    """Create queued metadata for a future background job."""
+    (
+        normalized_kind,
+        normalized_username,
+        normalized_user_id,
+        normalized_instance,
+        normalized_step,
+        normalized_progress_current,
+        normalized_progress_total,
+    ) = _normalize_create_job_inputs(
+        kind=kind,
+        requested_by_username=requested_by_username,
+        requested_by_user_id=requested_by_user_id,
+        instance=instance,
+        current_step=current_step,
+        progress_current=progress_current,
+        progress_total=progress_total,
+    )
     now = _utc_now()
 
     try:
@@ -297,6 +386,90 @@ def create_job(
             if job_id is None:
                 raise JobStoreError("Failed to create web job.")
             return _fetch_job(connection, job_id)
+    except sqlite3.Error as exc:
+        raise JobStoreError("Failed to create web job.") from exc
+
+
+def get_or_create_active_job(
+    db_path: Path,
+    *,
+    kind: str,
+    requested_by_username: str,
+    requested_by_user_id: int | None = None,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    current_step: str = "",
+    progress_current: int = 0,
+    progress_total: int = 0,
+) -> tuple[JobRecord, bool]:
+    """Return an active kind/instance job, or atomically create a queued one."""
+    (
+        normalized_kind,
+        normalized_username,
+        normalized_user_id,
+        normalized_instance,
+        normalized_step,
+        normalized_progress_current,
+        normalized_progress_total,
+    ) = _normalize_create_job_inputs(
+        kind=kind,
+        requested_by_username=requested_by_username,
+        requested_by_user_id=requested_by_user_id,
+        instance=instance,
+        current_step=current_step,
+        progress_current=progress_current,
+        progress_total=progress_total,
+    )
+    now = _utc_now()
+
+    try:
+        with _connect(db_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            _repair_duplicate_active_jobs(
+                connection,
+                kind=normalized_kind,
+                instance=normalized_instance,
+            )
+            active = _fetch_active_job(
+                connection,
+                kind=normalized_kind,
+                instance=normalized_instance,
+            )
+            if active is not None:
+                return active, False
+
+            cursor = connection.execute(
+                """
+                INSERT INTO web_jobs (
+                    kind,
+                    status,
+                    requested_by_user_id,
+                    requested_by_username,
+                    instance,
+                    progress_current,
+                    progress_total,
+                    current_step,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    normalized_kind,
+                    JOB_STATUS_QUEUED,
+                    normalized_user_id,
+                    normalized_username,
+                    normalized_instance,
+                    normalized_progress_current,
+                    normalized_progress_total,
+                    normalized_step,
+                    now,
+                    now,
+                ),
+            )
+            job_id = cursor.lastrowid
+            if job_id is None:
+                raise JobStoreError("Failed to create web job.")
+            return _fetch_job(connection, job_id), True
     except sqlite3.Error as exc:
         raise JobStoreError("Failed to create web job.") from exc
 

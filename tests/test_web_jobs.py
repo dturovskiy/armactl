@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 
@@ -37,6 +39,17 @@ from armactl.web.jobs import (
 )
 from armactl.web.jobs.store import MAX_JOB_OUTPUT_CHARS
 from armactl.web.runtime import ensure_web_db
+from armactl.web.runtime.job_store_maintenance import (
+    JOB_STORE_DUPLICATE_ACTIVE_REPAIR_AT_META_KEY,
+    JOB_STORE_DUPLICATE_ACTIVE_REPAIR_COUNT_META_KEY,
+    JOB_STORE_DUPLICATE_ACTIVE_REPAIR_MESSAGE,
+    JOB_STORE_DUPLICATE_ACTIVE_REPAIR_OUTPUT_NOTE,
+    JOB_STORE_DUPLICATE_ACTIVE_REPAIR_STEP,
+)
+from armactl.web.services.job_integrity import (
+    find_duplicate_active_jobs,
+    job_store_integrity_diagnostics,
+)
 
 FORBIDDEN_IMPORT_PREFIXES = ("armactl.tui", "textual")
 
@@ -53,8 +66,84 @@ def _sqlite_tables(db_path: Path) -> set[str]:
     return {row[0] for row in rows}
 
 
+def _sqlite_indexes(db_path: Path) -> set[str]:
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'index'
+            """
+        ).fetchall()
+    return {row[0] for row in rows}
+
+
+def _schema_meta(db_path: Path) -> dict[str, str]:
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT key, value
+            FROM web_schema_meta
+            """
+        ).fetchall()
+    return {str(row[0]): str(row[1]) for row in rows}
+
+
 def _db_path(tmp_path: Path) -> Path:
     return tmp_path / "web" / "web.db"
+
+
+def _insert_raw_job(
+    db_path: Path,
+    *,
+    kind: str,
+    status: str,
+    created_at: str,
+    instance: str = "default",
+    requested_by_username: str = "owner",
+) -> int:
+    with sqlite3.connect(db_path) as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO web_jobs (
+                kind,
+                status,
+                requested_by_username,
+                instance,
+                current_step,
+                stdout_tail,
+                stderr_tail,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, 'legacy active row', 'legacy stdout', 'legacy stderr', ?, ?)
+            """,
+            (kind, status, requested_by_username, instance, created_at, created_at),
+        )
+        job_id = cursor.lastrowid
+    assert job_id is not None
+    return int(job_id)
+
+
+def _active_job_ids(
+    db_path: Path,
+    *,
+    kind: str,
+    instance: str = "default",
+) -> list[int]:
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT id
+            FROM web_jobs
+            WHERE kind = ?
+              AND instance = ?
+              AND status IN (?, ?)
+            ORDER BY id
+            """,
+            (kind, instance, JOB_STATUS_QUEUED, JOB_STATUS_RUNNING),
+        ).fetchall()
+    return [row[0] for row in rows]
 
 
 def _assert_timestamp(value: str) -> None:
@@ -67,6 +156,134 @@ def test_ensure_web_db_creates_jobs_table(tmp_path: Path):
     ensure_web_db(db_path)
 
     assert "web_jobs" in _sqlite_tables(db_path)
+    assert "idx_web_jobs_active_lookup" in _sqlite_indexes(db_path)
+
+
+def test_ensure_web_db_repairs_duplicate_active_jobs_idempotently(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+    ensure_web_db(db_path)
+    kept = _insert_raw_job(
+        db_path,
+        kind=SERVER_INSTALL_JOB_KIND,
+        status=JOB_STATUS_QUEUED,
+        created_at="2026-01-01T00:00:00+00:00",
+    )
+    duplicate_running = _insert_raw_job(
+        db_path,
+        kind=SERVER_INSTALL_JOB_KIND,
+        status=JOB_STATUS_RUNNING,
+        created_at="2026-01-01T00:00:01+00:00",
+    )
+    duplicate_queued = _insert_raw_job(
+        db_path,
+        kind=SERVER_INSTALL_JOB_KIND,
+        status=JOB_STATUS_QUEUED,
+        created_at="2026-01-01T00:00:02+00:00",
+    )
+    other_kind = _insert_raw_job(
+        db_path,
+        kind=SERVER_REPAIR_JOB_KIND,
+        status=JOB_STATUS_RUNNING,
+        created_at="2026-01-01T00:00:03+00:00",
+    )
+
+    ensure_web_db(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT id,
+                   status,
+                   current_step,
+                   result_message,
+                   stdout_tail,
+                   stderr_tail,
+                   finished_at,
+                   updated_at
+            FROM web_jobs
+            ORDER BY id
+            """
+        ).fetchall()
+    row_by_id = {row[0]: row for row in rows}
+    assert _active_job_ids(db_path, kind=SERVER_INSTALL_JOB_KIND) == [kept]
+    assert _active_job_ids(db_path, kind=SERVER_REPAIR_JOB_KIND) == [other_kind]
+    for duplicate_id in (duplicate_running, duplicate_queued):
+        row = row_by_id[duplicate_id]
+        assert row[1] == JOB_STATUS_CANCELLED
+        assert row[2] == JOB_STORE_DUPLICATE_ACTIVE_REPAIR_STEP
+        assert row[3] == JOB_STORE_DUPLICATE_ACTIVE_REPAIR_MESSAGE
+        assert row[4] == ""
+        assert row[5] == JOB_STORE_DUPLICATE_ACTIVE_REPAIR_OUTPUT_NOTE
+        assert row[6] is not None
+        _assert_timestamp(row[6])
+
+    meta = _schema_meta(db_path)
+    assert meta[JOB_STORE_DUPLICATE_ACTIVE_REPAIR_COUNT_META_KEY] == "2"
+    _assert_timestamp(meta[JOB_STORE_DUPLICATE_ACTIVE_REPAIR_AT_META_KEY])
+    first_snapshot = (rows, meta)
+
+    ensure_web_db(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        rows_after_second_run = connection.execute(
+            """
+            SELECT id,
+                   status,
+                   current_step,
+                   result_message,
+                   stdout_tail,
+                   stderr_tail,
+                   finished_at,
+                   updated_at
+            FROM web_jobs
+            ORDER BY id
+            """
+        ).fetchall()
+    assert (rows_after_second_run, _schema_meta(db_path)) == first_snapshot
+
+
+def test_job_integrity_detects_duplicate_active_jobs_without_repairing(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+    ensure_web_db(db_path)
+    first = _insert_raw_job(
+        db_path,
+        kind=SERVER_INSTALL_JOB_KIND,
+        status=JOB_STATUS_RUNNING,
+        created_at="2026-01-01T00:00:00+00:00",
+    )
+    second = _insert_raw_job(
+        db_path,
+        kind=SERVER_INSTALL_JOB_KIND,
+        status=JOB_STATUS_QUEUED,
+        created_at="2026-01-01T00:00:01+00:00",
+    )
+    _insert_raw_job(
+        db_path,
+        kind=SERVER_REPAIR_JOB_KIND,
+        status=JOB_STATUS_QUEUED,
+        created_at="2026-01-01T00:00:02+00:00",
+    )
+
+    groups = find_duplicate_active_jobs(db_path)
+
+    assert len(groups) == 1
+    assert groups[0].kind == SERVER_INSTALL_JOB_KIND
+    assert groups[0].instance == "default"
+    assert groups[0].active_job_ids == (first, second)
+    assert groups[0].duplicate_job_ids == (second,)
+    assert _active_job_ids(db_path, kind=SERVER_INSTALL_JOB_KIND) == [first, second]
+
+    diagnostics = job_store_integrity_diagnostics(db_path)
+
+    assert len(diagnostics) == 1
+    assert diagnostics[0].report_type == "active_duplicate"
+    assert diagnostics[0].severity == "warning"
+    assert diagnostics[0].job_kind == SERVER_INSTALL_JOB_KIND
+    assert diagnostics[0].instance == "default"
+    assert diagnostics[0].active_job_ids == (first, second)
+    assert diagnostics[0].kept_job_id == first
+    assert diagnostics[0].duplicate_job_ids == (second,)
+    assert not hasattr(diagnostics[0], "details")
 
 
 def test_create_get_and_list_recent_jobs(tmp_path: Path):
@@ -355,6 +572,154 @@ def test_server_enqueue_reuses_active_install_job(tmp_path: Path):
 
     assert second.id == first.id
     assert [job.kind for job in jobs] == [SERVER_INSTALL_JOB_KIND]
+
+
+def test_server_enqueue_reuses_active_repair_job(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+
+    first = enqueue_server_repair(db_path, requested_by_username="owner")
+    running = mark_job_running(db_path, first.id)
+    second = enqueue_server_repair(db_path, requested_by_username="owner")
+    jobs = list_recent_jobs(db_path)
+
+    assert second.id == running.id
+    assert second.status == JOB_STATUS_RUNNING
+    assert [job.kind for job in jobs] == [SERVER_REPAIR_JOB_KIND]
+
+
+def test_server_enqueue_finds_active_job_older_than_recent_limit(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+
+    active = enqueue_server_install(db_path, requested_by_username="owner")
+    for _index in range(101):
+        _insert_raw_job(
+            db_path,
+            kind=SERVER_INSTALL_JOB_KIND,
+            status=JOB_STATUS_SUCCEEDED,
+            created_at=f"2030-01-01T00:{_index // 60:02d}:{_index % 60:02d}+00:00",
+        )
+
+    recent_ids = {job.id for job in list_recent_jobs(db_path, limit=100)}
+    second = enqueue_server_install(db_path, requested_by_username="owner")
+
+    assert active.id not in recent_ids
+    assert second.id == active.id
+    assert _active_job_ids(db_path, kind=SERVER_INSTALL_JOB_KIND) == [active.id]
+
+
+def test_server_enqueue_ignores_terminal_job_for_same_scope(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+
+    terminal = create_job(
+        db_path,
+        kind=SERVER_INSTALL_JOB_KIND,
+        requested_by_username="owner",
+    )
+    mark_job_running(db_path, terminal.id)
+    mark_job_succeeded(db_path, terminal.id)
+
+    new_job = enqueue_server_install(db_path, requested_by_username="owner")
+
+    assert new_job.id != terminal.id
+    assert new_job.status == JOB_STATUS_QUEUED
+    assert _active_job_ids(db_path, kind=SERVER_INSTALL_JOB_KIND) == [new_job.id]
+
+
+def test_server_enqueue_repairs_old_duplicate_active_rows_without_creating_new_job(
+    tmp_path: Path,
+):
+    db_path = _db_path(tmp_path)
+    ensure_web_db(db_path)
+    kept = _insert_raw_job(
+        db_path,
+        kind=SERVER_INSTALL_JOB_KIND,
+        status=JOB_STATUS_QUEUED,
+        created_at="2026-01-01T00:00:00+00:00",
+    )
+    duplicate = _insert_raw_job(
+        db_path,
+        kind=SERVER_INSTALL_JOB_KIND,
+        status=JOB_STATUS_RUNNING,
+        created_at="2026-01-01T00:00:01+00:00",
+    )
+
+    job = enqueue_server_install(db_path, requested_by_username="owner")
+
+    assert job.id == kept
+    assert job.status == JOB_STATUS_QUEUED
+    assert _active_job_ids(db_path, kind=SERVER_INSTALL_JOB_KIND) == [kept]
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT id, status, result_message, stderr_tail
+            FROM web_jobs
+            WHERE kind = ?
+            ORDER BY id
+            """,
+            (SERVER_INSTALL_JOB_KIND,),
+        ).fetchall()
+    assert [row[0] for row in rows] == [kept, duplicate]
+    assert rows[1][1] == JOB_STATUS_CANCELLED
+    assert rows[1][2] == JOB_STORE_DUPLICATE_ACTIVE_REPAIR_MESSAGE
+    assert rows[1][3] == JOB_STORE_DUPLICATE_ACTIVE_REPAIR_OUTPUT_NOTE
+
+
+def test_server_job_audit_failure_does_not_cancel_existing_active_job(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import server_job_actions
+    from armactl.web.services.audit import AuditLogError
+
+    db_path = _db_path(tmp_path)
+    existing = enqueue_server_install(db_path, requested_by_username="owner")
+
+    def fail_audit(*args, **kwargs):
+        raise AuditLogError("disk full")
+
+    def fail_worker(*args, **kwargs):
+        raise AssertionError("worker should not start when audit fails")
+
+    monkeypatch.setattr(server_job_actions, "append_audit_event", fail_audit)
+    monkeypatch.setattr(
+        server_job_actions.server_jobs,
+        "start_server_job_worker",
+        fail_worker,
+    )
+
+    with pytest.raises(server_job_actions.ServerJobAuditError):
+        server_job_actions.enqueue_server_job_and_start(
+            db_path,
+            action="install",
+            audit_log_path=tmp_path / "audit.log",
+            username="owner",
+            user_id=None,
+        )
+
+    refreshed = get_job(db_path, existing.id)
+    assert refreshed is not None
+    assert refreshed.status == JOB_STATUS_QUEUED
+    assert refreshed.result_message == ""
+    assert _active_job_ids(db_path, kind=SERVER_INSTALL_JOB_KIND) == [existing.id]
+
+
+def test_concurrent_server_install_enqueue_attempts_create_one_active_job(
+    tmp_path: Path,
+):
+    db_path = _db_path(tmp_path)
+    ensure_web_db(db_path)
+    barrier = Barrier(2)
+
+    def enqueue() -> int:
+        barrier.wait(timeout=5)
+        return enqueue_server_install(db_path, requested_by_username="owner").id
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(enqueue) for _index in range(2)]
+        job_ids = [future.result(timeout=10) for future in futures]
+
+    assert job_ids[0] == job_ids[1]
+    assert _active_job_ids(db_path, kind=SERVER_INSTALL_JOB_KIND) == [job_ids[0]]
 
 
 def test_server_repair_handler_uses_discovery_paths_and_streams_output(
