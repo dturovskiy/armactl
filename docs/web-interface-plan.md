@@ -1272,7 +1272,7 @@ Large or risky web slices should run the module-by-module audit described in doc
 
 Pay this down before adding another large web feature slice. These are refactors only; they should preserve current behavior and tests.
 
-- Split the current broad routes/management.py into domain routers for config, mods, admins, and bot flows. Routes should stay HTTP glue and should not own workflow, audit, pending-work, or rollback logic.
+- Done: split the broad routes/management.py surface into domain routers for config, mods, admins, and bot flows without changing URLs, permissions, templates, CSRF checks, audit calls, or pending-work behavior.
 - Split facade.py by page/domain DTO once the current web flows stabilize. Dashboard/status aggregation, config summaries, mods/admins/bot summaries, and schedule state should not keep growing in one file.
 - Split services/filesystem.py before adding delete, text edit, overwrite, rename, or archive extraction. Keep path jail/root resolution separate from listing, preview, download, upload staging, and future destructive actions.
 - Split the oversized tests/test_web_app.py into focused route/static/dashboard/preference/service tests. New tests should patch service/facade seams, not imported route globals or FastAPI endpoint internals.

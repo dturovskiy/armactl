@@ -320,6 +320,11 @@ Completed foundation:
     clears only restart-related pending work, including legacy migrated
     pending-restart rows. The service result page now shows operator-friendly
     restart copy and keeps backend diagnostics secondary and redacted.
+35. Web management route split: /config, /mods, /admins, and /bot now live in
+    explicit domain routers under src/armactl/web/routes/. The split preserves
+    existing URLs, permissions, templates, CSRF checks, audit calls, and
+    pending-work behavior. facade.py, services/filesystem.py, and the broader
+    tests/test_web_app.py split remain separate architecture cleanup debt.
 
 Planned but not implemented:
 

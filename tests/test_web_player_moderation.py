@@ -6,7 +6,6 @@ import json
 import re
 import warnings
 from pathlib import Path
-from types import SimpleNamespace
 
 from starlette.exceptions import StarletteDeprecationWarning
 
@@ -111,23 +110,16 @@ def _readonly_player(name: str = "Observer") -> ModerationPlayer:
     )
 
 
-def _patch_management_global(app, monkeypatch, name: str, value) -> None:
-    """Patch management globals used by already-registered FastAPI endpoints."""
-    from armactl.web.routes import management
+def _patch_admins_page(monkeypatch) -> None:
+    from armactl.web import facade
 
-    patched = False
-    for route in getattr(app, "routes", []):
-        endpoint = getattr(route, "endpoint", None)
-        globals_dict = getattr(endpoint, "__globals__", None)
-        if (
-            isinstance(globals_dict, dict)
-            and globals_dict.get("__name__") == management.__name__
-            and name in globals_dict
-        ):
-            monkeypatch.setitem(globals_dict, name, value)
-            patched = True
-    if not patched:
-        monkeypatch.setattr(management, name, value)
+    monkeypatch.setattr(facade, "load_admins_page", lambda instance: _admins_page())
+
+
+def _patch_player_panel(monkeypatch, load_panel) -> None:
+    from armactl.web.services import player_moderation
+
+    monkeypatch.setattr(player_moderation, "load_player_moderation_panel", load_panel)
 
 
 def _authed_client(
@@ -136,28 +128,20 @@ def _authed_client(
     *,
     panel: PlayerModerationPanel | None = None,
     load_panel=None,
-    require_permission=None,
 ):
     from armactl.web.app import create_app
 
     password = "owner players password"
     setup_owner_user(tmp_path, "owner", password)
-    app = create_app(data_root=tmp_path)
-    _patch_management_global(app, monkeypatch, "load_admins_page", lambda instance: _admins_page())
+    _patch_admins_page(monkeypatch)
     if load_panel is None:
         selected_panel = panel or _panel(_reliable_player())
 
         def load_panel(instance: str, query: str = "") -> PlayerModerationPanel:
             return selected_panel
 
-    _patch_management_global(
-        app,
-        monkeypatch,
-        "player_moderation",
-        SimpleNamespace(load_player_moderation_panel=load_panel),
-    )
-    if require_permission is not None:
-        _patch_management_global(app, monkeypatch, "require_permission", require_permission)
+    _patch_player_panel(monkeypatch, load_panel)
+    app = create_app(data_root=tmp_path)
     client = _client(app)
     login_response = _login(client, "owner", password)
     assert login_response.status_code == 303
@@ -385,15 +369,15 @@ def test_player_without_reliable_identity_has_no_add_admin_button(
     assert "Read-only" in response.text
 
 
-def test_player_add_admin_requires_manage_permission(tmp_path: Path, monkeypatch):
+def test_player_add_admin_requires_manage_permission(
+    tmp_path: Path,
+    monkeypatch,
+    set_web_owner_permissions,
+):
     from armactl.web.services import admin_actions
 
-    client = _authed_client(
-        tmp_path,
-        monkeypatch,
-        panel=_panel(_reliable_player()),
-        require_permission=lambda current, permission: permission == ADMINS_VIEW,
-    )
+    set_web_owner_permissions({ADMINS_VIEW})
+    client = _authed_client(tmp_path, monkeypatch, panel=_panel(_reliable_player()))
     monkeypatch.setattr(admin_actions, "run_admin_action_and_audit", AssertionError)
     csrf_token = _admins_csrf_token(client)
 
@@ -444,25 +428,21 @@ def test_player_moderation_html_does_not_expose_auth_or_raw_token_secrets(
     assert user is not None
     from armactl.web.app import create_app
 
-    app = create_app(data_root=tmp_path)
-    _patch_management_global(app, monkeypatch, "load_admins_page", lambda instance: _admins_page())
-    _patch_management_global(
-        app,
+    _patch_admins_page(monkeypatch)
+    _patch_player_panel(
         monkeypatch,
-        "player_moderation",
-        SimpleNamespace(
-            load_player_moderation_panel=lambda instance, query="": _panel(
-                ModerationPlayer(
-                    display_name="Sneaky token=***",
-                    identity_id="ABCDEF1234567890",
-                    admin_reference="ABCDEF1234567890",
-                    source="rcon.guid",
-                    status="active",
-                    last_seen="online now",
-                )
+        lambda instance, query="": _panel(
+            ModerationPlayer(
+                display_name="Sneaky token=***",
+                identity_id="ABCDEF1234567890",
+                admin_reference="ABCDEF1234567890",
+                source="rcon.guid",
+                status="active",
+                last_seen="online now",
             )
         ),
     )
+    app = create_app(data_root=tmp_path)
     client = _client(app)
     login_response = _login(client, "owner", password)
     assert login_response.status_code == 303

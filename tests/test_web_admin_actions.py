@@ -102,11 +102,9 @@ def _write_admin_config(tmp_path: Path, admins: list[str]) -> Path:
 
 
 def _authed_client(tmp_path: Path, monkeypatch, page: dict | None = None):
-    from armactl.web.routes import management
-
     password = "owner admins password"
     setup_owner_user(tmp_path, "owner", password)
-    monkeypatch.setattr(management, "load_admins_page", lambda instance: page or _admins_page())
+    _patch_admins_page(monkeypatch, page)
     from armactl.web.app import create_app
 
     app = create_app(data_root=tmp_path)
@@ -127,10 +125,10 @@ def _audit_events(data_root: Path) -> list[dict]:
     return [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
 
 
-def _patch_management_global(monkeypatch, name: str, value) -> None:
-    from armactl.web.routes import management
+def _patch_admins_page(monkeypatch, page: dict | None = None) -> None:
+    from armactl.web import facade
 
-    monkeypatch.setattr(management, name, value)
+    monkeypatch.setattr(facade, "load_admins_page", lambda instance: page or _admins_page())
 
 
 def test_admin_action_helper_calls_admins_manager_add_and_reports_update(
@@ -222,11 +220,7 @@ def test_admins_post_requires_manage_permission(
     setup_owner_user(tmp_path, "owner", "owner admins password")
     set_web_owner_permissions({ADMINS_VIEW})
     app = create_app(data_root=tmp_path)
-    _patch_management_global(
-        monkeypatch,
-        "load_admins_page",
-        lambda instance: _admins_page(),
-    )
+    _patch_admins_page(monkeypatch)
     monkeypatch.setattr(admin_actions, "run_admin_action_and_audit", AssertionError)
     client = _client(app)
     _login(client, "owner", "owner admins password")
@@ -738,9 +732,8 @@ def test_admins_html_and_audit_do_not_expose_auth_secrets(tmp_path: Path, monkey
     user = get_user_by_username(tmp_path / "web" / "web.db", "owner")
     assert user is not None
     from armactl.web.app import create_app
-    from armactl.web.routes import management
 
-    monkeypatch.setattr(management, "load_admins_page", lambda instance: _admins_page())
+    _patch_admins_page(monkeypatch)
     monkeypatch.setattr(
         admin_actions.discovery,
         "discover",

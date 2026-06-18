@@ -102,21 +102,16 @@ def _write_mod_config(tmp_path: Path, mods: list[dict[str, str]]) -> Path:
     return config_path
 
 
-def _patch_management_global(monkeypatch, name: str, value) -> None:
-    from armactl.web.routes import management
+def _patch_mods_page(monkeypatch, page: dict | None = None) -> None:
+    from armactl.web import facade
 
-    monkeypatch.setattr(management, name, value)
+    monkeypatch.setattr(facade, "load_mods_page", lambda instance: page or _mods_page())
 
 
 def _authed_client(tmp_path: Path, monkeypatch, page: dict | None = None):
-    from armactl.web.routes import management
-
-    def load_page(instance: str) -> dict:
-        return page or _mods_page()
-
     password = "owner mods password"
     setup_owner_user(tmp_path, "owner", password)
-    monkeypatch.setattr(management, "load_mods_page", load_page)
+    _patch_mods_page(monkeypatch, page)
     from armactl.web.app import create_app
 
     app = create_app(data_root=tmp_path)
@@ -227,7 +222,7 @@ def test_mods_post_requires_manage_permission(
     setup_owner_user(tmp_path, "owner", "owner mods password")
     set_web_owner_permissions({MODS_VIEW})
     app = create_app(data_root=tmp_path)
-    _patch_management_global(monkeypatch, "load_mods_page", lambda instance: _mods_page())
+    _patch_mods_page(monkeypatch)
     monkeypatch.setattr(mod_actions, "run_mod_action_and_audit", AssertionError)
     client = _client(app)
     _login(client, "owner", "owner mods password")
@@ -724,8 +719,8 @@ def test_mods_html_and_audit_do_not_expose_auth_secrets(tmp_path: Path, monkeypa
         raise ConfigError("mod save failed token=render-secret")
 
     monkeypatch.setattr(mod_actions.mods_manager, "add_mod_detailed", add_mod)
+    _patch_mods_page(monkeypatch)
     app = create_app(data_root=tmp_path)
-    _patch_management_global(monkeypatch, "load_mods_page", lambda instance: _mods_page())
     client = _client(app)
     login_response = _login(client, "owner", password)
     assert login_response.status_code == 303

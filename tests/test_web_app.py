@@ -416,7 +416,8 @@ def _management_pages() -> dict[str, dict]:
 
 
 def _stub_management_pages(monkeypatch, pages: dict[str, dict] | None = None) -> list[str]:
-    from armactl.web.routes import management
+    from armactl.web import facade
+    from armactl.web.services import player_moderation
 
     page_data = pages or _management_pages()
     calls: list[str] = []
@@ -429,11 +430,11 @@ def _stub_management_pages(monkeypatch, pages: dict[str, dict] | None = None) ->
 
         return load
 
-    monkeypatch.setattr(management, "load_config_page", fake_loader("config"))
-    monkeypatch.setattr(management, "load_mods_page", fake_loader("mods"))
-    monkeypatch.setattr(management, "load_admins_page", fake_loader("admins"))
+    monkeypatch.setattr(facade, "load_config_page", fake_loader("config"))
+    monkeypatch.setattr(facade, "load_mods_page", fake_loader("mods"))
+    monkeypatch.setattr(facade, "load_admins_page", fake_loader("admins"))
     monkeypatch.setattr(
-        management.player_moderation,
+        player_moderation,
         "load_player_moderation_panel",
         lambda instance, query="": {
             "available": True,
@@ -446,7 +447,7 @@ def _stub_management_pages(monkeypatch, pages: dict[str, dict] | None = None) ->
             "error": "",
         },
     )
-    monkeypatch.setattr(management, "load_bot_page", fake_loader("bot"))
+    monkeypatch.setattr(facade, "load_bot_page", fake_loader("bot"))
     return calls
 
 
@@ -1629,14 +1630,14 @@ def test_authenticated_owner_can_view_management_pages(tmp_path: Path, monkeypat
 def test_management_permission_denied_returns_controlled_403_and_skips_backend(
     tmp_path: Path,
     monkeypatch,
+    set_web_owner_permissions,
 ):
     from armactl.web.app import create_app
-    from armactl.web.routes import management
 
     password = "owner management password"
     setup_owner_user(tmp_path, "owner", password)
+    set_web_owner_permissions(set())
     calls = _stub_management_pages(monkeypatch)
-    monkeypatch.setattr(management, "require_permission", lambda current, permission: False)
     client = _client(create_app(data_root=tmp_path))
     _login(client, "owner", password)
 

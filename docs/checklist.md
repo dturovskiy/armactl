@@ -237,7 +237,7 @@
 
 - [x] Зафіксувати web architecture plan у `docs/web-interface-plan.md`
 - [x] Зафіксувати web architecture guardrails: route/service/facade межі, mutating-action contract, pending-work vs jobs, і стабільні правила тестування
-- [ ] Провести web architecture cleanup перед наступними великими web-фічами: розділити routes/management.py на окремі config/mods/admins/bot routers без зміни поведінки
+- [x] Провести web architecture cleanup перед наступними великими web-фічами: розділити routes/management.py на окремі config/mods/admins/bot routers без зміни поведінки
 - [ ] Розділити oversized web modules: facade.py за page/domain DTO, services/filesystem.py за roots/listing/preview/download/upload перед delete/edit/overwrite flows
 - [ ] Розбити oversized tests/test_web_app.py на focused web test modules і прибрати залежність від patching route globals / imported FastAPI endpoint internals
 - [ ] Провести audit broad except Exception у web routes/services: залишити тільки documented fail-closed/degradation cases, решту замінити контрольованими domain errors

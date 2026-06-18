@@ -11,13 +11,16 @@ from fastapi.templating import Jinja2Templates
 
 from armactl import __version__
 from armactl.web.i18n import web_template_context
+from armactl.web.routes.admins import router as admins_router
 from armactl.web.routes.auth import router as auth_router
+from armactl.web.routes.bot import router as bot_router
+from armactl.web.routes.config import router as config_router
 from armactl.web.routes.dashboard import router as dashboard_router
 from armactl.web.routes.files import router as files_router
 from armactl.web.routes.health import router as health_router
 from armactl.web.routes.jobs import router as jobs_router
 from armactl.web.routes.logs import router as logs_router
-from armactl.web.routes.management import router as management_router
+from armactl.web.routes.mods import router as mods_router
 from armactl.web.routes.players import router as players_router
 from armactl.web.routes.preferences import router as preferences_router
 from armactl.web.routes.schedule import router as schedule_router
@@ -79,7 +82,10 @@ def create_app(data_root: Path | None = None) -> FastAPI:
     app.include_router(files_router)
     app.include_router(jobs_router)
     app.include_router(logs_router)
-    app.include_router(management_router)
+    app.include_router(config_router)
+    app.include_router(mods_router)
+    app.include_router(admins_router)
+    app.include_router(bot_router)
     app.include_router(players_router)
     app.include_router(schedule_router)
     app.include_router(service_router)
