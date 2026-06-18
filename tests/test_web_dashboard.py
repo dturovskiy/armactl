@@ -1,0 +1,895 @@
+"""Route and template tests for the web dashboard."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
+
+from web_route_helpers import (
+    _action_csrf_token,
+    _client,
+    _login,
+)
+
+from armactl.metrics import (
+    HostMetrics,
+    ProcessMetrics,
+    ServerFpsMetrics,
+    ServerOperationalStatus,
+)
+from armactl.player_view import PlayerView
+from armactl.state import PortInfo, ServerState
+from armactl.status_summary import ConfigSummary, ModsSummary, ModSummaryEntry
+from armactl.web.auth.cookies import SESSION_COOKIE_NAME
+from armactl.web.auth.setup import setup_owner_user
+from armactl.web.auth.users import get_user_by_username
+from armactl.web.i18n import LANGUAGE_COOKIE_NAME, THEME_COOKIE_NAME
+from armactl.web.runtime import ensure_web_runtime, save_web_runtime_config
+
+
+def _dashboard_state(lifecycle: str) -> ServerState:
+    if lifecycle == "not_installed":
+        return ServerState()
+
+    instance_root = "/srv/armactl-data/default"
+    install_dir = f"{instance_root}/server"
+    config_path = f"{instance_root}/config/config.json"
+    if lifecycle == "incomplete":
+        return ServerState(
+            server_installed=True,
+            binary_exists=True,
+            config_exists=False,
+            service_exists=False,
+            timer_exists=False,
+            server_running=False,
+            instance_root=instance_root,
+            install_dir=install_dir,
+            config_path=config_path,
+            ports=PortInfo(game=2001, a2s=17777, rcon=19999),
+        )
+
+    return ServerState(
+        server_installed=True,
+        binary_exists=True,
+        config_exists=True,
+        service_exists=True,
+        timer_exists=True,
+        server_running=lifecycle == "running",
+        instance_root=instance_root,
+        install_dir=install_dir,
+        config_path=config_path,
+        ports=PortInfo(game=2001, a2s=17777, rcon=19999),
+    )
+
+
+def _service_status(lifecycle: str) -> dict[str, object]:
+    if lifecycle == "running":
+        return {
+            "service_name": "armareforger.service",
+            "active": True,
+            "enabled": True,
+            "active_state": "active",
+            "sub_state": "running",
+            "main_pid": 123,
+        }
+    if lifecycle == "starting":
+        return {
+            "service_name": "armareforger.service",
+            "active": True,
+            "enabled": True,
+            "active_state": "activating",
+            "sub_state": "start",
+            "main_pid": 123,
+        }
+    return {
+        "service_name": "armareforger.service",
+        "active": False,
+        "enabled": True,
+        "active_state": "inactive",
+        "sub_state": "dead",
+        "main_pid": 0,
+    }
+
+
+def _install_dashboard_model_fakes(
+    monkeypatch,
+    *,
+    lifecycle: str = "running",
+    host_metrics_error: bool = False,
+) -> list[str]:
+    from armactl.web.page_models import bot as bot_model
+    from armactl.web.page_models import dashboard as dashboard_model
+
+    calls: list[str] = []
+    state = _dashboard_state(lifecycle)
+
+    def discover(instance: str, save: bool = False) -> ServerState:
+        assert save is False
+        calls.append(instance)
+        return state
+
+    def host_metrics() -> HostMetrics:
+        if host_metrics_error:
+            raise RuntimeError("host boom")
+        return HostMetrics(
+            True,
+            cpu_percent=12.0,
+            memory_used_bytes=512,
+            memory_total_bytes=1024,
+            disk_used_bytes=2048,
+            disk_total_bytes=4096,
+            load_average_1m=0.1,
+            load_average_5m=0.2,
+            load_average_15m=0.3,
+            uptime_seconds=3661,
+        )
+
+    def fps_metrics(config_dir: Path) -> ServerFpsMetrics:
+        if lifecycle != "running":
+            return ServerFpsMetrics(False, error="server is not running")
+        return ServerFpsMetrics(
+            True,
+            fps=59.8,
+            frame_avg_ms=16.7,
+            frame_max_ms=24.0,
+            engine_memory_kb=512,
+            age_seconds=10,
+            source=str(config_dir / "logs" / "latest" / "console.log"),
+        )
+
+    def operational_status(config_dir: Path) -> ServerOperationalStatus:
+        if lifecycle == "starting":
+            return ServerOperationalStatus(
+                True,
+                state="starting",
+                severity="info",
+                message="Waiting for server telemetry",
+                age_seconds=0,
+                source=str(config_dir),
+            )
+        return ServerOperationalStatus(
+            True,
+            state="ready",
+            severity="success",
+            message="Ready",
+            age_seconds=12,
+            source=str(config_dir),
+        )
+
+    monkeypatch.setattr(dashboard_model.discovery, "discover", discover)
+    monkeypatch.setattr(
+        dashboard_model.service_manager,
+        "get_service_status",
+        lambda service_name: _service_status(lifecycle),
+    )
+    monkeypatch.setattr(
+        dashboard_model.service_manager,
+        "get_timer_status",
+        lambda timer_name: {
+            "timer_name": timer_name,
+            "active": True,
+            "enabled": True,
+            "schedule": "*-*-* 06:00:00",
+            "next_run": "Fri 2026-06-12 06:00:00 UTC",
+        },
+    )
+    monkeypatch.setattr(
+        dashboard_model.status_summary,
+        "load_status_summaries",
+        lambda config_path: (
+            ConfigSummary(
+                True,
+                server_name="Mock Server",
+                scenario_id="Scenario.conf",
+                max_players=64,
+                bind_port=2001,
+                a2s_port=17777,
+                rcon_port=19999,
+                visible=True,
+                battleye=True,
+            ),
+            ModsSummary(
+                True,
+                count=2,
+                preview=[ModSummaryEntry("mod-a", "Core Mod")],
+                remaining_count=1,
+            ),
+        ),
+    )
+    monkeypatch.setattr(dashboard_model.metrics, "query_host_metrics", host_metrics)
+    monkeypatch.setattr(
+        dashboard_model.metrics,
+        "query_service_runtime_metrics",
+        lambda service: ProcessMetrics(
+            bool(service.get("active")),
+            pid=int(service.get("main_pid") or 0),
+            cpu_percent=2.5 if service.get("active") else None,
+            memory_rss_bytes=2048 if service.get("active") else None,
+            error="" if service.get("active") else "service is not active",
+        ),
+    )
+    monkeypatch.setattr(
+        dashboard_model.metrics,
+        "query_server_fps_metrics",
+        fps_metrics,
+    )
+    monkeypatch.setattr(
+        dashboard_model.metrics,
+        "query_server_operational_status",
+        operational_status,
+    )
+    monkeypatch.setattr(
+        dashboard_model.player_view,
+        "query_player_view",
+        lambda instance, **kwargs: PlayerView(True, current=3, max_players=64),
+    )
+    monkeypatch.setattr(
+        dashboard_model.ports,
+        "check_server_ports",
+        lambda game_port, a2s_port, rcon_port: {
+            "game": {"port": game_port, "listening": lifecycle == "running"},
+            "a2s": {"port": a2s_port, "listening": lifecycle == "running"},
+            "rcon": {"port": rcon_port, "listening": False},
+        },
+    )
+    monkeypatch.setattr(
+        dashboard_model.sat_admin_guard,
+        "inspect_sat_admin_config",
+        lambda config_path: SimpleNamespace(
+            to_dict=lambda: {
+                "available": True,
+                "valid_json": True,
+                "desired_admins": ["21761a7f-c9b4-4bff-8375-b4b43abb95ec"],
+                "missing_mappings": [],
+                "default_only_admins": False,
+                "default_only_game_masters": False,
+                "missing_admins": [],
+                "missing_game_masters": [],
+                "warning": "",
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        bot_model.bot_config,
+        "load_bot_config",
+        lambda instance: SimpleNamespace(
+            enabled=False,
+            token="",
+            admin_chat_ids=[],
+            language="uk",
+            env_path=Path("/srv/armactl-data/default/bot/.env"),
+        ),
+    )
+    monkeypatch.setattr(
+        bot_model.paths,
+        "bot_service_file",
+        lambda: Path("/nonexistent/armactl-bot.service"),
+    )
+    return calls
+
+
+def _fail_if_dashboard_model_loads(monkeypatch) -> None:
+    from armactl.web.page_models import dashboard as dashboard_model
+
+    def fail_discovery(*args, **kwargs):
+        raise AssertionError("dashboard model should not load")
+
+    monkeypatch.setattr(dashboard_model.discovery, "discover", fail_discovery)
+
+
+def _install_dashboard_model_failure(monkeypatch) -> None:
+    from armactl.web.page_models import dashboard as dashboard_model
+
+    def fail_discovery(*args, **kwargs):
+        raise RuntimeError("boom with traceback-looking details")
+
+    monkeypatch.setattr(dashboard_model.discovery, "discover", fail_discovery)
+
+
+def test_session_cookie_authenticates_dashboard(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    calls = _install_dashboard_model_fakes(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+
+    login_response = _login(client, "owner", password)
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert login_response.status_code == 303
+    assert response.status_code == 200
+    assert "Mock Server" in response.text
+    assert "Log out" in response.text
+    assert 'action="/preferences/language"' in response.text
+    assert 'action="/preferences/theme"' in response.text
+    assert calls == ["default"]
+
+
+def test_authenticated_owner_can_fetch_dashboard_status_json(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    calls = _install_dashboard_model_fakes(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard/status.json", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["lifecycle"] == "running"
+    assert payload["installed"] is True
+    assert payload["running"] is True
+    assert payload["fields"]["heading"] == "Mock Server"
+    assert payload["fields"]["overview.players"] == "3 / 64"
+    assert payload["fields"]["live.fps"] == "59.8"
+    assert payload["host"]["cpu"] == "12.0%"
+    assert payload["mods"]["count"] == 2
+    assert payload["metrics"]["fps"] == {
+        "available": True,
+        "value": 59.8,
+        "percent": 99.67,
+        "text": "59.8",
+    }
+    assert payload["metrics"]["cpu"]["percent"] == 12.0
+    assert payload["metrics"]["memory"]["percent"] == 50.0
+    assert payload["metrics"]["disk"]["percent"] == 50.0
+    assert [action["name"] for action in payload["actions"]] == ["stop", "restart"]
+    assert calls == ["default"]
+
+
+def test_unauthenticated_dashboard_status_json_redirects_to_login(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.get("/dashboard/status.json", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_dashboard_status_json_permission_denied_returns_controlled_403(
+    tmp_path: Path,
+    monkeypatch,
+    set_web_owner_permissions,
+):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    set_web_owner_permissions(set())
+    _fail_if_dashboard_model_loads(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard/status.json", follow_redirects=False)
+
+    assert response.status_code == 403
+    assert response.text == "Permission denied."
+
+
+def test_dashboard_status_json_does_not_include_secrets_or_paths(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner status secret password"
+    setup_owner_user(tmp_path, "owner", password)
+    user = get_user_by_username(tmp_path / "web" / "web.db", "owner")
+    assert user is not None
+    _install_dashboard_model_fakes(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    login_response = _login(client, "owner", password)
+    session_token = login_response.cookies.get(SESSION_COOKIE_NAME)
+
+    response = client.get("/dashboard/status.json", follow_redirects=False)
+
+    assert response.status_code == 200
+    body = response.text
+    assert password not in body
+    assert user.password_hash not in body
+    assert session_token
+    assert session_token not in body
+    assert "csrf_token" not in body
+    assert "session" not in body.lower()
+    assert "config_path" not in body
+    assert "/srv/armactl-data" not in body
+    assert "ARMACTL_WEB_SESSION_SECRET" not in body
+
+
+def test_dashboard_permission_denied_returns_controlled_403(
+    tmp_path: Path,
+    monkeypatch,
+    set_web_owner_permissions,
+):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    set_web_owner_permissions(set())
+    _fail_if_dashboard_model_loads(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 403
+    assert response.text == "Permission denied."
+    assert "Traceback" not in response.text
+
+
+def test_password_hash_and_session_token_do_not_appear_in_dashboard_html(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner secret password"
+    setup_owner_user(tmp_path, "owner", password)
+    user = get_user_by_username(tmp_path / "web" / "web.db", "owner")
+    assert user is not None
+    _install_dashboard_model_fakes(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    login_response = _login(client, "owner", password)
+    session_token = login_response.cookies.get(SESSION_COOKIE_NAME)
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert password not in response.text
+    assert user.password_hash not in response.text
+    assert session_token
+    assert session_token not in response.text
+    assert "/static/js/preferences.js" in response.text
+    assert "ARMACTL_WEB_SESSION_SECRET" not in response.text
+    assert "/static/js/dashboard.js" in response.text
+    assert "/static/js/service_actions.js" in response.text
+    assert "data-dashboard-root" in response.text
+    assert 'data-dashboard-field="overview.players"' in response.text
+    assert "data-dashboard-live-status" in response.text
+    assert 'data-dashboard-meter="fps"' in response.text
+    assert 'data-dashboard-meter="cpu"' in response.text
+    assert 'data-dashboard-meter="memory"' in response.text
+    assert 'data-dashboard-meter="disk"' in response.text
+
+
+def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    calls = _install_dashboard_model_fakes(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    login_response = _login(client, "owner", password)
+
+    root_response = client.get("/", follow_redirects=False)
+    dashboard_response = client.get("/dashboard", follow_redirects=False)
+
+    assert login_response.status_code == 303
+    assert root_response.status_code == 200
+    assert dashboard_response.status_code == 200
+    assert dashboard_response.headers["Cache-Control"] == "no-store, max-age=0"
+    assert dashboard_response.headers["Pragma"] == "no-cache"
+    assert dashboard_response.headers["Expires"] == "0"
+    assert "text/html" in root_response.headers["content-type"]
+    assert "Mock Server" in root_response.text
+    assert "running" in root_response.text
+    assert "3 / 64" in root_response.text
+    assert "owner" in root_response.text
+    assert "Quick actions" in root_response.text
+    assert "Server snapshot" in root_response.text
+    assert "Host" in root_response.text
+    assert "Web Runtime" not in root_response.text
+    assert "ServerAdminTools" not in root_response.text
+    assert 'server-snapshot-grid' in root_response.text
+    assert "status-pill" in root_response.text
+    assert "key-value-list" in root_response.text
+    assert "value-block" in root_response.text
+    assert 'summary-card-wide' in root_response.text
+    assert 'action="/service/start"' not in root_response.text
+    assert 'action="/service/stop"' in root_response.text
+    assert 'action="/service/restart"' in root_response.text
+    assert 'href="/config"' in root_response.text
+    assert 'href="/mods"' in root_response.text
+    assert 'href="/admins"' in root_response.text
+    assert 'href="/bot"' in root_response.text
+    assert 'href="/jobs"' in root_response.text
+    assert 'href="/files"' in root_response.text
+    assert 'href="/logs"' in root_response.text
+    assert "Pending operator work" in root_response.text
+    assert "No pending operator work." in root_response.text
+    assert "All saved changes are applied. No action is required." in root_response.text
+    assert "Background jobs" not in root_response.text
+    assert "No background jobs." not in root_response.text
+    assert "/static/js/dashboard.js" in root_response.text
+    assert "/static/js/service_actions.js" in root_response.text
+    assert 'data-service-action-form' in root_response.text
+    assert 'data-service-action="stop"' in root_response.text
+    assert 'data-service-action="restart"' in root_response.text
+    assert 'data-service-action-label="Stopping server..."' in root_response.text
+    assert 'data-service-action-label="Restarting server..."' in root_response.text
+    assert 'data-service-action-submit' in root_response.text
+    assert re.search(
+        r'<input type="checkbox" name="confirm" value="stop" required>',
+        root_response.text,
+    )
+    assert re.search(
+        r'<input type="checkbox" name="confirm" value="restart" required>',
+        root_response.text,
+    )
+    service_action_values = re.findall(
+        r'data-service-action(?:-[\w-]+)?="([^"]*)"',
+        root_response.text,
+    )
+    assert service_action_values
+    for value in service_action_values:
+        assert "csrf" not in value.lower()
+        assert "session" not in value.lower()
+        assert "token" not in value.lower()
+    assert 'data-dashboard-endpoint="/dashboard/status.json"' in root_response.text
+    assert 'data-dashboard-field="host.cpu"' in root_response.text
+    assert 'data-dashboard-meter="fps"' in root_response.text
+    assert 'data-dashboard-sparkline="fps"' not in root_response.text
+    assert 'data-dashboard-meter="cpu"' in root_response.text
+    assert 'data-dashboard-metric-fill="disk"' in root_response.text
+    assert calls == ["default", "default"]
+
+
+def test_dashboard_js_static_asset_is_served(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.get("/static/js/dashboard.js", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "dashboard/status.json" in response.text
+    assert "data-dashboard-root" in response.text
+    assert "data-dashboard-meter" in response.text
+    assert "data-dashboard-sparkline" not in response.text
+    assert "metricHistory" not in response.text
+    assert "ARMACTL_WEB_SESSION_SECRET" not in response.text
+    assert "csrf_token" not in response.text
+    assert "password" not in response.text.lower()
+
+
+def test_dashboard_stopped_server_shows_start_only(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch, lifecycle="stopped")
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert 'action="/service/start"' in response.text
+    assert 'action="/service/stop"' not in response.text
+    assert 'action="/service/restart"' not in response.text
+    assert 'data-service-action="start"' in response.text
+    assert 'data-service-action-label="Starting server..."' in response.text
+    assert "/static/js/service_actions.js" in response.text
+    assert "Server snapshot" in response.text
+    assert 'href="/config"' in response.text
+
+
+def test_dashboard_starting_server_hides_service_actions(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch, lifecycle="starting")
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "starting" in response.text
+    assert "Server is starting; actions are unavailable until telemetry is ready." in response.text
+    assert "action=\"/service/start\"" not in response.text
+    assert "action=\"/service/stop\"" not in response.text
+    assert "action=\"/service/restart\"" not in response.text
+    assert "data-service-action-form" not in response.text
+    assert "/static/js/service_actions.js" in response.text
+    assert "Live server" not in response.text
+
+
+def test_dashboard_running_server_shows_stop_restart_only(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert 'action="/service/start"' not in response.text
+    assert 'action="/service/stop"' in response.text
+    assert 'action="/service/restart"' in response.text
+    assert "3 / 64" in response.text
+    assert "59.8" in response.text
+
+
+def test_dashboard_renders_ukrainian_and_dark_theme_preference(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _action_csrf_token(client)
+
+    language_response = client.post(
+        "/preferences/language",
+        data={"language": "uk", "csrf_token": csrf_token, "next": "/dashboard"},
+        follow_redirects=False,
+    )
+    theme_response = client.post(
+        "/preferences/theme",
+        data={"theme": "dark", "csrf_token": csrf_token, "next": "/dashboard"},
+        follow_redirects=False,
+    )
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert language_response.status_code == 303
+    assert language_response.cookies.get(LANGUAGE_COOKIE_NAME) == "uk"
+    assert theme_response.status_code == 303
+    assert theme_response.cookies.get(THEME_COOKIE_NAME) == "dark"
+    assert response.status_code == 200
+    assert '<html lang="uk" data-theme="dark">' in response.text
+    assert "Швидкі дії" in response.text
+    assert "Зупинити" in response.text
+    assert "Перезапустити" in response.text
+    assert "Хост" in response.text
+    assert "Web runtime" not in response.text
+    assert "Вийти" in response.text
+    assert "Тема: світла" in response.text
+
+
+def test_dashboard_async_preferences_do_not_reload_heavy_snapshot(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    calls = _install_dashboard_model_fakes(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _action_csrf_token(client)
+    assert calls == ["default"]
+
+    theme_response = client.post(
+        "/preferences/theme",
+        data={"theme": "dark", "csrf_token": csrf_token, "next": "/dashboard"},
+        headers={"X-Requested-With": "fetch", "Accept": "application/json"},
+        follow_redirects=False,
+    )
+    language_response = client.post(
+        "/preferences/language",
+        data={"language": "uk", "csrf_token": csrf_token, "next": "/dashboard"},
+        headers={"X-Requested-With": "fetch", "Accept": "application/json"},
+        follow_redirects=False,
+    )
+
+    assert theme_response.status_code == 200
+    assert theme_response.json() == {"theme": "dark"}
+    assert language_response.status_code == 200
+    assert language_response.json() == {"language": "uk"}
+    assert calls == ["default"]
+
+
+def test_dashboard_incomplete_server_shows_repair_job_action(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch, lifecycle="incomplete")
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert 'action="/jobs/server/repair"' in response.text
+    assert 'action="/service/start"' not in response.text
+    assert 'action="/service/stop"' not in response.text
+    assert 'action="/service/restart"' not in response.text
+    assert "Repair" in response.text
+    assert "Installation incomplete" in response.text
+
+
+def test_dashboard_no_server_empty_state_renders_controlled_html(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch, lifecycle="not_installed")
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "No server found" in response.text
+    assert "Discovery did not find an installed Arma Reforger server" in response.text
+    assert 'action="/jobs/server/install"' in response.text
+    assert "Install" in response.text
+    assert "Host" in response.text
+    assert "Web Runtime" not in response.text
+    assert "Mock Server" not in response.text
+    assert 'action="/service/start"' not in response.text
+    assert 'action="/service/stop"' not in response.text
+    assert 'action="/service/restart"' not in response.text
+    assert 'href="/config"' not in response.text
+    assert 'href="/mods"' not in response.text
+    assert 'href="/admins"' not in response.text
+    assert 'href="/bot"' not in response.text
+    assert 'href="/files"' not in response.text
+    assert ">Players<" not in response.text
+    assert ">Telemetry<" not in response.text
+    assert ">Ports<" not in response.text
+    assert ">ServerAdminTools<" not in response.text
+    assert "Traceback" not in response.text
+
+
+def test_dashboard_partial_data_renders_controlled_section(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch, host_metrics_error=True)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Partial data" in response.text
+    assert "host_metrics" in response.text
+    assert "host boom" in response.text
+    assert "Traceback" not in response.text
+
+
+def test_dashboard_shows_compact_pending_work_summary(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.services.pending_work import KIND_CONFIG, mark_restart_pending
+
+    password = "owner pending password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch)
+    mark_restart_pending(
+        tmp_path / "web" / "web.db",
+        kind=KIND_CONFIG,
+        source_action="config.save",
+        username="owner",
+        details="pending-detail-field password=raw-secret",
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Pending operator work" in response.text
+    assert "Saved changes waiting for manual action" in response.text
+    assert "Config changes" in response.text
+    assert 'href="/config"' in response.text
+    assert "Restart game server" in response.text
+    assert "View all work" in response.text
+    assert response.text.count('href="/jobs"') == 1
+    assert "View all jobs" not in response.text
+    assert "Background jobs" not in response.text
+    assert "No background jobs." not in response.text
+    assert "pending-work-dashboard-table" in response.text
+    assert response.text.count("View all work") == 1
+    assert "pending-detail-field" not in response.text
+    assert "raw-secret" not in response.text
+
+
+def test_dashboard_facade_error_returns_controlled_html(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_failure(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 500
+    assert "text/html" in response.headers["content-type"]
+    assert "Dashboard data is unavailable." in response.text
+    assert "RuntimeError" in response.text
+    assert "boom" not in response.text
+    assert "Traceback" not in response.text
+
+
+def test_dashboard_renders_external_bind_warning(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.security.exposure import EXTERNAL_BIND_WITHOUT_HTTPS_WARNING
+
+    password = "owner dashboard password"
+    config = ensure_web_runtime(tmp_path)
+    save_web_runtime_config(replace(config, bind_host="0.0.0.0", https_required=False))
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Exposure warning" not in response.text
+    assert EXTERNAL_BIND_WITHOUT_HTTPS_WARNING not in response.text
+    assert password not in response.text
+    assert "ARMACTL_WEB_SESSION_SECRET" not in response.text
+
+
+def test_dashboard_and_jobs_show_fallback_pending_work_without_leaking_secrets(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services.pending_work import KIND_CONFIG, mark_restart_pending_fallback
+
+    password = "owner fallback password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch)
+    mark_restart_pending_fallback(
+        tmp_path / "web" / "web.db",
+        kind=KIND_CONFIG,
+        source_action="config.save",
+        username="owner token=raw-user-secret",
+        details="max_players password=raw-detail-secret token=raw-token",
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    dashboard_response = client.get("/dashboard", follow_redirects=False)
+    jobs_response = client.get("/jobs", follow_redirects=False)
+
+    for response in (dashboard_response, jobs_response):
+        assert response.status_code == 200
+        assert "Pending operator work" in response.text
+        assert "Config changes" in response.text
+        assert "Fallback storage" in response.text
+        assert "Restart game server" in response.text
+        assert "raw-user-secret" not in response.text
+        assert "raw-detail-secret" not in response.text
+        assert "raw-token" not in response.text
+    assert "max_players" in jobs_response.text
+    assert "No pending operator work." not in dashboard_response.text
+    assert "No pending operator work." not in jobs_response.text

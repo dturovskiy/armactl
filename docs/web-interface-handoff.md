@@ -356,8 +356,8 @@ Completed foundation:
 35. Web management route split: /config, /mods, /admins, and /bot now live in
     explicit domain routers under src/armactl/web/routes/. The split preserves
     existing URLs, permissions, templates, CSRF checks, audit calls, and
-    pending-work behavior. The broader tests/test_web_app.py split remains
-    architecture cleanup debt.
+    pending-work behavior. The oversized tests/test_web_app.py split has
+    been completed in focused route/page modules.
 36. Web page-model split: the old facade.py monolith has been split into
     domain DTO loaders under src/armactl/web/page_models/ for dashboard,
     config, mods, admins, bot, and schedule. Route modules import their domain
@@ -368,9 +368,14 @@ Completed foundation:
     filesystem_listing, filesystem_preview, and filesystem_transfer.
     services/filesystem.py remains only as a thin public re-export facade for
     compatibility. Delete, edit, overwrite, rename, and archive extraction
-    remain future work. Remaining cleanup debt: split oversized
-    tests/test_web_app.py and repeat the architecture/modularity audit after
-    the refactor slices.
+    remain future work. Remaining cleanup debt: repeat the
+    architecture/modularity audit after the completed refactor slices.
+
+38. Web app test split: the oversized tests/test_web_app.py catch-all has
+    been reduced to app-level wiring/static smoke coverage. Focused modules now
+    cover auth routes, preferences, dashboard/status pages, management layout,
+    jobs routes, and service routes. Touched tests patch stable service and
+    page-model seams rather than imported route globals.
 
 Planned but not implemented:
 
@@ -418,11 +423,13 @@ Planned but not implemented:
 
 Next recommended implementation order:
 
-1. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
+1. Repeat the architecture/modularity audit after the completed refactor slices
+   so follow-up feature work starts from the updated module boundaries.
+2. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
    environment-specific outcome.
-2. Add optional IP allowlist / trusted proxy handling if operators need direct
+3. Add optional IP allowlist / trusted proxy handling if operators need direct
    external bind deployments; this is not implemented yet.
-3. Smoke-test the web schedule controls and boot/autostart warning on a real
+4. Smoke-test the web schedule controls and boot/autostart warning on a real
    target VM, because this affects remote recovery expectations after VM reboot.
 4. Add a diagnostics command palette before any browser terminal. It should run
    only registered safe commands such as status, timer status, port checks,

@@ -240,8 +240,8 @@
 - [x] Провести web architecture cleanup перед наступними великими web-фічами: розділити routes/management.py на окремі config/mods/admins/bot routers без зміни поведінки
 - [x] Розділити `facade.py` за page/domain DTO: dashboard, config, mods, admins, bot і schedule loaders винесені з моноліту
 - [x] Розділити `services/filesystem.py` за roots/listing/preview/download/upload перед delete/edit/overwrite flows
-- [ ] Розбити oversized `tests/test_web_app.py` на focused web test modules і прибрати залежність від patching route globals / imported FastAPI endpoint internals
-- [ ] Повторити architecture/modularity audit після завершення refactor slices (`facade.py`, `services/filesystem.py`, `tests/test_web_app.py`)
+- [x] Розбити oversized `tests/test_web_app.py` на focused web test modules і прибрати залежність від patching route globals / imported FastAPI endpoint internals
+- [ ] Повторити architecture/modularity audit після завершених refactor slices (`facade.py`, `services/filesystem.py`, `tests/test_web_app.py`)
 - [x] Провести audit broad except Exception у web routes/services: mutating route/service catches очищені; documented fail-closed/degradation cases зафіксовані у plan/handoff
 - [ ] Додати повний web system audit як окремий gate: Arkady проходить docs/web-system-audit.md перед великим ризиковим слайсом і після нього, з findings/blockers/follow-up у handoff
 - [x] Додати system-wide modularity audit protocol у `docs/system-modularity-audit.md` для Аркадія перед великими platform/domain/refactor slices
