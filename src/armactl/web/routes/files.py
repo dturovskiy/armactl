@@ -22,7 +22,17 @@ from armactl.web.auth.dependencies import (
     require_permission,
 )
 from armactl.web.auth.permissions import FILES_READ, FILES_WRITE
-from armactl.web.services import file_uploads, filesystem
+from armactl.web.services import file_uploads
+from armactl.web.services.filesystem_errors import (
+    FileBrowserError,
+    UnknownFileRootError,
+    UploadUnavailableError,
+)
+from armactl.web.services.filesystem_listing import list_directory
+from armactl.web.services.filesystem_paths import parent_relative_path
+from armactl.web.services.filesystem_preview import preview_text_file
+from armactl.web.services.filesystem_roots import list_allowed_roots, root_allows_upload
+from armactl.web.services.filesystem_transfer import resolve_download_file
 
 router = APIRouter()
 
@@ -44,7 +54,7 @@ def _render_files(
     preview_path: str | None = None,
 ) -> Response:
     form_csrf = get_form_csrf_token(request, current)
-    roots = filesystem.list_allowed_roots(current.config.data_root)
+    roots = list_allowed_roots(current.config.data_root)
     current_root = next((root for root in roots if root.root_id == root_id), None)
     directory = None
     preview = None
@@ -55,29 +65,29 @@ def _render_files(
     if root_id is not None:
         try:
             if preview_path is not None:
-                preview = filesystem.preview_text_file(
+                preview = preview_text_file(
                     current.config.data_root,
                     root_id,
                     preview_path,
                 )
-                parent_path = filesystem.parent_relative_path(preview.metadata.relative_path)
-                directory = filesystem.list_directory(
+                parent_path = parent_relative_path(preview.metadata.relative_path)
+                directory = list_directory(
                     current.config.data_root,
                     root_id,
                     parent_path,
                 )
                 current_root = preview.root
             else:
-                directory = filesystem.list_directory(
+                directory = list_directory(
                     current.config.data_root,
                     root_id,
                     relative_path,
                 )
                 current_root = directory.root
-        except filesystem.UnknownFileRootError as exc:
+        except UnknownFileRootError as exc:
             error = exc.public_message
             status_code = exc.status_code
-        except filesystem.FileBrowserError as exc:
+        except FileBrowserError as exc:
             error = exc.public_message
             status_code = exc.status_code
 
@@ -95,7 +105,7 @@ def _render_files(
             "can_upload": (
                 directory is not None
                 and can_write_files
-                and filesystem.root_allows_upload(directory.root)
+                and root_allows_upload(directory.root)
             ),
         },
         status_code=status_code,
@@ -105,7 +115,7 @@ def _render_files(
     return response
 
 
-def _controlled_file_error(error: filesystem.FileBrowserError) -> PlainTextResponse:
+def _controlled_file_error(error: FileBrowserError) -> PlainTextResponse:
     return PlainTextResponse(error.public_message, status_code=error.status_code)
 
 
@@ -177,8 +187,8 @@ def files_upload(
         )
     if upload is None:
         return PlainTextResponse(
-            filesystem.UploadUnavailableError.public_message,
-            status_code=filesystem.UploadUnavailableError.status_code,
+            UploadUnavailableError.public_message,
+            status_code=UploadUnavailableError.status_code,
         )
 
     try:
@@ -191,7 +201,7 @@ def files_upload(
             audit_log_path=current.config.audit_log_path,
             username=current.user.username,
         )
-    except filesystem.FileBrowserError as exc:
+    except FileBrowserError as exc:
         return _controlled_file_error(exc)
     except (file_uploads.FileUploadAuditError, file_uploads.FileUploadPublishError) as exc:
         return PlainTextResponse(
@@ -214,8 +224,8 @@ def files_download(
     if not require_permission(current, FILES_READ):
         return permission_denied_response()
     try:
-        download = filesystem.resolve_download_file(current.config.data_root, root_id, path)
-    except filesystem.FileBrowserError as exc:
+        download = resolve_download_file(current.config.data_root, root_id, path)
+    except FileBrowserError as exc:
         return _controlled_file_error(exc)
     return FileResponse(
         download.path,

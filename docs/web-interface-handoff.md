@@ -356,14 +356,21 @@ Completed foundation:
 35. Web management route split: /config, /mods, /admins, and /bot now live in
     explicit domain routers under src/armactl/web/routes/. The split preserves
     existing URLs, permissions, templates, CSRF checks, audit calls, and
-    pending-work behavior. services/filesystem.py and the broader
-    tests/test_web_app.py split remain architecture cleanup debt.
+    pending-work behavior. The broader tests/test_web_app.py split remains
+    architecture cleanup debt.
 36. Web page-model split: the old facade.py monolith has been split into
     domain DTO loaders under src/armactl/web/page_models/ for dashboard,
     config, mods, admins, bot, and schedule. Route modules import their domain
     loader directly. The remaining facade.py is a thin compatibility re-export
-    layer only; it contains no DTO-building logic. Repeat the
-    architecture/modularity audit after the remaining refactor slices.
+    layer only; it contains no DTO-building logic.
+37. Web filesystem service split: the former services/filesystem.py monolith now
+    lives in filesystem_errors, filesystem_roots, filesystem_paths,
+    filesystem_listing, filesystem_preview, and filesystem_transfer.
+    services/filesystem.py remains only as a thin public re-export facade for
+    compatibility. Delete, edit, overwrite, rename, and archive extraction
+    remain future work. Remaining cleanup debt: split oversized
+    tests/test_web_app.py and repeat the architecture/modularity audit after
+    the refactor slices.
 
 Planned but not implemented:
 
@@ -441,9 +448,9 @@ Next recommended implementation order:
    users/roles. Advanced modpack workflows such as bulk paste, import/export,
    and clear-all remain future and should keep remove/cleanup confirmations
    explicit.
-9. Add atomic overwrite/delete/rename flows on top of the safe filesystem
-   adapter after single-file upload has been reviewed; do not use `/files` as
-   the normal config editor.
+9. Add atomic overwrite/delete/rename flows on top of the split safe
+   filesystem adapter after single-file upload has been reviewed; do not use
+   `/files` as the normal config editor.
 10. Add player registry details/history and ban-list management after the
    identity ingestion source is validated on a real server log/RCON sample.
    The future step should add recent/history/detail views, session duration with

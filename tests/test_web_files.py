@@ -252,9 +252,9 @@ def test_git_and_venv_directories_are_not_exposed(tmp_path: Path):
 
 def test_source_tree_roots_are_not_available():
     from armactl import paths
-    from armactl.web.services import filesystem
+    from armactl.web.services.filesystem_roots import list_allowed_roots
 
-    roots = filesystem.list_allowed_roots(paths.project_root())
+    roots = list_allowed_roots(paths.project_root())
 
     assert roots
     assert all(not root.available for root in roots)
@@ -290,10 +290,10 @@ def test_binary_preview_unavailable(tmp_path: Path):
 
 
 def test_preview_is_bounded_and_truncated(tmp_path: Path):
-    from armactl.web.services import filesystem
+    from armactl.web.services.filesystem_preview import MAX_PREVIEW_BYTES
 
     server = _server_root(tmp_path)
-    payload = "start\n" + ("x" * filesystem.MAX_PREVIEW_BYTES) + "tail-secret"
+    payload = "start\n" + ("x" * MAX_PREVIEW_BYTES) + "tail-secret"
     (server / "large.txt").write_text(payload, encoding="utf-8")
     client = _login_owner(tmp_path)
 
@@ -538,7 +538,8 @@ def test_upload_publish_failure_after_audit_is_controlled_and_audited(
     tmp_path: Path,
     monkeypatch,
 ):
-    from armactl.web.services import file_uploads, filesystem
+    from armactl.web.services import file_uploads
+    from armactl.web.services.filesystem_errors import UploadUnavailableError
 
     server = _server_root(tmp_path)
     client = _login_owner(tmp_path)
@@ -549,10 +550,10 @@ def test_upload_publish_failure_after_audit_is_controlled_and_audited(
         audit_actions.append((action, success))
 
     def fail_publish(staged):
-        raise filesystem.UploadUnavailableError(filesystem.UploadUnavailableError.public_message)
+        raise UploadUnavailableError(UploadUnavailableError.public_message)
 
     monkeypatch.setattr(file_uploads, "append_audit_event", record_audit)
-    monkeypatch.setattr(file_uploads.filesystem, "publish_staged_upload", fail_publish)
+    monkeypatch.setattr(file_uploads, "publish_staged_upload", fail_publish)
 
     response = client.post(
         "/files/server/upload",
@@ -712,11 +713,13 @@ def test_upload_symlink_destination_escape_is_rejected(tmp_path: Path):
 def test_upload_invalid_filename_is_rejected(tmp_path: Path):
     from io import BytesIO
 
-    server = _server_root(tmp_path)
-    from armactl.web.services import filesystem
+    from armactl.web.services.filesystem_errors import InvalidUploadFilenameError
+    from armactl.web.services.filesystem_transfer import upload_file
 
-    with pytest.raises(filesystem.InvalidUploadFilenameError):
-        filesystem.upload_file(tmp_path, "server", "", "bad/name.txt", BytesIO(b"bad"))
+    server = _server_root(tmp_path)
+
+    with pytest.raises(InvalidUploadFilenameError):
+        upload_file(tmp_path, "server", "", "bad/name.txt", BytesIO(b"bad"))
 
     assert not (server / "name.txt").exists()
 
@@ -724,11 +727,15 @@ def test_upload_invalid_filename_is_rejected(tmp_path: Path):
 def test_stage_upload_does_not_publish_until_explicit_publish(tmp_path: Path):
     from io import BytesIO
 
-    from armactl.web.services import filesystem
+    from armactl.web.services.filesystem_transfer import (
+        cleanup_staged_upload,
+        publish_staged_upload,
+        stage_upload_file,
+    )
 
     server = _server_root(tmp_path)
 
-    staged = filesystem.stage_upload_file(
+    staged = stage_upload_file(
         tmp_path,
         "server",
         "",
@@ -740,11 +747,11 @@ def test_stage_upload_does_not_publish_until_explicit_publish(tmp_path: Path):
     assert staged.temp_path.name.startswith(".armactl-upload-")
     assert not (server / "new.txt").exists()
 
-    uploaded = filesystem.publish_staged_upload(staged)
+    uploaded = publish_staged_upload(staged)
 
     assert uploaded.path == server / "new.txt"
     assert uploaded.path.read_bytes() == b"uploaded content"
-    assert filesystem.cleanup_staged_upload(staged) is True
+    assert cleanup_staged_upload(staged) is True
     assert not staged.temp_path.exists()
 
 
@@ -769,13 +776,13 @@ def test_upload_existing_target_is_rejected_without_overwrite(tmp_path: Path):
 
 def test_upload_too_large_is_rejected_without_partial_file(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
-    from armactl.web.services import filesystem
+    from armactl.web.services import filesystem_transfer
 
     server = _server_root(tmp_path)
     password = "owner files password"
     setup_owner_user(tmp_path, "owner", password)
     app = create_app(data_root=tmp_path)
-    monkeypatch.setattr(filesystem, "MAX_UPLOAD_BYTES", 4)
+    monkeypatch.setattr(filesystem_transfer, "MAX_UPLOAD_BYTES", 4)
     client = _client(app)
     _login(client, "owner", password)
     token = _files_csrf_token(client)

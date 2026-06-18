@@ -1278,7 +1278,7 @@ Before starting a project-wide modularity refactor, run the baseline audit in `d
 
 - Done: split the broad routes/management.py surface into domain routers for config, mods, admins, and bot flows without changing URLs, permissions, templates, CSRF checks, audit calls, or pending-work behavior.
 - Completed: split `facade.py` by page/domain DTO. Dashboard/status aggregation, config, mods, admins, bot, and schedule page loaders now live under `src/armactl/web/page_models/`; `facade.py` is only a compatibility re-export layer.
-- Remaining: split `services/filesystem.py` before adding delete, text edit, overwrite, rename, or archive extraction. Keep path jail/root resolution separate from listing, preview, download, upload staging, and future destructive actions.
+- Done: split `services/filesystem.py` into roots, path-safety, listing, preview, transfer, and thin compatibility facade modules before future delete, text edit, overwrite, rename, or archive extraction flows.
 - Remaining: split the oversized `tests/test_web_app.py` into focused route/static/dashboard/preference/service tests. New tests should patch service/facade seams, not imported route globals or FastAPI endpoint internals.
 - Remaining: repeat the architecture/modularity audit after the refactor slices so follow-up feature work starts from the updated module boundaries.
 - Done: audited broad except Exception usage in web routes/services for the mutating-route cleanup slice. Removed generic catches from mods/admins/service/schedule routes, removed generic manager catches from mods/admins action services, and let unexpected service-manager exceptions propagate instead of rendering fake action results. Remaining broad catches are documented fail-closed/degradation or best-effort cleanup cases only:
@@ -1656,6 +1656,9 @@ not the foreground debug runner.
 ### Phase 5 - Filesystem manager
 
 - Safe allowed-root browser foundation is implemented.
+- The filesystem adapter has been split into roots, path-safety, listing,
+  preview, and transfer modules. `services/filesystem.py` is a thin
+  compatibility facade only.
 - Download single file is implemented through the same safe relative-path adapter.
 - Upload one new file to a selected safe directory under the `server` root is implemented without overwrite.
 - Atomic overwrite with explicit confirmation remains future work.

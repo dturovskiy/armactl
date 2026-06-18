@@ -6,8 +6,15 @@ from pathlib import Path
 from typing import BinaryIO
 
 from armactl import paths
-from armactl.web.services import filesystem
 from armactl.web.services.audit import AuditLogError, append_audit_event
+from armactl.web.services.filesystem_errors import FileBrowserError
+from armactl.web.services.filesystem_transfer import (
+    StagedUpload,
+    UploadedFile,
+    cleanup_staged_upload,
+    publish_staged_upload,
+    stage_upload_file,
+)
 
 UPLOAD_AUDIT_FAILED_MESSAGE = "File upload was not published because audit logging failed."
 UPLOAD_PUBLISH_FAILED_MESSAGE = "File upload was audited but publishing failed."
@@ -22,7 +29,7 @@ class FileUploadPublishError(RuntimeError):
 
 
 def _audit_upload(
-    staged: filesystem.StagedUpload,
+    staged: StagedUpload,
     *,
     audit_log_path: Path,
     username: str,
@@ -46,7 +53,7 @@ def _audit_upload(
 
 
 def _audit_publish_failure(
-    staged: filesystem.StagedUpload,
+    staged: StagedUpload,
     *,
     audit_log_path: Path,
     username: str,
@@ -84,9 +91,9 @@ def upload_file_and_audit(
     username: str,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
     max_bytes: int | None = None,
-) -> filesystem.UploadedFile:
+) -> UploadedFile:
     """Stage upload bytes, audit intent, then publish the final file."""
-    staged = filesystem.stage_upload_file(
+    staged = stage_upload_file(
         data_root,
         root_id,
         directory_path,
@@ -107,8 +114,8 @@ def upload_file_and_audit(
             raise FileUploadAuditError(UPLOAD_AUDIT_FAILED_MESSAGE) from exc
 
         try:
-            return filesystem.publish_staged_upload(staged)
-        except filesystem.FileBrowserError as exc:
+            return publish_staged_upload(staged)
+        except FileBrowserError as exc:
             _audit_publish_failure(
                 staged,
                 audit_log_path=audit_log_path,
@@ -118,4 +125,4 @@ def upload_file_and_audit(
             )
             raise FileUploadPublishError(UPLOAD_PUBLISH_FAILED_MESSAGE) from exc
     finally:
-        filesystem.cleanup_staged_upload(staged)
+        cleanup_staged_upload(staged)
