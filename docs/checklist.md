@@ -291,6 +291,8 @@ that the whole web panel is still only planned.
 - [ ] Спроєктувати окремий охайний FPS history chart після UI review
 - [x] Додати controlled start/stop/restart actions
 - [x] Додати web schedule controls для restart timer: show/set/enable/disable/restart-now/next-run
+- [x] Зафіксувати timezone-explicit web schedule model: browser-local input + IANA timezone, backend UTC normalization, UTC source of truth, local/UTC UI display, timezone-aware next/last run і audit local/timezone/UTC values
+- [ ] Реалізувати timezone-explicit `/schedule` input: не приймати bare time без timezone context, fallback UTC з warning, existing OnCalendar трактувати як UTC unless proven otherwise
 - [x] Додати game server boot/autostart policy, dashboard warning і web enable/disable controls
 - [x] Ввести мінімальний `platform/service_adapter.py` для web service/timer actions; Linux/systemd лишається default backend, CLI/TUI `service_manager` imports лишаються compatibility path
 - [ ] Переглянути UI `/schedule`: рознести timer/autostart/restart-now у спокійніші секції без візуального перевантаження
@@ -310,7 +312,7 @@ that the whole web panel is still only planned.
 - [x] Додати read-only management pages для config/mods/admins/bot через backend modules
 - [ ] Спроєктувати settings IA: dashboard summary, basic config, mods, mod settings, network/advanced, diagnostics, danger zone
 - [ ] Додати config schema inventory для `config.json`: supported fields, UI groups Basic/Gameplay/Visibility-Crossplay/Network-A2S-RCON/Security/Advanced/Danger Zone, safe vs advanced editor decision
-- [ ] Розширити `/config` safe controls для third-person view і crossplay/platform support тільки після перевірки точних Arma Reforger config keys у current schema/backend або official docs
+- [ ] Після config schema inventory явно розглянути third-person view і crossplay/platform settings: перевірити реальні Arma Reforger keys/value shapes, класифікувати safe/dangerous/secret/runtime, safe controls вести через `/config`, не `/files`; raw JSON лишається owner/mega-only break-glass flow
 - [ ] Зафіксувати, що normal `config.json` editing живе у `/config`, не у `/files`; secrets/RCON/admin sensitive fields не показувати casually
 - [x] Додати `armactl-web.service` template і service commands
 - [x] Додати login rate limiting / auth abuse throttling для web login
@@ -325,6 +327,8 @@ that the whole web panel is still only planned.
 - [ ] Додати logs filters/search/highlighting для level/source/text і `ERROR`/`WARNING`
 - [x] Підключити install/repair flows до background jobs без blocking HTTP requests
 - [ ] Додати version check/read model для installed server build/version, latest available build/version і статусів `up to date` / `update available` / `unknown` / `check failed`
+- [ ] Для update UX не створювати update job, коли installed build/version == latest available; показати controlled `Server is already up to date`, audit safe check result без secrets і dashboard `up to date`
+- [ ] Якщо version check failed або latest unknown, не запускати update автоматично; показати controlled `unknown`/`check failed` і дозволяти operator override тільки за окремою future policy
 - [ ] Додати dashboard version badge/signal, який не ламає dashboard, якщо latest version недоступна
 - [ ] Підключити update server flow до окремого background job без blocking HTTP requests або route shell-out
 - [ ] Додати audit/progress/log visibility для update intent, enqueue, running output, controlled failure і outcome
@@ -373,11 +377,19 @@ that the whole web panel is still only planned.
 - [ ] Додати atomic overwrite для web file browser з окремим permission/confirmation/backup/audit
 - [ ] Додати delete/rename для web file browser
 - [ ] Додати archive extraction flow після окремого threat model
-- [ ] Додати optional entitlement/feature-flag model, якщо продукт матиме платні tiers
-- [ ] Спроєктувати web product tiers: basic/plus/premium/mega окремо від ролей і permissions
-- [ ] Додати explicit permission gates і audit для dangerous features: raw config editor, advanced config, host controls, command palette, terminal, banlist, file edit/delete/overwrite, SAT runtime edits, user/tier/allowlist management
-- [ ] Спроєктувати admin-only web user/role/tier management для Deus/Yaroslav operators
-- [ ] Спроєктувати IP allowlist management UI/API з CIDR, labels, expiry, audit і trusted-proxy rules
+- [x] Зафіксувати web security foundation для users/roles/permissions/tiers/recovery/IP allowlist/mobile device trust перед premium/terminal/host/raw-config/destructive-file/SAT slices
+- [ ] Спроєктувати `web_users`/roles/permissions schema окремо від Arma/game admins і `players.db`
+- [ ] Реалізувати System Admin Panel (`/system/users` або `/users`) для create user, role change, password change/reset, disable/enable, session reset і audit усіх змін
+- [ ] Додати last-owner guard: заборонити видалити, disable або понизити останнього owner/deus-level web user
+- [ ] Додати owner bootstrap/recovery CLI: перший owner тільки локально/CLI; one-time recovery token з коротким TTL, audit/log записом, password reset або create-new-owner flow
+- [ ] Додати central policy/feature-gate service для ролей, named permissions, entitlements, IP/trusted-proxy/device gates і denied-action audit
+- [ ] Додати feature entitlement model, якщо продукт матиме paid tiers; basic/plus/premium/mega тримати окремо від roles і permissions
+- [ ] Додати typed settings registry для runtime/product/security settings замість route/template workaround flags
+- [ ] Спроєктувати IP allowlist/trusted proxy model: CIDR, labels, enabled/disabled, expiry, per-user/per-feature scope, trusted forwarded headers, audit і local CLI/SSH recovery
+- [ ] Додати 2FA/passkey future hook для high-impact actions і user-management flows
+- [ ] Спроєктувати mobile device trust future design: per-device keypair, registered public key, challenge signatures, revocation; не замінює user auth/permissions
+- [ ] Проаудитити всі dangerous features against central policy before implementation: raw config editor, advanced config, host controls, command palette, terminal, banlist, file edit/delete/overwrite, SAT runtime edits, user/tier/allowlist management, paid/premium tools
+- [ ] Якщо current routes/templates/services boundary заважає policy/users/settings foundation, спершу зробити refactor/module boundary, потім feature; не додавати workaround у routes/templates
 - [ ] Додати remote HTTPS login smoke checklist
 
 ---

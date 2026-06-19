@@ -76,6 +76,12 @@ explicitly a release task.
   Linux/systemd adapter over `service_manager`; CLI/TUI direct
   `service_manager` imports remain compatibility paths until later migration
   slices.
+- Future `/schedule` web UI must not accept bare restart times without timezone
+  context. The browser should submit an IANA timezone name, the backend validates
+  it, normalizes the schedule to UTC for systemd/backend storage, displays both
+  user-local and UTC equivalents, labels next/last run timezones explicitly, and
+  audits local input, timezone, and normalized UTC values. Treat existing
+  systemd `OnCalendar` values as UTC unless proven otherwise.
 - Keep product tiers, roles, and low-level permissions separate. Dangerous
   features such as raw config editor, advanced config, host controls, command
   palette, terminal, banlist, file edit/delete/overwrite, and SAT runtime edits
@@ -105,7 +111,12 @@ explicitly a release task.
   execution. The check is read-only or a lightweight/background job that feeds a
   dashboard read model with installed build, latest available build when safely
   known, and `up to date` / `update available` / `unknown` / `check failed`
-  state. Check failures must not break dashboard rendering or status JSON.
+  state. Check failures must not break dashboard rendering or status JSON. If
+  installed version/build equals the latest available version/build, do not
+  enqueue an update job; show `Server is already up to date` as a controlled
+  successful no-op, not a failure or background job. Audit the safe check result
+  without secrets. If latest is unknown or the check failed, do not run update
+  automatically; any future operator override needs its own explicit policy.
 - Future update routes must only perform auth, explicit `server:update` or
   `jobs:update` permission, CSRF, operator confirmation, service/job enqueue,
   and response rendering. Do not shell out to SteamCMD/systemctl from a route.
@@ -148,6 +159,65 @@ explicitly a release task.
   keys, raw hardcoded template text, and layout overflow before UI polish.
   Resolve language per web request/session/user and do not call the TUI-style
   global `toggle_lang()` / `save_lang()` helpers during HTTP request handling.
+
+## Future users, policy, recovery, and allowlist rules
+
+Before implementing paid features, browser terminal, host reboot/shutdown, raw
+config editing, destructive file actions, SAT/mod runtime settings, premium or
+mega tools, IP allowlists, or web user administration, follow the foundation in
+`docs/web-interface-plan.md`.
+
+Hard rules for those future slices:
+
+- Keep web users, Arma/game admins, and player registry records as separate
+  models. Do not merge them into one users table, and do not infer links from
+  nicknames, Steam IDs, tier names, or role names.
+- Keep roles, named permissions, and paid tiers/entitlements separate. A tier is
+  not a permission, a permission is not a billing plan, and `premium` or `mega`
+  must not silently mean admin.
+- Add a central policy/feature-gate service before dangerous or paid actions.
+  Routes and templates may call the service or receive its DTO results, but
+  they must not own tier/IP/device/permission decisions.
+- Add a typed settings registry for runtime/product/security settings before
+  scattering flags through route handlers, templates, or ad hoc JSON keys.
+- Add explicit migrations for new `web.db` users, roles, grants, entitlements,
+  allowlists, trusted proxies, recovery tokens, security settings, and future
+  device registrations.
+- If the current structure does not fit the policy/user/settings boundary,
+  refactor first. Do not add route/template workarounds to get one feature over
+  the line.
+
+The future system admin area should live on a dedicated surface such as
+`/system/users` or `/users` and support creating web users, changing roles,
+changing or resetting passwords, disabling/enabling users, resetting sessions,
+and auditing every change. It must prevent deleting, disabling, or demoting the
+last owner-level user. First-owner bootstrap stays local CLI/SSH only.
+
+Dangerous features need explicit policy before UI work starts: command palette
+or terminal, host reboot/shutdown, raw JSON config editor, file
+delete/edit/overwrite, SAT/mod runtime settings, user/role/tier management, IP
+allowlist management, and paid/premium tools. Require auth, named permission,
+POST + CSRF for mutations, audit intent and outcome, operator confirmation, and
+optional re-auth/passkey/2FA plus IP/VPN/trusted-device gates for high-risk
+actions. No silent bypass in routes, templates, job enqueue code, workers, or
+feature flags.
+
+IP allowlists are only additional defense. They do not replace web auth,
+permissions, CSRF, confirmations, or audit. Account for mobile IP churn,
+VPN/provider changes, roaming, and operators away from home networks. Trust
+forwarded client IP headers only from explicitly configured trusted proxies.
+Bad allowlist state must be recoverable through local CLI/SSH, not a hidden
+public web bypass.
+
+Break-glass recovery must be official and local: a CLI/SSH command creates a
+short-lived one-time recovery token, logs/audits creation and use, and can reset
+an owner password or create a new owner-level web user. It must not work through
+unauthenticated public web access and must not bypass audit silently.
+
+Future mobile/device trust is not MVP. If added, prefer per-device keypairs,
+server-registered public keys, challenge-based signed requests, revocation, and
+device metadata. Device trust never replaces user authentication, named
+permissions, CSRF protection for browser flows, or audit.
 
 ## Current mutating route audit inventory
 
@@ -461,11 +531,13 @@ Implemented polish and future work:
   work Linux/systemd-first until service/log/path/firewall/process/metrics and
   install/update adapter implementations are designed and tested.
 - Config editor expansion should start with a verified `config.json` schema
-  inventory, UI grouping, and safe-vs-advanced field decisions. Future
-  third-person and crossplay/platform controls belong in `/config` only after
-  exact Arma Reforger keys are verified; booleans should be toggles/checkboxes,
-  platform lists checkbox groups or segmented controls, numeric fields validated
-  inputs, and secrets kept out of casual views.
+  inventory, UI grouping, and safe/dangerous/secret/runtime field decisions.
+  Future third-person and crossplay/platform controls belong in structured
+  `/config` safe UI only after exact Arma Reforger keys, value shapes, restart
+  behavior, and backend validation are verified; do not add them through
+  `/files`. Booleans should be toggles/checkboxes, platform lists checkbox
+  groups or segmented controls, numeric fields validated inputs, secrets kept
+  out of casual views, and raw JSON kept as owner/mega-only break-glass work.
 - Emergency raw JSON config editing remains future owner/admin-only break-glass
   work inside `/config`, not `/files`, with permission, CSRF, double
   confirmation, JSON validation, backup, audit, redacted errors, and clear

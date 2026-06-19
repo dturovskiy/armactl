@@ -133,6 +133,22 @@ restart-now, and game-service autostart enable/disable through
 adapter is the existing Linux/systemd `service_manager` backend, so current
 unit names and behavior remain unchanged.
 
+Future `/schedule` UI must be timezone-explicit. The user sees and enters restart
+schedule times in the browser's local timezone, and the frontend sends an IANA
+timezone name such as `Europe/Kyiv`, `Europe/Paris`, or `America/New_York` with
+the submitted times. The backend validates the timezone name, rejects bare times
+without timezone context, and normalizes the schedule to UTC before storing it
+or rendering systemd/backend `OnCalendar` values. Offset-only values are not
+enough because daylight saving rules require an IANA timezone.
+
+The backend/systemd source of truth remains UTC. Example: user input `18:00
+Europe/Kyiv` normalizes to backend/systemd `15:00 UTC`, and the UI renders
+`18:00 Europe/Kyiv / 15:00 UTC`. If browser timezone detection is unavailable,
+fall back to UTC with a visible warning. Next-run and last-run displays must label their timezone
+explicitly. Schedule audit records should store the user-local input, submitted
+timezone, and normalized UTC schedule. Existing systemd `OnCalendar` values are
+treated as UTC unless a later migration can prove a different timezone source.
+
 Service/timer backend boundary:
 
 - web service start/stop/restart actions and schedule mutations depend on the
@@ -240,9 +256,16 @@ fields. Before adding new controls, list the supported `config.json` fields from
 the current config/backend schema and official Arma Reforger documentation, then
 map each field to a UI group: Basic, Gameplay, Visibility/Crossplay,
 Network/A2S/RCON, Security, Advanced, or Danger Zone. For each field, decide
-whether it belongs in the safe structured editor or an advanced flow. Future
-third-person view and crossplay/platform support controls belong in `/config`
-only after their exact keys and backend validation are verified.
+whether it is safe, dangerous, secret, runtime/mod-specific, or break-glass raw
+JSON work.
+
+After that inventory, explicitly evaluate safe UI controls for third-person view
+and crossplay/platform settings. Do not add these fields until the exact Arma
+Reforger config keys, value shapes, defaults, restart behavior, and backend
+validation are verified against the real schema/backend or official docs. If
+they are safe, non-secret server config fields, expose them through structured
+`/config` controls, not through `/files`. Raw JSON editing remains a separate
+owner/mega-eligible break-glass flow inside `/config`.
 
 Form controls should match the data shape: booleans become toggles or
 checkboxes, supported platform/crossplay lists become checkbox groups or
@@ -851,6 +874,195 @@ operational log.
 Do not hard-code assumptions that there is only one user across the route
 handlers, templates, audit log, or permission checks.
 
+## Web users, roles, tiers, and recovery foundation
+
+This foundation must be designed before paid features, browser terminal,
+host reboot/shutdown, raw config editing, destructive file actions,
+ServerAdminTools/mod runtime settings, premium/mega tools, or user/allowlist
+administration become production features. These concerns belong in central
+services and policy modules, not in route handlers or templates.
+
+### Identity separation
+
+Keep three identity domains separate:
+
+- **Web users** log into armactl-web and operate the dashboard/system. They own
+  sessions, passwords, roles, permissions, preferences, audit attribution, and
+  future 2FA/passkeys/device trust.
+- **Arma/game admins** are entries in the game server configuration or supported
+  game/mod admin backends. They control in-game permissions and must keep using
+  `admins_manager` or future game-admin adapters.
+- **Player registry records** describe players observed on the managed Arma
+  server. They live under the game instance, track reliable player IDs and
+  nicknames, and must not become web login accounts.
+
+Do not merge these into one table or model. A person can appear in more than
+one domain, but links between domains must be explicit references, not implicit
+nickname, e-mail, SteamID, or role-name guesses.
+
+### System admin area
+
+Future multi-user administration needs a dedicated system area such as
+`/system/users` or `/users`. It should support:
+
+- creating web users;
+- assigning and changing roles;
+- changing or resetting passwords;
+- disabling and re-enabling users;
+- resetting sessions for one user or all users;
+- viewing audit history for user, role, password reset, disable/enable,
+  session reset, tier, entitlement, and allowlist changes;
+- preventing deletion, disablement, or demotion of the last owner-level user;
+- first-owner bootstrap only from local CLI/SSH, never from an unauthenticated
+  public web route;
+- an official recovery flow for broken web auth, policy, or allowlist state.
+
+All user-management mutations require auth, a named permission such as
+`users:manage`, POST + CSRF, extra confirmation for high-impact actions, and
+audit records that include intent and outcome without logging secrets.
+
+### Roles, permissions, and product tiers
+
+Treat these as separate layers:
+
+- **Roles** are operational bundles for web users, for example `owner`/`deus`,
+  `mega`, `operator`, and `viewer`. If `mega` is also used as a product tier,
+  use unambiguous internal names such as `mega_operator` for the role and
+  `mega` for the tier.
+- **Permissions** are concrete capabilities, for example `users:manage`,
+  `server:restart`, `server:update`, `mods:manage`, `settings:manage`,
+  `files:delete`, `terminal:run` or `terminal:use`, and `host:reboot` or
+  `host:manage`. Pick canonical permission names before implementation and
+  enforce them consistently.
+- **Product tiers/entitlements** are commercial or support bundles, for example
+  `basic`, `plus`, `premium`, and `mega`. They can make a feature eligible, but
+  they are not the same thing as authorization.
+
+Rules:
+
+- a tier is not a permission;
+- a permission is not a billing plan;
+- `premium` must never silently mean admin;
+- `mega` should be privileged eligibility, not a hidden bypass;
+- routes and templates must not decide tier logic themselves;
+- a central policy/feature-gate service should resolve user, role,
+  permission, entitlement, IP/device policy, and feature availability for each
+  protected action;
+- denied policy decisions for sensitive or paid actions should be audited with
+  minimal personal data.
+
+### Dangerous feature policy
+
+These future features need the strict policy path before implementation:
+
+- diagnostics command palette and any browser terminal;
+- host reboot/shutdown;
+- emergency raw JSON config editor;
+- file delete, edit, overwrite, rename, restore, or archive extraction;
+- ServerAdminTools and other mod runtime settings;
+- user, role, tier, entitlement, and session management;
+- IP allowlist and trusted-proxy management;
+- paid/premium/mega tools.
+
+Baseline requirements:
+
+- owner/mega-level role eligibility or an explicit permission grant resolved by
+  the central policy service;
+- named permission check in the route/service path;
+- POST + CSRF for every mutation;
+- audit intent and outcome, including denied attempts where useful;
+- clear operator confirmation for destructive or disruptive actions;
+- optional re-authentication, passkey, or 2FA step for high-impact actions;
+- optional IP/VPN/trusted-device gate for the highest-risk actions;
+- no silent bypass in templates, route-local conditionals, job enqueue paths,
+  or background workers.
+
+If the existing module structure makes this difficult, add the missing module
+boundary first. Do not patch around it with route/template-specific checks.
+
+### IP allowlist model
+
+IP allowlists are defense in depth, not the primary authorization system. A
+valid IP does not replace login, session, permission, CSRF, confirmation, or
+audit checks.
+
+Design constraints:
+
+- mobile IPs change frequently;
+- providers, VPNs, carrier NAT, roaming, and office networks can change the
+  apparent client IP;
+- a legitimate operator may need access away from a home network;
+- `X-Forwarded-For` and similar headers are trustworthy only when the immediate
+  reverse proxy is explicitly configured as trusted and the proxy chain is
+  validated.
+
+Future access options can include VPN/Tailscale/WireGuard/Cloudflare Access,
+trusted reverse proxies, and per-user or per-feature allowlist records for
+dangerous actions. Allowlist records should support CIDR, label, enabled state,
+optional expiry, scope, audit of add/edit/disable/delete, and audit of denied
+decisions without unnecessary personal data.
+
+Emergency recovery for a bad allowlist must be local CLI/SSH on the server, not
+an undocumented public web bypass.
+
+### Break-glass recovery
+
+Recovery must be an official local flow, not a hidden backdoor. It should work
+only for an operator with local shell access or SSH access to the server.
+
+Future recovery CLI requirements:
+
+- create a one-time recovery token or link with a short TTL;
+- write an audit/log record when the token is created and consumed;
+- allow resetting an owner password or creating a new owner-level web user;
+- allow disabling a broken IP allowlist or policy gate only through explicit
+  local recovery intent;
+- never expose recovery through an unauthenticated public web route;
+- never bypass audit silently.
+
+This is the fallback for broken web auth, lost owner credentials, bad tier or
+policy state, and allowlist lockout. CLI and TUI must remain usable management
+paths even when the web panel is broken.
+
+### Future mobile and device trust
+
+Mobile/device trust is future work, not an MVP requirement. A mobile app must
+not rely only on an application signature, package name, or obscured client
+secret.
+
+Preferred future direction:
+
+- each registered device gets its own keypair;
+- the server stores the device public key and user/device metadata;
+- sensitive requests use server-provided challenges and device signatures;
+- devices can be revoked individually;
+- device trust can combine with 2FA/passkeys and IP/VPN policy for dangerous
+  actions;
+- device trust never replaces user authentication, roles, permissions, CSRF
+  protection for browser flows, or audit.
+
+### Required module architecture
+
+Future implementation should add or confirm these module boundaries before
+building the UI:
+
+- `web/auth/users` or `web/users` for web-user storage, password changes,
+  disable/enable, role assignments, and session resets;
+- `web/auth/roles` and `web/auth/permissions` or equivalent for role and
+  permission definitions;
+- `web/policy/features` or similar for central policy/feature-gate evaluation
+  across roles, explicit permissions, entitlements, IP allowlists, device trust,
+  and feature flags;
+- a typed settings registry for runtime/product/security settings instead of
+  ad hoc keys scattered through templates or routes;
+- explicit `web.db` migrations for users, roles, permission grants, role grants,
+  entitlements, security settings, allowlists, trusted proxies, recovery token
+  metadata, and device registrations.
+
+Services own workflow, audit, recovery, and policy evaluation. Routes remain
+HTTP glue. Templates render already-authorized state and must not contain the
+source of truth for tier, policy, or security decisions.
+
 It is acceptable for MVP data models to assume one local managed server per web
 installation. Do not hard-code that there will only ever be one web user.
 
@@ -916,7 +1128,7 @@ Recommended direction:
   checks deep inside backend modules;
 - audit denied premium actions the same way successful mutating actions are
   audited;
-- keep emergency local access to CLI/TUI available even if the web cabinet or
+- keep emergency local access to CLI/TUI available even if the web panel or
   license state is broken;
 - do not gate security-critical basics such as password changes, audit export,
   and disabling the web service.
@@ -1719,7 +1931,14 @@ not the foreground debug runner.
   - Version check is separate from update execution. It is read-only or a
     lightweight/background job and feeds a dashboard read model with installed
     build, latest available build when safely known, and `up to date` /
-    `update available` / `unknown` / `check failed` state.
+    `update available` / `unknown` / `check failed` state. If the installed
+    server version/build equals the latest available version/build, do not
+    create an update job. Show a controlled result such as `Server is already up
+    to date`, treat it as a successful no-op rather than a failure, audit the
+    safe read-only check result without secrets, and keep the dashboard state at
+    `up to date`. If the latest version is unknown or the check failed, do not
+    start update automatically; show controlled `unknown` or `check failed`
+    state and allow any operator override only through a separate future policy.
   - Version discovery lives behind an adapter/API that may use SteamCMD, app
     manifests, logs, or server metadata. Do not hardcode Steam output parsing in
     routes/templates, and do not store Steam credentials or secrets in `web.db`.

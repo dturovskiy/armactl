@@ -343,6 +343,53 @@ Current web package boundaries on `feat/web-interface`:
   `player_actions`. The registry stores reliable IDs and nickname history in
   `<instance>/players.db`; it does not store IP addresses by default.
 
+Future users/roles/tiers/security work must keep identity and policy domains
+separate:
+
+| Domain | Runtime source | Scope | Must not become |
+|--------|----------------|-------|-----------------|
+| Web users | `~/armactl-data/web/web.db` | People who log into the dashboard/system; sessions, password hashes, roles, permissions, preferences, future 2FA/passkeys/device trust | Arma game admins or player registry rows |
+| Game admins | `config.json`, `admins-state.json`, SAT or future game-admin adapters | In-game Arma/server permissions | Web login accounts |
+| Player registry | `~/armactl-data/<instance>/players.db` | Reliable player IDs, nickname history, observations, future moderation history | Web users or billing identities |
+| Product tiers/entitlements | future web policy tables or local entitlement records | Commercial eligibility such as basic/plus/premium/mega | Direct authorization or route-local shortcuts |
+
+Roles, permissions, and tiers are separate layers. Roles such as `owner`/`deus`,
+`mega`, `operator`, and `viewer` are operational bundles. Permissions are named
+capabilities such as `users:manage`, `server:restart`, `server:update`,
+`mods:manage`, `settings:manage`, `files:delete`, `terminal:run`, and
+`host:reboot`. Tiers such as `basic`, `plus`, `premium`, and `mega` may make a
+feature eligible, but a tier is not a permission and must never mean admin by
+itself.
+
+Required future module boundaries:
+
+- `web/auth/users` or `web/users` owns web-user storage, password changes,
+  disable/enable, role assignment, session reset, last-owner protection, and
+  first-owner local bootstrap.
+- `web/auth/roles` / `web/auth/permissions` define roles and named capabilities.
+- `web/policy/features` or equivalent evaluates roles, explicit permissions,
+  entitlements, feature flags, IP allowlists, trusted proxy state, and future
+  device trust in one place.
+- A typed settings registry owns runtime/product/security settings instead of
+  scattering ad hoc flags through route handlers or templates.
+- `web.db` migrations own future tables for users, roles, grants, tiers,
+  entitlements, allowlists, trusted proxies, recovery tokens, security
+  settings, and device registrations.
+
+Dangerous features such as terminal/command palette, host reboot/shutdown, raw
+config editing, file delete/edit/overwrite, SAT/mod runtime settings,
+user/role/tier/allowlist management, and paid tools must enter through the
+central policy service, use POST + CSRF for mutations, record audit intent and
+outcome, and offer confirmations plus optional re-auth/passkey/2FA or
+IP/VPN/trusted-device gates where risk demands it. If the current structure
+does not support that cleanly, refactor the module boundary before adding the
+feature instead of putting policy logic in routes/templates.
+
+Break-glass recovery is an official local CLI/SSH flow, not a web backdoor. It
+should create short-lived one-time recovery tokens, audit creation and use, and
+allow resetting an owner password or creating a new owner only from local server
+access. It must not silently bypass audit or public web authentication.
+
 Current web branch capabilities include dashboard, safe config editing, mods,
 admins, restart schedule, files browse/upload/download/preview, logs/report,
 jobs/background operations, player registry foundation, auth/session/CSRF,
@@ -357,10 +404,10 @@ routes should target Windows hosts.
 
 Known future web/platform work is intentionally separate from the implemented
 foundation: server version/update read model and update job adapter, versioned
-migrations for `web.db` and `players.db`, player refresh failure outcome
-auditing, a typed settings registry, feature policy/roles/tiers, broader
-platform adapters, banlist management, destructive file workflows, and SAT/mod
-runtime settings.
+migrations for new web policy/security tables, a typed settings registry,
+feature policy/roles/tiers, official break-glass recovery, IP allowlist/trusted
+proxy handling, future mobile/device trust, broader platform adapters, banlist
+management, destructive file workflows, and SAT/mod runtime settings.
 
 Paid/premium features are not implemented. If product tiers are added, keep
 entitlements separate from permissions through a policy/feature-gate layer.
@@ -421,11 +468,40 @@ operator confirms update
 ```
 
 The future update action must not be a blocking HTTP request or a direct route
-shell-out. It should not run automatically by default. If the game server is
-running, require explicit confirmation, optionally stop/drain before update, and
-restart only when the operator confirms or the update workflow explicitly owns
-restart. Preserve config/state, avoid secrets in logs, and show
-rollback/recovery notes where the backend can provide them.
+shell-out. It should not run automatically by default. If installed
+version/build already equals the latest available version/build, no update job
+should be created; the UI should show `Server is already up to date` as a
+controlled successful no-op, audit the safe read-only check result without
+secrets, and keep the dashboard at `up to date`. If latest is unknown or the
+check failed, do not auto-update; show controlled `unknown` or `check failed`
+state and require a separate future policy for any operator override. If the
+game server is running and an update is actually available, require explicit
+confirmation, optionally stop/drain before update, and restart only when the
+operator confirms or the update workflow explicitly owns restart. Preserve
+config/state, avoid secrets in logs, and show rollback/recovery notes where the
+backend can provide them.
+
+### Web schedule timezone flow (future)
+
+```text
+browser schedule form
+  → user enters local time and browser submits IANA timezone name
+  → backend validates timezone and rejects bare time without timezone context
+  → backend normalizes schedule to UTC
+  → service adapter writes UTC-backed systemd/backend schedule
+  → UI renders user-local time plus UTC equivalent
+```
+
+The systemd/backend source of truth remains UTC. For example, `18:00
+Europe/Kyiv` normalizes to `15:00 UTC` and should be displayed as `18:00
+Europe/Kyiv / 15:00 UTC`. Offset-only timezone data is insufficient because
+daylight saving rules require IANA timezone names such as `Europe/Kyiv`,
+`Europe/Paris`, or `America/New_York`. If browser timezone
+detection is unavailable, the web UI should fall back to UTC with a visible
+warning. Next-run and last-run displays must label timezones explicitly, and
+audit entries for schedule changes should include user-local input, timezone,
+and normalized UTC values. Existing systemd `OnCalendar` values are treated as
+UTC unless a later migration proves otherwise.
 
 ### Detect flow (existing server)
 

@@ -209,10 +209,12 @@ Current branch capabilities:
 - auth, sessions, CSRF protection, code-level permissions, and login throttling
 - JSONL audit logging plus pending operator work for saved config/admin/mod changes
 
-Future web work remains scoped to items such as versioned migrations for
-`web.db` and `players.db`, player refresh failure outcome auditing, a settings
-registry, policy/roles/tiers, broader platform adapters, banlist management,
-destructive file workflows, and SAT/mod runtime settings.
+Future web work remains scoped to items such as the system admin panel for web
+users, central policy/feature gates for roles/permissions/tiers, official local
+break-glass recovery, IP allowlist/trusted-proxy handling, future mobile/device
+trust, a settings registry, broader platform adapters, banlist management,
+destructive file workflows, server update/version flows, and SAT/mod runtime
+settings.
 
 The existing top-level `website/` directory is a marketing/static site. It is
 not the management panel and should stay separate from the authenticated web UI.
