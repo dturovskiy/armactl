@@ -103,9 +103,13 @@ def _write_mod_config(tmp_path: Path, mods: list[dict[str, str]]) -> Path:
 
 
 def _patch_mods_page(monkeypatch, page: dict | None = None) -> None:
-    from armactl.web.routes import mods as mods_route
+    from armactl.web.page_models import mods as mods_page_model
 
-    monkeypatch.setattr(mods_route, "load_mods_page", lambda instance: page or _mods_page())
+    monkeypatch.setattr(
+        mods_page_model,
+        "load_mods_page",
+        lambda instance: page or _mods_page(),
+    )
 
 
 def _authed_client(tmp_path: Path, monkeypatch, page: dict | None = None):

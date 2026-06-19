@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, Response
 
 from armactl.web.auth.permissions import BOT_VIEW
-from armactl.web.page_models.bot import load_bot_page
+from armactl.web.page_models import bot as bot_page_model
 from armactl.web.routes._common import authenticated_page
 
 router = APIRouter()
@@ -19,5 +19,5 @@ def bot_page(request: Request) -> Response:
         request,
         permission=BOT_VIEW,
         template="bot.html",
-        loader=load_bot_page,
+        loader=bot_page_model.load_bot_page,
     )

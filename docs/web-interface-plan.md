@@ -1248,18 +1248,20 @@ a fake job.
 ### Testing rules
 
 Prefer tests that exercise the public app factory and web routes through
-TestClient, with backend services/facades monkeypatched at stable module
-boundaries. Avoid patching fragile endpoint globals after routers have already
-been imported unless a test specifically proves that behavior.
+TestClient, with backend services, page-model loaders, facades, or platform
+adapters monkeypatched at stable module boundaries. Do not patch FastAPI
+endpoint `__globals__`, route function globals, app router endpoint internals,
+or already-imported route-module aliases.
 
 For import-safety tests, use subprocess checks instead of mutating
 `sys.modules` inside the main pytest process. Do not make tests depend on the
 operator's saved UI language, global TUI language state, real systemd units, or
 network availability.
 
-When a test needs alternate backend behavior, patch the service or facade the
-route calls, create the app after the patch when possible, and assert that the
-route did not fall through to real backend/systemd code.
+When a test needs alternate backend behavior, patch the service, page-model,
+facade, or adapter seam the route calls, create the app after the patch when
+possible, and assert that the route did not fall through to real backend/systemd
+code.
 
 ### UI primitives
 
@@ -1693,8 +1695,8 @@ not the foreground debug runner.
 
 - Unit-test auth, config loading, CSRF, and filesystem path handling.
 - Route-test the dashboard and API with a temporary data root.
-- Patch the service adapter seam for start/stop/restart and schedule route
-  tests; do not patch route globals or systemd internals.
+- Patch stable service/page-model/adapter seams in web route tests; do not patch
+  FastAPI route globals, endpoint internals, or systemd internals.
 - Run browser smoke tests locally against `127.0.0.1` once the first UI exists.
 - Keep tests independent from saved runtime language and user settings.
 - Do not require a live Arma server for normal CI/local unit tests.

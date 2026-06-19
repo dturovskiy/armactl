@@ -17,7 +17,7 @@ from armactl.web.auth.dependencies import (
     require_permission,
 )
 from armactl.web.auth.permissions import SCHEDULE_MANAGE, SCHEDULE_VIEW
-from armactl.web.page_models.schedule import load_schedule_page
+from armactl.web.page_models import schedule as schedule_page_model
 from armactl.web.services import schedule_actions
 
 router = APIRouter()
@@ -43,7 +43,7 @@ def _render_schedule(
         return permission_denied_response()
 
     form_csrf = get_form_csrf_token(request, current)
-    page = load_schedule_page(paths.DEFAULT_INSTANCE_NAME)
+    page = schedule_page_model.load_schedule_page(paths.DEFAULT_INSTANCE_NAME)
     response = request.app.state.templates.TemplateResponse(
         request=request,
         name="schedule.html",

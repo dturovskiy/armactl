@@ -127,9 +127,13 @@ def _audit_events(data_root: Path) -> list[dict]:
 
 
 def _patch_admins_page(monkeypatch, page: dict | None = None) -> None:
-    from armactl.web.routes import admins as admins_route
+    from armactl.web.page_models import admins as admins_page_model
 
-    monkeypatch.setattr(admins_route, "load_admins_page", lambda instance: page or _admins_page())
+    monkeypatch.setattr(
+        admins_page_model,
+        "load_admins_page",
+        lambda instance: page or _admins_page(),
+    )
 
 
 def test_admin_action_helper_calls_admins_manager_add_and_reports_update(

@@ -176,16 +176,16 @@ def _patch_schedule_adapter(monkeypatch, schedule_actions, adapter: _FakeSchedul
 
 def _authed_client(tmp_path: Path, monkeypatch, page: dict | None = None):
     from armactl.web.app import create_app
-    from armactl.web.routes import schedule as schedule_route
+    from armactl.web.page_models import schedule as schedule_page_model
 
     password = "owner schedule password"
     setup_owner_user(tmp_path, "owner", password)
-    app = create_app(data_root=tmp_path)
     monkeypatch.setattr(
-        schedule_route,
+        schedule_page_model,
         "load_schedule_page",
         lambda instance: page or _schedule_page(),
     )
+    app = create_app(data_root=tmp_path)
     client = _client(app)
     login_response = _login(client, "owner", password)
     assert login_response.status_code == 303
@@ -235,12 +235,12 @@ def test_schedule_permission_denied_skips_backend(
     tmp_path: Path, monkeypatch, set_web_owner_permissions
 ):
     from armactl.web.app import create_app
-    from armactl.web.routes import schedule as schedule_route
+    from armactl.web.page_models import schedule as schedule_page_model
 
     setup_owner_user(tmp_path, "owner", "owner schedule password")
     set_web_owner_permissions(set())
+    monkeypatch.setattr(schedule_page_model, "load_schedule_page", AssertionError)
     app = create_app(data_root=tmp_path)
-    monkeypatch.setattr(schedule_route, "load_schedule_page", AssertionError)
     client = _client(app)
     _login(client, "owner", "owner schedule password")
 
@@ -612,12 +612,16 @@ def test_schedule_unexpected_restart_exception_does_not_clear_pending_work(
     monkeypatch,
 ):
     from armactl.web.app import create_app
-    from armactl.web.routes import schedule as schedule_route
+    from armactl.web.page_models import schedule as schedule_page_model
     from armactl.web.services import pending_work, schedule_actions
 
     setup_owner_user(tmp_path, "owner", "owner schedule password")
+    monkeypatch.setattr(
+        schedule_page_model,
+        "load_schedule_page",
+        lambda instance: _schedule_page(),
+    )
     app = create_app(data_root=tmp_path)
-    monkeypatch.setattr(schedule_route, "load_schedule_page", lambda instance: _schedule_page())
 
     def fail_action(*args, **kwargs):
         raise RuntimeError("unexpected schedule bug token=raw-schedule-secret")
@@ -687,7 +691,7 @@ def test_dashboard_links_to_schedule_page_when_permission_allows(
     monkeypatch,
 ):
     from armactl.web.app import create_app
-    from armactl.web.routes import dashboard
+    from armactl.web.page_models import dashboard as dashboard_page_model
 
     def snapshot(instance: str, *, web_config=None) -> dict:
         assert instance == "default"
@@ -723,8 +727,8 @@ def test_dashboard_links_to_schedule_page_when_permission_allows(
         }
 
     setup_owner_user(tmp_path, "owner", "owner dashboard password")
+    monkeypatch.setattr(dashboard_page_model, "load_dashboard_snapshot", snapshot)
     app = create_app(data_root=tmp_path)
-    monkeypatch.setattr(dashboard, "load_dashboard_snapshot", snapshot)
     client = _client(app)
     _login(client, "owner", "owner dashboard password")
 

@@ -16,7 +16,7 @@ from armactl.web.auth.dependencies import (
     require_permission,
 )
 from armactl.web.auth.permissions import CONFIG_VIEW, SETTINGS_MANAGE
-from armactl.web.page_models.config import load_config_page
+from armactl.web.page_models import config as config_page_model
 from armactl.web.routes._common import redirect_to_login
 from armactl.web.services import config_edit
 
@@ -39,7 +39,7 @@ def _render_config_page(
         return permission_denied_response()
 
     form_csrf = get_form_csrf_token(request, current)
-    page = load_config_page(paths.DEFAULT_INSTANCE_NAME)
+    page = config_page_model.load_config_page(paths.DEFAULT_INSTANCE_NAME)
     response = request.app.state.templates.TemplateResponse(
         request=request,
         name="config.html",

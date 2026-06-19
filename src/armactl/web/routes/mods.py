@@ -16,7 +16,7 @@ from armactl.web.auth.dependencies import (
     require_permission,
 )
 from armactl.web.auth.permissions import MODS_MANAGE, MODS_VIEW
-from armactl.web.page_models.mods import load_mods_page
+from armactl.web.page_models import mods as mods_page_model
 from armactl.web.routes._common import redirect_to_login
 from armactl.web.services import mod_actions
 
@@ -36,7 +36,7 @@ def _render_mods_page(
         return permission_denied_response()
 
     form_csrf = get_form_csrf_token(request, current)
-    page = load_mods_page(paths.DEFAULT_INSTANCE_NAME)
+    page = mods_page_model.load_mods_page(paths.DEFAULT_INSTANCE_NAME)
     response = request.app.state.templates.TemplateResponse(
         request=request,
         name="mods.html",

@@ -111,9 +111,9 @@ def _readonly_player(name: str = "Observer") -> ModerationPlayer:
 
 
 def _patch_admins_page(monkeypatch) -> None:
-    from armactl.web.routes import admins as admins_route
+    from armactl.web.page_models import admins as admins_page_model
 
-    monkeypatch.setattr(admins_route, "load_admins_page", lambda instance: _admins_page())
+    monkeypatch.setattr(admins_page_model, "load_admins_page", lambda instance: _admins_page())
 
 
 def _patch_player_panel(monkeypatch, load_panel) -> None:

@@ -90,10 +90,10 @@ explicitly a release task.
 - Keep pending operator work separate from background jobs. Do not fake pending
   restart work as a queued job, and do not hide pending work just because the
   background job list is empty.
-- Write web tests against stable service/facade boundaries. Avoid mutating
-  `sys.modules` in the main pytest process; use subprocess checks for import
-  safety and avoid fragile endpoint-global monkeypatching after routers are
-  imported.
+- Write web tests against stable service/page_model/facade/adapter boundaries.
+  Avoid mutating `sys.modules` in the main pytest process; use subprocess checks
+  for import safety. Do not monkeypatch FastAPI route globals, endpoint
+  `__globals__`, or app router endpoint internals.
 - Keep `website/` separate. It is the public marketing site, not the
   authenticated management panel.
 - Do not expose arbitrary host filesystem access. Future file edit/delete,
@@ -365,9 +365,10 @@ Completed foundation:
     been completed in focused route/page modules.
 36. Web page-model split: the old facade.py monolith has been split into
     domain DTO loaders under src/armactl/web/page_models/ for dashboard,
-    config, mods, admins, bot, and schedule. Route modules import their domain
-    loader directly. The remaining facade.py is a thin compatibility re-export
-    layer only; it contains no DTO-building logic.
+    config, mods, admins, bot, and schedule. Route modules call loaders through
+    page-model module aliases so tests can patch that stable seam without
+    touching FastAPI route internals. The remaining facade.py is a thin
+    compatibility re-export layer only; it contains no DTO-building logic.
 37. Web filesystem service split: the former services/filesystem.py monolith now
     lives in filesystem_errors, filesystem_roots, filesystem_paths,
     filesystem_listing, filesystem_preview, and filesystem_transfer.
@@ -379,8 +380,9 @@ Completed foundation:
 38. Web app test split: the oversized tests/test_web_app.py catch-all has
     been reduced to app-level wiring/static smoke coverage. Focused modules now
     cover auth routes, preferences, dashboard/status pages, management layout,
-    jobs routes, and service routes. Touched tests patch stable service and
-    page-model seams rather than imported route globals.
+    jobs routes, and service routes. Touched tests patch stable service,
+    page-model, and adapter seams rather than imported route globals or FastAPI
+    endpoint internals.
 39. Platform service adapter boundary: web service start/stop/restart,
     schedule set/enable/disable, schedule restart-now, and game-service
     autostart enable/disable now use `platform/service_adapter.py`. The default

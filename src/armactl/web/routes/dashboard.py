@@ -28,7 +28,7 @@ from armactl.web.auth.permissions import (
 )
 from armactl.web.i18n import resolve_language, translation_helpers
 from armactl.web.jobs.store import list_recent_jobs
-from armactl.web.page_models.dashboard import load_dashboard_snapshot
+from armactl.web.page_models import dashboard as dashboard_page_model
 from armactl.web.services.pending_work import list_pending_work_with_fallback
 from armactl.web.views.dashboard import (
     build_dashboard_status_payload,
@@ -61,7 +61,9 @@ def _dashboard_permission_flags(current: CurrentSession) -> dict[str, bool]:
 
 
 def _load_dashboard_model(current: CurrentSession) -> tuple[dict, dict, dict[str, bool]]:
-    snapshot = load_dashboard_snapshot("default", web_config=current.config)
+    snapshot = dashboard_page_model.load_dashboard_snapshot(
+        "default", web_config=current.config
+    )
     permissions = _dashboard_permission_flags(current)
     dashboard = build_dashboard_view(snapshot, **permissions)
     return snapshot, dashboard, permissions
