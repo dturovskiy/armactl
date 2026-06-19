@@ -6,7 +6,7 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Lock
 
 import pytest
 
@@ -526,6 +526,45 @@ def test_handler_output_is_bounded_and_redacted(tmp_path: Path):
     assert "ARMACTL_WEB_SESSION_SECRET=***" in result.job.stderr_tail
 
 
+def test_concurrent_dispatch_attempts_claim_queued_job_once(tmp_path: Path, monkeypatch):
+    from armactl.web.jobs import runner
+
+    db_path = _db_path(tmp_path)
+    calls: list[str] = []
+    barrier = Barrier(2)
+    read_lock = Lock()
+    observed_initial_reads = 0
+    original_get_job = runner.get_job
+
+    def synced_get_job(db_path_arg, job_id: int):
+        nonlocal observed_initial_reads
+        job = original_get_job(db_path_arg, job_id)
+        with read_lock:
+            observed_initial_reads += 1
+            should_wait = observed_initial_reads <= 2
+        if should_wait:
+            barrier.wait(timeout=5)
+        return job
+
+    def handler(context):
+        calls.append(context.job.status)
+        return "done"
+
+    monkeypatch.setattr(runner, "get_job", synced_get_job)
+    dispatcher = JobDispatcher({"safe:claim": handler})
+    job = enqueue_job(db_path, kind="safe:claim", requested_by_username="owner")
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(dispatch_job, db_path, job.id, dispatcher) for _index in range(2)
+        ]
+        results = [future.result(timeout=10) for future in futures]
+
+    assert sum(result.ran for result in results) == 1
+    assert calls == [JOB_STATUS_RUNNING]
+    assert get_job(db_path, job.id).status == JOB_STATUS_SUCCEEDED
+
+
 def test_web_jobs_import_does_not_import_tui_or_textual(
     assert_import_does_not_import_modules,
 ):
@@ -701,6 +740,44 @@ def test_server_job_audit_failure_does_not_cancel_existing_active_job(
     assert refreshed.status == JOB_STATUS_QUEUED
     assert refreshed.result_message == ""
     assert _active_job_ids(db_path, kind=SERVER_INSTALL_JOB_KIND) == [existing.id]
+
+
+@pytest.mark.parametrize(
+    ("action", "enqueue", "job_kind"),
+    [
+        ("install", enqueue_server_install, SERVER_INSTALL_JOB_KIND),
+        ("repair", enqueue_server_repair, SERVER_REPAIR_JOB_KIND),
+    ],
+)
+def test_server_job_action_reuses_active_job_without_starting_worker(
+    tmp_path: Path,
+    monkeypatch,
+    action,
+    enqueue,
+    job_kind: str,
+):
+    from armactl.web.services import server_job_actions
+
+    db_path = _db_path(tmp_path)
+    existing = enqueue(db_path, requested_by_username="owner")
+    scheduled: list[int] = []
+    monkeypatch.setattr(
+        server_job_actions.server_jobs,
+        "start_server_job_worker",
+        lambda db_path_arg, job_id: scheduled.append(job_id),
+    )
+
+    job = server_job_actions.enqueue_server_job_and_start(
+        db_path,
+        action=action,
+        audit_log_path=tmp_path / "audit.log",
+        username="owner",
+        user_id=None,
+    )
+
+    assert job.id == existing.id
+    assert job.kind == job_kind
+    assert scheduled == []
 
 
 def test_concurrent_server_install_enqueue_attempts_create_one_active_job(

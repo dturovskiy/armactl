@@ -111,5 +111,6 @@ def enqueue_server_job_and_start(
                 pass
         raise ServerJobAuditError(JOB_AUDIT_FAILED_MESSAGE) from exc
 
-    server_jobs.start_server_job_worker(db_path, job.id)
+    if created:
+        server_jobs.start_server_job_worker(db_path, job.id)
     return job

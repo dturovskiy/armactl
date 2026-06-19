@@ -558,9 +558,7 @@ def mark_job_running(
 
     try:
         with _connect(db_path) as connection:
-            job = _fetch_job(connection, normalized_job_id)
-            _ensure_transition(job.status, JOB_STATUS_RUNNING)
-            connection.execute(
+            cursor = connection.execute(
                 """
                 UPDATE web_jobs
                 SET status = ?,
@@ -570,6 +568,7 @@ def mark_job_running(
                     started_at = COALESCE(started_at, ?),
                     updated_at = ?
                 WHERE id = ?
+                  AND status = ?
                 """,
                 (
                     JOB_STATUS_RUNNING,
@@ -579,8 +578,11 @@ def mark_job_running(
                     now,
                     now,
                     normalized_job_id,
+                    JOB_STATUS_QUEUED,
                 ),
             )
+            if cursor.rowcount != 1:
+                raise JobTransitionError("Job is no longer queued.")
             return _fetch_job(connection, normalized_job_id)
     except sqlite3.Error as exc:
         raise JobStoreError("Failed to update web job.") from exc

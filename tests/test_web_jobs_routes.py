@@ -6,6 +6,7 @@ import json
 import sqlite3
 from pathlib import Path
 
+import pytest
 from web_route_helpers import _client, _form_token, _login, _set_cookie
 
 from armactl.web.auth.cookies import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
@@ -499,9 +500,19 @@ def test_post_install_and_repair_create_queued_jobs_without_running_backend(
     assert scheduled == [jobs[1].id, jobs[0].id]
 
 
-def test_post_install_reuses_existing_active_job_without_creating_duplicate(
+@pytest.mark.parametrize(
+    ("action", "path", "job_kind"),
+    [
+        ("install", "/jobs/server/install", "server:install"),
+        ("repair", "/jobs/server/repair", "server:repair"),
+    ],
+)
+def test_post_server_job_reuses_existing_active_job_without_duplicate_worker(
     tmp_path: Path,
     monkeypatch,
+    action: str,
+    path: str,
+    job_kind: str,
 ):
     from armactl.web.app import create_app
     from armactl.web.jobs import server as server_jobs
@@ -521,19 +532,19 @@ def test_post_install_reuses_existing_active_job_without_creating_duplicate(
     csrf_token = _jobs_csrf_token(client)
 
     first_response = client.post(
-        "/jobs/server/install",
+        path,
         data={"csrf_token": csrf_token},
         follow_redirects=False,
     )
     second_response = client.post(
-        "/jobs/server/install",
+        path,
         data={"csrf_token": csrf_token},
         follow_redirects=False,
     )
     jobs = [
         job
         for job in list_recent_jobs(tmp_path / "web" / "web.db")
-        if job.kind == "server:install"
+        if job.kind == job_kind
     ]
     audit_events = _audit_events(tmp_path)
 
@@ -543,13 +554,26 @@ def test_post_install_reuses_existing_active_job_without_creating_duplicate(
     assert second_response.headers["location"] == "/jobs"
     assert len(jobs) == 1
     assert jobs[0].status == "queued"
-    assert scheduled == [jobs[0].id, jobs[0].id]
+    assert scheduled == [jobs[0].id]
+    assert [event["action"] for event in audit_events[-2:]] == [
+        f"job.server-{action}.enqueue",
+        f"job.server-{action}.enqueue",
+    ]
     assert [event["details"]["created"] for event in audit_events[-2:]] == ["true", "false"]
 
 
-def test_install_job_audit_failure_cancels_created_job(
+@pytest.mark.parametrize(
+    ("path", "job_kind"),
+    [
+        ("/jobs/server/install", "server:install"),
+        ("/jobs/server/repair", "server:repair"),
+    ],
+)
+def test_server_job_audit_failure_cancels_created_job(
     tmp_path: Path,
     monkeypatch,
+    path: str,
+    job_kind: str,
 ):
     from armactl.web.app import create_app
     from armactl.web.jobs.store import list_recent_jobs
@@ -572,7 +596,7 @@ def test_install_job_audit_failure_cancels_created_job(
     csrf_token = _jobs_csrf_token(client)
 
     response = client.post(
-        "/jobs/server/install",
+        path,
         data={"csrf_token": csrf_token},
         follow_redirects=False,
     )
@@ -581,7 +605,7 @@ def test_install_job_audit_failure_cancels_created_job(
     assert response.status_code == 500
     assert response.text == "Job queued but audit logging failed."
     assert len(jobs) == 1
-    assert jobs[0].kind == "server:install"
+    assert jobs[0].kind == job_kind
     assert jobs[0].status == "cancelled"
     assert jobs[0].result_message == "Cancelled because audit logging failed."
 

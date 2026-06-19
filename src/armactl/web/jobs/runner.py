@@ -149,7 +149,8 @@ def dispatch_job(
         running = mark_job_running(db_path, job.id, current_step="Running")
     except JobTransitionError as exc:
         refreshed = get_job(db_path, job.id) or job
-        return JobDispatchResult(job=refreshed, ran=False, message=redact_sensitive_text(exc))
+        message = redact_sensitive_text(exc) or "Job is not queued."
+        return JobDispatchResult(job=refreshed, ran=False, message=message)
 
     handler = dispatcher.handler_for(running.kind)
     if handler is None:
