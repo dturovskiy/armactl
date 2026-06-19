@@ -7,7 +7,7 @@ from pathlib import Path
 
 from armactl import paths
 from armactl.redaction import redact_sensitive_text
-from armactl.web.services import player_moderation, player_registry
+from armactl.web.services import player_registry, player_sources
 from armactl.web.services.audit import AuditLogError, append_audit_event
 
 ACTION_REFRESH = "players.refresh"
@@ -66,14 +66,31 @@ def _intent_failure(error):
     )
 
 
+def _registry_observations(
+    players: tuple[player_sources.CurrentPlayer, ...],
+) -> tuple[player_registry.PlayerObservation, ...]:
+    return tuple(
+        player_registry.PlayerObservation(
+            reliable_id=player.admin_reference or player.reliable_id,
+            display_name=player.display_name,
+            source=player.source,
+        )
+        for player in players
+    )
+
+
 def refresh_registry_and_audit(
     instance=paths.DEFAULT_INSTANCE_NAME,
     *,
-    db_path,
+    data_root=paths.DEFAULT_DATA_ROOT,
     audit_log_path,
     username,
 ):
     normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
+    db_path = player_registry.player_registry_db_path(
+        normalized_instance,
+        data_root=data_root,
+    )
     target = str(db_path)
     try:
         _append_refresh_audit(
@@ -88,8 +105,11 @@ def refresh_registry_and_audit(
     except AuditLogError as error:
         return _intent_failure(error)
 
-    panel = player_moderation.load_player_moderation_panel(normalized_instance)
-    snapshot = player_registry.record_current_players_snapshot(db_path, panel.players)
+    roster = player_sources.load_current_player_roster(normalized_instance)
+    snapshot = player_registry.record_current_players_snapshot(
+        db_path,
+        _registry_observations(roster.players),
+    )
     result = PlayerRefreshResult(
         stored_count=snapshot.stored_count,
         ignored_count=snapshot.ignored_count,

@@ -9,14 +9,24 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from armactl import admins_manager, paths
-from armactl.redaction import redact_sensitive_text
-from armactl.web.services.player_moderation import ModerationPlayer
+from armactl import paths
+from armactl.web.services.player_identity import (
+    normalize_reliable_player_id,
+    safe_player_text,
+)
 
 PLAYER_REGISTRY_DB_NAME = "players.db"
-MAX_PLAYER_TEXT_LENGTH = 160
 PRIVATE_PLAYER_REGISTRY_FILE_MODE = 0o600
 DEFAULT_PLAYER_LIST_LIMIT = 100
+
+
+@dataclass(frozen=True)
+class PlayerObservation:
+    """One reliable player observation ready for registry storage."""
+
+    reliable_id: str
+    display_name: str
+    source: str
 
 
 @dataclass(frozen=True)
@@ -52,22 +62,6 @@ class PlayerSnapshotResult:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _safe_text(value: object, *, max_length: int = MAX_PLAYER_TEXT_LENGTH) -> str:
-    text = redact_sensitive_text(value).replace("\r", " ").replace("\n", " ").strip()
-    if len(text) > max_length:
-        return f"{text[:max_length]}..."
-    return text
-
-
-def _reliable_id(value: object) -> str:
-    candidate = str(value or "").strip()
-    if admins_manager.STEAM_ID64_RE.fullmatch(candidate):
-        return candidate
-    if admins_manager.IDENTITY_ID_RE.fullmatch(candidate):
-        return candidate
-    return ""
 
 
 def player_registry_db_path(
@@ -165,27 +159,27 @@ def _name_from_row(row: sqlite3.Row) -> KnownPlayerName:
 
 def record_current_players_snapshot(
     db_path: Path,
-    players: Iterable[ModerationPlayer],
+    observations: Iterable[PlayerObservation],
     *,
     observed_at: str | None = None,
 ) -> PlayerSnapshotResult:
     """Record reliable current players, ignoring slot-only/unreliable rows."""
     timestamp = observed_at or _utc_now()
-    reliable_players: dict[str, ModerationPlayer] = {}
+    reliable_players: dict[str, PlayerObservation] = {}
     ignored_count = 0
-    for player in players:
-        reliable_id = _reliable_id(player.admin_reference or player.identity_id)
+    for observation in observations:
+        reliable_id = normalize_reliable_player_id(observation.reliable_id)
         if not reliable_id:
             ignored_count += 1
             continue
-        reliable_players[reliable_id] = player
+        reliable_players[reliable_id] = observation
 
     ensure_player_registry_db(db_path)
     with sqlite3.connect(db_path) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
-        for reliable_id, player in reliable_players.items():
-            name = _safe_text(player.display_name) or "Unknown player"
-            source = _safe_text(player.source) or "unknown"
+        for reliable_id, observation in reliable_players.items():
+            name = safe_player_text(observation.display_name) or "Unknown player"
+            source = safe_player_text(observation.source) or "unknown"
             connection.execute(
                 """
                 INSERT INTO players (
@@ -239,7 +233,7 @@ def list_known_players(
     if connection is None:
         return []
     normalized_limit = max(1, min(int(limit), DEFAULT_PLAYER_LIST_LIMIT))
-    normalized_query = _safe_text(query, max_length=120)
+    normalized_query = safe_player_text(query, max_length=120)
     try:
         with connection:
             if normalized_query:
@@ -286,7 +280,7 @@ def get_known_player(db_path: Path, reliable_id: str) -> KnownPlayer | None:
                 FROM players
                 WHERE reliable_id = ?
                 """,
-                (_reliable_id(reliable_id),),
+                (normalize_reliable_player_id(reliable_id),),
             ).fetchone()
     finally:
         connection.close()
@@ -307,7 +301,7 @@ def list_player_names(db_path: Path, reliable_id: str) -> list[KnownPlayerName]:
                 WHERE reliable_id = ?
                 ORDER BY last_seen_at DESC, name COLLATE NOCASE ASC
                 """,
-                (_reliable_id(reliable_id),),
+                (normalize_reliable_player_id(reliable_id),),
             ).fetchall()
     finally:
         connection.close()

@@ -16,7 +16,7 @@ from armactl.web.auth.cookies import SESSION_COOKIE_NAME
 from armactl.web.auth.permissions import ADMINS_VIEW
 from armactl.web.auth.setup import setup_owner_user
 from armactl.web.auth.users import get_user_by_username
-from armactl.web.services.player_moderation import (
+from armactl.web.page_models.players import (
     ModerationPlayer,
     PlayerModerationPanel,
 )
@@ -117,9 +117,9 @@ def _patch_admins_page(monkeypatch) -> None:
 
 
 def _patch_player_panel(monkeypatch, load_panel) -> None:
-    from armactl.web.services import player_moderation
+    from armactl.web.page_models import players as players_page_model
 
-    monkeypatch.setattr(player_moderation, "load_player_moderation_panel", load_panel)
+    monkeypatch.setattr(players_page_model, "load_player_moderation_panel", load_panel)
 
 
 def _authed_client(
@@ -160,15 +160,16 @@ def _audit_events(data_root: Path) -> list[dict]:
 
 
 def test_player_moderation_dto_uses_only_reliable_guid(monkeypatch):
-    from armactl.web.services import player_moderation
+    from armactl.web.page_models import players as players_page_model
+    from armactl.web.services import player_sources
 
     monkeypatch.setattr(
-        player_moderation.discovery,
+        player_sources.discovery,
         "discover",
         lambda instance, save=False: _state(),
     )
     monkeypatch.setattr(
-        player_moderation.player_view,
+        player_sources.player_view,
         "query_player_view",
         lambda *args, **kwargs: PlayerView(
             available=True,
@@ -186,7 +187,7 @@ def test_player_moderation_dto_uses_only_reliable_guid(monkeypatch):
         ),
     )
 
-    panel = player_moderation.load_player_moderation_panel()
+    panel = players_page_model.load_player_moderation_panel()
 
     assert panel.available is True
     assert panel.total_count == 2
@@ -200,15 +201,16 @@ def test_player_moderation_dto_uses_only_reliable_guid(monkeypatch):
 
 
 def test_player_moderation_filter_matches_name_and_identity(monkeypatch):
-    from armactl.web.services import player_moderation
+    from armactl.web.page_models import players as players_page_model
+    from armactl.web.services import player_sources
 
     monkeypatch.setattr(
-        player_moderation.discovery,
+        player_sources.discovery,
         "discover",
         lambda instance, save=False: _state(),
     )
     monkeypatch.setattr(
-        player_moderation.player_view,
+        player_sources.player_view,
         "query_player_view",
         lambda *args, **kwargs: PlayerView(
             available=True,
@@ -223,8 +225,8 @@ def test_player_moderation_filter_matches_name_and_identity(monkeypatch):
         ),
     )
 
-    by_name = player_moderation.load_player_moderation_panel(query="brav")
-    by_id = player_moderation.load_player_moderation_panel(query="cdef")
+    by_name = players_page_model.load_player_moderation_panel(query="brav")
+    by_id = players_page_model.load_player_moderation_panel(query="cdef")
 
     assert [player.display_name for player in by_name.players] == ["Bravo"]
     assert [player.display_name for player in by_id.players] == ["Alpha"]

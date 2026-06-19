@@ -11,7 +11,8 @@ from starlette.exceptions import StarletteDeprecationWarning
 
 from armactl.web.auth.permissions import PLAYERS_VIEW
 from armactl.web.auth.setup import setup_owner_user
-from armactl.web.services.player_moderation import ModerationPlayer, PlayerModerationPanel
+from armactl.web.services.player_registry import PlayerObservation
+from armactl.web.services.player_sources import CurrentPlayer, CurrentPlayerRoster
 
 
 def _client(app):
@@ -41,35 +42,48 @@ def _login(client, username: str, password: str):
 def _reliable_player(
     name: str = "Alpha",
     reliable_id: str = "ABCDEF1234567890",
-) -> ModerationPlayer:
-    return ModerationPlayer(
+) -> PlayerObservation:
+    return PlayerObservation(
+        reliable_id=reliable_id,
         display_name=name,
-        identity_id=reliable_id,
+        source="rcon.guid",
+    )
+
+
+def _unreliable_player(name: str = "Slot Only") -> PlayerObservation:
+    return PlayerObservation(
+        reliable_id="",
+        display_name=name,
+        source="rcon.roster",
+    )
+
+
+def _current_player(
+    name: str = "Alpha",
+    reliable_id: str = "ABCDEF1234567890",
+) -> CurrentPlayer:
+    return CurrentPlayer(
+        display_name=name,
+        reliable_id=reliable_id,
         admin_reference=reliable_id,
         source="rcon.guid",
-        status="active",
-        last_seen="online now",
     )
 
 
-def _unreliable_player(name: str = "Slot Only") -> ModerationPlayer:
-    return ModerationPlayer(
+def _unreliable_current_player(name: str = "Slot Only") -> CurrentPlayer:
+    return CurrentPlayer(
         display_name=name,
-        identity_id="",
+        reliable_id="",
         admin_reference="",
         source="rcon.roster",
-        status="active",
-        last_seen="online now",
     )
 
 
-def _panel(*players: ModerationPlayer) -> PlayerModerationPanel:
-    return PlayerModerationPanel(
+def _roster(*players: CurrentPlayer) -> CurrentPlayerRoster:
+    return CurrentPlayerRoster(
         available=True,
-        query="",
         players=tuple(players),
         total_count=len(players),
-        filtered_count=len(players),
         source="rcon.roster",
         status="available",
         error="",
@@ -275,7 +289,7 @@ def test_players_refresh_records_reliable_current_players(
     monkeypatch,
 ):
     from armactl.web.app import create_app
-    from armactl.web.services import player_moderation, player_registry
+    from armactl.web.services import player_registry, player_sources
 
     db_path = tmp_path / "default" / "players.db"
     setup_owner_user(tmp_path, "owner", "owner players password")
@@ -285,11 +299,11 @@ def test_players_refresh_records_reliable_current_players(
         lambda instance, data_root=None: db_path,
     )
     monkeypatch.setattr(
-        player_moderation,
-        "load_player_moderation_panel",
-        lambda instance: _panel(
-            _reliable_player("Alpha"),
-            _unreliable_player(),
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _roster(
+            _current_player("Alpha"),
+            _unreliable_current_player(),
         ),
     )
     app = create_app(data_root=tmp_path)
@@ -313,13 +327,13 @@ def test_players_refresh_records_reliable_current_players(
 
 def test_players_refresh_uses_runtime_data_root(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
-    from armactl.web.services import player_moderation, player_registry
+    from armactl.web.services import player_registry, player_sources
 
     setup_owner_user(tmp_path, "owner", "owner players password")
     monkeypatch.setattr(
-        player_moderation,
-        "load_player_moderation_panel",
-        lambda instance: _panel(_reliable_player("Alpha")),
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _roster(_current_player("Alpha")),
     )
     app = create_app(data_root=tmp_path)
     client = _client(app)
@@ -338,6 +352,7 @@ def test_players_refresh_uses_runtime_data_root(tmp_path: Path, monkeypatch):
     assert [player.current_name for player in player_registry.list_known_players(db_path)] == [
         "Alpha"
     ]
+
 
 def test_players_refresh_route_delegates_persistence_and_audit_to_service(
     tmp_path: Path,
@@ -379,7 +394,7 @@ def test_players_refresh_route_delegates_persistence_and_audit_to_service(
 
     assert response.status_code == 200
     assert calls["instance"] == "default"
-    assert calls["db_path"] == db_path
+    assert calls["data_root"] == tmp_path
     assert calls["audit_log_path"] == tmp_path / "logs" / "web" / "audit.log"
     assert calls["username"] == "owner"
     assert "Recorded 1 reliable player(s); ignored 0 unreliable row(s)." in response.text

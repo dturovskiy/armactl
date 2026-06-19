@@ -343,6 +343,7 @@
 - [x] Додати instance-scoped player registry foundation (`players.db`) для reliable IDs, nickname history, first/last seen і seen count
 - [x] Додати explicit web refresh ingestion з current RCON/player_view roster без вигаданих ID і без IP storage
 - [x] Додати `/players` read-only registry page з search по nickname/ID
+- [x] Розділити player registry / moderation boundary: current roster source, SQLite registry storage, web page DTO/loaders і refresh+audit workflow; reliable identity і no-IP-by-default лишаються правилами
 - [ ] Розширити `Players / Moderation` до detail page per reliable player, session history (`connected_at`, `disconnected_at`, played duration), activity duration і recent/history views
 - [ ] Додати додаткове player identity ingestion з logs/SAT adapters без вигаданих ID і без IP storage by default
 - [ ] Додати moderation UI: nickname/ID search-filter, player details, and add-to-game-admin action when reliable player/admin reference is known; `/admins` лишається quick-add convenience

@@ -1015,6 +1015,24 @@ Recording current players is an explicit CSRF-protected POST refresh, not a
 write-on-GET. Only reliable `player_view`/RCON roster identities are stored;
 slot-only rows are ignored and no IP addresses are stored.
 
+Current code boundary:
+
+- `web/services/player_sources.py` owns current-player collection from
+  `player_view`/RCON and reliable identity normalization for live rows.
+- `web/services/player_registry.py` owns instance-scoped SQLite storage,
+  `players.db` creation/mode, registry queries, and snapshot persistence.
+- `web/page_models/players.py` owns `/players` registry page DTOs and the
+  `/admins` Players / Moderation panel DTO/filtering.
+- `web/services/player_actions.py` owns the explicit refresh workflow and audit
+  intent/outcome records.
+
+Future banlist, session tracking, activity timeline, and player detail views
+should plug into these boundaries rather than mixing source collection,
+storage, page DTOs, and audit workflow again. Reliable identity/admin reference
+remains required for persistence and moderation actions, and player IP storage
+remains off by default unless a later privacy/security review explicitly
+approves it.
+
 `/admins` may keep a convenience quick add-to-admin action for current players
 with a reliable admin reference, but the full player database and moderation
 workflow belongs on a dedicated `Players / Moderation` page or section.
@@ -1293,11 +1311,12 @@ Before starting a project-wide modularity refactor, run the baseline audit in `d
 - Completed: split `facade.py` by page/domain DTO. Dashboard/status aggregation, config, mods, admins, bot, and schedule page loaders now live under `src/armactl/web/page_models/`; `facade.py` is only a compatibility re-export layer.
 - Done: split `services/filesystem.py` into roots, path-safety, listing, preview, transfer, and thin compatibility facade modules before future delete, text edit, overwrite, rename, or archive extraction flows.
 - Done: split the oversized `tests/test_web_app.py` into focused app wiring, auth route, preference, dashboard, management layout, jobs route, and service route test modules. Touched tests patch stable service/page-model seams instead of imported route globals or FastAPI endpoint internals.
+- Done: split player registry / moderation boundaries before banlist work. Current roster collection lives in `services/player_sources.py`, SQLite registry storage in `services/player_registry.py`, `/players` and `/admins` web DTO/loaders in `page_models/players.py`, and explicit refresh+audit workflow in `services/player_actions.py`.
 - Remaining next step: repeat the architecture/modularity audit after the completed refactor slices so follow-up feature work starts from the updated module boundaries.
 - Done: audited broad except Exception usage in web routes/services for the mutating-route cleanup slice. Removed generic catches from mods/admins/service/schedule routes, removed generic manager catches from mods/admins action services, and let unexpected service-manager exceptions propagate instead of rendering fake action results. Remaining broad catches are documented fail-closed/degradation or best-effort cleanup cases only:
   - routes/dashboard.py: dashboard HTML and status JSON degrade to controlled unavailable responses.
   - services/log_views.py: fixed diagnostics/report preview fail closed without tracebacks.
-  - services/player_moderation.py: current-player panel degrades to unavailable UI data.
+  - page_models/players.py: read-only current-player panel degrades to unavailable UI data.
   - services/mod_actions.py, admin_actions.py, service_actions.py, schedule_actions.py: discovery preflight failures become controlled unavailable/domain results before mutation.
   - services/pending_work.py: web.db failures fall back to private sidecar storage/listing.
   - services/server_job_actions.py: audit-failure cleanup cancels just-created jobs best-effort while preserving the original audit error.
@@ -1311,7 +1330,7 @@ Internal API readiness:
 |------|-------------------|---------------------|
 | Read-only status/dashboard | High | Implemented through one dashboard DTO from discovery, service/timer status, metrics, players, config summary, mods, web runtime, and safe bot summary |
 | Start/stop/restart | High | Default-instance web controls are implemented with auth, confirmation, CSRF, audit log, and route-level permission checks |
-| Players/moderation | Medium | Current-player moderation foundation is implemented on `/admins` using `player_view`/RCON roster data and add-to-game-admin only for reliable IDs; `/players` and instance-scoped `players.db` are implemented for reliable IDs, nickname history, first/last seen, and seen count; future session/activity history with duration, detail views, extra ingestion adapters, and ban-list management remain; do not infer IDs from nicknames or A2S counts, and do not store IPs by default |
+| Players/moderation | Medium | Current-player moderation foundation is implemented on `/admins` using `player_view`/RCON roster data and add-to-game-admin only for reliable IDs; `/players` and instance-scoped `players.db` are implemented for reliable IDs, nickname history, first/last seen, and seen count; source collection, registry storage, page DTOs, and refresh+audit workflow are split into separate modules; future session/activity history with duration, detail views, extra ingestion adapters, and ban-list management remain; do not infer IDs from nicknames or A2S counts, and do not store IPs by default |
 | Config/mods/admins/bot settings | Medium-high | Basic allowlisted config editing is implemented through `config_manager`; future config expansion must start with a verified config schema inventory and safe controls in `/config`, not `/files`; raw JSON remains an owner/admin-only `/config` break-glass flow; basic mod add/update/enable/disable/remove is implemented through `mods_manager`; game admin add/update/remove is implemented through `admins_manager`; bot mutations, advanced modpack/bulk mod flows, advanced admin bulk/raw flows, and broader config fields remain future work with form validation, CSRF, and redacted error rendering |
 | Logs/report | Medium-high | Bounded read-only audit, fixed journal, and redacted report preview views are implemented; add streaming/download later without `os.execvp` |
 | Install/repair/update | Medium | Install and repair enqueue explicit web background jobs; update remains future work; never block a request thread |
@@ -1332,7 +1351,7 @@ logic from TUI screens.
 | Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Web supports allowlisted basic field edits through `config_manager` behind `settings:manage`; future web expansion should inventory verified fields into Basic, Gameplay, Visibility/Crossplay, Network/A2S/RCON, Security, Advanced, and Danger Zone groups; advanced fields need `settings:advanced`; generic/raw JSON and secrets remain out of scope except for a future owner/mega-eligible `/config` break-glass mode with `config:raw_edit` |
 | Mods manager | Implemented beyond basic parity | `mods_manager`, `mods_state`, `addon_cleanup`, `ModManagerScreen` | Web can view active/disabled mods and add/update/enable/disable/remove one mod at a time through `mods_manager` with auth, CSRF, `mods:manage`, confirmation for remove, and audit; bulk paste/import/export/clear-all/modpack workflows remain future |
 | Server admins | Implemented for Arma `game.admins` | `admins_manager`, `AdminManagerScreen` | Web can view game admins and add/update/remove one admin at a time through `admins_manager` with auth, CSRF, `admins:manage`, confirmation for remove, and audit; keep game admins separate from web users/roles |
-| Player registry and bans | Registry foundation implemented, bans future | `player_view` can show current online data; logs/RCON/SAT may become ingestion sources after adapter review | `/admins` exposes current players with server-rendered search and add-to-game-admin only when a reliable identity ID is available; `/players` stores reliable IDs and nickname history in instance-scoped SQLite through explicit refresh; next steps are recent/history/detail views, session duration with connected/disconnected timestamps, extra ingestion adapters, and ban-list management with reliable IDs only, auth, permissions, CSRF, confirmation, backups, audit logging, and no IP storage by default |
+| Player registry and bans | Registry foundation implemented, bans future | `player_sources` wraps current `player_view`/RCON data; `player_registry` owns instance SQLite storage; logs/RCON/SAT may become ingestion sources after adapter review | `/admins` exposes current players with server-rendered search and add-to-game-admin only when a reliable identity ID is available; `/players` stores reliable IDs and nickname history in instance-scoped SQLite through explicit refresh; page DTOs live in `page_models/players.py` and refresh/audit lives in `player_actions`; next steps are recent/history/detail views, session duration with connected/disconnected timestamps, extra ingestion adapters, and ban-list management with reliable IDs only, auth, permissions, CSRF, confirmation, backups, audit logging, and no IP storage by default |
 | Backups/cleanup | Partially implemented | `config_manager` backups, `cleaner`, `CleanupScreen` | Config backups exist; full server backup/restore is future work |
 | Schedule | Implemented for restart timer | `service_manager`, `ScheduleScreen`, CLI `schedule` | Web can show/set/enable/disable restart schedule, trigger restart-now, show next/last run, and warn on disabled game-service autostart; task chains are future |
 | Telegram bot | Implemented | `bot_config`, `bot_manager`, `telegram_bot`, `BotConfigScreen` | Read-only bot status page exists; future config/service flows can reuse the same `.env` and service-manager path |

@@ -17,8 +17,9 @@ from armactl.web.auth.dependencies import (
 )
 from armactl.web.auth.permissions import ADMINS_MANAGE, ADMINS_VIEW
 from armactl.web.page_models import admins as admins_page_model
+from armactl.web.page_models import players as players_page_model
 from armactl.web.routes._common import redirect_to_login
-from armactl.web.services import admin_actions, player_moderation
+from armactl.web.services import admin_actions
 
 router = APIRouter()
 
@@ -37,7 +38,7 @@ def _render_admins_page(
 
     form_csrf = get_form_csrf_token(request, current)
     page = admins_page_model.load_admins_page(paths.DEFAULT_INSTANCE_NAME)
-    player_panel = player_moderation.load_player_moderation_panel(
+    player_panel = players_page_model.load_player_moderation_panel(
         paths.DEFAULT_INSTANCE_NAME,
         query=request.query_params.get("player_search", ""),
     )

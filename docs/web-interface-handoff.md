@@ -175,7 +175,7 @@ Intentionally remaining broad catches:
 |----------|----------------|--------|
 | routes/dashboard.py | legit degradation fallback | Read-only dashboard HTML/status JSON return controlled unavailable responses instead of tracebacks. |
 | services/log_views.py | legit fail-closed diagnostics | Fixed log/report sources are diagnostics; unavailable sources render bounded controlled placeholders. |
-| services/player_moderation.py | legit degradation fallback | Current-player moderation panel is best-effort UI data and must not block the admins page. |
+| page_models/players.py | legit degradation fallback | Current-player moderation panel is best-effort read-only UI data and must not block the admins page. |
 | services/mod_actions.py, services/admin_actions.py | legit fail-closed preflight | Discovery failure happens before mutation and becomes a controlled config-path unavailable domain result. |
 | services/service_actions.py, services/schedule_actions.py | legit fail-closed preflight | Discovery failure happens before service/timer mutation and returns controlled unavailable results. |
 | services/pending_work.py | legit fallback/degradation | web.db write/list failures fall back to private sidecar storage or sidecar-only listing. |
@@ -391,6 +391,17 @@ Completed foundation:
     `service_manager` imports are intentionally left as compatibility/migration
     path for future smaller slices. Tests for the touched web action paths patch
     the adapter seam rather than systemd internals.
+40. Player registry / moderation boundary split: current-player collection from
+    `player_view`/RCON now lives in `services/player_sources.py`; reliable
+    identity/text normalization lives in `services/player_identity.py`;
+    instance-scoped SQLite storage and `players.db` mode/query/snapshot logic
+    stay in `services/player_registry.py`; `/players` and `/admins` player
+    DTO/loaders live in `page_models/players.py`; and explicit refresh intent,
+    registry snapshot, and outcome audit remain in `services/player_actions.py`.
+    Banlist, session tracking, activity timeline, detail pages, and extra
+    ingestion adapters remain future work. Reliable identity/admin reference is
+    still required for persistence/moderation, and player IP storage remains
+    off by default.
 
 Planned but not implemented:
 
@@ -430,11 +441,14 @@ Planned but not implemented:
 
 - Player registry and moderation are now part of the web roadmap. Store player
   identity/activity data per instance, for example in ~/armactl-data/INSTANCE/players.db,
-  not only in the web runtime database. Use reliable RCON/log/SAT adapters for
-  IDs and nicknames, never infer stable identity from nicknames or A2S counts,
-  and require auth, permissions, POST+CSRF, confirmation, audit logging, and
-  backups/rollback for ban/unban flows. Store no player IPs by default unless a
-  later privacy/security review explicitly approves it.
+  not only in the web runtime database. The current boundary is split into
+  source collection (`player_sources`), storage (`player_registry`), page DTOs
+  (`page_models/players`), and refresh+audit workflow (`player_actions`). Use
+  reliable RCON/log/SAT adapters for IDs and nicknames, never infer stable
+  identity from nicknames or A2S counts, and require auth, permissions,
+  POST+CSRF, confirmation, audit logging, and backups/rollback for ban/unban
+  flows. Store no player IPs by default unless a later privacy/security review
+  explicitly approves it.
 
 Next recommended implementation order:
 
@@ -475,6 +489,8 @@ Next recommended implementation order:
    `/files` as the normal config editor.
 10. Add player registry details/history and ban-list management after the
    identity ingestion source is validated on a real server log/RCON sample.
+   Reuse the current source/storage/page/workflow split instead of mixing web
+   DTOs, current roster collection, SQLite persistence, and audit workflow.
    The future step should add recent/history/detail views, session duration with
    connected/disconnected timestamps, banlist manager, explicit permissions,
    POST+CSRF, confirmation, backups/rollback when a file-backed list changes,

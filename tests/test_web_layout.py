@@ -53,7 +53,7 @@ def _install_management_page_fakes(monkeypatch, *, has_config: bool = True) -> N
     from armactl.web.page_models import common as common_model
     from armactl.web.page_models import config as config_model
     from armactl.web.page_models import mods as mods_model
-    from armactl.web.services import player_moderation
+    from armactl.web.page_models import players as players_page_model
 
     monkeypatch.setattr(
         common_model.discovery,
@@ -90,7 +90,7 @@ def _install_management_page_fakes(monkeypatch, *, has_config: bool = True) -> N
         ],
     )
     monkeypatch.setattr(
-        player_moderation,
+        players_page_model,
         "load_player_moderation_panel",
         lambda instance, query="": {
             "available": True,

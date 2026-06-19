@@ -17,7 +17,8 @@ from armactl.web.auth.dependencies import (
     require_permission,
 )
 from armactl.web.auth.permissions import PLAYERS_VIEW
-from armactl.web.services import player_actions, player_registry
+from armactl.web.page_models import players as players_page_model
+from armactl.web.services import player_actions
 
 router = APIRouter()
 
@@ -28,13 +29,6 @@ def _redirect_to_login(request: Request) -> RedirectResponse:
     clear_session_cookie(response, config)
     clear_csrf_cookie(response, config)
     return response
-
-
-def _registry_path(config: object) -> object:
-    return player_registry.player_registry_db_path(
-        paths.DEFAULT_INSTANCE_NAME,
-        data_root=config.data_root,
-    )
 
 
 def _render_players_page(
@@ -49,7 +43,11 @@ def _render_players_page(
         return permission_denied_response()
 
     query = request.query_params.get("player_search", "")
-    db_path = _registry_path(current.config)
+    page = players_page_model.load_player_registry_page(
+        paths.DEFAULT_INSTANCE_NAME,
+        data_root=current.config.data_root,
+        query=query,
+    )
     form_csrf = get_form_csrf_token(request, current)
     response = request.app.state.templates.TemplateResponse(
         request=request,
@@ -57,9 +55,10 @@ def _render_players_page(
         context={
             "current_user": current.user,
             "csrf_token": form_csrf.token,
-            "query": query,
-            "players": player_registry.list_known_players(db_path, query=query),
-            "registry_path": db_path,
+            "page": page,
+            "query": page.query,
+            "players": page.players,
+            "registry_path": page.registry_path,
             "refresh_result": refresh_result,
             "audit_error": audit_error,
         },
@@ -96,10 +95,9 @@ def refresh_players_page(
             status_code=status.HTTP_403_FORBIDDEN,
         )
 
-    db_path = _registry_path(current.config)
     result = player_actions.refresh_registry_and_audit(
         paths.DEFAULT_INSTANCE_NAME,
-        db_path=db_path,
+        data_root=current.config.data_root,
         audit_log_path=current.config.audit_log_path,
         username=current.user.username,
     )
