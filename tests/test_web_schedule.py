@@ -9,7 +9,7 @@ from pathlib import Path
 
 from starlette.exceptions import StarletteDeprecationWarning
 
-from armactl.service_manager import ServiceResult
+from armactl.platform.service_adapter import ServiceResult
 from armactl.state import ServerState
 from armactl.web.auth.cookies import SESSION_COOKIE_NAME
 from armactl.web.auth.setup import setup_owner_user
@@ -113,6 +113,65 @@ def _state(
         service_name="armareforger.service",
         timer_name="armareforger-restart.timer",
     )
+
+
+class _FakeScheduleAdapter:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, object]] = []
+        self.update_restart_timer_schedule_handler = None
+        self.start_service_result = ServiceResult(True, "restart helper started", 0)
+        self.enable_service_result = ServiceResult(True, "enabled", 0)
+        self.disable_service_result = ServiceResult(True, "disabled", 0)
+
+    def service_unit_name(self, instance: str = "default") -> str:
+        if instance == "default":
+            return "armareforger.service"
+        return f"armareforger@{instance}.service"
+
+    def restart_service_unit_name(self, instance: str = "default") -> str:
+        if instance == "default":
+            return "armareforger-restart.service"
+        return f"armareforger-restart@{instance}.service"
+
+    def timer_unit_name(self, instance: str = "default") -> str:
+        if instance == "default":
+            return "armareforger-restart.timer"
+        return f"armareforger-restart@{instance}.timer"
+
+    def format_schedule_for_input(self, schedule_entries: list[str]) -> str:
+        display_times: list[str] = []
+        for entry in schedule_entries:
+            if entry.startswith("*-*-* ") and entry.endswith(":00"):
+                display_times.append(entry.removeprefix("*-*-* ")[:-3])
+            else:
+                return "; ".join(schedule_entries)
+        return ", ".join(display_times)
+
+    def update_restart_timer_schedule(
+        self,
+        instance: str,
+        on_calendar: list[str],
+    ) -> list[ServiceResult]:
+        if self.update_restart_timer_schedule_handler is not None:
+            return self.update_restart_timer_schedule_handler(instance, on_calendar)
+        self.calls.append(("update_restart_timer_schedule", (instance, list(on_calendar))))
+        return [ServiceResult(True, "installed", 0)]
+
+    def enable_service(self, service_name: str) -> ServiceResult:
+        self.calls.append(("enable", service_name))
+        return self.enable_service_result
+
+    def disable_service(self, service_name: str) -> ServiceResult:
+        self.calls.append(("disable", service_name))
+        return self.disable_service_result
+
+    def start_service(self, service_name: str) -> ServiceResult:
+        self.calls.append(("start", service_name))
+        return self.start_service_result
+
+
+def _patch_schedule_adapter(monkeypatch, schedule_actions, adapter: _FakeScheduleAdapter) -> None:
+    monkeypatch.setattr(schedule_actions, "get_service_adapter", lambda: adapter)
 
 
 def _authed_client(tmp_path: Path, monkeypatch, page: dict | None = None):
@@ -278,6 +337,7 @@ def test_schedule_set_success_writes_safe_audit(tmp_path: Path, monkeypatch):
     from armactl.web.services import schedule_actions
 
     calls: list[tuple[str, list[str]]] = []
+    adapter = _FakeScheduleAdapter()
     client = _authed_client(tmp_path, monkeypatch)
     monkeypatch.setattr(
         schedule_actions.discovery,
@@ -289,11 +349,8 @@ def test_schedule_set_success_writes_safe_audit(tmp_path: Path, monkeypatch):
         calls.append((instance, on_calendar))
         return [ServiceResult(True, "installed token=backend-secret", 0)]
 
-    monkeypatch.setattr(
-        schedule_actions.service_manager,
-        "update_restart_timer_schedule",
-        update_schedule,
-    )
+    adapter.update_restart_timer_schedule_handler = update_schedule
+    _patch_schedule_adapter(monkeypatch, schedule_actions, adapter)
     csrf_token = _schedule_csrf_token(client)
 
     response = client.post(
@@ -333,17 +390,14 @@ def test_schedule_set_success_writes_safe_audit(tmp_path: Path, monkeypatch):
 def test_schedule_set_rejects_non_time_web_input(tmp_path: Path, monkeypatch):
     from armactl.web.services import schedule_actions
 
+    adapter = _FakeScheduleAdapter()
     client = _authed_client(tmp_path, monkeypatch)
     monkeypatch.setattr(
         schedule_actions.discovery,
         "discover",
         lambda instance, save=False: _state(),
     )
-    monkeypatch.setattr(
-        schedule_actions.service_manager,
-        "update_restart_timer_schedule",
-        AssertionError,
-    )
+    _patch_schedule_adapter(monkeypatch, schedule_actions, adapter)
     csrf_token = _schedule_csrf_token(client)
 
     response = client.post(
@@ -362,6 +416,7 @@ def test_schedule_set_rejects_non_time_web_input(tmp_path: Path, monkeypatch):
     assert event["action"] == "schedule.set"
     assert event["success"] is False
     assert event["details"]["schedule_entries"] == []
+    assert adapter.calls == []
     assert "raw-schedule-secret" not in (
         tmp_path / "logs" / "web" / "audit.log"
     ).read_text(encoding="utf-8")
@@ -370,17 +425,14 @@ def test_schedule_set_rejects_non_time_web_input(tmp_path: Path, monkeypatch):
 def test_schedule_set_rejects_more_than_three_web_times(tmp_path: Path, monkeypatch):
     from armactl.web.services import schedule_actions
 
+    adapter = _FakeScheduleAdapter()
     client = _authed_client(tmp_path, monkeypatch)
     monkeypatch.setattr(
         schedule_actions.discovery,
         "discover",
         lambda instance, save=False: _state(),
     )
-    monkeypatch.setattr(
-        schedule_actions.service_manager,
-        "update_restart_timer_schedule",
-        AssertionError,
-    )
+    _patch_schedule_adapter(monkeypatch, schedule_actions, adapter)
     csrf_token = _schedule_csrf_token(client)
 
     response = client.post(
@@ -394,24 +446,23 @@ def test_schedule_set_rejects_more_than_three_web_times(tmp_path: Path, monkeypa
 
     assert response.status_code == 400
     assert "Use one to three restart times such as 05:00, 13:30." in response.text
+    assert adapter.calls == []
 
 
 def test_schedule_set_failure_writes_safe_audit(tmp_path: Path, monkeypatch):
     from armactl.web.services import schedule_actions
 
+    adapter = _FakeScheduleAdapter()
     client = _authed_client(tmp_path, monkeypatch)
     monkeypatch.setattr(
         schedule_actions.discovery,
         "discover",
         lambda instance, save=False: _state(),
     )
-    monkeypatch.setattr(
-        schedule_actions.service_manager,
-        "update_restart_timer_schedule",
-        lambda instance, on_calendar: [
-            ServiceResult(False, "timer failed token=route-token", 42)
-        ],
-    )
+    adapter.update_restart_timer_schedule_handler = lambda instance, on_calendar: [
+        ServiceResult(False, "timer failed token=route-token", 42)
+    ]
+    _patch_schedule_adapter(monkeypatch, schedule_actions, adapter)
     csrf_token = _schedule_csrf_token(client)
 
     response = client.post(
@@ -437,29 +488,14 @@ def test_schedule_enable_disable_restart_and_autostart_routes(
 ):
     from armactl.web.services import pending_work, schedule_actions
 
-    calls: list[tuple[str, str]] = []
+    adapter = _FakeScheduleAdapter()
     client = _authed_client(tmp_path, monkeypatch)
     monkeypatch.setattr(
         schedule_actions.discovery,
         "discover",
         lambda instance, save=False: _state(),
     )
-
-    def enable(service_name: str) -> ServiceResult:
-        calls.append(("enable", service_name))
-        return ServiceResult(True, "enabled", 0)
-
-    def disable(service_name: str) -> ServiceResult:
-        calls.append(("disable", service_name))
-        return ServiceResult(True, "disabled", 0)
-
-    def start(service_name: str) -> ServiceResult:
-        calls.append(("start", service_name))
-        return ServiceResult(True, "restart helper started", 0)
-
-    monkeypatch.setattr(schedule_actions.service_manager, "enable_service", enable)
-    monkeypatch.setattr(schedule_actions.service_manager, "disable_service", disable)
-    monkeypatch.setattr(schedule_actions.service_manager, "start_service", start)
+    _patch_schedule_adapter(monkeypatch, schedule_actions, adapter)
     csrf_token = _schedule_csrf_token(client)
     db_path = tmp_path / "web" / "web.db"
     pending_work.mark_restart_pending(
@@ -520,7 +556,7 @@ def test_schedule_enable_disable_restart_and_autostart_routes(
     )
     assert autostart_disable_response.status_code == 200
     assert pending_work.list_pending_work(db_path, instance="default") == []
-    assert calls == [
+    assert adapter.calls == [
         ("enable", "armareforger-restart.timer"),
         ("disable", "armareforger-restart.timer"),
         ("start", "armareforger-restart.service"),
@@ -542,18 +578,12 @@ def test_schedule_restart_now_clears_pending_work_through_service(
 ):
     from armactl.web.services import pending_work, schedule_actions
 
-    calls: list[str] = []
+    adapter = _FakeScheduleAdapter()
     monkeypatch.setattr(
         schedule_actions.discovery,
         "discover",
         lambda instance, save=False: _state(),
     )
-
-    def start(service_name: str) -> ServiceResult:
-        calls.append(service_name)
-        return ServiceResult(True, "restart helper started", 0)
-
-    monkeypatch.setattr(schedule_actions.service_manager, "start_service", start)
     db_path = tmp_path / "web" / "web.db"
     pending_work.mark_restart_pending(
         db_path,
@@ -568,12 +598,13 @@ def test_schedule_restart_now_clears_pending_work_through_service(
         audit_log_path=tmp_path / "logs" / "web" / "audit.log",
         username="owner",
         db_path=db_path,
+        adapter=adapter,
     )
 
     assert result.success is True
     assert result.pending_restart_work_warning == ""
     assert pending_work.list_pending_work(db_path, instance="default") == []
-    assert calls == ["armareforger-restart.service"]
+    assert adapter.calls == [("start", "armareforger-restart.service")]
 
 
 def test_schedule_unexpected_restart_exception_does_not_clear_pending_work(
@@ -625,6 +656,7 @@ def test_schedule_autostart_actions_require_installed_service(
 ):
     from armactl.web.services import schedule_actions
 
+    adapter = _FakeScheduleAdapter()
     client = _authed_client(tmp_path, monkeypatch)
     state = _state(installed=True, timer_exists=True)
     state.service_exists = False
@@ -633,7 +665,7 @@ def test_schedule_autostart_actions_require_installed_service(
         "discover",
         lambda instance, save=False: state,
     )
-    monkeypatch.setattr(schedule_actions.service_manager, "enable_service", AssertionError)
+    _patch_schedule_adapter(monkeypatch, schedule_actions, adapter)
     csrf_token = _schedule_csrf_token(client)
 
     response = client.post(
@@ -647,6 +679,7 @@ def test_schedule_autostart_actions_require_installed_service(
     event = _audit_events(tmp_path)[0]
     assert event["action"] == "service.autostart-enable"
     assert event["success"] is False
+    assert adapter.calls == []
 
 
 def test_dashboard_links_to_schedule_page_when_permission_allows(
@@ -704,6 +737,7 @@ def test_dashboard_links_to_schedule_page_when_permission_allows(
     assert "scheduled restarts will not guarantee boot-start" in response.text
     assert client.cookies.get(SESSION_COOKIE_NAME)
 
+
 def test_schedule_restart_now_backend_success_audit_failure_clears_pending_work(
     tmp_path: Path,
     monkeypatch,
@@ -711,38 +745,37 @@ def test_schedule_restart_now_backend_success_audit_failure_clears_pending_work(
     from armactl.web.services import pending_work, schedule_actions
     from armactl.web.services.audit import AuditLogError, append_audit_event
 
+    adapter = _FakeScheduleAdapter()
+    adapter.start_service_result = ServiceResult(True, "restart queued", 0)
     client = _authed_client(tmp_path, monkeypatch)
     monkeypatch.setattr(
         schedule_actions.discovery,
-        'discover',
+        "discover",
         lambda instance, save=False: _state(),
     )
-
-    def start(service_name: str) -> ServiceResult:
-        return ServiceResult(True, 'restart queued', 0)
-    monkeypatch.setattr(schedule_actions.service_manager, 'start_service', start)
-    db_path = tmp_path / 'web' / 'web.db'
+    _patch_schedule_adapter(monkeypatch, schedule_actions, adapter)
+    db_path = tmp_path / "web" / "web.db"
     pending_work.mark_restart_pending(
         db_path,
-        instance='default',
+        instance="default",
         kind=pending_work.KIND_CONFIG,
-        source_action='config.save',
-        username='owner',
+        source_action="config.save",
+        username="owner",
     )
 
     def fail_outcome(*args, **kwargs):
-        if (kwargs.get('details') or {}).get('phase') == 'outcome':
-            raise AuditLogError('disk full')
+        if (kwargs.get("details") or {}).get("phase") == "outcome":
+            raise AuditLogError("disk full")
         return append_audit_event(*args, **kwargs)
 
-    monkeypatch.setattr(schedule_actions, 'append_audit_event', fail_outcome)
+    monkeypatch.setattr(schedule_actions, "append_audit_event", fail_outcome)
     csrf_token = _schedule_csrf_token(client)
     response = client.post(
-        '/schedule/restart-now',
-        data={'csrf_token': csrf_token, 'confirm': 'schedule.restart-now'},
+        "/schedule/restart-now",
+        data={"csrf_token": csrf_token, "confirm": "schedule.restart-now"},
         follow_redirects=False,
     )
 
     assert response.status_code == 400
-    assert 'Schedule action completed but audit logging failed.' in response.text
+    assert "Schedule action completed but audit logging failed." in response.text
     assert pending_work.get_pending_work(db_path, kind=pending_work.KIND_CONFIG) is None

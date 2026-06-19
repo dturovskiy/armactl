@@ -228,7 +228,7 @@ def _stub_service_backend(
     message: str = "service ok",
     exit_code: int = 0,
 ):
-    from armactl.service_manager import ServiceResult
+    from armactl.platform.service_adapter import ServiceResult
     from armactl.web.services import service_actions
 
     calls: list[tuple[str, str]] = []
@@ -238,21 +238,25 @@ def _stub_service_backend(
         lambda instance, save=False: _service_action_state(running=running),
     )
 
-    def start(service_name: str) -> ServiceResult:
-        calls.append(("start", service_name))
-        return ServiceResult(success, message, exit_code)
+    class FakeServiceAdapter:
+        def service_unit_name(self, instance: str = "default") -> str:
+            if instance == "default":
+                return "armareforger.service"
+            return f"armareforger@{instance}.service"
 
-    def stop(service_name: str) -> ServiceResult:
-        calls.append(("stop", service_name))
-        return ServiceResult(success, message, exit_code)
+        def start_service(self, service_name: str) -> ServiceResult:
+            calls.append(("start", service_name))
+            return ServiceResult(success, message, exit_code)
 
-    def restart(service_name: str) -> ServiceResult:
-        calls.append(("restart", service_name))
-        return ServiceResult(success, message, exit_code)
+        def stop_service(self, service_name: str) -> ServiceResult:
+            calls.append(("stop", service_name))
+            return ServiceResult(success, message, exit_code)
 
-    monkeypatch.setattr(service_actions.service_manager, "start_service", start)
-    monkeypatch.setattr(service_actions.service_manager, "stop_service", stop)
-    monkeypatch.setattr(service_actions.service_manager, "restart_service", restart)
+        def restart_service(self, service_name: str) -> ServiceResult:
+            calls.append(("restart", service_name))
+            return ServiceResult(success, message, exit_code)
+
+    monkeypatch.setattr(service_actions, "get_service_adapter", FakeServiceAdapter)
     return calls
 
 

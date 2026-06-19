@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from armactl import paths, service_manager
+from armactl import paths
+from armactl.platform.service_adapter import ServiceAdapter, get_service_adapter
 from armactl.state import ServerState
 from armactl.web.page_models.common import (
     _discover_management_state,
@@ -15,10 +16,14 @@ from armactl.web.page_models.common import (
 )
 
 
-def _timer_status_for_page(state: ServerState) -> dict[str, Any]:
-    timer_name = state.timer_name or service_manager.timer_unit_name(paths.DEFAULT_INSTANCE_NAME)
+def _resolve_service_adapter(adapter: ServiceAdapter | None) -> ServiceAdapter:
+    return adapter if adapter is not None else get_service_adapter()
+
+
+def _timer_status_for_page(state: ServerState, adapter: ServiceAdapter) -> dict[str, Any]:
+    timer_name = state.timer_name or adapter.timer_unit_name(paths.DEFAULT_INSTANCE_NAME)
     if state.server_installed or state.timer_exists:
-        timer = _plain_dict(service_manager.get_timer_status(timer_name))
+        timer = _plain_dict(adapter.get_timer_status(timer_name))
     else:
         timer = _unavailable("restart timer is not installed")
 
@@ -42,12 +47,10 @@ def _timer_status_for_page(state: ServerState) -> dict[str, Any]:
     return timer
 
 
-def _service_policy_for_page(state: ServerState) -> dict[str, Any]:
-    service_name = state.service_name or service_manager.service_unit_name(
-        paths.DEFAULT_INSTANCE_NAME
-    )
+def _service_policy_for_page(state: ServerState, adapter: ServiceAdapter) -> dict[str, Any]:
+    service_name = state.service_name or adapter.service_unit_name(paths.DEFAULT_INSTANCE_NAME)
     if state.server_installed or state.service_exists:
-        service = _plain_dict(service_manager.get_service_status(service_name))
+        service = _plain_dict(adapter.get_service_status(service_name))
         available = service.get("available", True) is not False
     else:
         service = _unavailable("server service is not installed")
@@ -83,8 +86,13 @@ def _service_policy_for_page(state: ServerState) -> dict[str, Any]:
     }
 
 
-def load_schedule_page(instance: str) -> dict[str, Any]:
+def load_schedule_page(
+    instance: str,
+    *,
+    adapter: ServiceAdapter | None = None,
+) -> dict[str, Any]:
     """Return restart timer state and game service boot policy for the web page."""
+    service_adapter = _resolve_service_adapter(adapter)
     state, error_page = _discover_management_state(instance)
     if error_page is not None:
         return error_page
@@ -95,6 +103,6 @@ def load_schedule_page(instance: str) -> dict[str, Any]:
         "error": "",
         "status": _state_status(state),
         "paths": _paths(state),
-        "timer": _timer_status_for_page(state),
-        "service_policy": _service_policy_for_page(state),
+        "timer": _timer_status_for_page(state, service_adapter),
+        "service_policy": _service_policy_for_page(state, service_adapter),
     }

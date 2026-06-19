@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from armactl import discovery, paths, service_manager
+from armactl import discovery, paths
+from armactl.platform.service_adapter import ServiceAdapter, ServiceResult, get_service_adapter
 from armactl.redaction import redact_sensitive_text
-from armactl.service_manager import ServiceResult
 from armactl.state import ServerState
 from armactl.web.services import pending_work
 from armactl.web.services.audit import AuditLogError, append_audit_event
@@ -92,10 +91,14 @@ def _safe_message(value: object) -> str:
     return message or "No details available."
 
 
-def _service_name(instance: str, state: ServerState | None) -> str:
+def _resolve_service_adapter(adapter: ServiceAdapter | None) -> ServiceAdapter:
+    return adapter if adapter is not None else get_service_adapter()
+
+
+def _service_name(instance: str, state: ServerState | None, adapter: ServiceAdapter) -> str:
     if state is not None and state.service_name:
         return state.service_name
-    return service_manager.service_unit_name(instance)
+    return adapter.service_unit_name(instance)
 
 
 def _result(
@@ -119,13 +122,17 @@ def _result(
     )
 
 
-def _manager_for_action(action: str) -> Callable[[str], ServiceResult]:
+def _run_backend_action(
+    adapter: ServiceAdapter,
+    action: str,
+    service_name: str,
+) -> ServiceResult:
     if action == ACTION_START:
-        return service_manager.start_service
+        return adapter.start_service(service_name)
     if action == ACTION_STOP:
-        return service_manager.stop_service
+        return adapter.stop_service(service_name)
     if action == ACTION_RESTART:
-        return service_manager.restart_service
+        return adapter.restart_service(service_name)
     raise ServiceActionError("Unknown service action.")
 
 
@@ -133,11 +140,13 @@ def run_service_action(
     action: str,
     *,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
+    adapter: ServiceAdapter | None = None,
 ) -> ServiceActionResult:
     """Run a controlled service action for one instance without auditing."""
     normalized = normalize_service_action(action)
     if normalized not in SUPPORTED_ACTIONS:
         raise ServiceActionError("Unknown service action.")
+    service_adapter = _resolve_service_adapter(adapter)
 
     try:
         state = discovery.discover(instance=instance, save=False)
@@ -145,14 +154,14 @@ def run_service_action(
         return _result(
             action=normalized,
             instance=instance,
-            service_name=_service_name(instance, None),
+            service_name=_service_name(instance, None, service_adapter),
             success=False,
             message="Service action is unavailable.",
             exit_code=1,
             performed=False,
         )
 
-    service_name = _service_name(instance, state)
+    service_name = _service_name(instance, state, service_adapter)
     if not state.server_installed:
         return _result(
             action=normalized,
@@ -195,8 +204,7 @@ def run_service_action(
             performed=False,
         )
 
-    manager = _manager_for_action(normalized)
-    backend_result = manager(service_name)
+    backend_result = _run_backend_action(service_adapter, normalized, service_name)
 
     return _result(
         action=normalized,
@@ -304,13 +312,15 @@ def run_service_action_and_audit(
     username: str,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
     db_path: Path | None = None,
+    adapter: ServiceAdapter | None = None,
 ) -> ServiceActionResult:
     """Run a service action and append safe audit events."""
     normalized = normalize_service_action(action)
     if normalized not in SUPPORTED_ACTIONS:
         raise ServiceActionError("Unknown service action.")
     normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
-    intent_target = service_manager.service_unit_name(normalized_instance)
+    service_adapter = _resolve_service_adapter(adapter)
+    intent_target = service_adapter.service_unit_name(normalized_instance)
     try:
         _append_service_action_intent(
             normalized,
@@ -325,7 +335,11 @@ def run_service_action_and_audit(
             normalized_instance,
             intent_target,
         )
-    result = run_service_action(normalized, instance=normalized_instance)
+    result = run_service_action(
+        normalized,
+        instance=normalized_instance,
+        adapter=service_adapter,
+    )
     result = audit_service_action_result(
         result,
         audit_log_path=audit_log_path,

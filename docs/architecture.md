@@ -55,6 +55,8 @@ armactl/
 │       ├── mods.py
 │       ├── mods_manager.py
 │       ├── paths.py
+│       ├── platform/
+│       │   └── service_adapter.py
 │       ├── ports.py
 │       ├── repair.py
 │       ├── service_manager.py
@@ -79,6 +81,7 @@ armactl/
 | Директорія | Призначення |
 |------------|-------------|
 | `src/armactl/` | Увесь код: CLI, discovery, config, mods, TUI |
+| `src/armactl/platform/` | Platform adapter boundaries for service/timer and future OS-specific backends |
 | `src/armactl/tui/` | TUI-оболонка (Textual), жодної бізнес-логіки |
 | `src/armactl/web/` | Planned web-panel routes, templates, static assets, жодної бізнес-логіки |
 | `website/` | Static marketing site, окремо від authenticated management panel |
@@ -96,7 +99,8 @@ armactl/
 | `discovery.py` | Пошук існуючого сервера |
 | `state.py` | Читання/запис `state.json` |
 | `config_manager.py` | Безпечне редагування `config.json` |
-| `service_manager.py` | Генерація та керування systemd service/timer, статус і розклад |
+| `platform/service_adapter.py` | Adapter contract for service/timer operations; default backend is Linux/systemd |
+| `service_manager.py` | Linux/systemd implementation for service/timer generation, status, control, and schedule |
 | `installer.py` | Install flow: SteamCMD + config + service |
 | `repair.py` | Відновлення зламаної інсталяції |
 | `mods.py` | Базові операції над списком модів у `config.json` |
@@ -241,6 +245,13 @@ ExecStart=/home/<user>/armactl-data/default/start-armareforger.sh
 
 Ці unit-файли генеруються з шаблонів у `templates/` під час `armactl install` або `armactl service install`.
 
+Web service and restart-timer actions call `platform/service_adapter.py`
+instead of reaching into `service_manager.py` directly. The default adapter is
+the existing Linux/systemd backend, so `armareforger.service`,
+`armareforger-restart.service`, and `armareforger-restart.timer` naming and
+behavior stay unchanged. CLI/TUI direct `service_manager` imports remain a
+compatibility path for now and can move to the adapter in later safe slices.
+
 ---
 
 ## 4. Архітектурний принцип
@@ -255,7 +266,7 @@ ExecStart=/home/<user>/armactl-data/default/start-armareforger.sh
 │ state    │ mods     │ installer     │
 │ logs     │ ports    │ repair        │
 ├──────────┴──────────┴───────────────┤
-│          systemd / filesystem       │  ← Системний рівень
+│ platform adapters / systemd / files │  ← Системний рівень
 └─────────────────────────────────────┘
 ```
 
@@ -282,8 +293,9 @@ rollback/compensation decisions; low-level adapters perform pure filesystem,
 systemd, or database operations without route/session knowledge.
 
 Windows backend support is future platform architecture, not part of the current
-Linux/systemd web MVP. Adding it requires service/log/path/firewall/process/metrics
-and install/update adapters before web routes should target Windows hosts.
+Linux/systemd web MVP. Adding it requires new adapter implementations for
+service/log/path/firewall/process/metrics and install/update flow before web
+routes should target Windows hosts.
 
 For broad modularity or platform work, use `docs/system-modularity-audit.md` before
 implementation. That audit is the source of truth for checking whether CLI, TUI,

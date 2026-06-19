@@ -128,7 +128,18 @@ state, OnCalendar values, next/last run when available, and
 `armareforger.service` autostart policy. Mutating controls use authenticated
 POST + CSRF + schedule permissions and audit timer set/enable/disable,
 restart-now, and game-service autostart enable/disable through
-`service_manager` without shelling out to the CLI.
+`platform/service_adapter.py` without shelling out to the CLI. The default
+adapter is the existing Linux/systemd `service_manager` backend, so current
+unit names and behavior remain unchanged.
+
+Service/timer backend boundary:
+
+- web service start/stop/restart actions and schedule mutations depend on the
+  `ServiceAdapter` protocol;
+- the default adapter is `LinuxSystemdServiceAdapter`, a thin wrapper over the
+  existing `service_manager`;
+- CLI/TUI direct `service_manager` calls remain compatibility paths for now;
+- a Windows backend is a future adapter implementation, not part of the MVP.
 
 Saved config, game-admin, and mod changes should create web-runtime
 pending operator work when they actually change server state. Pending work is a
@@ -1591,9 +1602,12 @@ not the foreground debug runner.
 
 ### Phase 3 - Controlled server actions
 
-- Start/stop/restart via existing `service_manager` for the current default instance is implemented.
+- Start/stop/restart for the current default instance is implemented through
+  the `ServiceAdapter` boundary.
 - Schedule show/set/enable/disable/restart-now with next-run and boot-policy
-  visibility is implemented.
+  visibility is implemented through the same boundary.
+- The default adapter remains Linux/systemd through `service_manager`; CLI/TUI
+  direct calls are compatibility paths until later migration slices.
 - Audit log for mutating actions.
 - Add confirmation UI for stop/restart and other disruptive operations.
 
@@ -1679,7 +1693,8 @@ not the foreground debug runner.
 
 - Unit-test auth, config loading, CSRF, and filesystem path handling.
 - Route-test the dashboard and API with a temporary data root.
-- Mock `service_manager` for start/stop/restart route tests.
+- Patch the service adapter seam for start/stop/restart and schedule route
+  tests; do not patch route globals or systemd internals.
 - Run browser smoke tests locally against `127.0.0.1` once the first UI exists.
 - Keep tests independent from saved runtime language and user settings.
 - Do not require a live Arma server for normal CI/local unit tests.

@@ -71,6 +71,11 @@ explicitly a release task.
 - Keep the current web MVP Linux/systemd-first. Windows backend support needs a
   future platform adapter for services, logs, paths, firewall/process/metrics,
   and install/update flow.
+- Web game-service and restart-timer mutations must go through
+  `armactl.platform.service_adapter.ServiceAdapter`. The current default is the
+  Linux/systemd adapter over `service_manager`; CLI/TUI direct
+  `service_manager` imports remain compatibility paths until later migration
+  slices.
 - Keep product tiers, roles, and low-level permissions separate. Dangerous
   features such as raw config editor, advanced config, host controls, command
   palette, terminal, banlist, file edit/delete/overwrite, and SAT runtime edits
@@ -376,6 +381,14 @@ Completed foundation:
     cover auth routes, preferences, dashboard/status pages, management layout,
     jobs routes, and service routes. Touched tests patch stable service and
     page-model seams rather than imported route globals.
+39. Platform service adapter boundary: web service start/stop/restart,
+    schedule set/enable/disable, schedule restart-now, and game-service
+    autostart enable/disable now use `platform/service_adapter.py`. The default
+    backend is Linux/systemd through the existing `service_manager`, preserving
+    `armareforger.service` and restart timer naming. CLI/TUI direct
+    `service_manager` imports are intentionally left as compatibility/migration
+    path for future smaller slices. Tests for the touched web action paths patch
+    the adapter seam rather than systemd internals.
 
 Planned but not implemented:
 
@@ -385,8 +398,8 @@ Planned but not implemented:
   18:00 plus Persistent=true. The web `/schedule` page now shows service
   enabled state, timer enabled state, OnCalendar values, next/last run, and an
   autostart warning, then mutates timer set/enable/disable/restart-now and
-  game-service autostart enable/disable through service_manager with CSRF,
-  permissions, and audit logging.
+  game-service autostart enable/disable through the service adapter boundary
+  with CSRF, permissions, and audit logging.
   UI follow-up: `/schedule` is functionally accepted for now, but it should get
   a later polish pass. The timer, game-service autostart, and restart-now
   controls are currently dense; regroup them into calmer operator sections once
@@ -395,7 +408,7 @@ Planned but not implemented:
   game-server controls, owner/admin-only, double-confirmed, and audited.
 - Windows backend support is future architecture, not MVP. Keep current web
   work Linux/systemd-first until service/log/path/firewall/process/metrics and
-  install/update adapters are designed and tested.
+  install/update adapter implementations are designed and tested.
 - Config editor expansion should start with a verified `config.json` schema
   inventory, UI grouping, and safe-vs-advanced field decisions. Future
   third-person and crossplay/platform controls belong in `/config` only after

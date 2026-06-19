@@ -6,9 +6,9 @@ import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from armactl import discovery, paths, service_manager
+from armactl import discovery, paths
+from armactl.platform.service_adapter import ServiceAdapter, ServiceResult, get_service_adapter
 from armactl.redaction import redact_sensitive_text
-from armactl.service_manager import ServiceResult
 from armactl.state import ServerState
 from armactl.web.services import pending_work
 from armactl.web.services.audit import AuditLogError, append_audit_event
@@ -122,6 +122,10 @@ def _safe_schedule_string(value: object) -> str:
     return redact_sensitive_text(value).replace("\r", " ").replace("\n", " ").strip()
 
 
+def _resolve_service_adapter(adapter: ServiceAdapter | None) -> ServiceAdapter:
+    return adapter if adapter is not None else get_service_adapter()
+
+
 def _normalize_web_schedule_entries(value: str) -> list[str]:
     """Normalize simple web schedule input into daily OnCalendar entries."""
     raw_entries = [entry.strip() for entry in re.split(r"[,;\s]+", value) if entry.strip()]
@@ -145,20 +149,20 @@ def _normalize_web_schedule_entries(value: str) -> list[str]:
     return normalized
 
 
-def _timer_name(instance: str, state: ServerState | None) -> str:
+def _timer_name(instance: str, state: ServerState | None, adapter: ServiceAdapter) -> str:
     if state is not None and state.timer_name:
         return state.timer_name
-    return service_manager.timer_unit_name(instance)
+    return adapter.timer_unit_name(instance)
 
 
-def _restart_service_name(instance: str) -> str:
-    return service_manager.restart_service_unit_name(instance)
+def _restart_service_name(instance: str, adapter: ServiceAdapter) -> str:
+    return adapter.restart_service_unit_name(instance)
 
 
-def _service_name(instance: str, state: ServerState | None) -> str:
+def _service_name(instance: str, state: ServerState | None, adapter: ServiceAdapter) -> str:
     if state is not None and state.service_name:
         return state.service_name
-    return service_manager.service_unit_name(instance)
+    return adapter.service_unit_name(instance)
 
 
 def _result(
@@ -197,6 +201,7 @@ def _failure_from_missing_state(
     action: str,
     instance: str,
     state: ServerState | None,
+    adapter: ServiceAdapter,
 ) -> ScheduleActionResult | None:
     if state is None:
         return _result(
@@ -212,7 +217,7 @@ def _failure_from_missing_state(
         return _result(
             action=action,
             instance=instance,
-            target=_timer_name(instance, state),
+            target=_timer_name(instance, state, adapter),
             success=False,
             message="Restart timer is not installed.",
             exit_code=1,
@@ -222,7 +227,7 @@ def _failure_from_missing_state(
         return _result(
             action=action,
             instance=instance,
-            target=_timer_name(instance, state),
+            target=_timer_name(instance, state, adapter),
             success=False,
             message="Restart timer is not installed.",
             exit_code=1,
@@ -233,7 +238,7 @@ def _failure_from_missing_state(
             return _result(
                 action=action,
                 instance=instance,
-                target=_service_name(instance, state),
+                target=_service_name(instance, state, adapter),
                 success=False,
                 message="Server service is not installed.",
                 exit_code=1,
@@ -244,7 +249,7 @@ def _failure_from_missing_state(
             return _result(
                 action=action,
                 instance=instance,
-                target=_restart_service_name(instance),
+                target=_restart_service_name(instance, adapter),
                 success=False,
                 message="No server found.",
                 exit_code=1,
@@ -254,7 +259,7 @@ def _failure_from_missing_state(
             return _result(
                 action=action,
                 instance=instance,
-                target=_restart_service_name(instance),
+                target=_restart_service_name(instance, adapter),
                 success=False,
                 message="Config missing. Run './armactl repair' first.",
                 exit_code=1,
@@ -338,22 +343,24 @@ def run_schedule_action(
     *,
     schedule_value: str = "",
     instance: str = paths.DEFAULT_INSTANCE_NAME,
+    adapter: ServiceAdapter | None = None,
 ) -> ScheduleActionResult:
     """Run a controlled restart timer action without auditing."""
     normalized = normalize_schedule_action(action)
     if normalized not in SUPPORTED_ACTIONS:
         raise ScheduleActionError("Unknown schedule action.")
+    service_adapter = _resolve_service_adapter(adapter)
 
     state = _discover(instance)
-    missing = _failure_from_missing_state(normalized, instance, state)
+    missing = _failure_from_missing_state(normalized, instance, state, service_adapter)
     if missing is not None:
         return missing
     assert state is not None
 
-    timer_name = _timer_name(instance, state)
+    timer_name = _timer_name(instance, state, service_adapter)
     if normalized == ACTION_SET_SCHEDULE:
         schedule_entries = _normalize_web_schedule_entries(schedule_value)
-        schedule = service_manager.format_schedule_for_input(schedule_entries)
+        schedule = service_adapter.format_schedule_for_input(schedule_entries)
         if not schedule_entries:
             return _result(
                 action=normalized,
@@ -365,7 +372,7 @@ def run_schedule_action(
                 performed=False,
                 schedule=schedule_value,
             )
-        results = service_manager.update_restart_timer_schedule(
+        results = service_adapter.update_restart_timer_schedule(
             instance=instance,
             on_calendar=schedule_entries,
         )
@@ -384,38 +391,38 @@ def run_schedule_action(
             normalized,
             instance,
             timer_name,
-            service_manager.enable_service(timer_name),
+            service_adapter.enable_service(timer_name),
         )
     if normalized == ACTION_DISABLE_TIMER:
         return _result_from_service_result(
             normalized,
             instance,
             timer_name,
-            service_manager.disable_service(timer_name),
+            service_adapter.disable_service(timer_name),
         )
     if normalized == ACTION_RESTART_NOW:
-        restart_service_name = _restart_service_name(instance)
+        restart_service_name = _restart_service_name(instance, service_adapter)
         return _result_from_service_result(
             normalized,
             instance,
             restart_service_name,
-            service_manager.start_service(restart_service_name),
+            service_adapter.start_service(restart_service_name),
         )
     if normalized == ACTION_ENABLE_GAME_AUTOSTART:
-        service_name = _service_name(instance, state)
+        service_name = _service_name(instance, state, service_adapter)
         return _result_from_service_result(
             normalized,
             instance,
             service_name,
-            service_manager.enable_service(service_name),
+            service_adapter.enable_service(service_name),
         )
     if normalized == ACTION_DISABLE_GAME_AUTOSTART:
-        service_name = _service_name(instance, state)
+        service_name = _service_name(instance, state, service_adapter)
         return _result_from_service_result(
             normalized,
             instance,
             service_name,
-            service_manager.disable_service(service_name),
+            service_adapter.disable_service(service_name),
         )
     raise ScheduleActionError("Unknown schedule action.")
 
@@ -519,19 +526,21 @@ def run_schedule_action_and_audit(
     username: str,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
     db_path: Path | None = None,
+    adapter: ServiceAdapter | None = None,
 ) -> ScheduleActionResult:
     """Run a restart timer action and append safe audit events."""
     normalized = normalize_schedule_action(action)
     if normalized not in SUPPORTED_ACTIONS:
         raise ScheduleActionError("Unknown schedule action.")
     normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
-    intent_target = service_manager.timer_unit_name(normalized_instance)
+    service_adapter = _resolve_service_adapter(adapter)
+    intent_target = service_adapter.timer_unit_name(normalized_instance)
     if normalized == ACTION_RESTART_NOW:
-        intent_target = _restart_service_name(normalized_instance)
+        intent_target = _restart_service_name(normalized_instance, service_adapter)
     elif normalized == ACTION_ENABLE_GAME_AUTOSTART:
-        intent_target = service_manager.service_unit_name(normalized_instance)
+        intent_target = service_adapter.service_unit_name(normalized_instance)
     elif normalized == ACTION_DISABLE_GAME_AUTOSTART:
-        intent_target = service_manager.service_unit_name(normalized_instance)
+        intent_target = service_adapter.service_unit_name(normalized_instance)
     try:
         _append_schedule_action_intent(
             normalized,
@@ -551,6 +560,7 @@ def run_schedule_action_and_audit(
         normalized,
         schedule_value=schedule_value,
         instance=normalized_instance,
+        adapter=service_adapter,
     )
     result = audit_schedule_action_result(
         result,
