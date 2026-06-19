@@ -101,6 +101,28 @@ explicitly a release task.
   traversal and symlink-escape rejection, CSRF, explicit confirmation for
   destructive actions, audit, and backup/quarantine or rollback where practical.
 - Do not run install/repair/update as blocking HTTP requests.
+- Future server update work must keep version check separate from update
+  execution. The check is read-only or a lightweight/background job that feeds a
+  dashboard read model with installed build, latest available build when safely
+  known, and `up to date` / `update available` / `unknown` / `check failed`
+  state. Check failures must not break dashboard rendering or status JSON.
+- Future update routes must only perform auth, explicit `server:update` or
+  `jobs:update` permission, CSRF, operator confirmation, service/job enqueue,
+  and response rendering. Do not shell out to SteamCMD/systemctl from a route.
+- Future update workflows live in service/adapter layers: permission -> CSRF ->
+  intent audit -> enqueue/mutation -> outcome audit -> job/progress state.
+  Update jobs must be idempotent/deduplicated by kind/instance like
+  install/repair jobs, expose bounded redacted progress/logs in `/jobs`, and
+  produce controlled failure results with no secrets in logs.
+- Update must not run automatically by default. If the game server is running,
+  require explicit confirmation; optionally stop/drain before update; restart
+  only when the operator confirms or when the update workflow explicitly owns
+  restart. Preserve config/state and show rollback/recovery notes where the
+  backend can provide them.
+- Version/update backend code must be adapter-backed for Linux/systemd now and
+  future Windows support later. SteamCMD, app manifest, log/version metadata,
+  systemctl, process, and path logic must not spread through routes or
+  templates. Do not store Steam credentials or secrets in `web.db`.
 - Treat web as an always-on service: `armactl web run` is for foreground
   development/debugging, while production uses `armactl-web.service`.
 - Do not make web replace the default `./armactl` TUI startup path.
@@ -147,6 +169,12 @@ audit coverage.
 | `POST /admins/add`, `/admins/remove` | `admins:manage`; remove requires confirmation | Yes | `admin.add`, `admin.update`, `admin.remove` | Stacks `admins` restart work when changed | Admin references/labels/messages are bounded and redacted |
 | `POST /players/refresh` | `players:view` | Yes | `players.refresh` | No | Stores reliable IDs/nickname history only; no IP storage by default |
 | `POST /schedule/set`, `/schedule/enable`, `/schedule/disable`, `/schedule/autostart/enable`, `/schedule/autostart/disable`, `/schedule/restart-now` | `schedule:manage`; restart-now and autostart-disable require confirmation | Yes | `schedule.set`, `schedule.enable`, `schedule.disable`, `service.autostart-enable`, `service.autostart-disable`, `schedule.restart-now` | Successful performed `schedule.restart-now` clears restart-related pending work | Schedule/service messages are bounded and redacted |
+
+Future update route inventory target: when `POST /jobs/server/update` or an
+equivalent route is added, it should use `server:update` or `jobs:update`, CSRF,
+explicit impact confirmation, intent/outcome audit events, and background
+`web_jobs` metadata only. It should not create pending operator work unless the
+operator must take a separate manual action after the job.
 
 ## Broad Exception Audit Inventory
 
@@ -272,7 +300,8 @@ Completed foundation:
     web-process background worker thread for the queued job, and the explicit
     server job dispatcher registers safe handlers that stream installer/repair
     generator output into bounded redacted job tails. A durable standalone
-    worker daemon remains future hardening; update remains future work.
+    worker daemon remains future hardening; update remains future work and must
+    add a read-only version check/read model before exposing an update action.
     The job-store duplicate-active persistence blocker is closed for these
     flows: schema maintenance cancels pre-existing duplicate active rows while
     keeping the oldest active job, active lookup has an indexed
@@ -486,8 +515,11 @@ Next recommended implementation order:
 7. Complete the config schema inventory before extending `/config`: verify exact
    Arma Reforger keys, group fields, and decide safe editor versus advanced
    editor behavior.
-8. Add update flow to explicit background job handlers if a safe backend API is
-   introduced.
+8. Add server version/update flow only after a safe backend adapter/API exists:
+   dashboard version state first, then read-only/latest-version check, then an
+   explicit deduped background update job with audit, progress/log visibility,
+   running-server confirmation policy, no secrets in `web.db` or logs, and
+   tests for dedupe, failure, audit, and dashboard states.
 9. Add edit/save/delete flows for bot settings and extended config fields
    through existing backend modules; keep any raw JSON config editor as a
    separate owner/admin-only `/config` break-glass design. Advanced/bulk admin

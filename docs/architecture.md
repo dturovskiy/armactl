@@ -214,6 +214,11 @@ changes are applied through the player registry migration runner in
 (`0600`) and add future tables such as roles, settings, bans, sessions, or
 activity history through explicit idempotent migrations.
 
+Do not store Steam credentials, SteamCMD secrets, or other server-update secrets
+in `web.db`. Future update/version state may store safe metadata such as
+installed build, last check time, check status, and non-secret result details,
+but credentials belong outside the web runtime database.
+
 armactl-owned logs have a centralized root with separate files/directories per
 subsystem:
 
@@ -325,6 +330,11 @@ Current web package boundaries on `feat/web-interface`:
 - `jobs/` stores background job metadata in `web.db`, deduplicates active jobs
   by kind/instance, starts workers only for newly created jobs, and uses atomic
   worker claim before execution.
+- Future server-version/update work should add a backend service/adapter seam
+  for installed/latest build detection and update execution. Routes/templates
+  must not parse SteamCMD output or contain systemctl/path/process logic.
+  Update execution must be a deduplicated background job with audit and
+  progress state, not a blocking HTTP request.
 - `services/filesystem_*` modules split roots, path safety, listing, preview,
   transfer, URLs, and upload publishing; `services/filesystem.py` is only a
   compatibility re-export.
@@ -346,10 +356,11 @@ service/log/path/firewall/process/metrics and install/update flow before web
 routes should target Windows hosts.
 
 Known future web/platform work is intentionally separate from the implemented
-foundation: versioned migrations for `web.db` and `players.db`, player refresh
-failure outcome auditing, a typed settings registry, feature policy/roles/tiers,
-broader platform adapters, banlist management, destructive file workflows, and
-SAT/mod runtime settings.
+foundation: server version/update read model and update job adapter, versioned
+migrations for `web.db` and `players.db`, player refresh failure outcome
+auditing, a typed settings registry, feature policy/roles/tiers, broader
+platform adapters, banlist management, destructive file workflows, and SAT/mod
+runtime settings.
 
 Paid/premium features are not implemented. If product tiers are added, keep
 entitlements separate from permissions through a policy/feature-gate layer.
@@ -392,6 +403,29 @@ armactl install
   → smoke check
   → state.json
 ```
+
+### Web server update flow (future)
+
+```text
+dashboard read model
+  → version adapter/API reads installed build and latest available build if safe
+  → dashboard shows up to date / update available / unknown / check failed
+
+operator confirms update
+  → authenticated POST + server:update/jobs:update + CSRF + impact confirmation
+  → web service records intent audit
+  → enqueue deduplicated background update job in web_jobs
+  → adapter-backed update implementation handles SteamCMD/app manifest/server metadata
+  → bounded redacted progress/log tails and controlled failure/result
+  → outcome audit and job status visible on /jobs
+```
+
+The future update action must not be a blocking HTTP request or a direct route
+shell-out. It should not run automatically by default. If the game server is
+running, require explicit confirmation, optionally stop/drain before update, and
+restart only when the operator confirms or the update workflow explicitly owns
+restart. Preserve config/state, avoid secrets in logs, and show
+rollback/recovery notes where the backend can provide them.
 
 ### Detect flow (existing server)
 

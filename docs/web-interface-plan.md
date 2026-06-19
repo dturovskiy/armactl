@@ -36,8 +36,9 @@ The source repository and runtime data remain separate:
   changes belong in structured `/config` controls.
 - Do not add Windows service/log/process support to the Linux/systemd-first web
   MVP.
-- Do not run game-server installation or repair flows as long blocking HTTP
-  requests.
+- Do not run game-server installation, repair, or update flows as long blocking
+  HTTP requests.
+- Do not update the game server automatically by default.
 - Do not make the static `website/` marketing page the management UI.
 - Do not require Telegram bot setup.
 - Do not require SSH for day-to-day server management after the web service is
@@ -399,6 +400,7 @@ The review must cover:
   | Ban/unban | `bans:manage` | reliable identity only, reason/actor/timestamp, optional expiry, confirmation, audit, backup/rollback for file-backed state |
   | SAT and other mod runtime settings | `mods:settings` or `sat:manage` | narrow field updates, preserve unrelated config, backup, audit, diagnostics link |
   | Diagnostics command palette | `diagnostics:run` | registered handlers only, bounded/redacted output, no arbitrary shell strings |
+  | Server update | `server:update` or `jobs:update` | explicit feature/policy gate if productized, background job only, operator confirmation, audit/progress logs, dedupe, no automatic update by default |
   | Break-glass terminal | `terminal:use` | disabled by default, owner/mega eligibility, IP allowlist/trusted proxy, extra re-auth, transcript/audit, no broad sudo |
   | Host reboot/shutdown | `host:manage` | owner/mega eligibility, IP allowlist/trusted proxy, double confirmation, audit, never scheduled by default |
   | Web user/role/tier/allowlist administration | `users:manage` and/or `allowlist:manage` | extra re-auth, audit, recovery path via SSH/local CLI |
@@ -863,8 +865,9 @@ Treat roles, permissions, and paid tiers as separate layers:
 
 - permissions are the exact operations the app can authorize, for example
   `dashboard:view`, `logs:view`, `actions:run`, `settings:manage`,
-  `files:read`, `files:write`, `schedule:manage`, `diagnostics:run`,
-  `users:manage`, `allowlist:manage`, `terminal:use`, and `host:manage`;
+  `files:read`, `files:write`, `schedule:manage`, `server:update`,
+  `diagnostics:run`, `users:manage`, `allowlist:manage`, `terminal:use`, and
+  `host:manage`;
 - roles are operational bundles, for example `viewer`, `operator`,
   `server_admin`, and `platform_owner`;
 - tiers are product bundles, for example `basic`, `plus`, `premium`, and
@@ -1345,7 +1348,7 @@ Internal API readiness:
 | Players/moderation | Medium | Current-player moderation foundation is implemented on `/admins` using `player_view`/RCON roster data and add-to-game-admin only for reliable IDs; `/players` and instance-scoped `players.db` are implemented for reliable IDs, nickname history, first/last seen, and seen count; source collection, registry storage, page DTOs, and refresh+audit workflow are split into separate modules; future session/activity history with duration, detail views, extra ingestion adapters, and ban-list management remain; do not infer IDs from nicknames or A2S counts, and do not store IPs by default |
 | Config/mods/admins/bot settings | Medium-high | Basic allowlisted config editing is implemented through `config_manager`; future config expansion must start with a verified config schema inventory and safe controls in `/config`, not `/files`; raw JSON remains an owner/admin-only `/config` break-glass flow; basic mod add/update/enable/disable/remove is implemented through `mods_manager`; game admin add/update/remove is implemented through `admins_manager`; bot mutations, advanced modpack/bulk mod flows, advanced admin bulk/raw flows, and broader config fields remain future work with form validation, CSRF, and redacted error rendering |
 | Logs/report | Medium-high | Bounded read-only audit, fixed journal, and redacted report preview views are implemented; add streaming/download later without `os.execvp` |
-| Install/repair/update | Medium | Install and repair enqueue explicit web background jobs; update remains future work; never block a request thread |
+| Install/repair/update | Medium | Install and repair enqueue explicit web background jobs; update remains future work behind a version-check adapter/read model and an explicit update job; never block a request thread or shell out from a route |
 | File manager | Medium | Safe adapter, browser foundation, single-file download, and server-root upload-new-file are implemented; overwrite/delete/rename and remote mount support remain future work; `/files` must not become the raw `config.json` editor |
 | Web users/roles/entitlements | Low | Implement new `web.db` models; do not reuse game admins as web users |
 
@@ -1359,6 +1362,7 @@ logic from TUI screens.
 |--------------|----------------|-----------------|-----------------|
 | Dashboard/status | Implemented in TUI, CLI, and the web read-only dashboard | discovery, state, status_summary, metrics, player_view, ports, bot_config | Keep future routes thin and continue extending the facade instead of route-local aggregation |
 | Server controls | Implemented | `service_manager`, CLI `start/stop/restart`, TUI `ManageScreen` | Web start/stop/restart now wraps existing calls for the default instance; schedule controls are implemented separately and job-backed operations remain future work |
+| Install/repair/update jobs | Install/repair job-backed, update future | `installer`, `repair`, `web_jobs`, future server-version/update adapter | Update must use a read-only version check, service-layer enqueue workflow, background job progress, and adapter-backed SteamCMD/app manifest/log/version metadata; no Steam credentials in `web.db` |
 | Logs/report | Implemented for journal/report, TUI live view, and bounded read-only web views | `logs`, `report`, `TailLogScreen` | Web exposes fixed sources and redacted report preview; add browser streaming/download later |
 | Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Web supports allowlisted basic field edits through `config_manager` behind `settings:manage`; future web expansion should inventory verified fields into Basic, Gameplay, Visibility/Crossplay, Network/A2S/RCON, Security, Advanced, and Danger Zone groups; advanced fields need `settings:advanced`; generic/raw JSON and secrets remain out of scope except for a future owner/mega-eligible `/config` break-glass mode with `config:raw_edit` |
 | Mods manager | Implemented beyond basic parity | `mods_manager`, `mods_state`, `addon_cleanup`, `ModManagerScreen` | Web can view active/disabled mods and add/update/enable/disable/remove one mod at a time through `mods_manager` with auth, CSRF, `mods:manage`, confirmation for remove, and audit; bulk paste/import/export/clear-all/modpack workflows remain future |
@@ -1534,6 +1538,15 @@ status endpoint. They use only safe numeric DTO fields and do not persist
 backend metric history. A dedicated FPS history chart should be designed as a
 separate UI step instead of being squeezed into the compact live-server card.
 
+Future server-version state belongs in the same read-model discipline. The
+dashboard should be able to show the installed server build/version, the latest
+available game/server build/version when it can be determined safely, and a
+compact status: `up to date`, `update available`, `unknown`, or `check failed`.
+Failure to determine the latest version must degrade to an unknown/check-failed
+badge and must not break the dashboard HTML or status JSON. The version source
+should be a backend adapter/API over safe metadata such as SteamCMD/app
+manifest/log/version metadata, not hardcoded parsing in routes or templates.
+
 The web UI should have its own templates/static assets under `src/armactl/web/`.
 It should not import files from top-level `website/`, and top-level `website/`
 should not import or depend on the management panel.
@@ -1665,7 +1678,9 @@ not the foreground debug runner.
   the `idx_web_jobs_active_lookup` index, and `/jobs` shows job-store integrity
   warnings separately from pending operator work.
 - Install and repair now use explicit background job handlers and enqueue routes.
-- Use the job model for future SteamCMD update and large file actions.
+- Use the job model for future SteamCMD/update and large file actions. Update
+  availability checks may be read-only operations or lightweight/background
+  jobs, but update execution itself must be a background job.
 - Until explicit handlers and routes exist for future operations, keep them out
   of web rather than blocking request threads.
 
@@ -1699,7 +1714,43 @@ not the foreground debug runner.
   metadata.
 - A durable standalone worker daemon remains future hardening for process
   restarts and multi-worker deployments.
-- Update remains future work.
+- Update remains future work. The future update flow must follow this contract:
+  - Version check is separate from update execution. It is read-only or a
+    lightweight/background job and feeds a dashboard read model with installed
+    build, latest available build when safely known, and `up to date` /
+    `update available` / `unknown` / `check failed` state.
+  - Version discovery lives behind an adapter/API that may use SteamCMD, app
+    manifests, logs, or server metadata. Do not hardcode Steam output parsing in
+    routes/templates, and do not store Steam credentials or secrets in `web.db`.
+  - The "Update server" action is a separate explicit background job, not a
+    direct route shell-out. The route does only auth, explicit
+    `server:update` or `jobs:update` permission, CSRF, confirmation, service/job
+    enqueue, and response rendering.
+  - The service workflow is permission -> CSRF -> intent audit ->
+    enqueue/mutation -> outcome audit -> job/progress state. Output tails and
+    failure metadata are bounded and redacted, with no secrets in logs.
+  - Update jobs are idempotent and deduplicated by kind/instance like
+    install/repair jobs, with controlled already-running/already-current
+    outcomes instead of duplicate active jobs.
+  - Update is never automatic by default. Operators must see impact before
+    confirming: the server may stop/restart, players may disconnect, and
+    config/state should be preserved. The job result should include
+    rollback/recovery notes where the backend can provide them.
+  - If the game server is running, the future policy must require explicit
+    confirmation, may optionally stop/drain before updating, and should restart
+    only when the operator confirms or the update workflow explicitly owns the
+    restart step.
+  - `/jobs` shows update jobs with progress/status/log tails. The dashboard may
+    show compact `update available` or `update running` signals, but update
+    availability must not be mixed with pending operator work unless a manual
+    operator action is required.
+  - Backend implementation belongs in service/adapter layers prepared for the
+    current Linux/systemd backend and a future Windows backend. SteamCMD,
+    systemctl, process, path, and manifest logic must not spread into routes or
+    templates.
+  - If paid tiers are added, update availability/action checks pass through an
+    explicit feature/policy gate, but tiers remain separate from low-level
+    permissions; a tier name alone must not authorize `server:update`.
 
 ### Phase 5 - Filesystem manager
 

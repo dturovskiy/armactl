@@ -324,7 +324,14 @@ that the whole web panel is still only planned.
 - [ ] Додати logs live follow/auto-refresh з pause/refresh controls
 - [ ] Додати logs filters/search/highlighting для level/source/text і `ERROR`/`WARNING`
 - [x] Підключити install/repair flows до background jobs без blocking HTTP requests
-- [ ] Підключити update flow до background jobs без blocking HTTP requests
+- [ ] Додати version check/read model для installed server build/version, latest available build/version і статусів `up to date` / `update available` / `unknown` / `check failed`
+- [ ] Додати dashboard version badge/signal, який не ламає dashboard, якщо latest version недоступна
+- [ ] Підключити update server flow до окремого background job без blocking HTTP requests або route shell-out
+- [ ] Додати audit/progress/log visibility для update intent, enqueue, running output, controlled failure і outcome
+- [ ] Зафіксувати safe running-server update policy: explicit confirmation, optional stop/drain, і restart тільки за підтвердженням оператора або коли workflow явно owns restart
+- [ ] Додати `server:update` або `jobs:update` permission і окремий policy/feature gate для paid tiers без змішування tiers з permissions
+- [ ] Винести update backend у adapter/service layer: SteamCMD/app manifest/log/version metadata/systemd/path logic не живе в routes/templates
+- [ ] Додати тести для update dedupe/idempotency, controlled failure, audit events, dashboard version/update states і no-secret log handling
 - [x] Додати `web_jobs` maintenance migration для старих duplicate active rows: detect/report/resolve дублікати `queued`/`running` за `(kind, instance)` перед production release або наступним install/repair/update slice
 - [x] Додати SQLite migration/index для active job lookup за `(kind, instance, status, created_at, id)` або еквівалентний schema-backed guard
 - [x] Додати diagnostics/health check для `web_jobs`, який показує duplicate active jobs і job-store integrity проблеми у `/jobs` або diagnostics page, а не ховає їх як hidden debt
