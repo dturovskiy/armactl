@@ -90,6 +90,49 @@ def _roster(*players: CurrentPlayer) -> CurrentPlayerRoster:
     )
 
 
+def _registry_schema_version(db_path: Path) -> str:
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            """
+            SELECT value
+            FROM player_registry_schema_meta
+            WHERE key = 'schema_version'
+            """
+        ).fetchone()
+    assert row is not None
+    return str(row[0])
+
+
+def _sqlite_tables(db_path: Path) -> set[str]:
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table'
+            """
+        ).fetchall()
+    return {str(row[0]) for row in rows}
+
+
+def _sqlite_columns(db_path: Path, table: str) -> set[str]:
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(f"PRAGMA table_info({table})").fetchall()
+    return {str(row[1]) for row in rows}
+
+
+def _sqlite_indexes(db_path: Path) -> set[str]:
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'index'
+            """
+        ).fetchall()
+    return {str(row[0]) for row in rows}
+
+
 def _authed_client(tmp_path: Path, monkeypatch, *, db_path: Path | None = None):
     from armactl.web.app import create_app
     from armactl.web.services import player_registry
@@ -132,6 +175,120 @@ def test_registry_db_creation_has_no_ip_columns(tmp_path: Path):
     assert "ip_address" not in columns
     assert "token" not in columns
     assert "password" not in columns
+
+
+def test_registry_db_creation_has_schema_metadata(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+
+    player_registry.ensure_player_registry_db(db_path)
+
+    assert "player_registry_schema_meta" in _sqlite_tables(db_path)
+    assert _registry_schema_version(db_path) == player_registry.PLAYER_REGISTRY_SCHEMA_VERSION
+    assert "idx_player_names_name" in _sqlite_indexes(db_path)
+
+
+def test_registry_db_migrates_existing_minimal_schema_idempotently(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    db_path.parent.mkdir(parents=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE players (
+                reliable_id TEXT PRIMARY KEY,
+                current_name TEXT NOT NULL,
+                first_seen_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                seen_count INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE player_names (
+                reliable_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                first_seen_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                PRIMARY KEY (reliable_id, name)
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO players(
+                reliable_id,
+                current_name,
+                first_seen_at,
+                last_seen_at,
+                seen_count
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                "ABCDEF1234567890",
+                "Alpha",
+                "2026-06-16T12:00:00+00:00",
+                "2026-06-16T12:00:00+00:00",
+                1,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO player_names(
+                reliable_id,
+                name,
+                first_seen_at,
+                last_seen_at
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                "ABCDEF1234567890",
+                "Alpha",
+                "2026-06-16T12:00:00+00:00",
+                "2026-06-16T12:00:00+00:00",
+            ),
+        )
+    db_path.chmod(0o644)
+
+    player_registry.ensure_player_registry_db(db_path)
+
+    assert db_path.stat().st_mode & 0o777 == 0o600
+    assert _registry_schema_version(db_path) == player_registry.PLAYER_REGISTRY_SCHEMA_VERSION
+    assert "last_source" in _sqlite_columns(db_path, "players")
+    assert "seen_count" in _sqlite_columns(db_path, "player_names")
+    assert "ip_address" not in _sqlite_columns(db_path, "players")
+    assert "idx_player_names_name" in _sqlite_indexes(db_path)
+    assert player_registry.list_known_players(db_path)[0].last_source == "unknown"
+    assert player_registry.list_player_names(db_path, "ABCDEF1234567890")[0].seen_count == 1
+
+    with sqlite3.connect(db_path) as connection:
+        first_snapshot = (
+            connection.execute("SELECT * FROM players ORDER BY reliable_id").fetchall(),
+            connection.execute(
+                "SELECT * FROM player_names ORDER BY reliable_id, name"
+            ).fetchall(),
+            connection.execute(
+                "SELECT * FROM player_registry_schema_meta ORDER BY key"
+            ).fetchall(),
+        )
+    player_registry.ensure_player_registry_db(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        second_snapshot = (
+            connection.execute("SELECT * FROM players ORDER BY reliable_id").fetchall(),
+            connection.execute(
+                "SELECT * FROM player_names ORDER BY reliable_id, name"
+            ).fetchall(),
+            connection.execute(
+                "SELECT * FROM player_registry_schema_meta ORDER BY key"
+            ).fetchall(),
+        )
+    assert second_snapshot == first_snapshot
 
 
 def test_registry_db_creation_uses_private_file_mode(tmp_path: Path):

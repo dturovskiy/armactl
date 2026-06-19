@@ -22,6 +22,11 @@ from armactl.web.runtime import (
     web_env_file,
     web_runtime_dir,
 )
+from armactl.web.runtime.db import WEB_SCHEMA_VERSION
+from armactl.web.runtime.job_store_maintenance import (
+    JOB_STORE_DUPLICATE_ACTIVE_REPAIR_MESSAGE,
+    JOB_STORE_DUPLICATE_ACTIVE_REPAIR_OUTPUT_NOTE,
+)
 
 FORBIDDEN_IMPORT_PREFIXES = ("armactl.tui", "textual")
 
@@ -36,6 +41,35 @@ def _sqlite_tables(db_path: Path) -> set[str]:
             """
         ).fetchall()
     return {row[0] for row in rows}
+
+
+def _sqlite_columns(db_path: Path, table: str) -> set[str]:
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(f"PRAGMA table_info({table})").fetchall()
+    return {row[1] for row in rows}
+
+
+def _sqlite_indexes(db_path: Path) -> set[str]:
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'index'
+            """
+        ).fetchall()
+    return {row[0] for row in rows}
+
+
+def _schema_meta(db_path: Path) -> dict[str, str]:
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT key, value
+            FROM web_schema_meta
+            """
+        ).fetchall()
+    return {str(row[0]): str(row[1]) for row in rows}
 
 
 def _schema_version(db_path: Path) -> str:
@@ -139,7 +173,112 @@ def test_ensure_web_db_creates_schema_metadata(tmp_path: Path):
     assert created_path == db_path
     assert db_path.exists()
     assert stat.S_IMODE(db_path.stat().st_mode) == 0o600
-    assert _schema_version(db_path) == "7"
+    assert _schema_version(db_path) == WEB_SCHEMA_VERSION
+
+
+def test_ensure_web_db_migrates_v7_minimal_jobs_before_maintenance(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+    db_path.parent.mkdir(parents=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE web_schema_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO web_schema_meta(key, value)
+            VALUES ('schema_version', '7')
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE web_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL,
+                requested_by_username TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.executemany(
+            """
+            INSERT INTO web_jobs(
+                kind,
+                status,
+                requested_by_username,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, 'owner', ?, ?)
+            """,
+            (
+                (
+                    "server:install",
+                    "queued",
+                    "2026-01-01T00:00:00+00:00",
+                    "2026-01-01T00:00:00+00:00",
+                ),
+                (
+                    "server:install",
+                    "running",
+                    "2026-01-01T00:00:01+00:00",
+                    "2026-01-01T00:00:01+00:00",
+                ),
+            ),
+        )
+
+    ensure_web_db(db_path)
+
+    assert _schema_version(db_path) == WEB_SCHEMA_VERSION
+    assert {
+        "instance",
+        "progress_current",
+        "progress_total",
+        "current_step",
+        "result_message",
+        "stdout_tail",
+        "stderr_tail",
+        "error_message",
+        "error_class",
+        "started_at",
+        "finished_at",
+    } <= _sqlite_columns(db_path, "web_jobs")
+    assert "idx_web_jobs_active_lookup" in _sqlite_indexes(db_path)
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT status, instance, result_message, stdout_tail, stderr_tail
+            FROM web_jobs
+            ORDER BY id
+            """
+        ).fetchall()
+    assert rows[0] == ("queued", "default", "", "", "")
+    assert rows[1][0] == "cancelled"
+    assert rows[1][1] == "default"
+    assert rows[1][2] == JOB_STORE_DUPLICATE_ACTIVE_REPAIR_MESSAGE
+    assert rows[1][3] == ""
+    assert rows[1][4] == JOB_STORE_DUPLICATE_ACTIVE_REPAIR_OUTPUT_NOTE
+
+    first_meta = _schema_meta(db_path)
+    first_rows = rows
+    ensure_web_db(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        second_rows = connection.execute(
+            """
+            SELECT status, instance, result_message, stdout_tail, stderr_tail
+            FROM web_jobs
+            ORDER BY id
+            """
+        ).fetchall()
+    assert second_rows == first_rows
+    assert _schema_meta(db_path) == first_meta
 
 
 def test_ensure_web_runtime_creates_env_db_and_auth_tables(tmp_path: Path):
@@ -148,7 +287,7 @@ def test_ensure_web_runtime_creates_env_db_and_auth_tables(tmp_path: Path):
     assert config.runtime_dir == tmp_path / "web"
     assert config.env_path.exists()
     assert config.db_path.exists()
-    assert _schema_version(config.db_path) == "7"
+    assert _schema_version(config.db_path) == WEB_SCHEMA_VERSION
 
     tables = _sqlite_tables(config.db_path)
     assert "web_schema_meta" in tables

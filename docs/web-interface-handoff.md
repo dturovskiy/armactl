@@ -403,6 +403,14 @@ Completed foundation:
     ingestion adapters remain future work. Reliable identity/admin reference is
     still required for persistence/moderation, and player IP storage remains
     off by default.
+41. Web/player DB migrations: `web.db` now uses an explicit schema-version
+    runner at version 8, preserving current auth, session, CSRF, jobs,
+    rate-limit, and pending-work tables while migrating older/minimal shapes
+    before running duplicate-active job maintenance. Instance `players.db` now has
+    `player_registry_schema_meta.schema_version`, an idempotent version 1
+    runner for `players`/`player_names`, read-path migration for existing DBs,
+    and preserved mode `0600`. No IP storage, banlist, activity tracking, or
+    user-facing feature surface was added in this slice.
 
 Implemented polish and future work:
 
@@ -445,6 +453,8 @@ Implemented polish and future work:
   current boundary is split into source collection (`player_sources`), reliable
   identity normalization (`player_identity`), storage (`player_registry`), page
   DTOs (`page_models/players`), and refresh+audit workflow (`player_actions`).
+  The registry DB is versioned through `player_registry_schema_meta` and keeps
+  private file mode `0600` across migration runs.
   Future details/history, extra ingestion, and ban/unban flows must use reliable
   RCON/log/SAT adapters for IDs and nicknames, never infer stable identity from
   nicknames or A2S counts, and require auth, permissions, POST+CSRF,
@@ -454,42 +464,41 @@ Implemented polish and future work:
 
 Next recommended implementation order:
 
-1. Add versioned migrations for `web.db` and `players.db`.
-2. Add player refresh failure outcome auditing for source/storage failures.
-3. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
+1. Add player refresh failure outcome auditing for source/storage failures.
+2. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
    environment-specific outcome.
-4. Add optional IP allowlist / trusted proxy handling if operators need direct
+3. Add optional IP allowlist / trusted proxy handling if operators need direct
    external bind deployments; this is not implemented yet.
-5. Smoke-test the web schedule controls and boot/autostart warning on a real
+4. Smoke-test the web schedule controls and boot/autostart warning on a real
    target VM, because this affects remote recovery expectations after VM reboot.
-6. Add a diagnostics command palette before any browser terminal. It should run
+5. Add a diagnostics command palette before any browser terminal. It should run
    only registered safe commands such as status, timer status, port checks,
    config validation, bounded logs/report collection, and web/game service
    status. Use jobs, permissions, CSRF, audit, bounded/redacted output, and no
    arbitrary shell input.
-7. Treat a full web terminal as a disabled-by-default break-glass future flow,
+6. Treat a full web terminal as a disabled-by-default break-glass future flow,
    equivalent in risk to SSH. It must require HTTPS, trusted proxy/IP allowlist,
    explicit operator permission, extra re-auth, short-lived sessions, transcript
    auditing/redaction, and clear separation from normal dashboard operations.
    Before implementing terminal, host controls, premium diagnostics, or
    allowlist management, add and pass the security review gate from
    `docs/web-interface-plan.md`.
-8. Complete the config schema inventory before extending `/config`: verify exact
+7. Complete the config schema inventory before extending `/config`: verify exact
    Arma Reforger keys, group fields, and decide safe editor versus advanced
    editor behavior.
-9. Add update flow to explicit background job handlers if a safe backend API is
+8. Add update flow to explicit background job handlers if a safe backend API is
    introduced.
-10. Add edit/save/delete flows for bot settings and extended config fields
+9. Add edit/save/delete flows for bot settings and extended config fields
    through existing backend modules; keep any raw JSON config editor as a
    separate owner/admin-only `/config` break-glass design. Advanced/bulk admin
    workflows remain future and should still avoid mixing game admins with web
    users/roles. Advanced modpack workflows such as bulk paste, import/export,
    and clear-all remain future and should keep remove/cleanup confirmations
    explicit.
-11. Add atomic overwrite/delete/rename flows on top of the split safe
+10. Add atomic overwrite/delete/rename flows on top of the split safe
    filesystem adapter after single-file upload has been reviewed; do not use
    `/files` as the normal config editor.
-12. Add player registry details/history and ban-list management after the
+11. Add player registry details/history and ban-list management after the
    identity ingestion source is validated on a real server log/RCON sample.
    Reuse the current source/storage/page/workflow split instead of mixing web
    DTOs, current roster collection, SQLite persistence, and audit workflow.

@@ -206,6 +206,14 @@ instance. It belongs to the armactl management layer:
 └── web.db                          # users, sessions, CSRF, jobs, pending work
 ```
 
+`web.db` schema changes are applied through the web runtime migration runner
+and recorded in `web_schema_meta.schema_version`. Instance player registry
+changes are applied through the player registry migration runner in
+`<instance>/players.db` and recorded in
+`player_registry_schema_meta.schema_version`. Keep these DB files private
+(`0600`) and add future tables such as roles, settings, bans, sessions, or
+activity history through explicit idempotent migrations.
+
 armactl-owned logs have a centralized root with separate files/directories per
 subsystem:
 

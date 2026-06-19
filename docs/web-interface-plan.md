@@ -1020,7 +1020,8 @@ Current code boundary:
 - `web/services/player_sources.py` owns current-player collection from
   `player_view`/RCON and reliable identity normalization for live rows.
 - `web/services/player_registry.py` owns instance-scoped SQLite storage,
-  `players.db` creation/mode, registry queries, and snapshot persistence.
+  `players.db` creation/mode, schema-version migrations, registry queries, and
+  snapshot persistence.
 - `web/page_models/players.py` owns `/players` registry page DTOs and the
   `/admins` Players / Moderation panel DTO/filtering.
 - `web/services/player_actions.py` owns the explicit refresh workflow and audit
@@ -1063,8 +1064,9 @@ small SQLite database under the managed instance, for example
 ~/armactl-data/INSTANCE/players.db.
 
 The current foundation includes `players` and `player_names` tables. The schema
-can later grow tables such as player_sessions, player_bans, and
-player_observations. Do not store this only in ~/armactl-data/web/web.db,
+is managed by `player_registry_schema_meta.schema_version` and can later grow
+tables such as player_sessions, player_bans, and player_observations through
+explicit migrations. Do not store this only in ~/armactl-data/web/web.db,
 because player history belongs to the game-server instance and should remain
 usable by future CLI/TUI/bot features as well as the web panel.
 
@@ -1248,6 +1250,14 @@ mods, admins, schedules, service state, or logs.
 Instance-scoped data that belongs to a game instance, such as `players.db`,
 belongs under that instance root. Keep IP storage off by default unless a later
 privacy/security review explicitly approves it.
+
+SQLite schema changes must go through versioned migration runners, not ad hoc
+service-local compatibility writes. `web.db` uses
+`web_schema_meta.schema_version`; instance player registries use
+`player_registry_schema_meta.schema_version`. Migrations must be idempotent,
+preserve existing long-lived installs, keep private DB files at mode `0600`,
+and run schema compatibility before maintenance such as duplicate active job
+repair.
 
 ### Pending work and jobs
 
@@ -1648,10 +1658,11 @@ not the foreground debug runner.
   background jobs. It is stored in `web_pending_work`, not `web_jobs`, and can be
   present even when there are no background jobs. Empty states say either
   "No pending operator work." or "No background jobs." precisely.
-- Job-store reliability hardening is in place: schema v7 maintenance cancels
-  duplicate active `queued`/`running` rows by `(kind, instance)` while keeping
-  the oldest active job, active lookup is backed by the
-  `idx_web_jobs_active_lookup` index, and `/jobs` shows job-store integrity
+- Job-store reliability hardening is in place: schema v8 migrations preserve
+  current web runtime tables, migrate older/minimal shapes, and run duplicate
+  active `queued`/`running` repair by `(kind, instance)` after schema
+  compatibility while keeping the oldest active job. Active lookup is backed by
+  the `idx_web_jobs_active_lookup` index, and `/jobs` shows job-store integrity
   warnings separately from pending operator work.
 - Install and repair now use explicit background job handlers and enqueue routes.
 - Use the job model for future SteamCMD update and large file actions.

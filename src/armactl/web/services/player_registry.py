@@ -16,8 +16,10 @@ from armactl.web.services.player_identity import (
 )
 
 PLAYER_REGISTRY_DB_NAME = "players.db"
+PLAYER_REGISTRY_SCHEMA_VERSION = "1"
 PRIVATE_PLAYER_REGISTRY_FILE_MODE = 0o600
 DEFAULT_PLAYER_LIST_LIMIT = 100
+_LEGACY_DEFAULT_TIMESTAMP = "1970-01-01T00:00:00+00:00"
 
 
 @dataclass(frozen=True)
@@ -85,44 +87,185 @@ def _ensure_private_db_file(db_path: Path) -> None:
     os.close(fd)
 
 
+def _quote_identifier(identifier: str) -> str:
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
+    row = connection.execute(
+        """
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name = ?
+        """,
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
+def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    if not _table_exists(connection, table_name):
+        return set()
+    rows = connection.execute(
+        f"PRAGMA table_info({_quote_identifier(table_name)})"
+    ).fetchall()
+    return {str(row[1]) for row in rows}
+
+
+def _ensure_columns(
+    connection: sqlite3.Connection,
+    table_name: str,
+    columns: tuple[tuple[str, str], ...],
+) -> None:
+    existing_columns = _table_columns(connection, table_name)
+    quoted_table = _quote_identifier(table_name)
+    for column_name, column_ddl in columns:
+        if column_name not in existing_columns:
+            connection.execute(f"ALTER TABLE {quoted_table} ADD COLUMN {column_ddl}")
+
+
+def _ensure_player_registry_meta_schema(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS player_registry_schema_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+        """
+    )
+
+
+def _ensure_players_schema(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS players (
+            reliable_id TEXT PRIMARY KEY,
+            current_name TEXT NOT NULL,
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            seen_count INTEGER NOT NULL,
+            last_source TEXT NOT NULL
+        )
+        """
+    )
+    _ensure_columns(
+        connection,
+        "players",
+        (
+            ("reliable_id", "reliable_id TEXT NOT NULL DEFAULT 'legacy'"),
+            ("current_name", "current_name TEXT NOT NULL DEFAULT 'Unknown player'"),
+            (
+                "first_seen_at",
+                f"first_seen_at TEXT NOT NULL DEFAULT '{_LEGACY_DEFAULT_TIMESTAMP}'",
+            ),
+            (
+                "last_seen_at",
+                f"last_seen_at TEXT NOT NULL DEFAULT '{_LEGACY_DEFAULT_TIMESTAMP}'",
+            ),
+            ("seen_count", "seen_count INTEGER NOT NULL DEFAULT 1"),
+            ("last_source", "last_source TEXT NOT NULL DEFAULT 'unknown'"),
+        ),
+    )
+
+
+def _ensure_player_names_schema(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS player_names (
+            reliable_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            seen_count INTEGER NOT NULL,
+            PRIMARY KEY (reliable_id, name),
+            FOREIGN KEY (reliable_id) REFERENCES players(reliable_id)
+                ON DELETE CASCADE
+        )
+        """
+    )
+    _ensure_columns(
+        connection,
+        "player_names",
+        (
+            ("reliable_id", "reliable_id TEXT NOT NULL DEFAULT 'legacy'"),
+            ("name", "name TEXT NOT NULL DEFAULT 'Unknown player'"),
+            (
+                "first_seen_at",
+                f"first_seen_at TEXT NOT NULL DEFAULT '{_LEGACY_DEFAULT_TIMESTAMP}'",
+            ),
+            (
+                "last_seen_at",
+                f"last_seen_at TEXT NOT NULL DEFAULT '{_LEGACY_DEFAULT_TIMESTAMP}'",
+            ),
+            ("seen_count", "seen_count INTEGER NOT NULL DEFAULT 1"),
+        ),
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_names_name
+        ON player_names(name)
+        """
+    )
+
+
+def _ensure_current_player_registry_schema(connection: sqlite3.Connection) -> None:
+    _ensure_player_registry_meta_schema(connection)
+    _ensure_players_schema(connection)
+    _ensure_player_names_schema(connection)
+
+
+def _read_player_registry_schema_version(connection: sqlite3.Connection) -> int:
+    _ensure_player_registry_meta_schema(connection)
+    row = connection.execute(
+        """
+        SELECT value
+        FROM player_registry_schema_meta
+        WHERE key = 'schema_version'
+        """
+    ).fetchone()
+    if row is None:
+        return 0
+    try:
+        return int(str(row[0]))
+    except ValueError:
+        return 0
+
+
+def _write_player_registry_schema_version(
+    connection: sqlite3.Connection,
+    version: int,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO player_registry_schema_meta(key, value)
+        VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """,
+        ("schema_version", str(version)),
+    )
+
+
+def _run_player_registry_migrations(connection: sqlite3.Connection) -> None:
+    target_version = int(PLAYER_REGISTRY_SCHEMA_VERSION)
+    current_version = _read_player_registry_schema_version(connection)
+    if current_version > target_version:
+        raise RuntimeError(
+            f"players.db schema version {current_version} is newer than supported "
+            f"version {target_version}."
+        )
+    if current_version < 1:
+        _ensure_current_player_registry_schema(connection)
+        _write_player_registry_schema_version(connection, 1)
+
+
 def ensure_player_registry_db(db_path: Path) -> Path:
-    """Create the player registry database if needed."""
+    """Create/open the player registry database and run schema migrations."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     _ensure_private_db_file(db_path)
     with sqlite3.connect(db_path) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS players (
-                reliable_id TEXT PRIMARY KEY,
-                current_name TEXT NOT NULL,
-                first_seen_at TEXT NOT NULL,
-                last_seen_at TEXT NOT NULL,
-                seen_count INTEGER NOT NULL,
-                last_source TEXT NOT NULL
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS player_names (
-                reliable_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                first_seen_at TEXT NOT NULL,
-                last_seen_at TEXT NOT NULL,
-                seen_count INTEGER NOT NULL,
-                PRIMARY KEY (reliable_id, name),
-                FOREIGN KEY (reliable_id) REFERENCES players(reliable_id)
-                    ON DELETE CASCADE
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_player_names_name
-            ON player_names(name)
-            """
-        )
+        _run_player_registry_migrations(connection)
     db_path.chmod(PRIVATE_PLAYER_REGISTRY_FILE_MODE)
     return db_path
 
@@ -130,6 +273,7 @@ def ensure_player_registry_db(db_path: Path) -> Path:
 def _connect_existing(db_path: Path) -> sqlite3.Connection | None:
     if not db_path.is_file():
         return None
+    ensure_player_registry_db(db_path)
     connection = sqlite3.connect(db_path)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")

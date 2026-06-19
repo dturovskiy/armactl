@@ -275,6 +275,7 @@ that the whole web panel is still only planned.
 - [x] Оновити packaging/bootstrap для web templates/static і optional deps
 - [x] Додати FastAPI app factory, health endpoint і minimal dashboard routes
 - [x] Додати web runtime storage/config/db foundation
+- [x] Додати versioned migration runner для `web.db` з compatibility upgrade, schema metadata і post-schema job-store maintenance
 - [x] Додати `armactl web init` і first setup flow
 - [x] Додати auth DB/password foundation і мінімальну owner role
 - [x] Додати owner-user setup flow
@@ -347,6 +348,7 @@ that the whole web panel is still only planned.
 - [ ] Спроєктувати owner/mega-eligible emergency raw JSON config editor як окремий button/mode у `/config`, не `/files`, з explicit permission/CSRF/double confirm/JSON validation/backup/audit/redacted errors/pending-work behavior
 - [x] Додати web moderation foundation на `/admins`: current players, server-rendered search, add-to-game-admin only with reliable identity
 - [x] Додати instance-scoped player registry foundation (`players.db`) для reliable IDs, nickname history, first/last seen і seen count
+- [x] Додати versioned migration runner для `players.db` зі schema metadata, idempotent old-shape upgrade і mode `0600`
 - [x] Додати explicit web refresh ingestion з current RCON/player_view roster без вигаданих ID і без IP storage
 - [x] Додати `/players` read-only registry page з search по nickname/ID
 - [x] Розділити player registry / moderation boundary: current roster source, SQLite registry storage, web page DTO/loaders і refresh+audit workflow; reliable identity і no-IP-by-default лишаються правилами
@@ -378,7 +380,7 @@ that the whole web panel is still only planned.
 Phase 3 → Phase 4**. Цей фундамент уже реалізований.
 
 Поточний web foundation реалізований у **Phase 16: Web interface foundation
-(`feat/web-interface`)**. Найближчі future slices: DB migrations for `web.db`
-and `players.db`, player refresh failure outcome audit, settings registry,
-feature policy/roles/tiers, broader platform adapters, banlist, destructive file
-workflows, SAT/mod runtime settings, and VM/release hardening.
+(`feat/web-interface`)**. Найближчі future slices: player refresh failure
+outcome audit, settings registry, feature policy/roles/tiers, broader platform
+adapters, banlist, destructive file workflows, SAT/mod runtime settings, and
+VM/release hardening.
