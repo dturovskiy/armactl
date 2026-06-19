@@ -167,7 +167,7 @@ audit coverage.
 | `POST /config` | `settings:manage` | Yes | `config.save` when fields change | Stacks `config` restart work when changed | Allowlisted non-secret fields only; backup path/details redacted |
 | `POST /mods/add`, `/mods/disable`, `/mods/enable`, `/mods/remove` | `mods:manage`; remove requires confirmation | Yes | `mod.add`, `mod.update`, `mod.disable`, `mod.enable`, `mod.remove` | Stacks `mods` restart work when changed | IDs/names/messages are bounded and redacted |
 | `POST /admins/add`, `/admins/remove` | `admins:manage`; remove requires confirmation | Yes | `admin.add`, `admin.update`, `admin.remove` | Stacks `admins` restart work when changed | Admin references/labels/messages are bounded and redacted |
-| `POST /players/refresh` | `players:view` | Yes | `players.refresh` | No | Stores reliable IDs/nickname history only; no IP storage by default |
+| `POST /players/refresh` | `players:view` | Yes | `players.refresh` intent/outcome | No | Intent audit gates roster/persist; source/storage failures write controlled failure outcome audit; no IP storage by default |
 | `POST /schedule/set`, `/schedule/enable`, `/schedule/disable`, `/schedule/autostart/enable`, `/schedule/autostart/disable`, `/schedule/restart-now` | `schedule:manage`; restart-now and autostart-disable require confirmation | Yes | `schedule.set`, `schedule.enable`, `schedule.disable`, `service.autostart-enable`, `service.autostart-disable`, `schedule.restart-now` | Successful performed `schedule.restart-now` clears restart-related pending work | Schedule/service messages are bounded and redacted |
 
 Future update route inventory target: when `POST /jobs/server/update` or an
@@ -483,7 +483,10 @@ Implemented polish and future work:
   identity normalization (`player_identity`), storage (`player_registry`), page
   DTOs (`page_models/players`), and refresh+audit workflow (`player_actions`).
   The registry DB is versioned through `player_registry_schema_meta` and keeps
-  private file mode `0600` across migration runs.
+  private file mode `0600` across migration runs. Player refresh now writes
+  intent audit before roster/persist, audits source/storage failure outcomes
+  as controlled service results, and preserves persisted data while reporting
+  an audit problem if success outcome audit fails.
   Future details/history, extra ingestion, and ban/unban flows must use reliable
   RCON/log/SAT adapters for IDs and nicknames, never infer stable identity from
   nicknames or A2S counts, and require auth, permissions, POST+CSRF,
@@ -493,14 +496,13 @@ Implemented polish and future work:
 
 Next recommended implementation order:
 
-1. Add player refresh failure outcome auditing for source/storage failures.
-2. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
+1. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
    environment-specific outcome.
-3. Add optional IP allowlist / trusted proxy handling if operators need direct
+2. Add optional IP allowlist / trusted proxy handling if operators need direct
    external bind deployments; this is not implemented yet.
-4. Smoke-test the web schedule controls and boot/autostart warning on a real
+3. Smoke-test the web schedule controls and boot/autostart warning on a real
    target VM, because this affects remote recovery expectations after VM reboot.
-5. Add a diagnostics command palette before any browser terminal. It should run
+4. Add a diagnostics command palette before any browser terminal. It should run
    only registered safe commands such as status, timer status, port checks,
    config validation, bounded logs/report collection, and web/game service
    status. Use jobs, permissions, CSRF, audit, bounded/redacted output, and no

@@ -359,6 +359,7 @@ that the whole web panel is still only planned.
 - [x] Додати explicit web refresh ingestion з current RCON/player_view roster без вигаданих ID і без IP storage
 - [x] Додати `/players` read-only registry page з search по nickname/ID
 - [x] Розділити player registry / moderation boundary: current roster source, SQLite registry storage, web page DTO/loaders і refresh+audit workflow; reliable identity і no-IP-by-default лишаються правилами
+- [x] Закрити player refresh failure outcome audit should-fix: source/storage failures write controlled failure outcome audit, failed intent audit aborts roster/persist, and successful persist with outcome-audit failure reports an audit problem without rolling back `players.db`
 - [ ] Розширити `Players / Moderation` до detail page per reliable player, session history (`connected_at`, `disconnected_at`, played duration), activity duration і recent/history views
 - [ ] Додати додаткове player identity ingestion з logs/SAT adapters без вигаданих ID і без IP storage by default
 - [ ] Додати moderation UI: nickname/ID search-filter, player details, and add-to-game-admin action when reliable player/admin reference is known; `/admins` лишається quick-add convenience
@@ -387,7 +388,7 @@ that the whole web panel is still only planned.
 Phase 3 → Phase 4**. Цей фундамент уже реалізований.
 
 Поточний web foundation реалізований у **Phase 16: Web interface foundation
-(`feat/web-interface`)**. Найближчі future slices: player refresh failure
-outcome audit, settings registry, feature policy/roles/tiers, broader platform
-adapters, banlist, destructive file workflows, SAT/mod runtime settings, and
-VM/release hardening.
+(`feat/web-interface`)**. Player refresh failure outcome audit should-fix
+закрито. Найближчі future slices: settings registry, feature
+policy/roles/tiers, broader platform adapters, banlist, destructive file
+workflows, SAT/mod runtime settings, and VM/release hardening.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 import warnings
@@ -131,6 +132,16 @@ def _sqlite_indexes(db_path: Path) -> set[str]:
             """
         ).fetchall()
     return {str(row[0]) for row in rows}
+
+
+def _audit_events(data_root: Path) -> list[dict]:
+    audit_path = data_root / "logs" / "web" / "audit.log"
+    if not audit_path.exists():
+        return []
+    return [
+        json.loads(line)
+        for line in audit_path.read_text(encoding="utf-8").splitlines()
+    ]
 
 
 def _authed_client(tmp_path: Path, monkeypatch, *, db_path: Path | None = None):
@@ -389,20 +400,31 @@ def test_players_route_requires_authentication(tmp_path: Path):
 
 
 def test_players_route_requires_players_view_permission(
-    tmp_path: Path, set_web_owner_permissions
+    tmp_path: Path,
+    monkeypatch,
+    set_web_owner_permissions,
 ):
     from armactl.web.app import create_app
+    from armactl.web.services import player_actions
 
     setup_owner_user(tmp_path, "owner", "owner players password")
     set_web_owner_permissions(set())
+    monkeypatch.setattr(player_actions, "refresh_registry_and_audit", AssertionError)
     app = create_app(data_root=tmp_path)
     client = _client(app)
     _login(client, "owner", "owner players password")
 
     response = client.get("/players", follow_redirects=False)
+    post_response = client.post(
+        "/players/refresh",
+        data={"csrf_token": "unused"},
+        follow_redirects=False,
+    )
 
     assert response.status_code == 403
     assert response.text == "Permission denied."
+    assert post_response.status_code == 403
+    assert post_response.text == "Permission denied."
     assert not PLAYERS_VIEW.endswith(":manage")
 
 
@@ -425,10 +447,11 @@ def test_players_route_html_escapes_player_names(tmp_path: Path, monkeypatch):
 
 
 def test_players_refresh_requires_csrf(tmp_path: Path, monkeypatch):
-    from armactl.web.services import player_registry
+    from armactl.web.services import player_actions, player_registry
 
     db_path = tmp_path / "default" / "players.db"
     client = _authed_client(tmp_path, monkeypatch, db_path=db_path)
+    monkeypatch.setattr(player_actions, "refresh_registry_and_audit", AssertionError)
 
     response = client.post(
         "/players/refresh",
@@ -556,3 +579,335 @@ def test_players_refresh_route_delegates_persistence_and_audit_to_service(
     assert calls["username"] == "owner"
     assert "Recorded 1 reliable player(s); ignored 0 unreliable row(s)." in response.text
     assert not db_path.exists()
+
+
+def test_players_refresh_intent_audit_failure_aborts_roster_load_and_registry_write(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_actions, player_registry, player_sources
+    from armactl.web.services.audit import AuditLogError
+
+    calls = {"roster": 0, "registry": 0}
+
+    def fail_intent(*args, **kwargs):
+        if (kwargs.get("details") or {}).get("phase") == "intent":
+            raise AuditLogError("disk full token=raw-audit-secret")
+        raise AssertionError("unexpected outcome audit")
+
+    def load_roster(instance):
+        calls["roster"] += 1
+        raise AssertionError("roster should not load")
+
+    def record_snapshot(db_path, observations):
+        calls["registry"] += 1
+        raise AssertionError("registry should not write")
+
+    monkeypatch.setattr(player_actions, "append_audit_event", fail_intent)
+    monkeypatch.setattr(player_sources, "load_current_player_roster", load_roster)
+    monkeypatch.setattr(
+        player_registry,
+        "record_current_players_snapshot",
+        record_snapshot,
+    )
+
+    result = player_actions.refresh_registry_and_audit(
+        "default",
+        data_root=tmp_path,
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+    )
+
+    assert result.success is False
+    assert result.intent_audited is False
+    assert result.backend_success is False
+    assert result.audit_written is False
+    assert result.message == "Player registry refresh was not run because audit logging failed."
+    assert "raw-audit-secret" not in result.audit_error
+    assert calls == {"roster": 0, "registry": 0}
+    assert not (tmp_path / "default" / "players.db").exists()
+
+
+def test_players_refresh_success_writes_outcome_audit_success(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_actions, player_registry, player_sources
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _roster(
+            _current_player("Alpha token=raw-player-secret"),
+            _unreliable_current_player("Slot token=raw-slot-secret"),
+        ),
+    )
+
+    result = player_actions.refresh_registry_and_audit(
+        "default",
+        data_root=tmp_path,
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+    )
+
+    assert result.success is True
+    assert result.backend_success is True
+    assert result.audit_written is True
+    assert result.stored_count == 1
+    assert result.ignored_count == 1
+    assert result.reliable_count == 1
+    assert [player.current_name for player in player_registry.list_known_players(
+        tmp_path / "default" / "players.db"
+    )] == ["Alpha token=***"]
+    events = _audit_events(tmp_path)
+    assert [event["details"]["phase"] for event in events] == ["intent", "outcome"]
+    outcome = events[1]
+    assert outcome["action"] == "players.refresh"
+    assert outcome["instance"] == "default"
+    assert outcome["success"] is True
+    assert outcome["message"] == "Player registry refreshed."
+    assert outcome["details"] == {
+        "phase": "outcome",
+        "action": "players.refresh",
+        "instance": "default",
+        "source": "rcon.roster",
+        "reliable_count": "1",
+        "recorded_count": "1",
+        "ignored_count": "1",
+    }
+    audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(encoding="utf-8")
+    assert "Alpha" not in audit_text
+    assert "raw-player-secret" not in audit_text
+    assert "raw-slot-secret" not in audit_text
+
+
+def test_players_refresh_source_failure_writes_failure_audit_and_renders_controlled_message(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_sources
+
+    def fail_roster(instance):
+        raise RuntimeError("roster unavailable token=raw-roster-secret")
+
+    monkeypatch.setattr(player_sources, "load_current_player_roster", fail_roster)
+    client = _authed_client(tmp_path, monkeypatch)
+    csrf_token = _players_csrf_token(client)
+
+    response = client.post(
+        "/players/refresh",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 500
+    assert "Player registry refresh failed while loading current players." in response.text
+    assert "raw-roster-secret" not in response.text
+    assert not (tmp_path / "default" / "players.db").exists()
+    events = _audit_events(tmp_path)
+    assert [event["details"]["phase"] for event in events] == ["intent", "outcome"]
+    outcome = events[1]
+    assert outcome["success"] is False
+    assert outcome["message"] == "Player registry refresh failed while loading current players."
+    assert outcome["details"]["source"] == "unavailable"
+    assert outcome["details"]["reliable_count"] == "0"
+    assert outcome["details"]["recorded_count"] == "0"
+    assert outcome["details"]["reason_class"] == "RuntimeError"
+    assert outcome["details"]["reason_message"] == (
+        "Player registry refresh failed while loading current players."
+    )
+    audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(encoding="utf-8")
+    assert "raw-roster-secret" not in audit_text
+
+
+def test_players_refresh_registry_failure_writes_failure_audit_and_renders_controlled_message(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_registry, player_sources
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _roster(_current_player("Alpha token=raw-player-secret")),
+    )
+
+    def fail_record(db_path, observations):
+        tuple(observations)
+        raise OSError("write failed token=raw-registry-secret")
+
+    monkeypatch.setattr(
+        player_registry,
+        "record_current_players_snapshot",
+        fail_record,
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+    csrf_token = _players_csrf_token(client)
+
+    response = client.post(
+        "/players/refresh",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 500
+    assert "Player registry refresh failed while saving current players." in response.text
+    assert "raw-registry-secret" not in response.text
+    assert not (tmp_path / "default" / "players.db").exists()
+    events = _audit_events(tmp_path)
+    outcome = events[1]
+    assert outcome["success"] is False
+    assert outcome["message"] == "Player registry refresh failed while saving current players."
+    assert outcome["details"]["source"] == "rcon.roster"
+    assert outcome["details"]["reliable_count"] == "1"
+    assert outcome["details"]["recorded_count"] == "0"
+    assert outcome["details"]["reason_class"] == "OSError"
+    audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(encoding="utf-8")
+    assert "Alpha" not in audit_text
+    assert "raw-player-secret" not in audit_text
+    assert "raw-registry-secret" not in audit_text
+
+
+def test_players_refresh_successful_persist_reports_outcome_audit_failure(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_actions, player_registry, player_sources
+    from armactl.web.services.audit import AuditLogError, append_audit_event
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _roster(_current_player("Alpha token=raw-player-secret")),
+    )
+
+    def fail_success_outcome(audit_log_path, **kwargs):
+        is_success_outcome = (
+            kwargs.get("success") is True
+            and (kwargs.get("details") or {}).get("phase") == "outcome"
+        )
+        if is_success_outcome:
+            raise AuditLogError("disk full token=raw-outcome-secret")
+        return append_audit_event(audit_log_path, **kwargs)
+
+    monkeypatch.setattr(player_actions, "append_audit_event", fail_success_outcome)
+    client = _authed_client(tmp_path, monkeypatch)
+    csrf_token = _players_csrf_token(client)
+
+    response = client.post(
+        "/players/refresh",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 500
+    assert "Player registry refreshed, but audit logging failed." in response.text
+    assert "Recorded 1 reliable player(s); ignored 0 unreliable row(s)." in response.text
+    assert "raw-outcome-secret" not in response.text
+    known = player_registry.list_known_players(tmp_path / "default" / "players.db")
+    assert [(player.reliable_id, player.current_name) for player in known] == [
+        ("ABCDEF1234567890", "Alpha token=***")
+    ]
+    events = _audit_events(tmp_path)
+    assert [event["details"]["phase"] for event in events] == ["intent"]
+
+
+def test_players_refresh_failure_outcome_audit_failure_is_controlled(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_actions, player_sources
+    from armactl.web.services.audit import AuditLogError, append_audit_event
+
+    def fail_roster(instance):
+        raise RuntimeError("roster unavailable token=raw-roster-secret")
+
+    def fail_failure_outcome(audit_log_path, **kwargs):
+        is_failure_outcome = (
+            kwargs.get("success") is False
+            and (kwargs.get("details") or {}).get("phase") == "outcome"
+        )
+        if is_failure_outcome:
+            raise AuditLogError("disk full token=raw-audit-secret")
+        return append_audit_event(audit_log_path, **kwargs)
+
+    monkeypatch.setattr(player_sources, "load_current_player_roster", fail_roster)
+    monkeypatch.setattr(player_actions, "append_audit_event", fail_failure_outcome)
+
+    result = player_actions.refresh_registry_and_audit(
+        "default",
+        data_root=tmp_path,
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+    )
+
+    assert result.success is False
+    assert result.backend_success is False
+    assert result.audit_written is False
+    assert result.message == "Player registry refresh failed, and audit logging also failed."
+    assert "raw-audit-secret" not in result.audit_error
+    assert "raw-roster-secret" not in result.message
+    events = _audit_events(tmp_path)
+    assert [event["details"]["phase"] for event in events] == ["intent"]
+
+
+def test_players_refresh_audit_details_exclude_display_names_and_raw_secrets(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_actions, player_sources
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: CurrentPlayerRoster(
+            available=True,
+            players=(
+                _current_player("Alpha token=raw-player-secret"),
+                _unreliable_current_player("Slot token=raw-slot-secret"),
+            ),
+            total_count=2,
+            source="rcon.roster token=raw-source-secret",
+            status="available",
+            error="",
+        ),
+    )
+
+    result = player_actions.refresh_registry_and_audit(
+        "default",
+        data_root=tmp_path,
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+    )
+
+    assert result.success is True
+    outcome_details = _audit_events(tmp_path)[1]["details"]
+    assert outcome_details == {
+        "phase": "outcome",
+        "action": "players.refresh",
+        "instance": "default",
+        "source": "rcon.roster token=***",
+        "reliable_count": "1",
+        "recorded_count": "1",
+        "ignored_count": "1",
+    }
+    encoded_details = json.dumps(outcome_details, sort_keys=True)
+    assert "Alpha" not in encoded_details
+    assert "Slot" not in encoded_details
+    assert "raw-player-secret" not in encoded_details
+    assert "raw-slot-secret" not in encoded_details
+    assert "raw-source-secret" not in encoded_details
+
+
+def test_player_registry_tests_do_not_use_route_global_monkeypatch_pattern():
+    forbidden = (
+        "__" + "globals__",
+        "endpoint." + "__" + "globals__",
+        "app." + "router",
+        "dependency_" + "overrides",
+    )
+    test_root = Path(__file__).parent
+    for test_path in test_root.glob("test_*.py"):
+        source = test_path.read_text(encoding="utf-8")
+        for pattern in forbidden:
+            assert pattern not in source, f"{pattern} found in {test_path}"

@@ -37,7 +37,7 @@ Reviewed the current implementation, not only documentation, across:
 
 Feature readiness snapshot:
 
-- Banlist: feasible without a web rewrite, but should wait for player DB migrations and player refresh failure-outcome audit.
+- Banlist: feasible without a web rewrite, but should wait for player DB migrations and reliable-ID ban workflow design.
 - Paid feature gates / roles / tiers: not ready as-is; needs a separate policy/entitlement layer and role migrations.
 - Settings registry: not present; should be added before SAT/mod settings or runtime feature flags sprawl.
 - Windows backend: web service/schedule actions have the first adapter seam; broader service/log/process/install/discovery adapters are still needed.
@@ -79,28 +79,25 @@ Small next slice:
 - Add fixture tests from older table shapes to current schema.
 - Run maintenance such as duplicate-active job repair only after schema compatibility is established.
 
-### S2. Player refresh should audit failed source/storage outcomes
+### S2. Closed: player refresh audits failed source/storage outcomes
+
+Status update: closed after the repeat audit on `feat/web-interface`.
 
 Refs:
 
-- `src/armactl/web/routes/players.py:90`
-- `src/armactl/web/routes/players.py:92`
-- `src/armactl/web/routes/players.py:98`
-- `src/armactl/web/services/player_actions.py:82`
-- `src/armactl/web/services/player_sources.py:50`
-- `src/armactl/web/services/player_registry.py:160`
+- `src/armactl/web/routes/players.py`
+- `src/armactl/web/services/player_actions.py`
+- `src/armactl/web/services/player_sources.py`
+- `src/armactl/web/services/player_registry.py`
+- `tests/test_web_player_registry.py`
 
-Why it matters:
+Outcome:
 
-- `/players/refresh` now has permission, CSRF, intent audit, storage, and outcome audit in the service path. Good.
-- If source collection or registry storage raises after the intent audit, the route can return an unstructured 500 and no failure outcome audit is written.
-- This is not the old mutation-before-audit bug, but it is still audit completeness debt before player activity, bans, or paid moderation features.
-
-Small next slice:
-
-- Wrap roster collection and storage in `refresh_registry_and_audit()`.
-- On controlled failure, append an outcome audit with `success=False`, return `PlayerRefreshResult(success=False)`, and keep the route as render glue.
-- Add tests for source failure and storage failure after intent audit.
+- `/players/refresh` remains thin: permission/CSRF in the route, then service workflow and render.
+- `refresh_registry_and_audit()` writes intent audit before roster load/persist and aborts without reading or writing `players.db` if intent audit fails.
+- Source and registry/persist failures return controlled `PlayerRefreshResult` failures and write `players.refresh` outcome audit entries with safe source/count/reason details.
+- Successful backend refresh with failed outcome audit preserves persisted player data and reports the audit problem instead of pretending the backend refresh failed.
+- Focused tests cover intent audit failure, success outcome audit, source failure, registry failure, outcome-audit failure after persist, safe audit details, permission/CSRF guards, and no route-global monkeypatch pattern.
 
 ### S3. Broaden platform adapters before Windows backend work
 
@@ -222,7 +219,7 @@ Refs:
 - No IP storage by default was found; tests explicitly assert the player schema does not include `ip_address`.
 - The service adapter is a good first seam, but it is not yet a full platform backend abstraction.
 - The current `owner`-only permissions model is clean for MVP, but it is not a tier system.
-- Broad `except Exception` in reviewed web code is mostly documented fail-closed/degradation/best-effort behavior. The remaining strategic risk is not fake success, but incomplete outcome auditing in player refresh failure paths.
+- Broad `except Exception` in reviewed web code is mostly documented fail-closed/degradation/best-effort behavior. Player refresh failure paths now return controlled service results and write failure outcome audit where possible.
 
 ## Settings Registry Recommendation
 
@@ -285,20 +282,19 @@ Current docs that now match implementation:
 
 Recommended doc edits, but only after follow-up slices:
 
-- After S2, add a short handoff note that player refresh records failure outcome audit entries for source/storage failures.
+- Player refresh failure outcome auditing is now reflected in the handoff notes.
 - After settings/tiers design, add a small architecture section for `settings` and `policy/features` modules.
 - After broader platform adapters, update architecture/handoff to say CLI/TUI/bot no longer use `service_manager` as the compatibility path.
 
 ## Suggested Next Slices
 
 1. DB migration runner slice: versioned migrations for `web.db` and `players.db`, with old-schema fixtures.
-2. Player refresh audit completeness slice: source/storage failure outcomes audited and rendered as controlled failures.
-3. Settings registry design slice: typed registry/store, scopes, defaults, audit, migrations, and secret policy.
-4. Feature policy/roles slice: role migration plus entitlement-vs-permission gate helpers.
-5. Platform adapter expansion slice: service/logs/process/ports/install/discovery contracts over current Linux implementations.
-6. Banlist foundation slice: reliable-ID ban domain/storage/workflow on top of player registry, no nickname/IP inference.
-7. Destructive file workflow slice: delete/edit/overwrite with backups, audit, confirmations, owner/mega policy, and tests.
-8. SAT/mod settings slice: typed settings/config workflows, not route-owned mutation logic.
+2. Settings registry design slice: typed registry/store, scopes, defaults, audit, migrations, and secret policy.
+3. Feature policy/roles slice: role migration plus entitlement-vs-permission gate helpers.
+4. Platform adapter expansion slice: service/logs/process/ports/install/discovery contracts over current Linux implementations.
+5. Banlist foundation slice: reliable-ID ban domain/storage/workflow on top of player registry, no nickname/IP inference.
+6. Destructive file workflow slice: delete/edit/overwrite with backups, audit, confirmations, owner/mega policy, and tests.
+7. SAT/mod settings slice: typed settings/config workflows, not route-owned mutation logic.
 
 ## Validation Run
 
