@@ -435,24 +435,77 @@ def test_mods_add_unchanged_writes_audit_without_restart_notice(
     assert list_pending_work(tmp_path / "web" / "web.db") == []
 
 
-def test_mods_pending_db_failure_writes_fallback_and_warns(
+def test_mod_service_pending_db_failure_writes_fallback_and_warns(
     tmp_path: Path,
     monkeypatch,
 ):
     from armactl.web.services import mod_actions, pending_work
 
     config_path = _write_mod_config(tmp_path, [])
-    client = _authed_client(tmp_path, monkeypatch)
     monkeypatch.setattr(
         mod_actions.discovery,
         "discover",
         lambda instance, save=False: _state(config_path),
+    )
+    monkeypatch.setattr(
+        mod_actions.mods_manager,
+        "add_mod_detailed",
+        lambda path, mod_id, name="", version="": ModAddResult(mod_id, "added"),
     )
 
     def fail_pending_db(*args, **kwargs):
         raise RuntimeError("web.db locked token=raw-pending-secret")
 
     monkeypatch.setattr(pending_work, "mark_restart_pending", fail_pending_db)
+
+    result = mod_actions.run_mod_action_and_audit(
+        mod_actions.ACTION_ADD,
+        instance="default",
+        mod_id="cccccccccccccccc",
+        name="Charlie token=raw-mod-secret",
+        version="1.2.3",
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+        db_path=tmp_path / "web" / "web.db",
+    )
+
+    assert result.success is True
+    assert result.pending_work_warning == pending_work.PENDING_WORK_FALLBACK_WARNING
+    assert result.pending_work_error == ""
+    item = pending_work.get_fallback_pending_work(
+        tmp_path / "web" / "web.db",
+        kind=pending_work.KIND_MODS,
+    )
+    assert item is not None
+    assert item.is_fallback is True
+    assert item.source_action == "mod.add"
+    assert item.details == "CCCCCCCCCCCCCCCC"
+    assert "raw-mod-secret" not in pending_work.fallback_pending_work_path(
+        tmp_path / "web" / "web.db"
+    ).read_text(encoding="utf-8")
+
+
+def test_mods_pending_warning_from_service_is_rendered(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions, pending_work
+
+    client = _authed_client(tmp_path, monkeypatch)
+
+    def run_with_pending_warning(*args, **kwargs):
+        return mod_actions.ModActionResult(
+            action=mod_actions.ACTION_ADD,
+            instance="default",
+            target="CCCCCCCCCCCCCCCC",
+            success=True,
+            changed=True,
+            message="Mod added.",
+            exit_code=0,
+            pending_work_warning=pending_work.PENDING_WORK_FALLBACK_WARNING,
+        )
+
+    monkeypatch.setattr(mod_actions, "run_mod_action_and_audit", run_with_pending_warning)
     csrf_token = _mods_csrf_token(client)
 
     response = client.post(
@@ -471,19 +524,7 @@ def test_mods_pending_db_failure_writes_fallback_and_warns(
     assert "Restart the server to apply mod changes." in response.text
     assert "Restart tracking warning" in response.text
     assert pending_work.PENDING_WORK_FALLBACK_WARNING in response.text
-    assert "raw-pending-secret" not in response.text
     assert "raw-mod-secret" not in response.text
-    item = pending_work.get_fallback_pending_work(
-        tmp_path / "web" / "web.db",
-        kind=pending_work.KIND_MODS,
-    )
-    assert item is not None
-    assert item.is_fallback is True
-    assert item.source_action == "mod.add"
-    assert item.details == "CCCCCCCCCCCCCCCC"
-    assert "raw-mod-secret" not in pending_work.fallback_pending_work_path(
-        tmp_path / "web" / "web.db"
-    ).read_text(encoding="utf-8")
 
 
 def test_mods_audit_failure_after_change_still_marks_pending_work(

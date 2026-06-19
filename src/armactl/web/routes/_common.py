@@ -18,7 +18,6 @@ from armactl.web.auth.dependencies import (
     permission_denied_response,
     require_permission,
 )
-from armactl.web.services import pending_work
 
 PageLoader = Callable[[str], dict[str, Any]]
 
@@ -69,21 +68,3 @@ def authenticated_page(
     if current is None:
         return redirect_to_login(request)
     return render_page(request, current, permission=permission, template=template, loader=loader)
-
-
-def mark_restart_pending_for_result(
-    current: CurrentSession,
-    *,
-    kind: str,
-    source_action: str,
-    details: object = "",
-) -> str:
-    _item, fallback_used = pending_work.mark_restart_pending_safely(
-        current.config.db_path,
-        instance=paths.DEFAULT_INSTANCE_NAME,
-        kind=kind,
-        source_action=source_action,
-        username=current.user.username,
-        details=details,
-    )
-    return pending_work.PENDING_WORK_FALLBACK_WARNING if fallback_used else ""

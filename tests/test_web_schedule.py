@@ -536,6 +536,46 @@ def test_schedule_enable_disable_restart_and_autostart_routes(
     ]
 
 
+def test_schedule_restart_now_clears_pending_work_through_service(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import pending_work, schedule_actions
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        schedule_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(),
+    )
+
+    def start(service_name: str) -> ServiceResult:
+        calls.append(service_name)
+        return ServiceResult(True, "restart helper started", 0)
+
+    monkeypatch.setattr(schedule_actions.service_manager, "start_service", start)
+    db_path = tmp_path / "web" / "web.db"
+    pending_work.mark_restart_pending(
+        db_path,
+        instance="default",
+        kind=pending_work.KIND_CONFIG,
+        source_action="config.save",
+        username="owner",
+    )
+
+    result = schedule_actions.run_schedule_action_and_audit(
+        schedule_actions.ACTION_RESTART_NOW,
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+        db_path=db_path,
+    )
+
+    assert result.success is True
+    assert result.pending_restart_work_warning == ""
+    assert pending_work.list_pending_work(db_path, instance="default") == []
+    assert calls == ["armareforger-restart.service"]
+
+
 def test_schedule_unexpected_restart_exception_does_not_clear_pending_work(
     tmp_path: Path,
     monkeypatch,

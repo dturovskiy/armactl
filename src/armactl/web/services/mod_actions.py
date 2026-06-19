@@ -10,6 +10,7 @@ from armactl import discovery, mods_manager, paths
 from armactl.addon_cleanup import CleanupResult
 from armactl.config_manager import ConfigError
 from armactl.redaction import redact_sensitive_text
+from armactl.web.services import pending_work
 from armactl.web.services.audit import AuditLogError, append_audit_event
 
 ACTION_ADD = "mod.add"
@@ -48,6 +49,8 @@ class ModActionResult:
     intent_audited: bool = True
     backend_success: bool | None = None
     backend_message: str = ""
+    pending_work_warning: str = ""
+    pending_work_error: str = ""
     details: dict[str, object] = field(default_factory=dict)
 
     @property
@@ -427,6 +430,29 @@ def audit_mod_action_result(
     return result
 
 
+def _mark_restart_pending_for_mod_result(
+    result: ModActionResult,
+    *,
+    db_path: Path | None,
+    username: str,
+) -> ModActionResult:
+    if db_path is None or not result.changed:
+        return result
+    write_result = pending_work.mark_restart_pending_for_service(
+        db_path,
+        instance=result.instance,
+        kind=pending_work.KIND_MODS,
+        source_action=result.action,
+        username=username,
+        details=result.target,
+    )
+    return replace(
+        result,
+        pending_work_warning=write_result.warning,
+        pending_work_error=write_result.error,
+    )
+
+
 def run_mod_action_and_audit(
     action: str,
     *,
@@ -436,6 +462,7 @@ def run_mod_action_and_audit(
     version: str = "",
     audit_log_path: Path,
     username: str,
+    db_path: Path | None = None,
 ) -> ModActionResult:
     """Run a Workshop mod action and append safe audit events."""
     normalized = normalize_mod_action(action)
@@ -459,8 +486,13 @@ def run_mod_action_and_audit(
         name=name,
         version=version,
     )
-    return audit_mod_action_result(
+    result = audit_mod_action_result(
         result,
         audit_log_path=audit_log_path,
+        username=username,
+    )
+    return _mark_restart_pending_for_mod_result(
+        result,
+        db_path=db_path,
         username=username,
     )

@@ -10,6 +10,7 @@ from armactl import discovery, paths, service_manager
 from armactl.redaction import redact_sensitive_text
 from armactl.service_manager import ServiceResult
 from armactl.state import ServerState
+from armactl.web.services import pending_work
 from armactl.web.services.audit import AuditLogError, append_audit_event
 
 ACTION_SET_SCHEDULE = "schedule.set"
@@ -59,6 +60,7 @@ class ScheduleActionResult:
     intent_audited: bool = True
     backend_success: bool | None = None
     backend_message: str = ""
+    pending_restart_work_warning: str = ""
 
     @property
     def status_label(self) -> str:
@@ -486,6 +488,29 @@ def audit_schedule_action_result(
     return result
 
 
+def _backend_success(result: ScheduleActionResult) -> bool:
+    return result.success if result.backend_success is None else result.backend_success
+
+
+def _clear_restart_pending_work_for_result(
+    result: ScheduleActionResult,
+    *,
+    db_path: Path | None,
+) -> ScheduleActionResult:
+    if (
+        db_path is None
+        or result.action != ACTION_RESTART_NOW
+        or not _backend_success(result)
+        or not result.performed
+    ):
+        return result
+    clear_result = pending_work.clear_restart_pending_work_safely(
+        db_path,
+        instance=result.instance,
+    )
+    return replace(result, pending_restart_work_warning=clear_result.warning)
+
+
 def run_schedule_action_and_audit(
     action: str,
     *,
@@ -493,6 +518,7 @@ def run_schedule_action_and_audit(
     audit_log_path: Path,
     username: str,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
+    db_path: Path | None = None,
 ) -> ScheduleActionResult:
     """Run a restart timer action and append safe audit events."""
     normalized = normalize_schedule_action(action)
@@ -526,8 +552,9 @@ def run_schedule_action_and_audit(
         schedule_value=schedule_value,
         instance=normalized_instance,
     )
-    return audit_schedule_action_result(
+    result = audit_schedule_action_result(
         result,
         audit_log_path=audit_log_path,
         username=username,
     )
+    return _clear_restart_pending_work_for_result(result, db_path=db_path)

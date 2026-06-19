@@ -109,6 +109,12 @@ class PendingWorkClearResult:
         return PENDING_WORK_CLEAR_WARNING if self.errors else ""
 
 
+@dataclass(frozen=True)
+class PendingWorkWriteResult:
+    warning: str = ""
+    error: str = ""
+
+
 def _utc_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -513,6 +519,36 @@ def mark_restart_pending_safely(
             )
         except Exception as exc:  # noqa: BLE001 - both stores failed.
             raise PendingWorkFallbackError(PENDING_WORK_STORAGE_FAILED_MESSAGE) from exc
+
+
+def mark_restart_pending_for_service(
+    db_path: Path,
+    *,
+    kind: str,
+    username: str,
+    details: object = "",
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    source_action: str = "",
+    source_path: str | None = None,
+    title: str | None = None,
+) -> PendingWorkWriteResult:
+    """Record restart-required work and return operator-facing status text."""
+    try:
+        _item, fallback_used = mark_restart_pending_safely(
+            db_path,
+            kind=kind,
+            username=username,
+            details=details,
+            instance=instance,
+            source_action=source_action,
+            source_path=source_path,
+            title=title,
+        )
+    except PendingWorkFallbackError as exc:
+        return PendingWorkWriteResult(error=str(exc))
+    return PendingWorkWriteResult(
+        warning=PENDING_WORK_FALLBACK_WARNING if fallback_used else ""
+    )
 
 
 def get_pending_work(

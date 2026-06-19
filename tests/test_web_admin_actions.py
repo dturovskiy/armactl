@@ -414,24 +414,76 @@ def test_admins_update_success_writes_update_audit(tmp_path: Path, monkeypatch):
     assert event["target"] == "76561198000000002"
 
 
-def test_admins_pending_db_failure_writes_fallback_and_warns(
+def test_admin_service_pending_db_failure_writes_fallback_and_warns(
     tmp_path: Path,
     monkeypatch,
 ):
     from armactl.web.services import admin_actions, pending_work
 
     config_path = _write_admin_config(tmp_path, [])
-    client = _authed_client(tmp_path, monkeypatch)
     monkeypatch.setattr(
         admin_actions.discovery,
         "discover",
         lambda instance, save=False: _state(config_path),
+    )
+    monkeypatch.setattr(
+        admin_actions.admins_manager,
+        "add_admin",
+        lambda path, admin_reference, name="": True,
     )
 
     def fail_pending_db(*args, **kwargs):
         raise RuntimeError("web.db locked token=raw-pending-secret")
 
     monkeypatch.setattr(pending_work, "mark_restart_pending", fail_pending_db)
+
+    result = admin_actions.run_admin_action_and_audit(
+        admin_actions.ACTION_ADD,
+        instance="default",
+        admin_reference="ABCDEF1234567890",
+        label="Captain token=raw-admin-secret",
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+        db_path=tmp_path / "web" / "web.db",
+    )
+
+    assert result.success is True
+    assert result.pending_work_warning == pending_work.PENDING_WORK_FALLBACK_WARNING
+    assert result.pending_work_error == ""
+    item = pending_work.get_fallback_pending_work(
+        tmp_path / "web" / "web.db",
+        kind=pending_work.KIND_ADMINS,
+    )
+    assert item is not None
+    assert item.is_fallback is True
+    assert item.source_action == "admin.add"
+    assert item.details == "ABCDEF1234567890"
+    assert "raw-admin-secret" not in pending_work.fallback_pending_work_path(
+        tmp_path / "web" / "web.db"
+    ).read_text(encoding="utf-8")
+
+
+def test_admins_pending_warning_from_service_is_rendered(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import admin_actions, pending_work
+
+    client = _authed_client(tmp_path, monkeypatch)
+
+    def run_with_pending_warning(*args, **kwargs):
+        return admin_actions.AdminActionResult(
+            action=admin_actions.ACTION_ADD,
+            instance="default",
+            target="ABCDEF1234567890",
+            success=True,
+            changed=True,
+            message="Admin added.",
+            exit_code=0,
+            pending_work_warning=pending_work.PENDING_WORK_FALLBACK_WARNING,
+        )
+
+    monkeypatch.setattr(admin_actions, "run_admin_action_and_audit", run_with_pending_warning)
     csrf_token = _admins_csrf_token(client)
 
     response = client.post(
@@ -449,19 +501,7 @@ def test_admins_pending_db_failure_writes_fallback_and_warns(
     assert "Restart the server to apply admin changes." in response.text
     assert "Restart tracking warning" in response.text
     assert pending_work.PENDING_WORK_FALLBACK_WARNING in response.text
-    assert "raw-pending-secret" not in response.text
     assert "raw-admin-secret" not in response.text
-    item = pending_work.get_fallback_pending_work(
-        tmp_path / "web" / "web.db",
-        kind=pending_work.KIND_ADMINS,
-    )
-    assert item is not None
-    assert item.is_fallback is True
-    assert item.source_action == "admin.add"
-    assert item.details == "ABCDEF1234567890"
-    assert "raw-admin-secret" not in pending_work.fallback_pending_work_path(
-        tmp_path / "web" / "web.db"
-    ).read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(

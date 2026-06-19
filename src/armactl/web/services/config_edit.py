@@ -12,6 +12,7 @@ from typing import Any
 
 from armactl import config_manager, discovery, paths
 from armactl.redaction import redact_sensitive_text
+from armactl.web.services import pending_work
 from armactl.web.services.audit import AuditLogError, append_audit_event
 
 
@@ -37,6 +38,8 @@ class ConfigEditResult:
     intent_audited: bool = True
     backend_success: bool = True
     audit_written: bool = True
+    pending_work_warning: str = ""
+    pending_work_error: str = ""
 
 
 @dataclass(frozen=True)
@@ -309,7 +312,31 @@ def _audit_config_save(
     )
 
 
-def save_default_config_and_audit(instance, form, *, audit_log_path, username):
+def _mark_restart_pending_for_config_result(
+    result: ConfigEditResult,
+    *,
+    db_path: Path | None,
+    username: str,
+    instance: str,
+) -> ConfigEditResult:
+    if db_path is None or not result.changed_fields:
+        return result
+    write_result = pending_work.mark_restart_pending_for_service(
+        db_path,
+        instance=instance,
+        kind=pending_work.KIND_CONFIG,
+        source_action=CONFIG_SAVE_ACTION,
+        username=username,
+        details=", ".join(result.changed_fields),
+    )
+    return replace(
+        result,
+        pending_work_warning=write_result.warning,
+        pending_work_error=write_result.error,
+    )
+
+
+def save_default_config_and_audit(instance, form, *, audit_log_path, username, db_path=None):
     normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
     target = "config.json"
     try:
@@ -382,7 +409,19 @@ def save_default_config_and_audit(instance, form, *, audit_log_path, username):
             backup_path=result.backup_path,
         )
     except AuditLogError as exc:
+        result = _mark_restart_pending_for_config_result(
+            replace(result, audit_written=False),
+            db_path=db_path,
+            username=username,
+            instance=normalized_instance,
+        )
         raise ConfigAuditError(
-            "Config saved but audit logging failed.", result=replace(result, audit_written=False)
+            "Config saved but audit logging failed.",
+            result=result,
         ) from exc
-    return result
+    return _mark_restart_pending_for_config_result(
+        result,
+        db_path=db_path,
+        username=username,
+        instance=normalized_instance,
+    )

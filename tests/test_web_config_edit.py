@@ -444,33 +444,31 @@ def test_config_edit_rejects_invalid_values_without_backup(
         assert secret not in audit_text
 
 
-def test_config_edit_pending_db_failure_writes_fallback_and_warns(
+def test_config_service_pending_db_failure_writes_fallback_and_warns(
     tmp_path: Path,
     monkeypatch,
 ):
-    from armactl.web.services import pending_work
+    from armactl.web.services import config_edit, pending_work
 
     original_config = _sample_config()
     config_path = _write_config(tmp_path, deepcopy(original_config))
-    client = _authed_client(tmp_path, monkeypatch, config_path)
-    csrf_token = _form_token(client.get("/config").text)
+    _patch_discovery(monkeypatch, config_path)
 
     def fail_pending_db(*args, **kwargs):
         raise RuntimeError("web.db locked token=raw-pending-secret")
 
     monkeypatch.setattr(pending_work, "mark_restart_pending", fail_pending_db)
 
-    response = client.post(
-        "/config",
-        data=_valid_post_data(csrf_token),
-        follow_redirects=False,
+    result = config_edit.save_default_config_and_audit(
+        "default",
+        _valid_post_data("unused"),
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+        db_path=tmp_path / "web" / "web.db",
     )
 
-    assert response.status_code == 500
-    assert "Config saved" in response.text
-    assert "Restart tracking warning" in response.text
-    assert pending_work.PENDING_WORK_FALLBACK_WARNING in response.text
-    assert "raw-pending-secret" not in response.text
+    assert result.pending_work_warning == pending_work.PENDING_WORK_FALLBACK_WARNING
+    assert result.pending_work_error == ""
     updated = json.loads(config_path.read_text())
     assert updated["game"]["name"] == "Updated Server"
     item = pending_work.get_fallback_pending_work(
@@ -486,16 +484,47 @@ def test_config_edit_pending_db_failure_writes_fallback_and_warns(
     assert "raw-pending-secret" not in sidecar_path.read_text(encoding="utf-8")
 
 
-def test_config_edit_pending_db_and_fallback_failure_is_controlled(
+def test_config_edit_pending_warning_from_service_is_rendered(
     tmp_path: Path,
     monkeypatch,
 ):
-    from armactl.web.services import pending_work
+    from armactl.web.services import config_edit, pending_work
+
+    config_path = _write_config(tmp_path, deepcopy(_sample_config()))
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+    csrf_token = _form_token(client.get("/config").text)
+
+    def save_with_pending_warning(*args, **kwargs):
+        return config_edit.ConfigEditResult(
+            config_path=config_path,
+            backup_path=None,
+            changed_fields=("max_players",),
+            pending_work_warning=pending_work.PENDING_WORK_FALLBACK_WARNING,
+        )
+
+    monkeypatch.setattr(config_edit, "save_default_config_and_audit", save_with_pending_warning)
+
+    response = client.post(
+        "/config",
+        data=_valid_post_data(csrf_token),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 500
+    assert "Config saved" in response.text
+    assert "Restart tracking warning" in response.text
+    assert pending_work.PENDING_WORK_FALLBACK_WARNING in response.text
+
+
+def test_config_service_pending_db_and_fallback_failure_is_controlled(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import config_edit, pending_work
 
     original_config = _sample_config()
     config_path = _write_config(tmp_path, deepcopy(original_config))
-    client = _authed_client(tmp_path, monkeypatch, config_path)
-    csrf_token = _form_token(client.get("/config").text)
+    _patch_discovery(monkeypatch, config_path)
 
     def fail_pending_db(*args, **kwargs):
         raise RuntimeError("web.db locked token=raw-pending-secret")
@@ -505,6 +534,41 @@ def test_config_edit_pending_db_and_fallback_failure_is_controlled(
 
     monkeypatch.setattr(pending_work, "mark_restart_pending", fail_pending_db)
     monkeypatch.setattr(pending_work, "mark_restart_pending_fallback", fail_fallback)
+
+    result = config_edit.save_default_config_and_audit(
+        "default",
+        _valid_post_data("unused"),
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+        db_path=tmp_path / "web" / "web.db",
+    )
+
+    assert result.pending_work_warning == ""
+    assert result.pending_work_error == pending_work.PENDING_WORK_STORAGE_FAILED_MESSAGE
+    updated = json.loads(config_path.read_text())
+    assert updated["game"]["name"] == "Updated Server"
+    assert pending_work.list_fallback_pending_work(tmp_path / "web" / "web.db") == []
+
+
+def test_config_edit_pending_error_from_service_is_rendered(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import config_edit, pending_work
+
+    config_path = _write_config(tmp_path, deepcopy(_sample_config()))
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+    csrf_token = _form_token(client.get("/config").text)
+
+    def save_with_pending_error(*args, **kwargs):
+        return config_edit.ConfigEditResult(
+            config_path=config_path,
+            backup_path=None,
+            changed_fields=("max_players",),
+            pending_work_error=pending_work.PENDING_WORK_STORAGE_FAILED_MESSAGE,
+        )
+
+    monkeypatch.setattr(config_edit, "save_default_config_and_audit", save_with_pending_error)
 
     response = client.post(
         "/config",
@@ -516,37 +580,32 @@ def test_config_edit_pending_db_and_fallback_failure_is_controlled(
     assert "Config saved" in response.text
     assert "Restart tracking failed" in response.text
     assert pending_work.PENDING_WORK_STORAGE_FAILED_MESSAGE in response.text
-    assert "raw-pending-secret" not in response.text
-    assert "raw-fallback-secret" not in response.text
-    updated = json.loads(config_path.read_text())
-    assert updated["game"]["name"] == "Updated Server"
-    assert pending_work.list_fallback_pending_work(tmp_path / "web" / "web.db") == []
 
 
-def test_config_edit_noop_with_pending_db_failure_does_not_create_fallback(
+def test_config_service_noop_with_pending_db_failure_does_not_create_fallback(
     tmp_path: Path,
     monkeypatch,
 ):
-    from armactl.web.services import pending_work
+    from armactl.web.services import config_edit, pending_work
 
     original_config = _sample_config()
     config_path = _write_config(tmp_path, deepcopy(original_config))
-    client = _authed_client(tmp_path, monkeypatch, config_path)
-    csrf_token = _form_token(client.get("/config").text)
+    _patch_discovery(monkeypatch, config_path)
 
     def fail_pending_db(*args, **kwargs):
         raise RuntimeError("pending should not be called")
 
     monkeypatch.setattr(pending_work, "mark_restart_pending", fail_pending_db)
 
-    response = client.post(
-        "/config",
-        data=_unchanged_post_data(csrf_token),
-        follow_redirects=False,
+    result = config_edit.save_default_config_and_audit(
+        "default",
+        _unchanged_post_data("unused"),
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+        db_path=tmp_path / "web" / "web.db",
     )
 
-    assert response.status_code == 303
-    assert response.headers["location"] == "/config?unchanged=1"
+    assert result.changed_fields == ()
     assert json.loads(config_path.read_text()) == original_config
     assert pending_work.list_fallback_pending_work(tmp_path / "web" / "web.db") == []
 

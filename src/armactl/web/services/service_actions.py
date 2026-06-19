@@ -10,6 +10,7 @@ from armactl import discovery, paths, service_manager
 from armactl.redaction import redact_sensitive_text
 from armactl.service_manager import ServiceResult
 from armactl.state import ServerState
+from armactl.web.services import pending_work
 from armactl.web.services.audit import AuditLogError, append_audit_event
 
 ACTION_START = "start"
@@ -38,6 +39,8 @@ class ServiceActionResult:
     intent_audited: bool = True
     backend_success: bool | None = None
     backend_message: str = ""
+    pending_restart_work_cleared: bool = False
+    pending_restart_work_warning: str = ""
 
     @property
     def status_label(self) -> str:
@@ -267,12 +270,40 @@ def audit_service_action_result(
     return result
 
 
+def _backend_success(result: ServiceActionResult) -> bool:
+    return result.success if result.backend_success is None else result.backend_success
+
+
+def _clear_restart_pending_work_for_result(
+    result: ServiceActionResult,
+    *,
+    db_path: Path | None,
+) -> ServiceActionResult:
+    if (
+        db_path is None
+        or result.action != ACTION_RESTART
+        or not _backend_success(result)
+        or not result.performed
+    ):
+        return result
+    clear_result = pending_work.clear_restart_pending_work_safely(
+        db_path,
+        instance=result.instance,
+    )
+    return replace(
+        result,
+        pending_restart_work_cleared=clear_result.total_cleared > 0,
+        pending_restart_work_warning=clear_result.warning,
+    )
+
+
 def run_service_action_and_audit(
     action: str,
     *,
     audit_log_path: Path,
     username: str,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
+    db_path: Path | None = None,
 ) -> ServiceActionResult:
     """Run a service action and append safe audit events."""
     normalized = normalize_service_action(action)
@@ -295,8 +326,9 @@ def run_service_action_and_audit(
             intent_target,
         )
     result = run_service_action(normalized, instance=normalized_instance)
-    return audit_service_action_result(
+    result = audit_service_action_result(
         result,
         audit_log_path=audit_log_path,
         username=username,
     )
+    return _clear_restart_pending_work_for_result(result, db_path=db_path)

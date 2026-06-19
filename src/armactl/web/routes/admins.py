@@ -17,8 +17,8 @@ from armactl.web.auth.dependencies import (
 )
 from armactl.web.auth.permissions import ADMINS_MANAGE, ADMINS_VIEW
 from armactl.web.page_models.admins import load_admins_page
-from armactl.web.routes._common import mark_restart_pending_for_result, redirect_to_login
-from armactl.web.services import admin_actions, pending_work, player_moderation
+from armactl.web.routes._common import redirect_to_login
+from armactl.web.services import admin_actions, player_moderation
 
 router = APIRouter()
 
@@ -88,6 +88,7 @@ def _run_admin_action(
             label=label,
             audit_log_path=current.config.audit_log_path,
             username=current.user.username,
+            db_path=current.config.db_path,
         )
     except admin_actions.AdminActionError:
         return PlainTextResponse(
@@ -95,31 +96,15 @@ def _run_admin_action(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
-    pending_warning = ""
-    if result.changed:
-        try:
-            pending_warning = mark_restart_pending_for_result(
-                current,
-                kind=pending_work.KIND_ADMINS,
-                source_action=result.action,
-                details=result.target,
-            )
-        except pending_work.PendingWorkFallbackError as error:
-            return _render_admins_page(
-                request,
-                current,
-                result=result,
-                pending_work_error=str(error),
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
     result_status = status.HTTP_200_OK if result.success else status.HTTP_400_BAD_REQUEST
-    if pending_warning:
+    if result.pending_work_warning or result.pending_work_error:
         result_status = status.HTTP_500_INTERNAL_SERVER_ERROR
     return _render_admins_page(
         request,
         current,
         result=result,
-        pending_work_warning=pending_warning,
+        pending_work_warning=result.pending_work_warning,
+        pending_work_error=result.pending_work_error,
         status_code=result_status,
     )
 

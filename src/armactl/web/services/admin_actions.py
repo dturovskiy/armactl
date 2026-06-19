@@ -9,6 +9,7 @@ from typing import Any
 from armactl import admins_manager, discovery, paths
 from armactl.config_manager import ConfigError
 from armactl.redaction import redact_sensitive_text
+from armactl.web.services import pending_work
 from armactl.web.services.audit import AuditLogError, append_audit_event
 
 ACTION_ADD = "admin.add"
@@ -38,6 +39,8 @@ class AdminActionResult:
     intent_audited: bool = True
     backend_success: bool | None = None
     backend_message: str = ""
+    pending_work_warning: str = ""
+    pending_work_error: str = ""
 
     @property
     def status_label(self) -> str:
@@ -329,6 +332,29 @@ def audit_admin_action_result(
     return result
 
 
+def _mark_restart_pending_for_admin_result(
+    result: AdminActionResult,
+    *,
+    db_path: Path | None,
+    username: str,
+) -> AdminActionResult:
+    if db_path is None or not result.changed:
+        return result
+    write_result = pending_work.mark_restart_pending_for_service(
+        db_path,
+        instance=result.instance,
+        kind=pending_work.KIND_ADMINS,
+        source_action=result.action,
+        username=username,
+        details=result.target,
+    )
+    return replace(
+        result,
+        pending_work_warning=write_result.warning,
+        pending_work_error=write_result.error,
+    )
+
+
 def run_admin_action_and_audit(
     action: str,
     *,
@@ -337,6 +363,7 @@ def run_admin_action_and_audit(
     label: str = "",
     audit_log_path: Path,
     username: str,
+    db_path: Path | None = None,
 ) -> AdminActionResult:
     """Run a game-admin action and append safe audit events."""
     normalized = normalize_admin_action(action)
@@ -359,8 +386,13 @@ def run_admin_action_and_audit(
         admin_reference=admin_reference,
         label=label,
     )
-    return audit_admin_action_result(
+    result = audit_admin_action_result(
         result,
         audit_log_path=audit_log_path,
+        username=username,
+    )
+    return _mark_restart_pending_for_admin_result(
+        result,
+        db_path=db_path,
         username=username,
     )

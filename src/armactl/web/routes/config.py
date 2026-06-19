@@ -17,8 +17,8 @@ from armactl.web.auth.dependencies import (
 )
 from armactl.web.auth.permissions import CONFIG_VIEW, SETTINGS_MANAGE
 from armactl.web.page_models.config import load_config_page
-from armactl.web.routes._common import mark_restart_pending_for_result, redirect_to_login
-from armactl.web.services import config_edit, pending_work
+from armactl.web.routes._common import redirect_to_login
+from armactl.web.services import config_edit
 
 router = APIRouter()
 
@@ -115,6 +115,7 @@ def save_config_page(
             form,
             audit_log_path=current.config.audit_log_path,
             username=current.user.username,
+            db_path=current.config.db_path,
         )
     except config_edit.ConfigEditError as error:
         return _render_config_page(
@@ -125,54 +126,32 @@ def save_config_page(
         )
     except config_edit.ConfigAuditError as error:
         result = error.result
-        try:
-            pending_warning = mark_restart_pending_for_result(
-                current,
-                kind=pending_work.KIND_CONFIG,
-                source_action=config_edit.CONFIG_SAVE_ACTION,
-                details=", ".join(result.changed_fields),
-            )
-        except pending_work.PendingWorkFallbackError as pending_error:
-            return _render_config_page(
-                request,
-                current,
-                saved=True,
-                audit_error=str(error),
-                pending_work_error=str(pending_error),
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
         return _render_config_page(
             request,
             current,
             saved=True,
             audit_error=str(error),
-            pending_work_warning=pending_warning,
+            pending_work_warning=result.pending_work_warning,
+            pending_work_error=result.pending_work_error,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
     if not result.changed_fields:
         return RedirectResponse("/config?unchanged=1", status_code=status.HTTP_303_SEE_OTHER)
-    try:
-        pending_warning = mark_restart_pending_for_result(
-            current,
-            kind=pending_work.KIND_CONFIG,
-            source_action=config_edit.CONFIG_SAVE_ACTION,
-            details=", ".join(result.changed_fields),
-        )
-    except pending_work.PendingWorkFallbackError as error:
+    if result.pending_work_error:
         return _render_config_page(
             request,
             current,
             saved=True,
-            pending_work_error=str(error),
+            pending_work_error=result.pending_work_error,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
-    if pending_warning:
+    if result.pending_work_warning:
         return _render_config_page(
             request,
             current,
             saved=True,
-            pending_work_warning=pending_warning,
+            pending_work_warning=result.pending_work_warning,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
     return RedirectResponse("/config?saved=1", status_code=status.HTTP_303_SEE_OTHER)

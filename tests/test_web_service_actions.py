@@ -178,3 +178,30 @@ def test_service_action_audit_writes_safe_jsonl(monkeypatch, tmp_path: Path):
     assert audit_path.stat().st_mode & 0o777 == 0o600
     assert "raw-secret" not in audit_path.read_text(encoding="utf-8")
     assert "token=***" in event["message"]
+
+
+def test_restart_service_action_clears_restart_pending_work(monkeypatch, tmp_path: Path):
+    from armactl.web.services import pending_work
+
+    calls: list[tuple[str, str]] = []
+    _patch_state(monkeypatch, _state(running=True))
+    _patch_managers(monkeypatch, calls, ServiceResult(True, "restarted", 0))
+    db_path = tmp_path / "web" / "web.db"
+    pending_work.mark_restart_pending(
+        db_path,
+        kind=pending_work.KIND_CONFIG,
+        source_action="config.save",
+        username="owner",
+    )
+
+    result = service_actions.run_service_action_and_audit(
+        "restart",
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+        db_path=db_path,
+    )
+
+    assert result.success is True
+    assert result.pending_restart_work_cleared is True
+    assert pending_work.list_pending_work(db_path) == []
+    assert calls == [("restart", "armareforger.service")]

@@ -18,7 +18,7 @@ from armactl.web.auth.dependencies import (
 )
 from armactl.web.auth.permissions import SCHEDULE_MANAGE, SCHEDULE_VIEW
 from armactl.web.page_models.schedule import load_schedule_page
-from armactl.web.services import pending_work, schedule_actions
+from armactl.web.services import schedule_actions
 
 router = APIRouter()
 
@@ -29,10 +29,6 @@ def _redirect_to_login(request: Request) -> RedirectResponse:
     clear_session_cookie(response, config)
     clear_csrf_cookie(response, config)
     return response
-
-
-def _backend_success(result: schedule_actions.ScheduleActionResult) -> bool:
-    return result.success if result.backend_success is None else result.backend_success
 
 
 def _render_schedule(
@@ -107,6 +103,7 @@ def _run_schedule_action(
             audit_log_path=current.config.audit_log_path,
             username=current.user.username,
             instance=paths.DEFAULT_INSTANCE_NAME,
+            db_path=current.config.db_path,
         )
     except schedule_actions.ScheduleActionError:
         return PlainTextResponse(
@@ -114,24 +111,12 @@ def _run_schedule_action(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
-    pending_restart_work_warning = ""
-    if (
-        normalized == schedule_actions.ACTION_RESTART_NOW
-        and _backend_success(result)
-        and result.performed
-    ):
-        clear_result = pending_work.clear_restart_pending_work_safely(
-            current.config.db_path,
-            instance=paths.DEFAULT_INSTANCE_NAME,
-        )
-        pending_restart_work_warning = clear_result.warning
-
     result_status = status.HTTP_200_OK if result.success else status.HTTP_400_BAD_REQUEST
     return _render_schedule(
         request,
         current,
         result=result,
-        pending_restart_work_warning=pending_restart_work_warning,
+        pending_restart_work_warning=result.pending_restart_work_warning,
         status_code=result_status,
     )
 

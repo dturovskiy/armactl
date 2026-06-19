@@ -17,7 +17,7 @@ from armactl.web.auth.dependencies import (
     require_permission,
 )
 from armactl.web.auth.permissions import ACTIONS_RUN
-from armactl.web.services import pending_work, service_actions
+from armactl.web.services import service_actions
 
 router = APIRouter()
 
@@ -46,14 +46,12 @@ def _operator_result_title(result: service_actions.ServiceActionResult) -> str:
 
 def _operator_result_message(
     result: service_actions.ServiceActionResult,
-    *,
-    pending_restart_work_cleared: bool,
 ) -> str:
     backend_success = _backend_success(result)
     if result.action == "restart" and backend_success:
         if not result.audit_written:
             return result.message
-        if pending_restart_work_cleared:
+        if result.pending_restart_work_cleared:
             return "Pending restart work cleared."
         return "No pending restart work was waiting."
     if result.action == "restart" and result.performed:
@@ -67,20 +65,14 @@ def _operator_result_message(
 
 def _service_result_view(
     result: service_actions.ServiceActionResult,
-    *,
-    pending_restart_work_cleared: bool,
-    pending_restart_work_warning: str,
 ) -> dict[str, object]:
     show_backend_message = not (result.action == "restart" and result.success)
     return {
         "title": _operator_result_title(result),
-        "message": _operator_result_message(
-            result,
-            pending_restart_work_cleared=pending_restart_work_cleared,
-        ),
+        "message": _operator_result_message(result),
         "backend_success": _backend_success(result),
-        "pending_restart_work_cleared": pending_restart_work_cleared,
-        "pending_restart_work_warning": pending_restart_work_warning,
+        "pending_restart_work_cleared": result.pending_restart_work_cleared,
+        "pending_restart_work_warning": result.pending_restart_work_warning,
         "show_backend_message": show_backend_message,
     }
 
@@ -91,8 +83,6 @@ def _render_result(
     result: service_actions.ServiceActionResult,
     *,
     status_code: int = status.HTTP_200_OK,
-    pending_restart_work_cleared: bool = False,
-    pending_restart_work_warning: str = "",
 ) -> Response:
     form_csrf = get_form_csrf_token(request, current)
     response = request.app.state.templates.TemplateResponse(
@@ -102,11 +92,7 @@ def _render_result(
             "current_user": current.user,
             "csrf_token": form_csrf.token,
             "result": result,
-            "result_view": _service_result_view(
-                result,
-                pending_restart_work_cleared=pending_restart_work_cleared,
-                pending_restart_work_warning=pending_restart_work_warning,
-            ),
+            "result_view": _service_result_view(result),
         },
         status_code=status_code,
     )
@@ -157,6 +143,7 @@ def service_action(
             audit_log_path=current.config.audit_log_path,
             username=current.user.username,
             instance=paths.DEFAULT_INSTANCE_NAME,
+            db_path=current.config.db_path,
         )
     except service_actions.ServiceActionError:
         return PlainTextResponse(
@@ -164,19 +151,4 @@ def service_action(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
-    pending_restart_work_cleared = False
-    pending_restart_work_warning = ""
-    if normalized == "restart" and _backend_success(result) and result.performed:
-        clear_result = pending_work.clear_restart_pending_work_safely(
-            current.config.db_path,
-            instance=paths.DEFAULT_INSTANCE_NAME,
-        )
-        pending_restart_work_cleared = clear_result.total_cleared > 0
-        pending_restart_work_warning = clear_result.warning
-    return _render_result(
-        request,
-        current,
-        result,
-        pending_restart_work_cleared=pending_restart_work_cleared,
-        pending_restart_work_warning=pending_restart_work_warning,
-    )
+    return _render_result(request, current, result)
