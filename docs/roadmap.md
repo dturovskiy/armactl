@@ -4,7 +4,11 @@
 >
 > **Статус реалізації:** цей файл є специфікацією та архітектурним орієнтиром. Єдиний актуальний статус-трекер ведеться в окремому файлі `checklist.md`, щоб уникнути двох джерел правди.
 >
-> **Наступний великий напрям:** browser management panel описаний окремо в `docs/web-interface-plan.md`. Цей roadmap лишається базовим ТЗ для CLI/TUI/Telegram-фундаменту, а web-панель має будуватися поверх тих самих backend-модулів.
+> **Web branch status:** browser management panel foundation is implemented on
+> `feat/web-interface` and described in `docs/web-interface-plan.md`. Stable
+> release and hardening are still pending. This roadmap remains the baseline ТЗ
+> for the CLI/TUI/Telegram foundation, while current web status is tracked in
+> `docs/checklist.md`.
 
 ---
 
@@ -21,7 +25,8 @@
 - редагує `config.json` без ручного редагування;
 - керує модами, сценаріями, параметрами сервера;
 - має нормальний release flow через GitHub;
-- у наступному етапі дає browser management panel для керування VM без постійного SSH.
+- на `feat/web-interface` має browser management panel foundation для керування
+  VM без постійного SSH після web deployment.
 
 ## 2. Основні сценарії використання
 
@@ -37,11 +42,15 @@
 
 Інструмент знаходить частину компонентів і пропонує `Repair installation`.
 
-### Сценарій Г: керування через браузер (planned)
+### Сценарій Г: керування через браузер
 
-Після встановлення web-панелі оператор відкриває HTTPS-адресу сервера у
-браузері, логіниться в management panel і бачить dashboard, server controls,
-logs, config/mods, Telegram settings і дозволений файловий root VM.
+На `feat/web-interface` оператор може встановити/запустити web service,
+відкрити HTTPS-адресу сервера у браузері, залогінитись у management panel і
+бачити dashboard, server controls, logs/report, config/mods/admins, restart
+schedule, jobs, player registry foundation і дозволені file roots. Stable
+release, VM smoke validation, DB migrations, policy/roles/tiers, broader
+platform adapters, banlist, destructive file workflows, and SAT/mod runtime
+settings remain future work.
 
 ## 3. Цільова платформа
 
@@ -813,7 +822,7 @@ TUI-екрани налаштування бота мають читати й з
 Фактичний прогрес і пріоритети реалізації ведуться тільки в `checklist.md`. Master checklist з цього плану свідомо прибраний, щоб не дублювати той самий статус у двох місцях.
 
 Для web-панелі source-of-truth плану - `web-interface-plan.md`, а короткий
-implementation checklist доданий у `checklist.md` як planned Phase 16.
+implementation checklist ведеться у `checklist.md` як Phase 16 web foundation.
 
 ---
 
@@ -827,7 +836,7 @@ implementation checklist доданий у `checklist.md` як planned Phase 16.
 Ціль:
 - installer + manager в одному інструменті
 - TUI як основний інтерфейс
-- майбутня browser web-панель як зручніший remote interface
+- browser web-панель foundation на `feat/web-interface` як зручніший remote interface
 - робота і на чистій машині, і з already existing server
 - SteamCMD install
 - керування через systemd
@@ -858,16 +867,21 @@ implementation checklist доданий у `checklist.md` як planned Phase 16.
 - schedule show/set/enable/disable
 
 Потім поверх цього зробити TUI.
-Після стабільного CLI/TUI-фундаменту зробити web-панель поверх тих самих
-backend-модулів, не перетворюючи `website/` на management UI.
+Web-панель має лишатися поверх тих самих backend-модулів, не перетворюючи
+`website/` на management UI.
 ```
 
 ---
 
 # Що робити далі
 
-CLI/TUI/Telegram foundation уже реалізований. Поточний наступний крок -
-**Phase 16: Web interface** з `checklist.md`, починаючи з package skeleton,
-web runtime config, auth/session/CSRF і read-only dashboard.
+CLI/TUI/Telegram foundation уже реалізований. Web foundation на
+`feat/web-interface` також реалізований у Phase 16: package skeleton, runtime
+config, auth/session/CSRF, dashboard, config/mods/admins/schedule/files/logs,
+jobs, player registry foundation, audit logging, and pending operator work.
+Поточні next slices мають бути hardening/future work: DB migrations for
+`web.db` and `players.db`, player refresh failure outcome audit, settings
+registry, feature policy/roles/tiers, broader platform adapters, banlist,
+destructive file workflows, SAT/mod runtime settings, and VM/release validation.
 
 Старий CLI/TUI план вище лишається історичним ТЗ і архітектурним орієнтиром.

@@ -229,8 +229,9 @@ Completed foundation:
 17. Background dispatcher/read-only jobs UI foundation: a pluggable runner can
     run explicitly registered safe handlers, terminal jobs do not rerun, handler
     failures are redacted into job metadata, and authenticated users with
-    jobs:view can inspect recent jobs at `/jobs`. No install/repair/update or
-    large-file handlers are registered yet.
+    jobs:view can inspect recent jobs at `/jobs`. Install and repair handlers
+    are registered through explicit server job flows; update and large-file
+    handlers remain future work.
 18. Read-only management pages for `/config`, `/mods`, `/admins`, and `/bot`:
     authenticated users with the matching view permissions can inspect safe
     server config summaries, active mods, game admins, and Telegram bot status
@@ -374,8 +375,8 @@ Completed foundation:
     filesystem_listing, filesystem_preview, and filesystem_transfer.
     services/filesystem.py remains only as a thin public re-export facade for
     compatibility. Delete, edit, overwrite, rename, and archive extraction
-    remain future work. Remaining cleanup debt: repeat the
-    architecture/modularity audit after the completed refactor slices.
+    remain future work. The repeat architecture/modularity audit is recorded in
+    `docs/system-modularity-audit-results-20260619.md`.
 
 38. Web app test split: the oversized tests/test_web_app.py catch-all has
     been reduced to app-level wiring/static smoke coverage. Focused modules now
@@ -403,7 +404,7 @@ Completed foundation:
     still required for persistence/moderation, and player IP storage remains
     off by default.
 
-Planned but not implemented:
+Implemented polish and future work:
 
 - Schedule and boot policy visibility are implemented for the web panel. On
   the serhiivka VM, armareforger.service was disabled while
@@ -432,62 +433,63 @@ Planned but not implemented:
   work inside `/config`, not `/files`, with permission, CSRF, double
   confirmation, JSON validation, backup, audit, redacted errors, and clear
   restart-required/pending-work behavior.
-- `/files` remains for safe browse/download/upload/delete flows. Future text
+- `/files` remains for safe browse/download/upload flows. Future delete and text
   editing, if added, must be separate from `/config`, root/path/extension/size
   limited, backed up, and audited.
 - ServerAdminTools runtime config belongs to future Mod Settings or Diagnostics.
   Dashboard should show SAT only for real health/guard problems, and SAT
   admins/gameMasters/bans edits must preserve unrelated SAT config.
 
-- Player registry and moderation are now part of the web roadmap. Store player
-  identity/activity data per instance, for example in ~/armactl-data/INSTANCE/players.db,
-  not only in the web runtime database. The current boundary is split into
-  source collection (`player_sources`), storage (`player_registry`), page DTOs
-  (`page_models/players`), and refresh+audit workflow (`player_actions`). Use
-  reliable RCON/log/SAT adapters for IDs and nicknames, never infer stable
-  identity from nicknames or A2S counts, and require auth, permissions,
-  POST+CSRF, confirmation, audit logging, and backups/rollback for ban/unban
-  flows. Store no player IPs by default unless a later privacy/security review
-  explicitly approves it.
+- Player registry foundation is implemented with instance-scoped
+  `~/armactl-data/INSTANCE/players.db`, not only the web runtime database. The
+  current boundary is split into source collection (`player_sources`), reliable
+  identity normalization (`player_identity`), storage (`player_registry`), page
+  DTOs (`page_models/players`), and refresh+audit workflow (`player_actions`).
+  Future details/history, extra ingestion, and ban/unban flows must use reliable
+  RCON/log/SAT adapters for IDs and nicknames, never infer stable identity from
+  nicknames or A2S counts, and require auth, permissions, POST+CSRF,
+  confirmation, audit logging, and backups/rollback where applicable. Store no
+  player IPs by default unless a later privacy/security review explicitly
+  approves it.
 
 Next recommended implementation order:
 
-1. Repeat the architecture/modularity audit after the completed refactor slices
-   so follow-up feature work starts from the updated module boundaries.
-2. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
+1. Add versioned migrations for `web.db` and `players.db`.
+2. Add player refresh failure outcome auditing for source/storage failures.
+3. Run a real remote HTTPS smoke test on a target VM/proxy pair and record the
    environment-specific outcome.
-3. Add optional IP allowlist / trusted proxy handling if operators need direct
+4. Add optional IP allowlist / trusted proxy handling if operators need direct
    external bind deployments; this is not implemented yet.
-4. Smoke-test the web schedule controls and boot/autostart warning on a real
+5. Smoke-test the web schedule controls and boot/autostart warning on a real
    target VM, because this affects remote recovery expectations after VM reboot.
-4. Add a diagnostics command palette before any browser terminal. It should run
+6. Add a diagnostics command palette before any browser terminal. It should run
    only registered safe commands such as status, timer status, port checks,
    config validation, bounded logs/report collection, and web/game service
    status. Use jobs, permissions, CSRF, audit, bounded/redacted output, and no
    arbitrary shell input.
-5. Treat a full web terminal as a disabled-by-default break-glass future flow,
+7. Treat a full web terminal as a disabled-by-default break-glass future flow,
    equivalent in risk to SSH. It must require HTTPS, trusted proxy/IP allowlist,
    explicit operator permission, extra re-auth, short-lived sessions, transcript
    auditing/redaction, and clear separation from normal dashboard operations.
    Before implementing terminal, host controls, premium diagnostics, or
    allowlist management, add and pass the security review gate from
    `docs/web-interface-plan.md`.
-6. Complete the config schema inventory before extending `/config`: verify exact
+8. Complete the config schema inventory before extending `/config`: verify exact
    Arma Reforger keys, group fields, and decide safe editor versus advanced
    editor behavior.
-7. Add update flow to explicit background job handlers if a safe backend API is
+9. Add update flow to explicit background job handlers if a safe backend API is
    introduced.
-8. Add edit/save/delete flows for bot settings and extended config fields
+10. Add edit/save/delete flows for bot settings and extended config fields
    through existing backend modules; keep any raw JSON config editor as a
    separate owner/admin-only `/config` break-glass design. Advanced/bulk admin
    workflows remain future and should still avoid mixing game admins with web
    users/roles. Advanced modpack workflows such as bulk paste, import/export,
    and clear-all remain future and should keep remove/cleanup confirmations
    explicit.
-9. Add atomic overwrite/delete/rename flows on top of the split safe
+11. Add atomic overwrite/delete/rename flows on top of the split safe
    filesystem adapter after single-file upload has been reviewed; do not use
    `/files` as the normal config editor.
-10. Add player registry details/history and ban-list management after the
+12. Add player registry details/history and ban-list management after the
    identity ingestion source is validated on a real server log/RCON sample.
    Reuse the current source/storage/page/workflow split instead of mixing web
    DTOs, current roster collection, SQLite persistence, and audit workflow.

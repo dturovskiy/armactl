@@ -253,13 +253,13 @@ Use:
 - `Detect Existing Server`
 - `Repair Installation`
 
-## Planned web panel notes
+## Web panel notes
 
-The browser management panel is planned but not part of the current stable
-operator surface yet. Until it is implemented and deployed, use CLI, TUI, or the
-optional Telegram bot for management.
+The browser management panel foundation is implemented on `feat/web-interface`,
+with stable release and production-hardening work still pending. CLI, TUI, and
+the optional Telegram bot remain the released fallback management paths.
 
-When debugging future web-panel deployments, keep these layers separate:
+When debugging web-panel deployments, keep these layers separate:
 
 - Arma game/A2S/RCON ports belong to the game VM and are configured in
   `config.json`.
@@ -268,5 +268,16 @@ When debugging future web-panel deployments, keep these layers separate:
 - The top-level `website/` directory is a marketing/static site, not the
   authenticated management panel.
 
-See [web-interface-plan.md](web-interface-plan.md) for the current deployment
-and port model.
+Current branch web surfaces include dashboard, safe config editing, mods,
+admins, restart schedule, files browse/upload/download/preview, logs/report,
+jobs, player registry foundation, auth/session/CSRF, audit logging, and pending
+operator work.
+
+Future web troubleshooting docs should stay scoped to future-only work:
+versioned migrations for `web.db` and `players.db`, player refresh failure
+outcome audit, settings registry, feature policy/roles/tiers, broader platform
+adapters, banlist, destructive file workflows, and SAT/mod runtime settings.
+
+See [web-deployment.md](web-deployment.md) for smoke/deployment checks and
+[web-interface-plan.md](web-interface-plan.md) for the architecture and port
+model.

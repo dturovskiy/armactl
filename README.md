@@ -6,9 +6,11 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 [![Ubuntu 24.04](https://img.shields.io/badge/ubuntu-24.04-E95420.svg)](README.md)
 
-Installer, manager, and TUI for **Arma Reforger Dedicated Server** on Ubuntu.
-A browser management panel is planned as the next major interface, but the
-current stable management paths remain CLI, TUI, and the optional Telegram bot.
+Installer, manager, TUI, and branch web foundation for **Arma Reforger Dedicated
+Server** on Ubuntu. The browser management panel is implemented on
+`feat/web-interface`; stable release and production-hardening work are still
+pending, so the released management paths remain CLI, TUI, and the optional
+Telegram bot.
 
 `armactl` is built for operators who want one tool that can install a server
 from scratch, detect an existing installation, repair broken state, manage
@@ -25,7 +27,8 @@ admin bot.
 - single dedicated server instance
 - single Linux user
 - operators who prefer a repo-local launcher over global package setup
-- remote operators who manage a VM over SSH today and want a browser panel later
+- remote operators who manage a VM over SSH today and want browser management
+  after the web service is deployed
 
 ## Quick start
 
@@ -81,6 +84,7 @@ refreshes `state.json`.
 - manage mods: add, remove, dedupe, import, export
 - manage scheduled restarts through `systemd`
 - expose optional Telegram bot controls
+- run the branch web foundation for browser-based server management
 - show real Arma Reforger server FPS/frame-time telemetry when `-logStats` data is available
 - keep runtime data separated from repo code
 
@@ -131,14 +135,15 @@ server after updating `armactl` so the process starts with `-logStats 10000`.
 
 ## Runtime layout
 
-`armactl` separates current runtime layers from planned web-runtime and log
+`armactl` separates source code, game runtime data, web-runtime data, and log
 storage:
 
 | Layer | Location | Purpose |
 |-------|----------|---------|
-| Source code | this repository | CLI + TUI + backend modules |
+| Source code | this repository | CLI, TUI, web package, and backend modules |
 | Runtime data | `~/armactl-data/default/` | server files, config, backups, state |
-| Planned web runtime | `~/armactl-data/web/` | web panel settings and account DB |
+| Web runtime | `~/armactl-data/web/` | web panel settings, users, sessions, jobs, and pending-work DB |
+| Player registry | `~/armactl-data/<instance>/players.db` | instance-scoped player registry foundation |
 | armactl logs | `~/armactl-data/logs/` | centralized armactl-owned logs and audit files |
 | System services | `/etc/systemd/system/` | auto-start and scheduled restarts |
 
@@ -182,16 +187,41 @@ Current bot capabilities include:
 
 See [docs/telegram-bot.md](docs/telegram-bot.md) for the full flow.
 
-## Planned web interface
+## Web interface on `feat/web-interface`
 
-The web management panel is planned in
-[docs/web-interface-plan.md](docs/web-interface-plan.md). It is intended to run
-inside the same VM as the Arma server and reuse the existing backend modules
-instead of reimplementing install, service, config, mods, logs, or filesystem
-logic.
+The web management panel foundation is implemented on the `feat/web-interface`
+branch. It runs inside the same VM as the Arma server and reuses the existing
+backend modules instead of reimplementing install, service, config, mods, logs,
+or filesystem logic. Stable release and production-hardening work are still
+pending.
+
+Current branch capabilities:
+
+- authenticated dashboard with live status polling
+- safe config editor for allowlisted non-secret fields
+- mods management foundation
+- game-admin management and current-player quick-add
+- restart schedule and game-service autostart controls
+- file browser with bounded preview, single-file download, and no-overwrite upload
+- logs and diagnostic report views
+- background jobs for install/repair and operator-visible job status
+- instance-scoped player registry foundation with reliable IDs and no IP storage by default
+- auth, sessions, CSRF protection, code-level permissions, and login throttling
+- JSONL audit logging plus pending operator work for saved config/admin/mod changes
+
+Future web work remains scoped to items such as versioned migrations for
+`web.db` and `players.db`, player refresh failure outcome auditing, a settings
+registry, policy/roles/tiers, broader platform adapters, banlist management,
+destructive file workflows, and SAT/mod runtime settings.
 
 The existing top-level `website/` directory is a marketing/static site. It is
 not the management panel and should stay separate from the authenticated web UI.
+
+Paid or premium features are not implemented. Any product tiers need a separate
+policy/feature-gate layer and business/legal review: existing public MIT history
+cannot be made private retroactively, and proprietary premium implementation
+should not be committed to the public MIT repo without an explicit repo/license
+decision.
 
 ## Documentation
 

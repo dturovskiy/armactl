@@ -233,7 +233,11 @@
 - [ ] Перевірити встановлення з релізного архіву
 - [ ] Перевірити запуск на іншій машині
 
-## Phase 16 — Web interface (planned)
+## Phase 16 — Web interface foundation (`feat/web-interface`)
+
+Web foundation is implemented on the branch; stable release, VM validation, and
+hardening work remain pending. Unchecked items below are future slices, not proof
+that the whole web panel is still only planned.
 
 - [x] Зафіксувати web architecture plan у `docs/web-interface-plan.md`
 - [x] Зафіксувати web architecture guardrails: route/service/facade межі, mutating-action contract, pending-work vs jobs, і стабільні правила тестування
@@ -242,15 +246,17 @@
 - [x] Розділити `services/filesystem.py` за roots/listing/preview/download/upload перед delete/edit/overwrite flows
 - [x] Розбити oversized `tests/test_web_app.py` на focused web test modules і прибрати залежність від patching route globals / imported FastAPI endpoint internals
 - [x] Прибрати залишковий web test debt з monkeypatch route internals: web tests патчать stable service/page_model/adapter seams, не FastAPI route globals або endpoint internals
-- [ ] Повторити architecture/modularity audit після завершених refactor slices (`facade.py`, `services/filesystem.py`, `tests/test_web_app.py`)
+- [x] Повторити architecture/modularity audit після завершених refactor slices (`facade.py`, `services/filesystem.py`, `tests/test_web_app.py`); результат: `docs/system-modularity-audit-results-20260619.md`
 - [x] Провести audit broad except Exception у web routes/services: mutating route/service catches очищені; documented fail-closed/degradation cases зафіксовані у plan/handoff
 - [ ] Додати повний web system audit як окремий gate: Arkady проходить docs/web-system-audit.md перед великим ризиковим слайсом і після нього, з findings/blockers/follow-up у handoff
 - [x] Додати system-wide modularity audit protocol у `docs/system-modularity-audit.md` для Аркадія перед великими platform/domain/refactor slices
-- [ ] Провести baseline system modularity audit по всьому проекту: CLI/TUI/web/bot, backend modules, platform adapters, persistence, tests/CI, docs; результат оформити окремим audit-results файлом з blockers/should-fix/follow-up
+- [x] Провести baseline/repeat system modularity audit по всьому проекту: CLI/TUI/web/bot, backend modules, platform adapters, persistence, tests/CI, docs; результат: `docs/system-modularity-audit-results-20260619.md`
+- [x] Провести documentation audit після web/refactor/modularity slices; результат: `docs/documentation-audit-results-20260619.md`
+- [x] Оновити top-level docs після documentation audit: README, architecture, checklist, troubleshooting, roadmap, з future-only blockers винесеними окремо
 - [x] Відділити тести від збереженої UI-мови оператора
 - [x] Зафіксувати, що `website/` є marketing/static site, не management panel
 - [x] Зафіксувати per-VM deployment model для Proxmox
-- [x] Зафіксувати дефолтні порти Arma і planned web port
+- [x] Зафіксувати дефолтні порти Arma і default web port
 - [x] Зафіксувати always-on lifecycle model для web panel
 - [x] Зафіксувати remote-user і local-smoke сценарії для web panel
 - [x] Додати shared blocked-port dictionary для web port validation
@@ -371,4 +377,8 @@
 Для початкового CLI/TUI циклу старт був **Phase 0 → Phase 1 → Phase 2 →
 Phase 3 → Phase 4**. Цей фундамент уже реалізований.
 
-Поточний наступний етап - **Phase 16: Web interface (planned)**.
+Поточний web foundation реалізований у **Phase 16: Web interface foundation
+(`feat/web-interface`)**. Найближчі future slices: DB migrations for `web.db`
+and `players.db`, player refresh failure outcome audit, settings registry,
+feature policy/roles/tiers, broader platform adapters, banlist, destructive file
+workflows, SAT/mod runtime settings, and VM/release hardening.

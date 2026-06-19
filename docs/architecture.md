@@ -2,13 +2,14 @@
 
 ## Принцип розділення
 
-В armactl чітко розділені чотири типи файлів:
+В armactl чітко розділені кілька типів файлів:
 
 | Тип | Що | Де живе |
 |-----|----|---------|
 | **Source code** | Код тулзи, шаблони, тести | GitHub-репо `armactl/` |
 | **Runtime data** | Бінарники сервера, конфіг, бекапи, state | `~/armactl-data/<instance>/` |
-| **Web runtime data** | Planned web settings, accounts, sessions | `~/armactl-data/web/` |
+| **Web runtime data** | Web settings, users, sessions, jobs, pending work | `~/armactl-data/web/` |
+| **Player registry data** | Instance-scoped reliable player registry | `~/armactl-data/<instance>/players.db` |
 | **armactl logs** | Centralized armactl-owned logs and audit files | `~/armactl-data/logs/` |
 | **System services** | systemd unit-файли для автозапуску | `/etc/systemd/system/` |
 
@@ -34,7 +35,7 @@ armactl/
 │   ├── bootstrap.sh
 │   ├── run-host-tests
 │   ├── run-tui
-│   ├── run-web                 # planned local web smoke launcher
+│   ├── run-web                 # local web smoke launcher
 │   └── ...
 ├── templates/
 │   ├── config.json.j2
@@ -61,7 +62,15 @@ armactl/
 │       ├── repair.py
 │       ├── service_manager.py
 │       ├── state.py
-│       ├── web/                 # planned browser management panel
+│       ├── web/                 # browser management panel package
+│       │   ├── auth/
+│       │   ├── jobs/
+│       │   ├── page_models/
+│       │   ├── routes/
+│       │   ├── runtime/
+│       │   ├── services/
+│       │   ├── templates/
+│       │   └── static/
 │       └── tui/
 │           ├── app.py
 │           └── screens.py
@@ -83,7 +92,7 @@ armactl/
 | `src/armactl/` | Увесь код: CLI, discovery, config, mods, TUI |
 | `src/armactl/platform/` | Platform adapter boundaries for service/timer and future OS-specific backends |
 | `src/armactl/tui/` | TUI-оболонка (Textual), жодної бізнес-логіки |
-| `src/armactl/web/` | Planned web-panel routes, templates, static assets, жодної бізнес-логіки |
+| `src/armactl/web/` | Web-panel routes, page models, services, auth, jobs, templates, static assets; routes are HTTP glue |
 | `website/` | Static marketing site, окремо від authenticated management panel |
 | `templates/` | Jinja2-шаблони для config, service, timer, start script |
 | `scripts/` | Зручні launcher-и та dev-скрипти |
@@ -110,7 +119,7 @@ armactl/
 | `logs.py` | Читання journalctl логів |
 | `metrics.py` | Runtime метрики сервера: CPU/RAM, PID-level state, Server FPS/frame-time telemetry |
 | `ports.py` | Перевірка listening портів (ss) |
-| `web/` | Planned ASGI web adapter over backend modules; routes enforce explicit permissions and should not authorize dangerous features from product tier names alone |
+| `web/` | ASGI web adapter over backend modules; routes enforce explicit permissions and do not authorize dangerous features from product tier names alone |
 
 ---
 
@@ -140,6 +149,7 @@ armactl/
 ├── backups/                         # автоматичні backup-и перед змінами
 ├── admins-state.json                # локальні labels/source metadata для game.admins
 ├── sat-admin-uuid-map.json          # optional Steam/name -> SAT UUID map
+├── players.db                       # web player registry foundation for reliable IDs
 ├── state.json                       # стан інстансу для discovery
 └── start-armareforger.sh            # launch script
 ```
@@ -152,6 +162,7 @@ armactl/
 | `config/config.json` | Конфіг сервера (редагується через `armactl config`) |
 | `admins-state.json` | armactl metadata для labels/source офіційних `game.admins` |
 | `sat-admin-uuid-map.json` | Optional map для ServerAdminTools UUID, коли `game.admins` містить SteamID64 |
+| `players.db` | Instance-scoped web player registry foundation: reliable IDs, nickname history, first/last seen, seen count; no IP storage by default |
 | `bot/.env` | Optional Telegram bot config; те саме джерело правди для TUI і ручного редагування |
 | `backups/` | Резервні копії конфігу перед кожною зміною |
 | `state.json` | Discovery/state файл armactl |
@@ -184,7 +195,7 @@ admins; the SAT map is a narrow conversion layer:
 
 Кожен інстанс — повністю ізольований, зі своїм конфігом, бекапами і state.
 
-### Planned web panel runtime
+### Web panel runtime on `feat/web-interface`
 
 Web-panel state is not stored in the repository and not stored inside a game
 instance. It belongs to the armactl management layer:
@@ -192,7 +203,7 @@ instance. It belongs to the armactl management layer:
 ```text
 ~/armactl-data/web/
 ├── web.env                         # local web runtime settings
-└── web.db                          # users, roles, sessions, jobs
+└── web.db                          # users, sessions, CSRF, jobs, pending work
 ```
 
 armactl-owned logs have a centralized root with separate files/directories per
@@ -230,7 +241,7 @@ symlink escape, and backup/quarantine or rollback where practical.
 /etc/systemd/system/armareforger.service
 /etc/systemd/system/armareforger-restart.service
 /etc/systemd/system/armareforger-restart.timer
-/etc/systemd/system/armactl-web.service      # planned web panel service
+/etc/systemd/system/armactl-web.service      # web panel service
 ```
 
 ### Зв'язок service → instance root
@@ -258,7 +269,7 @@ compatibility path for now and can move to the adapter in later safe slices.
 
 ```text
 ┌─────────────────────────────────────┐
-│ CLI / TUI / Telegram / Web (planned)│  ← Адаптери, жодної бізнес-логіки
+│ CLI / TUI / Telegram / Web          │  ← Адаптери, жодної бізнес-логіки
 ├─────────────────────────────────────┤
 │          Backend modules            │  ← Уся бізнес-логіка / internal API
 ├──────────┬──────────┬───────────────┤
@@ -273,7 +284,7 @@ compatibility path for now and can move to the adapter in later safe slices.
 ### Правила
 
 1. **TUI не містить бізнес-логіки** — викликає reusable backend-модулі, а не реалізує логіку в екранах
-2. **Web route handlers не містять бізнес-логіки** — planned web panel має бути тонким адаптером над тими самими backend-модулями
+2. **Web route handlers не містять бізнес-логіки** — web panel має бути тонким адаптером над тими самими backend-модулями
 3. **Internal API — це Python backend-модулі** — CLI/TUI/Telegram/web мають викликати їх напряму, а не використовувати TUI або CLI як API
 4. **CLI — стабільна точка входу для адміністрування** — але це адаптер над backend-модулями; core-логіка працює і без CLI/TUI/web
 5. **Модулі незалежні** — discovery не знає про TUI, config manager не знає про installer
@@ -292,10 +303,51 @@ HTTP glue only; web service modules own workflow, audit, pending-work, and
 rollback/compensation decisions; low-level adapters perform pure filesystem,
 systemd, or database operations without route/session knowledge.
 
+Current web package boundaries on `feat/web-interface`:
+
+- `routes/` is HTTP glue: auth/permission/CSRF/form parsing, one service or
+  page-model call, and rendering.
+- `services/` owns workflow, audit, pending-work updates, mutation
+  orchestration, and controlled result objects.
+- `page_models/` and `views/` own DTO/read-model aggregation for templates and
+  status JSON.
+- `platform/service_adapter.py` is the service/schedule backend seam used by web
+  start/stop/restart, restart-timer, and game-service autostart workflows. The
+  default adapter is Linux/systemd through `service_manager`.
+- `jobs/` stores background job metadata in `web.db`, deduplicates active jobs
+  by kind/instance, starts workers only for newly created jobs, and uses atomic
+  worker claim before execution.
+- `services/filesystem_*` modules split roots, path safety, listing, preview,
+  transfer, URLs, and upload publishing; `services/filesystem.py` is only a
+  compatibility re-export.
+- Player registry/moderation is split across `player_sources`,
+  `player_identity`, `player_registry`, `page_models/players`, and
+  `player_actions`. The registry stores reliable IDs and nickname history in
+  `<instance>/players.db`; it does not store IP addresses by default.
+
+Current web branch capabilities include dashboard, safe config editing, mods,
+admins, restart schedule, files browse/upload/download/preview, logs/report,
+jobs/background operations, player registry foundation, auth/session/CSRF,
+permissions, audit logging, and pending operator work. These are implemented on
+`feat/web-interface`; stable release, deployment validation, and hardening are
+still pending.
+
 Windows backend support is future platform architecture, not part of the current
 Linux/systemd web MVP. Adding it requires new adapter implementations for
 service/log/path/firewall/process/metrics and install/update flow before web
 routes should target Windows hosts.
+
+Known future web/platform work is intentionally separate from the implemented
+foundation: versioned migrations for `web.db` and `players.db`, player refresh
+failure outcome auditing, a typed settings registry, feature policy/roles/tiers,
+broader platform adapters, banlist management, destructive file workflows, and
+SAT/mod runtime settings.
+
+Paid/premium features are not implemented. If product tiers are added, keep
+entitlements separate from permissions through a policy/feature-gate layer.
+Existing public MIT history cannot be made private retroactively, and
+proprietary premium implementation should not be placed in the public MIT repo
+without an explicit business/legal repo and licensing decision.
 
 For broad modularity or platform work, use `docs/system-modularity-audit.md` before
 implementation. That audit is the source of truth for checking whether CLI, TUI,
@@ -355,7 +407,7 @@ armactl config set-name "My Server"
   → atomic write
 ```
 
-### Planned web dashboard flow
+### Web dashboard flow
 
 ```text
 browser
@@ -365,7 +417,7 @@ browser
   → state/config/systemd/filesystem
 ```
 
-The web service should run beside the game server in the same VM. On Proxmox,
+The web service runs beside the game server in the same VM. On Proxmox,
 multiple game VMs can each use the same local web port because each VM has its
 own network namespace. Public exposure should be handled by a reverse proxy with
 one subdomain or route per VM.

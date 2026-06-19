@@ -572,7 +572,7 @@ Default port inventory:
 | Arma game bind/public port | `2001` | UDP | `templates/config.json.j2` |
 | Steam A2S query | `17777` | UDP | `templates/config.json.j2` |
 | RCON | `19999` | TCP/UDP handling in UFW | `templates/config.json.j2`, `ports.py` |
-| armactl web panel | `8765` | TCP | planned default |
+| armactl web panel | `8765` | TCP | current default |
 | reverse proxy public HTTP | `80` | TCP | proxy/LXC/VM |
 | reverse proxy public HTTPS | `443` | TCP | proxy/LXC/VM |
 
@@ -996,16 +996,16 @@ different architecture and should not be part of the first per-VM web panel.
 
 ## Player registry and moderation model
 
-A future web slice should add a first-class player registry and moderation
-layer. This is separate from web users and game admins: web users are people who
-log into the control panel, while the player registry tracks Arma players seen
-on the managed game server.
+The branch now has a first-class player registry foundation and an initial
+moderation convenience surface. This is separate from web users and game admins:
+web users are people who log into the control panel, while the player registry
+tracks Arma players seen on the managed game server.
 
 Implemented foundation: `/admins` includes a lightweight Players / Moderation
 section backed by the existing `player_view`/RCON roster path. It shows current
 player names, filters server-side by nickname or reliable ID, and offers
 add-to-game-admin only when a stable admin reference is available. It does not
-persist a registry, store IP addresses, or expose ban/unban actions.
+store IP addresses or expose ban/unban actions.
 
 Implemented registry foundation: `/players` is a read-only player registry page
 backed by an instance-scoped `players.db` under the game instance root, not the
@@ -1145,15 +1145,17 @@ The web backend should be a thin adapter over existing modules:
 
 - Discovery/status: `discovery`, `state`, `status_summary`, `metrics`,
   `player_view`
-- Server actions: `service_manager`
+- Server actions: `platform/service_adapter.py` for web workflows, backed by Linux/systemd `service_manager`
 - Logs: `logs`, `report`
 - Config: `config_manager`
 - Mods: `mods_manager`
 - Admins: `admins_manager`
-- Schedule/timer: `service_manager`
+- Schedule/timer: `platform/service_adapter.py` for web workflows, backed by Linux/systemd `service_manager`
 - Telegram bot settings: `bot_config`, `bot_manager`
 - Files: new safe filesystem adapter
-- Players/moderation: future instance-scoped player registry and ban-list service
+- Players/moderation: instance-scoped player registry foundation is implemented;
+  ban-list service, details/history, session/activity views, and extra ingestion
+  adapters remain future work
 
 Avoid importing or calling TUI screens from web code.
 
