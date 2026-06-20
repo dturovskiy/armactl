@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 
 from armactl.service_manager import ServiceResult
 from armactl.web import service as web_service
@@ -116,6 +119,34 @@ def _install_succeeded(result: web_service.WebServiceInstallResult) -> bool:
     return all(service_result.success for service_result in result.results)
 
 
+def _health_host(bind_host: str) -> str:
+    if bind_host in {"0.0.0.0", "::"}:
+        return "127.0.0.1"
+    return bind_host
+
+
+def wait_for_web_health(config: WebRuntimeConfig, timeout_seconds: float = 10.0) -> ServiceResult:
+    deadline = time.monotonic() + timeout_seconds
+    url = f"http://{_health_host(config.bind_host)}:{config.bind_port}/healthz"
+    last_error = "not ready"
+
+    while time.monotonic() < deadline:
+        try:
+            with urlopen(url, timeout=1.0) as response:
+                if 200 <= response.status < 300:
+                    return ServiceResult(True, f"Web service is ready: {url}", 0)
+                last_error = f"HTTP {response.status}"
+        except (HTTPError, URLError, OSError, TimeoutError) as error:
+            last_error = str(error)
+        time.sleep(0.25)
+
+    return ServiceResult(
+        False,
+        f"Web service started but did not become ready at {url}: {last_error}",
+        1,
+    )
+
+
 def run_web_quickstart(request: WebQuickstartRequest) -> WebQuickstartResult:
     """Prepare runtime, owner, service unit, and start the web panel."""
     try:
@@ -128,6 +159,8 @@ def run_web_quickstart(request: WebQuickstartRequest) -> WebQuickstartResult:
     start_result = None
     if _install_succeeded(install_result):
         start_result = web_service.start_web_service()
+        if start_result.success:
+            start_result = wait_for_web_health(install_result.config)
 
     return WebQuickstartResult(
         config=install_result.config,

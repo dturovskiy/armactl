@@ -61,6 +61,16 @@ def _web_install_result(tmp_path: Path, config, *messages: tuple[bool, str, int]
         ),
     )
 
+def _stub_web_health_ready(monkeypatch):
+    from armactl.service_manager import ServiceResult
+    from armactl.web import quickstart
+
+    monkeypatch.setattr(
+        quickstart,
+        "wait_for_web_health",
+        lambda config: ServiceResult(True, "web ready", 0),
+    )
+
 def test_web_help_exists():
     result = invoke_web("--help")
 
@@ -297,6 +307,7 @@ def test_web_without_subcommand_runs_one_command_setup(tmp_path: Path, monkeypat
 
     monkeypatch.setattr(web_service, "install_web_service", fake_install)
     monkeypatch.setattr(web_service, "start_web_service", fake_start)
+    _stub_web_health_ready(monkeypatch)
 
     result = invoke_web(
         "--data-root",
@@ -355,6 +366,7 @@ def test_web_quickstart_prompt_defaults_to_local_access(tmp_path: Path, monkeypa
 
     monkeypatch.setattr(web_service, "install_web_service", fake_install)
     monkeypatch.setattr(web_service, "start_web_service", fake_start)
+    _stub_web_health_ready(monkeypatch)
 
     result = invoke_web(
         "--data-root",
@@ -397,6 +409,7 @@ def test_web_quickstart_existing_owner_does_not_prompt_for_password(tmp_path: Pa
 
     monkeypatch.setattr(web_service, "install_web_service", fake_install)
     monkeypatch.setattr(web_service, "start_web_service", fake_start)
+    _stub_web_health_ready(monkeypatch)
 
     result = invoke_web("--data-root", str(tmp_path), "--access", "local", input_text="")
 
@@ -427,6 +440,7 @@ def test_web_quickstart_install_failure_does_not_start_service(tmp_path: Path, m
 
     monkeypatch.setattr(web_service, "install_web_service", fake_install)
     monkeypatch.setattr(web_service, "start_web_service", fake_start)
+    _stub_web_health_ready(monkeypatch)
 
     result = invoke_web(
         "--data-root",
