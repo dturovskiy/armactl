@@ -47,6 +47,8 @@ class _PreparedConfigEdit:
     config_path: Path
     updated_config: dict[str, Any]
     changed_fields: tuple[str, ...]
+    baseline_fingerprint: str = ""
+    current_fingerprint: str = ""
 
 
 _STRING_LIMIT = 512
@@ -143,6 +145,14 @@ def _changed_fields(before: Mapping[str, Any], after: Mapping[str, Any]) -> tupl
 
 def _submitted_fields(form: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(field for field in ALLOWLISTED_CONFIG_FORM_FIELDS if field in form)
+
+
+def _config_restart_fingerprint(config: Mapping[str, Any]) -> str:
+    payload = {
+        field: _nested_value(config, field_path)
+        for field, field_path in _FIELD_PATHS.items()
+    }
+    return pending_work.safe_state_fingerprint(payload)
 
 
 def build_config_edit_form(config: Mapping[str, Any]) -> dict[str, Any]:
@@ -249,6 +259,8 @@ def _prepare_basic_config_edit(config_path, form):
         config_path=path,
         updated_config=updated,
         changed_fields=changed_fields,
+        baseline_fingerprint=_config_restart_fingerprint(data),
+        current_fingerprint=_config_restart_fingerprint(updated),
     )
 
 
@@ -318,17 +330,31 @@ def _mark_restart_pending_for_config_result(
     db_path: Path | None,
     username: str,
     instance: str,
+    baseline_fingerprint: str = "",
+    current_fingerprint: str = "",
 ) -> ConfigEditResult:
     if db_path is None or not result.changed_fields:
         return result
-    write_result = pending_work.mark_restart_pending_for_service(
-        db_path,
-        instance=instance,
-        kind=pending_work.KIND_CONFIG,
-        source_action=CONFIG_SAVE_ACTION,
-        username=username,
-        details=", ".join(result.changed_fields),
-    )
+    if baseline_fingerprint and current_fingerprint:
+        write_result = pending_work.mark_restart_pending_for_state(
+            db_path,
+            instance=instance,
+            kind=pending_work.KIND_CONFIG,
+            source_action=CONFIG_SAVE_ACTION,
+            username=username,
+            details=", ".join(result.changed_fields),
+            baseline_fingerprint=baseline_fingerprint,
+            current_fingerprint=current_fingerprint,
+        )
+    else:
+        write_result = pending_work.mark_restart_pending_for_service(
+            db_path,
+            instance=instance,
+            kind=pending_work.KIND_CONFIG,
+            source_action=CONFIG_SAVE_ACTION,
+            username=username,
+            details=", ".join(result.changed_fields),
+        )
     return replace(
         result,
         pending_work_warning=write_result.warning,
@@ -414,6 +440,8 @@ def save_default_config_and_audit(instance, form, *, audit_log_path, username, d
             db_path=db_path,
             username=username,
             instance=normalized_instance,
+            baseline_fingerprint=prepared.baseline_fingerprint,
+            current_fingerprint=prepared.current_fingerprint,
         )
         raise ConfigAuditError(
             "Config saved but audit logging failed.",
@@ -424,4 +452,6 @@ def save_default_config_and_audit(instance, form, *, audit_log_path, username, d
         db_path=db_path,
         username=username,
         instance=normalized_instance,
+        baseline_fingerprint=prepared.baseline_fingerprint,
+        current_fingerprint=prepared.current_fingerprint,
     )

@@ -101,9 +101,9 @@ grep -RiaE 'FPS:|frame time' ~/armactl-data/default/config/logs | tail -20
 
 ## Web panel development notes
 
-The planned web interface is documented in
-[web-interface-plan.md](web-interface-plan.md). Until the implementation exists,
-do not add browser-only behavior that bypasses the existing backend modules.
+The web panel foundation is documented in
+[web-interface-plan.md](web-interface-plan.md). Keep browser behavior on the
+same backend modules and service/page-model seams used by the CLI/TUI paths.
 
 For multi-chat implementation/review work, use
 [web-interface-handoff.md](web-interface-handoff.md) as the prompt and review

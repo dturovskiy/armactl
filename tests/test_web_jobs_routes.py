@@ -569,7 +569,7 @@ def test_post_server_job_reuses_existing_active_job_without_duplicate_worker(
         ("/jobs/server/repair", "server:repair"),
     ],
 )
-def test_server_job_audit_failure_cancels_created_job(
+def test_server_job_intent_audit_failure_does_not_create_job(
     tmp_path: Path,
     monkeypatch,
     path: str,
@@ -581,10 +581,10 @@ def test_server_job_audit_failure_cancels_created_job(
     from armactl.web.services.audit import AuditLogError
 
     def fail_audit(*args, **kwargs):
-        raise AuditLogError("disk full")
+        raise AuditLogError("disk full token=raw-job-secret")
 
     def fail_worker(*args, **kwargs):
-        raise AssertionError("worker should not start when audit fails")
+        raise AssertionError("worker should not start when intent audit fails")
 
     monkeypatch.setattr(server_job_actions, "append_audit_event", fail_audit)
     monkeypatch.setattr(server_job_actions.server_jobs, "start_server_job_worker", fail_worker)
@@ -600,14 +600,120 @@ def test_server_job_audit_failure_cancels_created_job(
         data={"csrf_token": csrf_token},
         follow_redirects=False,
     )
-    jobs = list_recent_jobs(tmp_path / "web" / "web.db")
+    jobs = [job for job in list_recent_jobs(tmp_path / "web" / "web.db") if job.kind == job_kind]
 
     assert response.status_code == 500
-    assert response.text == "Job queued but audit logging failed."
+    assert response.text == "Job was not queued because audit logging failed."
+    assert jobs == []
+    assert "raw-job-secret" not in response.text
+    assert "Traceback" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("path", "job_kind"),
+    [
+        ("/jobs/server/install", "server:install"),
+        ("/jobs/server/repair", "server:repair"),
+    ],
+)
+def test_server_job_outcome_audit_failure_cancels_created_job(
+    tmp_path: Path,
+    monkeypatch,
+    path: str,
+    job_kind: str,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs.store import list_recent_jobs
+    from armactl.web.services import server_job_actions
+    from armactl.web.services.audit import AuditLogError
+
+    def fail_outcome_audit(*args, **kwargs):
+        details = kwargs.get("details") or {}
+        if details.get("phase") == "outcome":
+            raise AuditLogError("disk full token=raw-job-secret")
+
+    def fail_worker(*args, **kwargs):
+        raise AssertionError("worker should not start when outcome audit fails")
+
+    monkeypatch.setattr(server_job_actions, "append_audit_event", fail_outcome_audit)
+    monkeypatch.setattr(server_job_actions.server_jobs, "start_server_job_worker", fail_worker)
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+
+    response = client.post(
+        path,
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    jobs = [job for job in list_recent_jobs(tmp_path / "web" / "web.db") if job.kind == job_kind]
+
+    assert response.status_code == 500
+    assert response.text == "Job action could not be completed because audit logging failed."
     assert len(jobs) == 1
-    assert jobs[0].kind == job_kind
     assert jobs[0].status == "cancelled"
     assert jobs[0].result_message == "Cancelled because audit logging failed."
+    assert "raw-job-secret" not in response.text
+    assert "Traceback" not in response.text
+
+
+def test_existing_active_server_job_outcome_audit_failure_is_controlled(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import server as server_jobs
+    from armactl.web.jobs.store import list_recent_jobs
+    from armactl.web.services import server_job_actions
+    from armactl.web.services.audit import AuditLogError
+
+    scheduled: list[int] = []
+    monkeypatch.setattr(
+        server_jobs,
+        "start_server_job_worker",
+        lambda db_path, job_id: scheduled.append(job_id),
+    )
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+
+    first_response = client.post(
+        "/jobs/server/install",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    def fail_outcome_audit(*args, **kwargs):
+        details = kwargs.get("details") or {}
+        if details.get("phase") == "outcome":
+            raise AuditLogError("disk full token=raw-job-secret")
+
+    monkeypatch.setattr(server_job_actions, "append_audit_event", fail_outcome_audit)
+    second_response = client.post(
+        "/jobs/server/install",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    jobs = [
+        job
+        for job in list_recent_jobs(tmp_path / "web" / "web.db")
+        if job.kind == "server:install"
+    ]
+
+    assert first_response.status_code == 303
+    assert second_response.status_code == 500
+    assert second_response.text == "Job action could not be completed because audit logging failed."
+    assert len(jobs) == 1
+    assert jobs[0].status == "queued"
+    assert scheduled == [jobs[0].id]
+    assert "raw-job-secret" not in second_response.text
+    assert "Traceback" not in second_response.text
 
 
 def test_jobs_page_shows_queued_install_repair_jobs(tmp_path: Path, monkeypatch):

@@ -342,7 +342,7 @@ that the whole web panel is still only planned.
 - [ ] Follow-up owner: наступний jobs/update slice. Перевірити `EXPLAIN QUERY PLAN` і latency active lookup на production-scale job history перед додаванням update job flow або standalone worker daemon.
 - [x] Додати safe web edit/save для базових полів `config.json` через `config_manager`
 - [x] Додати audit logging для safe web config save з changed fields і backup path
-- [x] Додати audit logging для file upload і web install/repair job enqueue після VM smoke audit cleanup
+- [x] Додати intent/outcome audit logging для file upload і web install/repair job enqueue після VM smoke audit cleanup
 - [x] Додати stacked web pending operator work для config/admins/mods окремо від `web_jobs`, з compact dashboard table, dense details на `/jobs` і clear після successful web restart
 - [x] Додати shared operator UI primitives для dashboard/config pages
 - [x] Додати safe web add/update/remove для game admins через `admins_manager` з auth/CSRF/`admins:manage`/audit

@@ -11,9 +11,9 @@ from armactl import (
     player_view,
     ports,
     sat_admin_guard,
-    service_manager,
     status_summary,
 )
+from armactl.platform.service_adapter import ServiceAdapter, get_service_adapter
 from armactl.state import ServerState
 from armactl.web.page_models.bot import load_bot_summary
 from armactl.web.page_models.common import (
@@ -35,6 +35,11 @@ DEFAULT_A2S_PORT = 17777
 DEFAULT_RCON_PORT = 19999
 DASHBOARD_PLAYER_TIMEOUT_SECONDS = 0.35
 DASHBOARD_ROSTER_TIMEOUT_SECONDS = 0.35
+
+
+def _resolve_service_adapter(adapter: ServiceAdapter | None) -> ServiceAdapter:
+    return adapter if adapter is not None else get_service_adapter()
+
 
 @dataclass(frozen=True)
 class DashboardSnapshot:
@@ -349,12 +354,15 @@ def _load_sat_summary(state: ServerState, errors: list[DashboardError]) -> dict[
 
     return {"available": bool(summary.get("available")), **summary}
 
+
 def load_dashboard_snapshot(
     instance: str,
     *,
     web_config: Any | None = None,
+    adapter: ServiceAdapter | None = None,
 ) -> dict[str, Any]:
     errors: list[DashboardError] = []
+    service_adapter = _resolve_service_adapter(adapter)
     state = discovery.discover(instance=instance, save=False)
     state_dict = state.to_dict()
 
@@ -363,7 +371,7 @@ def load_dashboard_snapshot(
             "service",
             errors,
             _unavailable("service status is not available"),
-            service_manager.get_service_status,
+            service_adapter.get_service_status,
             state.service_name,
         )
         if service.get("available") is not False:
@@ -376,7 +384,7 @@ def load_dashboard_snapshot(
             "timer",
             errors,
             _unavailable("timer status is not available"),
-            service_manager.get_timer_status,
+            service_adapter.get_timer_status,
             state.timer_name,
         )
         if timer.get("available") is not False:

@@ -880,8 +880,8 @@ CLI/TUI/Telegram foundation уже реалізований. Web foundation на
 config, auth/session/CSRF, dashboard, config/mods/admins/schedule/files/logs,
 jobs, player registry foundation, audit logging, and pending operator work.
 Поточні next slices мають бути hardening/future work: DB migrations for
-`web.db` and `players.db`, player refresh failure outcome audit, settings
-registry, feature policy/roles/tiers, broader platform adapters, banlist,
+`web.db` and `players.db`, settings registry, feature policy/roles/tiers,
+broader platform adapters, banlist,
 destructive file workflows, SAT/mod runtime settings, and VM/release validation.
 
 Старий CLI/TUI план вище лишається історичним ТЗ і архітектурним орієнтиром.

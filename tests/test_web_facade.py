@@ -101,29 +101,27 @@ def _install_common_fakes(
     facade = _import_dashboard_model()
 
     monkeypatch.setattr(facade.discovery, "discover", lambda instance, save=False: server_state)
-    monkeypatch.setattr(
-        facade.service_manager,
-        "get_service_status",
-        lambda service_name: {
-            "service_name": service_name,
-            "active": service_active,
-            "enabled": True,
-            "active_state": "active" if service_active else "inactive",
-            "sub_state": "running" if service_active else "dead",
-            "main_pid": 123 if service_active else 0,
-        },
-    )
-    monkeypatch.setattr(
-        facade.service_manager,
-        "get_timer_status",
-        lambda timer_name: {
-            "timer_name": timer_name,
-            "active": True,
-            "enabled": True,
-            "schedule": "*-*-* 06:00:00",
-            "next_run": "Fri 2026-06-12 06:00:00 UTC",
-        },
-    )
+    class FakeServiceAdapter:
+        def get_service_status(self, service_name):
+            return {
+                "service_name": service_name,
+                "active": service_active,
+                "enabled": True,
+                "active_state": "active" if service_active else "inactive",
+                "sub_state": "running" if service_active else "dead",
+                "main_pid": 123 if service_active else 0,
+            }
+
+        def get_timer_status(self, timer_name):
+            return {
+                "timer_name": timer_name,
+                "active": True,
+                "enabled": True,
+                "schedule": "*-*-* 06:00:00",
+                "next_run": "Fri 2026-06-12 06:00:00 UTC",
+            }
+
+    monkeypatch.setattr(facade, "get_service_adapter", lambda: FakeServiceAdapter())
     monkeypatch.setattr(
         facade.status_summary,
         "load_status_summaries",
@@ -341,18 +339,27 @@ def test_dashboard_snapshot_treats_active_service_without_ready_telemetry_as_run
 def test_dashboard_snapshot_treats_activating_service_as_starting(monkeypatch):
     server_state = _state(installed=True, running=False)
     facade = _install_common_fakes(monkeypatch, server_state, service_active=False)
-    monkeypatch.setattr(
-        facade.service_manager,
-        "get_service_status",
-        lambda service_name: {
-            "service_name": service_name,
-            "active": False,
-            "enabled": True,
-            "active_state": "activating",
-            "sub_state": "start",
-            "main_pid": 123,
-        },
-    )
+    class ActivatingServiceAdapter:
+        def get_service_status(self, service_name):
+            return {
+                "service_name": service_name,
+                "active": False,
+                "enabled": True,
+                "active_state": "activating",
+                "sub_state": "start",
+                "main_pid": 123,
+            }
+
+        def get_timer_status(self, timer_name):
+            return {
+                "timer_name": timer_name,
+                "active": True,
+                "enabled": True,
+                "schedule": "*-*-* 06:00:00",
+                "next_run": "Fri 2026-06-12 06:00:00 UTC",
+            }
+
+    monkeypatch.setattr(facade, "get_service_adapter", lambda: ActivatingServiceAdapter())
     monkeypatch.setattr(
         facade.metrics,
         "query_server_fps_metrics",
@@ -439,8 +446,14 @@ def test_dashboard_snapshot_for_no_server_skips_server_sections(monkeypatch):
     server_state = _state(installed=False, config_exists=False, config_path="")
     facade = _import_dashboard_model()
     monkeypatch.setattr(facade.discovery, "discover", lambda instance, save=False: server_state)
-    monkeypatch.setattr(facade.service_manager, "get_service_status", _fail_if_called("service"))
-    monkeypatch.setattr(facade.service_manager, "get_timer_status", _fail_if_called("timer"))
+    class FailingServiceAdapter:
+        def get_service_status(self, service_name):
+            raise AssertionError("service should not be called")
+
+        def get_timer_status(self, timer_name):
+            raise AssertionError("timer should not be called")
+
+    monkeypatch.setattr(facade, "get_service_adapter", lambda: FailingServiceAdapter())
     monkeypatch.setattr(
         facade.status_summary, "load_status_summaries", _fail_if_called("summaries")
     )
@@ -508,11 +521,20 @@ def test_dashboard_snapshot_with_missing_config_does_not_crash(monkeypatch):
 def test_dashboard_snapshot_degrades_when_sections_raise(monkeypatch):
     server_state = _state(installed=True, running=True)
     facade = _install_common_fakes(monkeypatch, server_state, service_active=True)
-    monkeypatch.setattr(
-        facade.service_manager,
-        "get_service_status",
-        lambda service_name: (_ for _ in ()).throw(RuntimeError("service boom")),
-    )
+    class FailingServiceStatusAdapter:
+        def get_service_status(self, service_name):
+            raise RuntimeError("service boom")
+
+        def get_timer_status(self, timer_name):
+            return {
+                "timer_name": timer_name,
+                "active": True,
+                "enabled": True,
+                "schedule": "*-*-* 06:00:00",
+                "next_run": "Fri 2026-06-12 06:00:00 UTC",
+            }
+
+    monkeypatch.setattr(facade, "get_service_adapter", lambda: FailingServiceStatusAdapter())
     monkeypatch.setattr(
         facade.metrics,
         "query_host_metrics",

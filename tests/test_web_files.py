@@ -472,7 +472,13 @@ def test_authenticated_owner_can_upload_new_file(tmp_path: Path):
     assert events[-1]["username"] == "owner"
     assert events[-1]["action"] == "file.upload"
     assert events[-1]["target"] == "server:new.txt"
-    assert events[-1]["details"] == {"path": "new.txt", "root": "server", "size": "16"}
+    assert events[-1]["message"] == "File upload published."
+    assert events[-1]["details"] == {
+        "phase": "outcome",
+        "path": "new.txt",
+        "root": "server",
+        "size": "16",
+    }
 
 
 def test_upload_audit_failure_does_not_publish_file_and_keeps_path_guards(
@@ -568,6 +574,42 @@ def test_upload_publish_failure_after_audit_is_controlled_and_audited(
     assert not (server / "new.txt").exists()
     assert not any(path.name.startswith(".armactl-upload-") for path in server.iterdir())
     assert audit_actions == [("file.upload", True), ("file.upload.publish-failed", False)]
+
+
+def test_upload_success_outcome_audit_failure_reports_published_file(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import file_uploads
+    from armactl.web.services.audit import AuditLogError
+
+    server = _server_root(tmp_path)
+    client = _login_owner(tmp_path)
+    token = _files_csrf_token(client)
+    audit_phases: list[tuple[str, str]] = []
+
+    def fail_success_outcome(audit_log_path, *, action, details, **kwargs):
+        phase = str((details or {}).get("phase") or "")
+        audit_phases.append((action, phase))
+        if action == "file.upload" and phase == "outcome":
+            raise AuditLogError("disk full token=raw-upload-secret")
+
+    monkeypatch.setattr(file_uploads, "append_audit_event", fail_success_outcome)
+
+    response = client.post(
+        "/files/server/upload",
+        data={"path": "", "csrf_token": token},
+        files={"upload": ("new.txt", b"uploaded content", "text/plain")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 500
+    assert response.text == "File upload was published but audit logging failed."
+    assert (server / "new.txt").read_bytes() == b"uploaded content"
+    assert not any(path.name.startswith(".armactl-upload-") for path in server.iterdir())
+    assert audit_phases == [("file.upload", "intent"), ("file.upload", "outcome")]
+    assert "raw-upload-secret" not in response.text
+    assert "Traceback" not in response.text
 
 
 def test_upload_form_visible_for_owner(tmp_path: Path):

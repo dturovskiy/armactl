@@ -430,11 +430,14 @@ def test_admin_service_pending_db_failure_writes_fallback_and_warns(
         "discover",
         lambda instance, save=False: _state(config_path),
     )
-    monkeypatch.setattr(
-        admin_actions.admins_manager,
-        "add_admin",
-        lambda path, admin_reference, name="": True,
-    )
+
+    def add_admin(path: Path, admin_reference: str, name: str = "") -> bool:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+        payload["game"]["admins"] = [admin_reference]
+        config_path.write_text(json.dumps(payload), encoding="utf-8")
+        return True
+
+    monkeypatch.setattr(admin_actions.admins_manager, "add_admin", add_admin)
 
     def fail_pending_db(*args, **kwargs):
         raise RuntimeError("web.db locked token=raw-pending-secret")

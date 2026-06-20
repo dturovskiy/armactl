@@ -274,9 +274,9 @@ jobs, player registry foundation, auth/session/CSRF, audit logging, and pending
 operator work.
 
 Future web troubleshooting docs should stay scoped to future-only work:
-versioned migrations for `web.db` and `players.db`, player refresh failure
-outcome audit, settings registry, feature policy/roles/tiers, broader platform
-adapters, banlist, destructive file workflows, and SAT/mod runtime settings.
+versioned migrations for `web.db` and `players.db`, settings registry,
+feature policy/roles/tiers, broader platform adapters, banlist, destructive
+file workflows, and SAT/mod runtime settings.
 
 See [web-deployment.md](web-deployment.md) for smoke/deployment checks and
 [web-interface-plan.md](web-interface-plan.md) for the architecture and port

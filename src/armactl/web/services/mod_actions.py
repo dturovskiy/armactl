@@ -100,6 +100,39 @@ def _validated_optional_text(value: Any, *, message: str) -> str:
     return text
 
 
+def _fingerprint_mod_entry(mod: object) -> dict[str, str]:
+    if not isinstance(mod, dict):
+        return {"modId": _safe_text(mod, max_length=64).upper(), "name": "", "version": ""}
+    return {
+        "modId": _safe_text(mod.get("modId"), max_length=64).upper(),
+        "name": _safe_text(mod.get("name"), max_length=128),
+        "version": _safe_text(mod.get("version"), max_length=64),
+    }
+
+
+def _sorted_mod_fingerprint_entries(mods: list[dict[str, Any]]) -> list[dict[str, str]]:
+    entries = [_fingerprint_mod_entry(mod) for mod in mods]
+    return sorted(entries, key=lambda item: (item["modId"], item["name"], item["version"]))
+
+
+def _mods_restart_fingerprint(config_path: Path) -> str:
+    active_mods = mods_manager.get_mods(config_path)
+    disabled_mods = mods_manager.get_disabled_mods(config_path)
+    return pending_work.safe_state_fingerprint(
+        {
+            "active": _sorted_mod_fingerprint_entries(active_mods),
+            "disabled": _sorted_mod_fingerprint_entries(disabled_mods),
+        }
+    )
+
+
+def _safe_mods_restart_fingerprint(config_path: Path) -> str:
+    try:
+        return _mods_restart_fingerprint(config_path)
+    except Exception:  # noqa: BLE001 - pending tracking falls back to action-only.
+        return ""
+
+
 def _mod_id(value: Any) -> str:
     return mods_manager.require_valid_mod_id(value)
 
@@ -435,17 +468,38 @@ def _mark_restart_pending_for_mod_result(
     *,
     db_path: Path | None,
     username: str,
+    baseline_fingerprint: str = "",
 ) -> ModActionResult:
     if db_path is None or not result.changed:
         return result
-    write_result = pending_work.mark_restart_pending_for_service(
-        db_path,
-        instance=result.instance,
-        kind=pending_work.KIND_MODS,
-        source_action=result.action,
-        username=username,
-        details=result.target,
-    )
+    current_fingerprint = ""
+    if baseline_fingerprint:
+        try:
+            current_fingerprint = _safe_mods_restart_fingerprint(
+                _config_path(result.instance)
+            )
+        except ModActionError:
+            current_fingerprint = ""
+    if baseline_fingerprint and current_fingerprint:
+        write_result = pending_work.mark_restart_pending_for_state(
+            db_path,
+            instance=result.instance,
+            kind=pending_work.KIND_MODS,
+            source_action=result.action,
+            username=username,
+            details=result.target,
+            baseline_fingerprint=baseline_fingerprint,
+            current_fingerprint=current_fingerprint,
+        )
+    else:
+        write_result = pending_work.mark_restart_pending_for_service(
+            db_path,
+            instance=result.instance,
+            kind=pending_work.KIND_MODS,
+            source_action=result.action,
+            username=username,
+            details=result.target,
+        )
     return replace(
         result,
         pending_work_warning=write_result.warning,
@@ -479,6 +533,12 @@ def run_mod_action_and_audit(
         )
     except AuditLogError:
         return _mod_intent_audit_failure(normalized, normalized_instance, mod_id)
+    baseline_fingerprint = ""
+    if db_path is not None:
+        try:
+            baseline_fingerprint = _mods_restart_fingerprint(_config_path(normalized_instance))
+        except (ModActionError, ConfigError):
+            baseline_fingerprint = ""
     result = run_mod_action(
         normalized,
         instance=normalized_instance,
@@ -495,4 +555,5 @@ def run_mod_action_and_audit(
         result,
         db_path=db_path,
         username=username,
+        baseline_fingerprint=baseline_fingerprint,
     )

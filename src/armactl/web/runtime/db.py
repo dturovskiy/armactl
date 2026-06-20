@@ -9,7 +9,7 @@ from pathlib import Path
 
 from armactl.web.runtime.job_store_maintenance import repair_duplicate_active_jobs
 
-WEB_SCHEMA_VERSION = "8"
+WEB_SCHEMA_VERSION = "9"
 PRIVATE_FILE_MODE = 0o600
 _LEGACY_DEFAULT_TIMESTAMP = "1970-01-01T00:00:00+00:00"
 
@@ -393,6 +393,8 @@ def _ensure_web_pending_restarts_schema(connection: sqlite3.Connection) -> None:
                     "CHECK(length(trim(created_by_username)) > 0)"
                 ),
             ),
+            ("baseline_fingerprint", "baseline_fingerprint TEXT NOT NULL DEFAULT ''"),
+            ("current_fingerprint", "current_fingerprint TEXT NOT NULL DEFAULT ''"),
         ),
     )
     connection.execute(
@@ -418,6 +420,8 @@ def _ensure_web_pending_work_schema(connection: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL CHECK(length(created_at) > 0),
             updated_at TEXT NOT NULL CHECK(length(updated_at) > 0),
             created_by_username TEXT NOT NULL CHECK(length(trim(created_by_username)) > 0),
+            baseline_fingerprint TEXT NOT NULL DEFAULT '',
+            current_fingerprint TEXT NOT NULL DEFAULT '',
             UNIQUE(instance, kind, resolution_action)
         )
         """
@@ -472,6 +476,8 @@ def _ensure_web_pending_work_schema(connection: sqlite3.Connection) -> None:
                     "CHECK(length(trim(created_by_username)) > 0)"
                 ),
             ),
+            ("baseline_fingerprint", "baseline_fingerprint TEXT NOT NULL DEFAULT ''"),
+            ("current_fingerprint", "current_fingerprint TEXT NOT NULL DEFAULT ''"),
         ),
     )
     connection.execute(
@@ -586,6 +592,10 @@ def _migration_8_current_schema_compatibility(connection: sqlite3.Connection) ->
     _ensure_current_web_schema(connection)
 
 
+def _migration_9_pending_work_fingerprints(connection: sqlite3.Connection) -> None:
+    _ensure_web_pending_work_schema(connection)
+
+
 _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (1, _migration_1_auth_schema),
     (2, _migration_2_jobs_schema),
@@ -595,6 +605,7 @@ _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (6, _migration_6_pending_work_backfill),
     (7, _migration_7_schema_indexes),
     (8, _migration_8_current_schema_compatibility),
+    (9, _migration_9_pending_work_fingerprints),
 )
 
 

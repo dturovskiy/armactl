@@ -17,6 +17,7 @@ from armactl.web.services.filesystem_transfer import (
 )
 
 UPLOAD_AUDIT_FAILED_MESSAGE = "File upload was not published because audit logging failed."
+UPLOAD_OUTCOME_AUDIT_FAILED_MESSAGE = "File upload was published but audit logging failed."
 UPLOAD_PUBLISH_FAILED_MESSAGE = "File upload was audited but publishing failed."
 
 
@@ -28,7 +29,16 @@ class FileUploadPublishError(RuntimeError):
     """Raised when audit succeeded but final publication failed."""
 
 
-def _audit_upload(
+def _upload_audit_details(staged: StagedUpload, *, phase: str) -> dict[str, str]:
+    return {
+        "phase": phase,
+        "root": staged.root.root_id,
+        "path": staged.relative_path,
+        "size": str(staged.size),
+    }
+
+
+def _audit_upload_intent(
     staged: StagedUpload,
     *,
     audit_log_path: Path,
@@ -42,13 +52,29 @@ def _audit_upload(
         instance=instance,
         target=f"{staged.root.root_id}:{staged.relative_path}",
         success=True,
-        message="File upload staged for publish.",
+        message="File upload requested.",
         exit_code=0,
-        details={
-            "root": staged.root.root_id,
-            "path": staged.relative_path,
-            "size": str(staged.size),
-        },
+        details=_upload_audit_details(staged, phase="intent"),
+    )
+
+
+def _audit_upload_success(
+    staged: StagedUpload,
+    *,
+    audit_log_path: Path,
+    username: str,
+    instance: str,
+) -> None:
+    append_audit_event(
+        audit_log_path,
+        username=username,
+        action="file.upload",
+        instance=instance,
+        target=f"{staged.root.root_id}:{staged.relative_path}",
+        success=True,
+        message="File upload published.",
+        exit_code=0,
+        details=_upload_audit_details(staged, phase="outcome"),
     )
 
 
@@ -70,11 +96,7 @@ def _audit_publish_failure(
             success=False,
             message=message,
             exit_code=1,
-            details={
-                "root": staged.root.root_id,
-                "path": staged.relative_path,
-                "size": str(staged.size),
-            },
+            details=_upload_audit_details(staged, phase="outcome"),
         )
     except AuditLogError:
         return
@@ -104,7 +126,7 @@ def upload_file_and_audit(
     )
     try:
         try:
-            _audit_upload(
+            _audit_upload_intent(
                 staged,
                 audit_log_path=audit_log_path,
                 username=username,
@@ -114,7 +136,7 @@ def upload_file_and_audit(
             raise FileUploadAuditError(UPLOAD_AUDIT_FAILED_MESSAGE) from exc
 
         try:
-            return publish_staged_upload(staged)
+            uploaded = publish_staged_upload(staged)
         except FileBrowserError as exc:
             _audit_publish_failure(
                 staged,
@@ -124,5 +146,16 @@ def upload_file_and_audit(
                 message=exc.public_message,
             )
             raise FileUploadPublishError(UPLOAD_PUBLISH_FAILED_MESSAGE) from exc
+
+        try:
+            _audit_upload_success(
+                staged,
+                audit_log_path=audit_log_path,
+                username=username,
+                instance=instance,
+            )
+        except AuditLogError as exc:
+            raise FileUploadAuditError(UPLOAD_OUTCOME_AUDIT_FAILED_MESSAGE) from exc
+        return uploaded
     finally:
         cleanup_staged_upload(staged)

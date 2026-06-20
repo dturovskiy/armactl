@@ -1190,10 +1190,11 @@ The current web slices implement the safe browser foundation: fixed root
 selection, relative-path directory listing, metadata, bounded redacted text
 preview, single-file attachment download, and single-file upload for new
 targets under the `server` root without overwrite. Upload-new-file is staged in
-a temporary file first; no final uploaded file is published unless `file.upload`
-audit was written first. Other roots remain browse/download only for now. They
-do not implement overwrite, delete, rename, remote mount support, or archive
-extraction.
+a temporary file first; no final uploaded file is published unless the
+`file.upload` intent audit succeeds. Successful publish writes an explicit
+`file.upload` outcome audit; publish failure attempts `file.upload.publish-failed`.
+Other roots remain browse/download only for now. They do not implement
+overwrite, delete, rename, remote mount support, or archive extraction.
 
 This is not SFTP in the MVP. Because the web panel runs inside the same VM as
 the game server, file operations should be implemented as safe local filesystem

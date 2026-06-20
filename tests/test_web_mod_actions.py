@@ -267,6 +267,97 @@ def test_mods_unexpected_backend_exception_is_not_rendered_as_action_result(
     assert 'raw-mod-secret' not in audit_text
 
 
+def test_mods_disable_then_enable_back_clears_restart_pending(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions, pending_work
+
+    config_path = _write_mod_config(
+        tmp_path,
+        [{"modId": "AAAAAAAAAAAAAAAA", "name": "Active Alpha", "version": "1.0"}],
+    )
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+    db_path = tmp_path / "web" / "web.db"
+    audit_log_path = tmp_path / "logs" / "web" / "audit.log"
+
+    disable_result = mod_actions.run_mod_action_and_audit(
+        mod_actions.ACTION_DISABLE,
+        mod_id="AAAAAAAAAAAAAAAA",
+        audit_log_path=audit_log_path,
+        username="owner",
+        db_path=db_path,
+    )
+
+    assert disable_result.success is True
+    assert pending_work.get_pending_work(db_path, kind=pending_work.KIND_MODS) is not None
+
+    enable_result = mod_actions.run_mod_action_and_audit(
+        mod_actions.ACTION_ENABLE,
+        mod_id="AAAAAAAAAAAAAAAA",
+        audit_log_path=audit_log_path,
+        username="owner",
+        db_path=db_path,
+    )
+
+    assert enable_result.success is True
+    assert pending_work.get_pending_work(db_path, kind=pending_work.KIND_MODS) is None
+
+
+def test_mods_partial_return_to_baseline_keeps_pending_until_restart(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions, pending_work
+
+    config_path = _write_mod_config(
+        tmp_path,
+        [
+            {"modId": "AAAAAAAAAAAAAAAA", "name": "Active Alpha", "version": "1.0"},
+            {"modId": "BBBBBBBBBBBBBBBB", "name": "Active Bravo", "version": "1.0"},
+        ],
+    )
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+    db_path = tmp_path / "web" / "web.db"
+    audit_log_path = tmp_path / "logs" / "web" / "audit.log"
+
+    mod_actions.run_mod_action_and_audit(
+        mod_actions.ACTION_DISABLE,
+        mod_id="AAAAAAAAAAAAAAAA",
+        audit_log_path=audit_log_path,
+        username="owner",
+        db_path=db_path,
+    )
+    mod_actions.run_mod_action_and_audit(
+        mod_actions.ACTION_DISABLE,
+        mod_id="BBBBBBBBBBBBBBBB",
+        audit_log_path=audit_log_path,
+        username="owner",
+        db_path=db_path,
+    )
+    mod_actions.run_mod_action_and_audit(
+        mod_actions.ACTION_ENABLE,
+        mod_id="AAAAAAAAAAAAAAAA",
+        audit_log_path=audit_log_path,
+        username="owner",
+        db_path=db_path,
+    )
+
+    item = pending_work.get_pending_work(db_path, kind=pending_work.KIND_MODS)
+    assert item is not None
+    assert item.source_action == "mod.enable"
+    assert pending_work.clear_restart_pending_work(db_path) == 1
+    assert pending_work.list_pending_work(db_path) == []
+
+
 def test_mods_routes_require_authentication(tmp_path: Path):
     from armactl.web.app import create_app
 
@@ -451,11 +542,14 @@ def test_mod_service_pending_db_failure_writes_fallback_and_warns(
         "discover",
         lambda instance, save=False: _state(config_path),
     )
-    monkeypatch.setattr(
-        mod_actions.mods_manager,
-        "add_mod_detailed",
-        lambda path, mod_id, name="", version="": ModAddResult(mod_id, "added"),
-    )
+
+    def add_mod(path: Path, mod_id: str, name: str = "", version: str = "") -> ModAddResult:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+        payload["game"]["mods"] = [{"modId": mod_id, "name": name, "version": version}]
+        config_path.write_text(json.dumps(payload), encoding="utf-8")
+        return ModAddResult(mod_id, "added")
+
+    monkeypatch.setattr(mod_actions.mods_manager, "add_mod_detailed", add_mod)
 
     def fail_pending_db(*args, **kwargs):
         raise RuntimeError("web.db locked token=raw-pending-secret")

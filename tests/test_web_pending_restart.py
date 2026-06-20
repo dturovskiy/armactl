@@ -10,6 +10,7 @@ from armactl.web.services.pending_work import (
     KIND_ADMINS,
     KIND_CONFIG,
     KIND_MODS,
+    PENDING_WORK_FALLBACK_WARNING,
     RESOLUTION_RESTART_GAME_SERVER,
     clear_pending_work,
     clear_restart_pending_fallback,
@@ -21,6 +22,8 @@ from armactl.web.services.pending_work import (
     list_pending_work_with_fallback,
     mark_restart_pending,
     mark_restart_pending_fallback,
+    mark_restart_pending_for_state,
+    safe_state_fingerprint,
     upsert_pending_work,
 )
 
@@ -88,6 +91,122 @@ def test_pending_work_stacks_categories_and_upserts_same_category(tmp_path: Path
     assert updated_config.details == "scenario_id"
     assert updated_config.created_by_username == "operator"
     assert admin in items
+
+
+def test_state_aware_restart_pending_clears_when_current_matches_baseline(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+    baseline = safe_state_fingerprint({"mods": ["AAAAAAAAAAAAAAAA"]})
+    changed = safe_state_fingerprint({"mods": []})
+
+    write_result = mark_restart_pending_for_state(
+        db_path,
+        kind=KIND_MODS,
+        source_action="mod.disable",
+        username="owner",
+        details="AAAAAAAAAAAAAAAA",
+        baseline_fingerprint=baseline,
+        current_fingerprint=changed,
+    )
+
+    item = get_pending_work(db_path, kind=KIND_MODS)
+    assert write_result.warning == ""
+    assert write_result.error == ""
+    assert item is not None
+    assert item.baseline_fingerprint == baseline
+    assert item.current_fingerprint == changed
+
+    clear_result = mark_restart_pending_for_state(
+        db_path,
+        kind=KIND_MODS,
+        source_action="mod.enable",
+        username="owner",
+        details="AAAAAAAAAAAAAAAA",
+        baseline_fingerprint=changed,
+        current_fingerprint=baseline,
+    )
+
+    assert clear_result.warning == ""
+    assert clear_result.error == ""
+    assert get_pending_work(db_path, kind=KIND_MODS) is None
+
+
+def test_state_aware_restart_pending_fallback_clears_like_db(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import pending_work
+
+    db_path = tmp_path / "web" / "web.db"
+    baseline = safe_state_fingerprint({"mods": ["AAAAAAAAAAAAAAAA"]})
+    changed = safe_state_fingerprint({"mods": []})
+
+    def fail_primary(*args, **kwargs):
+        raise RuntimeError("web.db locked token=raw-pending-secret")
+
+    monkeypatch.setattr(pending_work, "mark_restart_pending", fail_primary)
+
+    write_result = mark_restart_pending_for_state(
+        db_path,
+        kind=KIND_MODS,
+        source_action="mod.disable",
+        username="owner token=raw-user-secret",
+        details="AAAAAAAAAAAAAAAA password=raw-detail-secret",
+        baseline_fingerprint=baseline,
+        current_fingerprint=changed,
+    )
+    item = list_fallback_pending_work(db_path)[0]
+
+    assert write_result.warning == PENDING_WORK_FALLBACK_WARNING
+    assert item.kind == KIND_MODS
+    assert item.baseline_fingerprint == baseline
+    assert item.current_fingerprint == changed
+    sidecar_text = fallback_pending_work_path(db_path).read_text(encoding="utf-8")
+    assert "raw-pending-secret" not in sidecar_text
+    assert "raw-user-secret" not in sidecar_text
+    assert "raw-detail-secret" not in sidecar_text
+
+    clear_result = mark_restart_pending_for_state(
+        db_path,
+        kind=KIND_MODS,
+        source_action="mod.enable",
+        username="owner",
+        details="AAAAAAAAAAAAAAAA",
+        baseline_fingerprint=changed,
+        current_fingerprint=baseline,
+    )
+
+    assert clear_result.warning == ""
+    assert clear_result.error == ""
+    assert list_fallback_pending_work(db_path) == []
+
+
+def test_state_aware_restart_pending_clears_only_matching_category(tmp_path: Path):
+    db_path = tmp_path / "web" / "web.db"
+    baseline = safe_state_fingerprint({"mods": ["AAAAAAAAAAAAAAAA"]})
+    changed = safe_state_fingerprint({"mods": []})
+    mark_restart_pending(db_path, kind=KIND_CONFIG, source_action="config.save", username="owner")
+    mark_restart_pending(db_path, kind=KIND_ADMINS, source_action="admin.add", username="owner")
+    mark_restart_pending_for_state(
+        db_path,
+        kind=KIND_MODS,
+        source_action="mod.disable",
+        username="owner",
+        details="AAAAAAAAAAAAAAAA",
+        baseline_fingerprint=baseline,
+        current_fingerprint=changed,
+    )
+
+    mark_restart_pending_for_state(
+        db_path,
+        kind=KIND_MODS,
+        source_action="mod.enable",
+        username="owner",
+        details="AAAAAAAAAAAAAAAA",
+        baseline_fingerprint=changed,
+        current_fingerprint=baseline,
+    )
+
+    assert {item.kind for item in list_pending_work(db_path)} == {KIND_CONFIG, KIND_ADMINS}
 
 
 def test_fallback_pending_work_roundtrip_is_private_and_redacted(tmp_path: Path):

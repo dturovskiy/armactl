@@ -159,22 +159,21 @@ def _install_dashboard_model_fakes(
         )
 
     monkeypatch.setattr(dashboard_model.discovery, "discover", discover)
-    monkeypatch.setattr(
-        dashboard_model.service_manager,
-        "get_service_status",
-        lambda service_name: _service_status(lifecycle),
-    )
-    monkeypatch.setattr(
-        dashboard_model.service_manager,
-        "get_timer_status",
-        lambda timer_name: {
-            "timer_name": timer_name,
-            "active": True,
-            "enabled": True,
-            "schedule": "*-*-* 06:00:00",
-            "next_run": "Fri 2026-06-12 06:00:00 UTC",
-        },
-    )
+
+    class FakeServiceAdapter:
+        def get_service_status(self, service_name):
+            return _service_status(lifecycle)
+
+        def get_timer_status(self, timer_name):
+            return {
+                "timer_name": timer_name,
+                "active": True,
+                "enabled": True,
+                "schedule": "*-*-* 06:00:00",
+                "next_run": "Fri 2026-06-12 06:00:00 UTC",
+            }
+
+    monkeypatch.setattr(dashboard_model, "get_service_adapter", lambda: FakeServiceAdapter())
     monkeypatch.setattr(
         dashboard_model.status_summary,
         "load_status_summaries",
