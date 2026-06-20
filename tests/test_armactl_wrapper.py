@@ -58,3 +58,35 @@ def test_wrapper_does_not_bootstrap_without_tty(tmp_path: Path, stale_venv: bool
     assert "./scripts/bootstrap.sh --prod" in result.stderr
     assert ".venv/bin/python -m armactl" in result.stderr
     assert not (project / "bootstrap-ran").exists()
+
+@pytest.mark.skipif(os.name != "posix", reason="armactl wrapper is a POSIX shell script")
+def test_wrapper_uses_web_bootstrap_mode_for_web_commands(tmp_path: Path) -> None:
+    project = tmp_path / "repo"
+    scripts = project / "scripts"
+    scripts.mkdir(parents=True)
+    (project / "pyproject.toml").write_text(
+        "[project]\nname = 'armactl-test'\n",
+        encoding="utf-8",
+    )
+
+    source = Path(__file__).resolve().parents[1] / "armactl"
+    wrapper = project / "armactl"
+    shutil.copy2(source, wrapper)
+    wrapper.chmod(0o755)
+
+    bootstrap = scripts / "bootstrap.sh"
+    bootstrap.write_text("#!/bin/sh\nexit 42\n", encoding="utf-8")
+    bootstrap.chmod(0o755)
+
+    result = subprocess.run(
+        [str(wrapper), "web", "init"],
+        cwd=project,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "interactive TTY" in result.stderr
+    assert "./scripts/bootstrap.sh --web" in result.stderr

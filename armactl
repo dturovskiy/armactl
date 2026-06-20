@@ -4,7 +4,13 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 VENV_PY="$SCRIPT_DIR/.venv/bin/python"
 BOOTSTRAP_SCRIPT="$SCRIPT_DIR/scripts/bootstrap.sh"
-BOOTSTRAP_MODE="${ARMACTL_BOOTSTRAP_MODE:---prod}"
+if [ -n "${ARMACTL_BOOTSTRAP_MODE:-}" ]; then
+    BOOTSTRAP_MODE="$ARMACTL_BOOTSTRAP_MODE"
+elif [ "${1:-}" = "web" ]; then
+    BOOTSTRAP_MODE="--web"
+else
+    BOOTSTRAP_MODE="--prod"
+fi
 STAMP_FILE="$SCRIPT_DIR/.venv/.armactl-pyproject.sha256"
 ARMACTL_PYTHON="${ARMACTL_PYTHON:-}"
 
