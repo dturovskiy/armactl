@@ -1,7 +1,7 @@
 # armactl
 
 [![CI](https://github.com/dturovskiy/armactl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dturovskiy/armactl/actions/workflows/ci.yml)
-[![Release](assets/badges/release.svg)](https://github.com/dturovskiy/armactl/releases/latest)
+[![Latest Release](assets/badges/release.svg)](https://github.com/dturovskiy/armactl/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 [![Ubuntu 24.04](https://img.shields.io/badge/ubuntu-24.04-E95420.svg)](README.md)
