@@ -42,6 +42,16 @@ On first run, `./armactl` bootstraps the repo-local environment automatically
 and then opens the TUI. After that, keep using the same launcher: no PATH
 changes, no manual venv activation.
 
+To set up the browser panel on a server, use the same repo-local launcher:
+
+```bash
+./armactl web
+```
+
+The web setup flow installs the web dependencies, asks for the first owner only
+when needed, writes the runtime config, installs/enables `armactl-web.service`,
+starts it, and prints the URL/status summary.
+
 If you want the development toolchain from the first launch too, use:
 
 ```bash

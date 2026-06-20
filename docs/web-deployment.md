@@ -79,38 +79,28 @@ Then check the browser flow:
 
 ## VM and systemd smoke checklist
 
-Run these commands on the target game VM from the source checkout that will own
-the web service.
+Run this on the target game VM from the source checkout that will own the web
+service:
 
 ```bash
 cd ~/projects/armactl
-git status -sb
-./scripts/bootstrap.sh --web
+./armactl web
 ```
 
-Initialize runtime and owner:
+The launcher bootstraps the web dependencies, then the setup flow creates the
+runtime config, creates the first owner if needed, installs and enables
+`armactl-web.service`, starts it, and prints the URL/status summary.
+
+For scripted setup, pass the safe choices explicitly and let the command prompt
+only for the owner password when the first owner does not exist:
 
 ```bash
-./armactl web init
-./armactl web init --owner owner
+./armactl web --access lan --owner owner
 ```
 
-Install the production unit. Install enables `armactl-web.service` but does not
-start it automatically:
-
-```bash
-./armactl web service install
-./armactl web service status
-```
-
-Inspect the systemd unit state, then start it:
-
-```bash
-systemctl status armactl-web.service
-./armactl web service start
-./armactl web service status
-systemctl status armactl-web.service
-```
+Manual subcommands such as `armactl web init`, `armactl web service install`,
+and `armactl web service start` remain available for debugging and advanced
+operations, but they are no longer the normal first-run path.
 
 Smoke the local listener on the game VM:
 

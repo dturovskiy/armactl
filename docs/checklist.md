@@ -276,7 +276,7 @@ that the whole web panel is still only planned.
 - [x] Додати FastAPI app factory, health endpoint і minimal dashboard routes
 - [x] Додати web runtime storage/config/db foundation
 - [x] Додати versioned migration runner для `web.db` з compatibility upgrade, schema metadata і post-schema job-store maintenance
-- [x] Додати `armactl web init` і first setup flow
+- [x] Додати one-command `./armactl web` setup flow поверх `armactl web init`/service subcommands
 - [x] Додати auth DB/password foundation і мінімальну owner role
 - [x] Додати owner-user setup flow
 - [x] Додати session і CSRF primitives

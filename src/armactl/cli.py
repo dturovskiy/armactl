@@ -432,9 +432,185 @@ def ports_close(ctx: click.Context) -> None:
 # ---------------------------------------------------------------------------
 
 
-@main.group()
-def web() -> None:
-    """Manage the planned browser web panel."""
+@main.group(invoke_without_command=True)
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Optional web runtime data root.",
+)
+@click.option(
+    "--access",
+    type=click.Choice(["local", "lan"]),
+    default=None,
+    help="First-run access mode: local machine only or local network.",
+)
+@click.option(
+    "--port",
+    type=click.IntRange(1, 65535),
+    default=WEB_PANEL_DEFAULT_PORT,
+    show_default=True,
+    help="TCP port for first-run web setup.",
+)
+@click.option(
+    "--https-required/--no-https-required",
+    default=None,
+    help="Require HTTPS-aware deployment settings for web sessions.",
+)
+@click.option(
+    "--owner",
+    "owner_username",
+    default=None,
+    metavar="USERNAME",
+    help="Initial owner username when the web panel has no owner yet.",
+)
+@click.pass_context
+def web(
+    ctx: click.Context,
+    data_root: Path | None,
+    access: str | None,
+    port: int,
+    https_required: bool | None,
+    owner_username: str | None,
+) -> None:
+    """Set up or manage the browser web panel."""
+    if ctx.invoked_subcommand is not None:
+        return
+
+    _run_web_quickstart_cli(
+        data_root=data_root,
+        access=access,
+        port=port,
+        https_required=https_required,
+        owner_username=owner_username,
+    )
+
+
+def _web_quickstart_access_label(access: str) -> str:
+    if access == "lan":
+        return "local network"
+    return "local machine"
+
+
+def _web_quickstart_url(bind_host: str, bind_port: int) -> str:
+    if bind_host == "0.0.0.0":
+        return f"http://<server-ip>:{bind_port}"
+    return f"http://{bind_host}:{bind_port}"
+
+
+def _web_quickstart_success(result) -> bool:
+    install_ok = all(service_result.success for service_result in result.install_result.results)
+    start_ok = result.start_result is not None and result.start_result.success
+    return install_ok and start_ok
+
+
+def _web_quickstart_exit_code(result) -> int:
+    for service_result in result.install_result.results:
+        if not service_result.success:
+            return service_result.exit_code or 1
+    if result.start_result is not None and not result.start_result.success:
+        return result.start_result.exit_code or 1
+    return 0
+
+
+def _format_web_quickstart_summary(result, access: str) -> str:
+    config = result.config
+    https_required = "yes" if config.https_required else "no"
+    setup_status = "complete" if _web_quickstart_success(result) else "incomplete"
+    owner_status = "already configured"
+    if result.owner_created and result.owner_user is not None:
+        owner_status = f"created {result.owner_user.username}"
+    elif result.owner_existing:
+        owner_status = "already configured"
+
+    start_status = "not attempted"
+    if result.start_result is not None:
+        start_status = "started" if result.start_result.success else "failed"
+
+    lines = [
+        f"Web panel setup {setup_status}.",
+        f"  Access:         {_web_quickstart_access_label(access)}",
+        f"  URL:            {_web_quickstart_url(config.bind_host, config.bind_port)}",
+        f"  Bind:           {config.bind_host}:{config.bind_port}",
+        f"  HTTPS required: {https_required}",
+        f"  Config file:    {config.env_path}",
+        f"  Database:       {config.db_path}",
+        f"  Owner:          {owner_status}",
+        f"  Service:        {result.install_result.service_name}",
+        "  Auto-start:     enabled after install",
+        f"  Start now:      {start_status}",
+    ]
+    warning_line = _format_web_exposure_warning(config.bind_host, config.https_required)
+    if warning_line is not None:
+        lines.append(warning_line)
+    for service_result in result.install_result.results:
+        marker = "✓" if service_result.success else "✗"
+        lines.append(f"  {marker} {service_result.message}")
+    if result.start_result is not None:
+        marker = "✓" if result.start_result.success else "✗"
+        lines.append(f"  {marker} {result.start_result.message}")
+    return "\n".join(lines)
+
+
+def _run_web_quickstart_cli(
+    *,
+    data_root: Path | None,
+    access: str | None,
+    port: int,
+    https_required: bool | None,
+    owner_username: str | None,
+) -> None:
+    import getpass
+
+    from armactl.web.quickstart import (
+        LAN_ACCESS,
+        WebQuickstartError,
+        WebQuickstartRequest,
+        bind_host_for_access_mode,
+        run_web_quickstart,
+        web_owner_exists,
+    )
+
+    click.echo("armactl web setup")
+    access_mode = access or click.prompt(
+        "Access mode (local = this machine only, lan = local network)",
+        type=click.Choice(["local", "lan"]),
+        default=LAN_ACCESS,
+    )
+
+    try:
+        owner_exists = web_owner_exists(data_root)
+    except Exception as error:
+        raise click.ClickException(str(error)) from error
+
+    owner_password = None
+    if owner_exists:
+        click.echo("Owner user already configured.")
+    else:
+        if owner_username is None:
+            owner_username = click.prompt("Owner username", default=getpass.getuser())
+        owner_password = click.prompt(
+            "Owner password",
+            hide_input=True,
+            confirmation_prompt=True,
+        )
+
+    try:
+        result = run_web_quickstart(
+            WebQuickstartRequest(
+                data_root=data_root,
+                bind_host=bind_host_for_access_mode(access_mode),
+                bind_port=port,
+                https_required=https_required,
+                owner_username=owner_username,
+                owner_password=owner_password,
+            )
+        )
+    except WebQuickstartError as error:
+        raise click.ClickException(str(error)) from error
+
+    click.echo(_format_web_quickstart_summary(result, access_mode))
+    sys.exit(_web_quickstart_exit_code(result))
 
 
 def _web_option_was_provided(ctx: click.Context, parameter_name: str) -> bool:

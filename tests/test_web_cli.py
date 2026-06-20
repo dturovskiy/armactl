@@ -47,14 +47,29 @@ def _capture_web_run(monkeypatch):
     return calls
 
 
+def _web_install_result(tmp_path: Path, config, *messages: tuple[bool, str, int]):
+    from armactl.service_manager import ServiceResult
+    from armactl.web import service as web_service
+
+    return web_service.WebServiceInstallResult(
+        config=config,
+        service_name="armactl-web.service",
+        service_path=tmp_path / "systemd" / "armactl-web.service",
+        results=tuple(
+            ServiceResult(success, message, exit_code)
+            for success, message, exit_code in messages
+        ),
+    )
+
 def test_web_help_exists():
     result = invoke_web("--help")
 
     assert result.exit_code == 0
-    assert "Manage the planned browser web panel." in result.output
+    assert "Set up or manage the browser web panel." in result.output
     assert "run" in result.output
     assert "init" in result.output
     assert "service" in result.output
+    assert "--access" in result.output
 
 
 def test_web_run_help_describes_bind_overrides_from_env():
@@ -257,6 +272,137 @@ def _forget_modules(*prefixes: str) -> None:
         if _matches_prefix(module_name, prefixes):
             sys.modules.pop(module_name)
 
+
+def test_web_without_subcommand_runs_one_command_setup(tmp_path: Path, monkeypatch):
+    from armactl.service_manager import ServiceResult
+    from armactl.web import service as web_service
+
+    password = "first owner password"
+    calls: list[tuple[str, Path | None]] = []
+
+    def fake_install(data_root: Path | None = None):
+        calls.append(("install", data_root))
+        return _web_install_result(
+            tmp_path,
+            load_web_runtime_config(data_root),
+            (True, "runtime ready", 0),
+            (True, "installed unit", 0),
+            (True, "daemon reloaded", 0),
+            (True, "enabled armactl-web.service", 0),
+        )
+
+    def fake_start() -> ServiceResult:
+        calls.append(("start", None))
+        return ServiceResult(True, "started armactl-web.service", 0)
+
+    monkeypatch.setattr(web_service, "install_web_service", fake_install)
+    monkeypatch.setattr(web_service, "start_web_service", fake_start)
+
+    result = invoke_web(
+        "--data-root",
+        str(tmp_path),
+        "--access",
+        "lan",
+        "--owner",
+        "Admin",
+        input_text=f"{password}\n{password}\n",
+    )
+
+    config = load_web_runtime_config(tmp_path)
+    user = get_user_by_username(config.db_path, "admin")
+
+    assert result.exit_code == 0
+    assert config.bind_host == "0.0.0.0"
+    assert config.bind_port == WEB_PANEL_DEFAULT_PORT
+    assert user is not None
+    assert user.role == "owner"
+    assert verify_user_password(config.db_path, "admin", password) is True
+    assert calls == [("install", tmp_path), ("start", None)]
+    assert "armactl web setup" in result.output
+    assert "Web panel setup complete." in result.output
+    assert "Access:         local network" in result.output
+    assert f"Bind:           0.0.0.0:{WEB_PANEL_DEFAULT_PORT}" in result.output
+    assert f"URL:            http://<server-ip>:{WEB_PANEL_DEFAULT_PORT}" in result.output
+    assert "Owner:          created admin" in result.output
+    assert "Auto-start:     enabled after install" in result.output
+    assert "Start now:      started" in result.output
+    assert password not in result.output
+    assert config.session_secret not in result.output
+    assert "ARMACTL_WEB_SESSION_SECRET" not in result.output
+
+
+def test_web_quickstart_existing_owner_does_not_prompt_for_password(tmp_path: Path, monkeypatch):
+    from armactl.service_manager import ServiceResult
+    from armactl.web import service as web_service
+    from armactl.web.auth.setup import setup_owner_user
+
+    setup_owner_user(tmp_path, "owner", "existing owner password")
+    calls: list[str] = []
+
+    def fake_install(data_root: Path | None = None):
+        calls.append("install")
+        return _web_install_result(
+            tmp_path,
+            load_web_runtime_config(data_root),
+            (True, "runtime ready", 0),
+            (True, "installed unit", 0),
+            (True, "daemon reloaded", 0),
+            (True, "enabled armactl-web.service", 0),
+        )
+
+    def fake_start() -> ServiceResult:
+        calls.append("start")
+        return ServiceResult(True, "started armactl-web.service", 0)
+
+    monkeypatch.setattr(web_service, "install_web_service", fake_install)
+    monkeypatch.setattr(web_service, "start_web_service", fake_start)
+
+    result = invoke_web("--data-root", str(tmp_path), "--access", "local", input_text="")
+
+    assert result.exit_code == 0
+    assert calls == ["install", "start"]
+    assert "Owner user already configured." in result.output
+    assert "Owner password" not in result.output
+    assert "Owner:          already configured" in result.output
+    assert f"URL:            http://127.0.0.1:{WEB_PANEL_DEFAULT_PORT}" in result.output
+
+
+def test_web_quickstart_install_failure_does_not_start_service(tmp_path: Path, monkeypatch):
+    from armactl.web import service as web_service
+
+    password = "first owner password"
+    calls: list[str] = []
+
+    def fake_install(data_root: Path | None = None):
+        calls.append("install")
+        return _web_install_result(
+            tmp_path,
+            load_web_runtime_config(data_root),
+            (False, "runtime dependency missing", 7),
+        )
+
+    def fake_start():
+        raise AssertionError("start_web_service should not run after install failure")
+
+    monkeypatch.setattr(web_service, "install_web_service", fake_install)
+    monkeypatch.setattr(web_service, "start_web_service", fake_start)
+
+    result = invoke_web(
+        "--data-root",
+        str(tmp_path),
+        "--access",
+        "local",
+        "--owner",
+        "owner",
+        input_text=f"{password}\n{password}\n",
+    )
+
+    assert result.exit_code == 7
+    assert calls == ["install"]
+    assert "Web panel setup incomplete." in result.output
+    assert "Start now:      not attempted" in result.output
+    assert "runtime dependency missing" in result.output
+    assert "Traceback" not in result.output
 
 def test_web_init_creates_runtime_env_and_db(tmp_path: Path):
     result = invoke_web("init", "--data-root", str(tmp_path))

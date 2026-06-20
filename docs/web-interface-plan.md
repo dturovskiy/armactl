@@ -1790,7 +1790,17 @@ integration idea; do not make it a requirement for the first web panel.
 
 ## Deployment commands
 
-Add CLI commands:
+Normal first-run setup is one command:
+
+```text
+./armactl web
+```
+
+It bootstraps web dependencies through the repo launcher, asks for access mode
+and first owner only when needed, writes runtime config, installs/enables
+`armactl-web.service`, starts it, and prints the URL/status summary.
+
+Lower-level commands remain available for debugging and advanced operations:
 
 ```text
 armactl web init
@@ -1804,10 +1814,9 @@ armactl web service enable
 armactl web service disable
 ```
 
-`web init` creates runtime config and credentials. `service install` now
-installs or refreshes `armactl-web.service`, reloads systemd, and enables the
-unit on boot. It does not start the service; use `armactl web service start`
-explicitly after review or a smoke check.
+`web init` creates runtime config and credentials. `service install` installs or
+refreshes `armactl-web.service`, reloads systemd, and enables the unit on boot;
+when used directly it still does not start the service.
 
 The first service implementation follows the current source-checkout deployment
 model: the rendered unit runs the repo-local `.venv/bin/python`. If armactl gets

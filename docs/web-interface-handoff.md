@@ -134,8 +134,7 @@ explicitly a release task.
   future Windows support later. SteamCMD, app manifest, log/version metadata,
   systemctl, process, and path logic must not spread through routes or
   templates. Do not store Steam credentials or secrets in `web.db`.
-- Treat web as an always-on service: `armactl web run` is for foreground
-  development/debugging, while production uses `armactl-web.service`.
+- Treat web as an always-on service: normal setup is `./armactl web`; `armactl web run` is for foreground development/debugging, while production uses `armactl-web.service`.
 - Do not make web replace the default `./armactl` TUI startup path.
 - Preserve the target remote scenario: a user can open a public HTTPS URL from
   another network, log in, and use the permitted panel features without SSH.
@@ -289,11 +288,10 @@ Completed foundation:
 4. FastAPI app factory, `/healthz`, package-local templates/static assets, and
    minimal read-only dashboard routes.
 5. Web runtime storage/config/db foundation under `~/armactl-data/web/`.
-6. `armactl web init` first setup command for local runtime config and DB.
+6. One-command `./armactl web` setup flow for normal first run; lower-level `armactl web init` remains available for manual runtime config and DB setup.
 7. Auth DB/password foundation: `web_users`, Argon2 password helpers, and
    minimal active `owner` user helpers.
-8. Owner-user setup flow via explicit `armactl web init --owner USERNAME`
-   with hidden password confirmation and safe operator summary output.
+8. Owner-user setup flow through `./armactl web` or explicit `armactl web init --owner USERNAME`, with hidden password confirmation and safe operator summary output.
 9. Session and CSRF primitives: digest-only SQLite storage, expiry checks,
    session revoke/delete helpers, and CSRF tokens bound to active sessions.
 10. Login/logout routes, login template, authenticated dashboard guard, and
