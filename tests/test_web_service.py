@@ -58,6 +58,7 @@ def test_install_web_service_uses_systemd_helpers_without_starting(tmp_path: Pat
     systemd_dir = tmp_path / "systemd"
     installed: dict[str, object] = {}
     enable_calls: list[str] = []
+    helper_calls: list[str] = []
 
     def fake_install(source: Path, destination: Path) -> ServiceResult:
         installed["destination"] = destination
@@ -68,6 +69,10 @@ def test_install_web_service_uses_systemd_helpers_without_starting(tmp_path: Pat
         enable_calls.append(service_name)
         return ServiceResult(True, f"enabled {service_name}")
 
+    def fake_install_helper() -> list[ServiceResult]:
+        helper_calls.append("install")
+        return [ServiceResult(True, "helper updated")]
+
     monkeypatch.setattr(service.paths, "SYSTEMD_DIR", systemd_dir)
     monkeypatch.setattr(
         service,
@@ -76,6 +81,7 @@ def test_install_web_service_uses_systemd_helpers_without_starting(tmp_path: Pat
     )
     monkeypatch.setattr(service, "install_systemd_unit_file", fake_install)
     monkeypatch.setattr(service, "daemon_reload", lambda: ServiceResult(True, "reloaded"))
+    monkeypatch.setattr(service, "_install_privileged_web_control_channel", fake_install_helper)
     monkeypatch.setattr(service, "enable_service", fake_enable)
     monkeypatch.setattr(
         service,
@@ -89,8 +95,9 @@ def test_install_web_service_uses_systemd_helpers_without_starting(tmp_path: Pat
     assert result.service_path == systemd_dir / "armactl-web.service"
     assert installed["destination"] == systemd_dir / "armactl-web.service"
     assert "ExecStart=" in installed["content"]
+    assert helper_calls == ["install"]
     assert enable_calls == ["armactl-web.service"]
-    assert [item.success for item in result.results] == [True, True, True, True]
+    assert [item.success for item in result.results] == [True, True, True, True, True]
 
 
 def test_install_web_service_rejects_reserved_web_port(tmp_path: Path, monkeypatch):

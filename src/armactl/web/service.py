@@ -19,6 +19,7 @@ from armactl.service_manager import (
     disable_service,
     enable_service,
     get_service_status,
+    install_privileged_systemctl_channel,
     install_systemd_unit_file,
     resolve_linux_user,
     restart_service,
@@ -148,6 +149,10 @@ def render_web_service_unit(
     return _normalize_generated_text(rendered)
 
 
+def _install_privileged_web_control_channel() -> tuple[ServiceResult, ...]:
+    return tuple(install_privileged_systemctl_channel())
+
+
 def install_web_service(data_root: Path | None = None) -> WebServiceInstallResult:
     config = ensure_web_runtime(data_root)
     _validate_web_service_config(config)
@@ -191,6 +196,16 @@ def install_web_service(data_root: Path | None = None) -> WebServiceInstallResul
             )
         )
         if not reload_result.success:
+            return WebServiceInstallResult(
+                config=config,
+                service_name=web_service_name(),
+                service_path=web_service_file(),
+                results=tuple(results),
+            )
+
+        helper_results = _install_privileged_web_control_channel()
+        results.extend(helper_results)
+        if not all(item.success for item in helper_results):
             return WebServiceInstallResult(
                 config=config,
                 service_name=web_service_name(),
