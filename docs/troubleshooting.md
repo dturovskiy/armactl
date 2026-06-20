@@ -265,8 +265,8 @@ When debugging web-panel deployments, keep these layers separate:
   `config.json`.
 - `armactl-web` should use a stable local TCP port inside the same VM.
 - Public HTTP/HTTPS should belong to the reverse proxy, not the game service.
-- The top-level `website/` directory is a marketing/static site, not the
-  authenticated management panel.
+- The public marketing website lives in `dturovskiy/armactl-website`; it is not
+  the authenticated management panel.
 
 Current branch web surfaces include dashboard, safe config editing, mods,
 admins, restart schedule, files browse/upload/download/preview, logs/report,

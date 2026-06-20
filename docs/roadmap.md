@@ -868,7 +868,7 @@ implementation checklist ведеться у `checklist.md` як Phase 16 web fo
 
 Потім поверх цього зробити TUI.
 Web-панель має лишатися поверх тих самих backend-модулів, не перетворюючи
-`website/` на management UI.
+окремий marketing website repository на management UI.
 ```
 
 ---

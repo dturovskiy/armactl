@@ -254,7 +254,7 @@ that the whole web panel is still only planned.
 - [x] Провести documentation audit після web/refactor/modularity slices; результат: `docs/documentation-audit-results-20260619.md`
 - [x] Оновити top-level docs після documentation audit: README, architecture, checklist, troubleshooting, roadmap, з future-only blockers винесеними окремо
 - [x] Відділити тести від збереженої UI-мови оператора
-- [x] Зафіксувати, що `website/` є marketing/static site, не management panel
+- [x] Винести marketing/static site в окремий repo `dturovskiy/armactl-website`
 - [x] Зафіксувати per-VM deployment model для Proxmox
 - [x] Зафіксувати дефолтні порти Arma і default web port
 - [x] Зафіксувати always-on lifecycle model для web panel

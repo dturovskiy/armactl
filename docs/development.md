@@ -84,10 +84,10 @@ grep -RiaE 'FPS:|frame time' ~/armactl-data/default/config/logs | tail -20
 
 ## Project structure
 
-- `src/armactl/` — backend modules, CLI, TUI, Telegram bot, and planned web code
-- `src/armactl/web/` — planned browser management panel package
+- `src/armactl/` — backend modules, CLI, TUI, Telegram bot, and web code
+- `src/armactl/web/` — browser management panel package
 - `templates/` — config, systemd, and helper templates
-- `website/` — separate marketing/static site, not the management panel
+- `dturovskiy/armactl-website` — separate marketing/static site repository, not the management panel
 - `tests/` — unit and integration-style coverage
 - `docs/` — architecture, migration, localization, troubleshooting, release docs
 

@@ -9,10 +9,10 @@ The web interface must run on the same Linux host/VM as armactl and the game
 server. It should reuse the existing backend modules instead of duplicating TUI
 logic.
 
-The existing top-level `website/` directory is a marketing/static site. It is
-not the management panel. The web panel must live under the Python package and
-runtime service model described below. The marketing site can move to a
-separate repository later, but that is not a blocker for the management panel.
+The public marketing website lives in the separate
+`dturovskiy/armactl-website` repository. It is not the management panel. The web
+panel must live under the Python package and runtime service model described
+below.
 
 The web panel should stay in this repository for now. It depends on armactl's
 backend modules, runtime path model, systemd helper, templates, tests, and
@@ -39,7 +39,7 @@ The source repository and runtime data remain separate:
 - Do not run game-server installation, repair, or update flows as long blocking
   HTTP requests.
 - Do not update the game server automatically by default.
-- Do not make the static `website/` marketing page the management UI.
+- Do not make the separate marketing website the management UI.
 - Do not require Telegram bot setup.
 - Do not require SSH for day-to-day server management after the web service is
   deployed.
@@ -529,7 +529,7 @@ Proxmox Debian host
        -> armactl
        -> armactl-web on 127.0.0.1:8765 or VM-private IP
   -> LXC/VM: public website / reverse proxy
-       -> marketing `website/`
+       -> separate marketing website repo (`dturovskiy/armactl-website`)
        -> HTTPS routes to selected armactl-web instances
 ```
 
@@ -857,8 +857,8 @@ Future multi-server cabinet features should be additive and should call
 authenticated per-VM armactl-web instances instead of letting one panel directly
 manage other machines' files or systemd units.
 
-Keep this separate from the public marketing `website/`. The cabinet belongs to
-the authenticated management panel, not the promotional site.
+Keep this separate from the public marketing website repository. The cabinet
+belongs to the authenticated management panel, not the promotional site.
 
 For the first implementation, prefer storage that can evolve:
 
@@ -1761,8 +1761,8 @@ should be a backend adapter/API over safe metadata such as SteamCMD/app
 manifest/log/version metadata, not hardcoded parsing in routes or templates.
 
 The web UI should have its own templates/static assets under `src/armactl/web/`.
-It should not import files from top-level `website/`, and top-level `website/`
-should not import or depend on the management panel.
+It should not import files from the separate marketing website repository, and
+the marketing website should not import or depend on the management panel.
 
 ## Visual direction
 
@@ -1777,11 +1777,11 @@ authenticated app.
 
 Recommended approach:
 
-- Share brand cues with `website/`, but keep panel assets package-local.
+- Share brand cues with `dturovskiy/armactl-website`, but keep panel assets package-local.
 - Use a dashboard-first layout after login.
 - Keep controls compact and explicit.
 - Use restrained visual polish for confidence, not decoration.
-- Reserve marketing-style pages for the public `website/` only.
+- Reserve marketing-style pages for the public marketing website only.
 
 Long-term, the public website and per-server panels may be linked through a
 single product portal or domain structure. Keep that as a distant post-MVP
@@ -1849,7 +1849,8 @@ not the foreground debug runner.
   management.
 - Update packaging so web templates/static files are included in editable,
   wheel, and sdist installs.
-- Keep the marketing `website/` untouched and separate from the management UI.
+- Keep the separate marketing website repository untouched and separate from the
+  management UI.
 
 ### Phase 2 - Safe read-only dashboard
 

@@ -216,8 +216,10 @@ trust, a settings registry, broader platform adapters, banlist management,
 destructive file workflows, server update/version flows, and SAT/mod runtime
 settings.
 
-The existing top-level `website/` directory is a marketing/static site. It is
-not the management panel and should stay separate from the authenticated web UI.
+The public marketing website lives in the separate
+[`dturovskiy/armactl-website`](https://github.com/dturovskiy/armactl-website)
+repository. It is not the management panel and should stay separate from the
+authenticated web UI.
 
 Paid or premium features are not implemented. Any product tiers need a separate
 policy/feature-gate layer and business/legal review: existing public MIT history

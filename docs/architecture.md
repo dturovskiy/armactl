@@ -74,7 +74,6 @@ armactl/
 │       └── tui/
 │           ├── app.py
 │           └── screens.py
-├── website/                      # static marketing site, not the panel
 └── tests/
     ├── test_config_manager.py
     ├── test_discovery.py
@@ -93,7 +92,7 @@ armactl/
 | `src/armactl/platform/` | Platform adapter boundaries for service/timer and future OS-specific backends |
 | `src/armactl/tui/` | TUI-оболонка (Textual), жодної бізнес-логіки |
 | `src/armactl/web/` | Web-panel routes, page models, services, auth, jobs, templates, static assets; routes are HTTP glue |
-| `website/` | Static marketing site, окремо від authenticated management panel |
+| `dturovskiy/armactl-website` | Separate static marketing site repository, окремо від authenticated management panel |
 | `templates/` | Jinja2-шаблони для config, service, timer, start script |
 | `scripts/` | Зручні launcher-и та dev-скрипти |
 | `docs/` | Документація проєкту |
@@ -303,7 +302,7 @@ compatibility path for now and can move to the adapter in later safe slices.
 5. **Модулі незалежні** — discovery не знає про TUI, config manager не знає про installer
 6. **Templates → generated files** — конфіги та unit-файли генеруються з Jinja2-шаблонів
 7. **Backup before write** — будь-яка зміна конфігу створює backup
-8. **Marketing site is separate** — top-level `website/` не є authenticated management panel
+8. **Marketing site is separate** — `dturovskiy/armactl-website` не є authenticated management panel
 
 For the web panel, `docs/web-interface-plan.md` is the detailed architecture
 guardrail document. In short: routes stay thin, facades/views build DTOs,

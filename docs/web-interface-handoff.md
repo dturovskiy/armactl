@@ -100,8 +100,8 @@ explicitly a release task.
   Avoid mutating `sys.modules` in the main pytest process; use subprocess checks
   for import safety. Do not monkeypatch FastAPI route globals, endpoint
   `__globals__`, or app router endpoint internals.
-- Keep `website/` separate. It is the public marketing site, not the
-  authenticated management panel.
+- Keep `dturovskiy/armactl-website` separate. It is the public marketing site,
+  not the authenticated management panel.
 - Do not expose arbitrary host filesystem access. Future file edit/delete,
   overwrite, rename, and archive extraction flows need fixed roots, path jail,
   traversal and symlink-escape rejection, CSRF, explicit confirmation for
