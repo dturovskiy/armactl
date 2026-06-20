@@ -331,6 +331,47 @@ def test_web_without_subcommand_runs_one_command_setup(tmp_path: Path, monkeypat
     assert "ARMACTL_WEB_SESSION_SECRET" not in result.output
 
 
+def test_web_quickstart_prompt_defaults_to_local_access(tmp_path: Path, monkeypatch):
+    from armactl.service_manager import ServiceResult
+    from armactl.web import service as web_service
+
+    password = "first owner password"
+    calls: list[str] = []
+
+    def fake_install(data_root: Path | None = None):
+        calls.append("install")
+        return _web_install_result(
+            tmp_path,
+            load_web_runtime_config(data_root),
+            (True, "runtime ready", 0),
+            (True, "installed unit", 0),
+            (True, "daemon reloaded", 0),
+            (True, "enabled armactl-web.service", 0),
+        )
+
+    def fake_start() -> ServiceResult:
+        calls.append("start")
+        return ServiceResult(True, "started armactl-web.service", 0)
+
+    monkeypatch.setattr(web_service, "install_web_service", fake_install)
+    monkeypatch.setattr(web_service, "start_web_service", fake_start)
+
+    result = invoke_web(
+        "--data-root",
+        str(tmp_path),
+        "--owner",
+        "owner",
+        input_text=f"\n{password}\n{password}\n",
+    )
+
+    config = load_web_runtime_config(tmp_path)
+
+    assert result.exit_code == 0
+    assert calls == ["install", "start"]
+    assert config.bind_host == "127.0.0.1"
+    assert "Access:         local machine" in result.output
+    assert f"URL:            http://127.0.0.1:{WEB_PANEL_DEFAULT_PORT}" in result.output
+
 def test_web_quickstart_existing_owner_does_not_prompt_for_password(tmp_path: Path, monkeypatch):
     from armactl.service_manager import ServiceResult
     from armactl.web import service as web_service

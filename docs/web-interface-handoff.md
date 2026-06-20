@@ -288,7 +288,7 @@ Completed foundation:
 4. FastAPI app factory, `/healthz`, package-local templates/static assets, and
    minimal read-only dashboard routes.
 5. Web runtime storage/config/db foundation under `~/armactl-data/web/`.
-6. One-command `./armactl web` setup flow for normal first run; lower-level `armactl web init` remains available for manual runtime config and DB setup.
+6. One-command `./armactl web` setup flow for normal first run with local-only default access; lower-level `armactl web init` remains available for manual runtime config and DB setup.
 7. Auth DB/password foundation: `web_users`, Argon2 password helpers, and
    minimal active `owner` user helpers.
 8. Owner-user setup flow through `./armactl web` or explicit `armactl web init --owner USERNAME`, with hidden password confirmation and safe operator summary output.

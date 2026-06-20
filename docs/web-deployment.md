@@ -84,12 +84,13 @@ service:
 
 ```bash
 cd ~/projects/armactl
-./armactl web
+./armactl web --access lan
 ```
 
-The launcher bootstraps the web dependencies, then the setup flow creates the
-runtime config, creates the first owner if needed, installs and enables
-`armactl-web.service`, starts it, and prints the URL/status summary.
+Use plain `./armactl web` for local-only setup. The launcher bootstraps the web
+dependencies, then the setup flow creates the runtime config, creates the first
+owner if needed, installs and enables `armactl-web.service`, starts it, and
+prints the URL/status summary.
 
 For scripted setup, pass the safe choices explicitly and let the command prompt
 only for the owner password when the first owner does not exist:

@@ -563,7 +563,7 @@ def _run_web_quickstart_cli(
     import getpass
 
     from armactl.web.quickstart import (
-        LAN_ACCESS,
+        LOCAL_ACCESS,
         WebQuickstartError,
         WebQuickstartRequest,
         bind_host_for_access_mode,
@@ -575,7 +575,7 @@ def _run_web_quickstart_cli(
     access_mode = access or click.prompt(
         "Access mode (local = this machine only, lan = local network)",
         type=click.Choice(["local", "lan"]),
-        default=LAN_ACCESS,
+        default=LOCAL_ACCESS,
     )
 
     try:

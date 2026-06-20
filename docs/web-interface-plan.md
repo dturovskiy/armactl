@@ -1798,7 +1798,9 @@ Normal first-run setup is one command:
 
 It bootstraps web dependencies through the repo launcher, asks for access mode
 and first owner only when needed, writes runtime config, installs/enables
-`armactl-web.service`, starts it, and prints the URL/status summary.
+`armactl-web.service`, starts it, and prints the URL/status summary. The prompt
+default is local-only; LAN binding requires an explicit `lan` selection or
+`--access lan`.
 
 Lower-level commands remain available for debugging and advanced operations:
 
