@@ -52,6 +52,8 @@ def _server_job_kind(action: str) -> str:
         return server_jobs.SERVER_REPAIR_JOB_KIND
     if action == "update":
         return server_jobs.SERVER_UPDATE_JOB_KIND
+    if action == "update-check":
+        return server_jobs.SERVER_UPDATE_CHECK_JOB_KIND
     raise ServerJobActionError("Unknown job action.")
 
 
@@ -72,6 +74,13 @@ def _enqueue_server_job(
         )
     if action == "repair":
         return server_jobs.ensure_server_repair_job(
+            db_path,
+            requested_by_username=username,
+            requested_by_user_id=user_id,
+            instance=instance,
+        )
+    if action == "update-check":
+        return server_jobs.ensure_server_update_check_job(
             db_path,
             requested_by_username=username,
             requested_by_user_id=user_id,
@@ -246,6 +255,25 @@ def _audit_update_check_or_raise(
         )
     except AuditLogError as exc:
         raise ServerJobAuditError(JOB_CHECK_AUDIT_FAILED_MESSAGE) from exc
+
+
+def request_server_update_check_and_start(
+    db_path: Path,
+    *,
+    audit_log_path: Path,
+    username: str,
+    user_id: int | None,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> JobRecord:
+    """Enqueue an explicit background latest-build check."""
+    return enqueue_server_job_and_start(
+        db_path,
+        action="update-check",
+        audit_log_path=audit_log_path,
+        username=username,
+        user_id=user_id,
+        instance=instance,
+    )
 
 
 def request_server_update_and_start(

@@ -23,6 +23,7 @@ from armactl.bot_config import ensure_bot_config
 from armactl.discovery import discover
 from armactl.i18n import _, tr
 from armactl.integrity import (
+    APP_ID,
     IntegrityError,
     check_package_integrity,
     clear_install_marker,
@@ -44,6 +45,8 @@ class InstallError(Exception):
 
 STEAMCMD_MAX_ATTEMPTS = 3
 STEAMCMD_RETRY_DELAYS_SECONDS = (10.0, 30.0)
+STEAMCMD_APP_INFO_TIMEOUT_SECONDS = 90.0
+MAX_STEAM_APP_INFO_OUTPUT_CHARS = 2_000_000
 STEAMCMD_PERMANENT_ERROR_MARKERS = (
     "No subscription",
     "Invalid platform",
@@ -297,6 +300,70 @@ def build_steamcmd_update_command(
         "validate",
         "+quit",
     ]
+
+
+def _normalize_steam_app_id(app_id: str) -> str:
+    normalized = str(app_id or "").strip()
+    if not normalized.isdigit():
+        raise InstallError("Steam app id is invalid.")
+    return normalized
+
+
+def build_steamcmd_app_info_command(app_id: str = APP_ID) -> list[str]:
+    """Build the SteamCMD command that prints public app metadata."""
+    normalized_app_id = _normalize_steam_app_id(app_id)
+    steamcmd_bin = _resolve_steamcmd_binary() or "steamcmd"
+    return [
+        steamcmd_bin,
+        "+login",
+        "anonymous",
+        "+app_info_update",
+        "1",
+        "+app_info_print",
+        normalized_app_id,
+        "+quit",
+    ]
+
+
+def fetch_steam_app_info(
+    app_id: str = APP_ID,
+    *,
+    timeout_seconds: float = STEAMCMD_APP_INFO_TIMEOUT_SECONDS,
+    max_output_chars: int = MAX_STEAM_APP_INFO_OUTPUT_CHARS,
+) -> str:
+    """Return bounded, redacted Steam app info output for read-only parsing."""
+    if _resolve_steamcmd_binary() is None:
+        raise InstallError(_("SteamCMD not found in PATH. Make sure it is installed."))
+
+    try:
+        result = subprocess.run(
+            build_steamcmd_app_info_command(app_id),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=max(timeout_seconds, 1.0),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise InstallError(_("SteamCMD latest-build query timed out.")) from exc
+    except subprocess.CalledProcessError as exc:
+        raise InstallError(
+            tr(
+                "{message}:\n{details}",
+                message=_("Failed to query latest server build via steamcmd"),
+                details=safe_subprocess_error(exc.stderr, exc.stdout),
+            )
+        ) from exc
+    except OSError as exc:
+        raise InstallError(
+            tr(
+                "{message}: {error}",
+                message=_("Failed to query latest server build via steamcmd"),
+                error=redact_sensitive_text(exc),
+            )
+        ) from exc
+
+    output = redact_sensitive_text("\n".join((result.stdout or "", result.stderr or "")))
+    return output[: max(max_output_chars, 0)]
 
 
 def stream_server_update(

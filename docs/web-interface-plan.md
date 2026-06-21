@@ -1758,9 +1758,12 @@ it, latest available build/version when a safe adapter can provide it, and a
 compact status: `up to date`, `update available`, `unknown`, `check failed`,
 or `updating`. Failure to determine the latest version degrades to an
 unknown/check-failed badge and must not break dashboard HTML or status JSON.
-The default adapter intentionally leaves latest as `unknown` rather than
-shelling out or doing network work from dashboard rendering; a safe latest
-source remains a follow-up. Routes/templates do not parse SteamCMD output.
+Dashboard rendering intentionally never shells out or does network work. The
+explicit `Check for updates` action enqueues `server:update-check`; that
+background job queries SteamCMD `app_info_print`, parses only the public branch
+build ID through the version service/adapter boundary, and stores bounded safe
+metadata in `web.db`. Until that cache exists, latest remains `unknown`.
+Routes/templates do not parse SteamCMD output.
 
 The web UI should have its own templates/static assets under `src/armactl/web/`.
 It should not import files from the separate marketing website repository, and
@@ -1949,10 +1952,11 @@ not the foreground debug runner.
     update job is created; the web action returns `Server is already up to date`
     and audits the safe no-op check result without secrets. If latest is unknown
     or the check failed, update fails closed and does not enqueue a job.
-  - The default version adapter reads installed build from the local Steam
-    appmanifest and leaves latest unknown until a safe latest-build source is
-    added. Version discovery stays behind an adapter/API; routes/templates do
-    not parse SteamCMD output and `web.db` does not store Steam secrets.
+  - The dashboard read path reads installed build from the local Steam
+    appmanifest and latest build from a safe `web.db` cache only. The explicit
+    `server:update-check` background job refreshes that cache through a
+    SteamCMD app-info adapter; routes/templates do not parse SteamCMD output,
+    and `web.db` does not store Steam secrets or raw SteamCMD output.
   - The "Update server" action is a separate explicit background job, not a
     direct route shell-out. The route does only auth, explicit server:update
     permission, CSRF, stopped-server safety gate, service/job enqueue, and
@@ -1969,8 +1973,8 @@ not the foreground debug runner.
     job handler refuses again before SteamCMD or install-marker mutation.
   - Stop/drain/restart ownership remains future hardening. A later workflow
     must explicitly own downtime policy, player drain, restart confirmation,
-    config/state preservation, and rollback/recovery notes before updating a
-    running server.
+    config/state preservation, rollback/recovery notes, standalone worker
+    hardening, and release/VM smoke before updating a running server.
   - `/jobs` shows update jobs with progress/status/log tails. The dashboard may
     show compact `update available` or `update running` signals, but update
     availability must not be mixed with pending operator work unless a manual

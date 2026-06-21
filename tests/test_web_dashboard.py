@@ -342,7 +342,11 @@ def test_authenticated_owner_can_fetch_dashboard_status_json(
     assert payload["metrics"]["cpu"]["percent"] == 12.0
     assert payload["metrics"]["memory"]["percent"] == 50.0
     assert payload["metrics"]["disk"]["percent"] == 50.0
-    assert [action["name"] for action in payload["actions"]] == ["stop", "restart"]
+    assert [action["name"] for action in payload["actions"]] == [
+        "stop",
+        "restart",
+        "update-check",
+    ]
     assert calls == ["default"]
 
 
@@ -576,6 +580,7 @@ def test_dashboard_stopped_server_shows_start_only(tmp_path: Path, monkeypatch):
 
     assert response.status_code == 200
     assert 'action="/service/start"' in response.text
+    assert 'action="/jobs/server/update-check"' in response.text
     assert 'action="/service/stop"' not in response.text
     assert 'action="/service/restart"' not in response.text
     assert 'data-service-action="start"' in response.text
@@ -622,6 +627,7 @@ def test_dashboard_running_server_shows_stop_restart_only(tmp_path: Path, monkey
     assert 'action="/service/start"' not in response.text
     assert 'action="/service/stop"' in response.text
     assert 'action="/service/restart"' in response.text
+    assert 'action="/jobs/server/update-check"' in response.text
     assert "3 / 64" in response.text
     assert "59.8" in response.text
 
@@ -911,8 +917,39 @@ def test_dashboard_renders_unknown_update_signal_without_breaking(
     assert response.status_code == 200
     assert "Updates" in response.text
     assert "Latest version unknown" in response.text
+    assert "Check for updates" in response.text
+    assert "Last checked" in response.text
+    assert "Check state" in response.text
+    assert 'action="/jobs/server/update-check"' in response.text
     assert 'action="/jobs/server/update"' not in response.text
     assert "Traceback" not in response.text
+
+
+def test_dashboard_version_read_model_does_not_run_steamcmd(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.page_models import dashboard as dashboard_model
+
+    def fail_latest_check(*args, **kwargs):
+        raise AssertionError("dashboard GET must not run SteamCMD latest check")
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch, lifecycle="stopped")
+    monkeypatch.setattr(
+        dashboard_model.server_versions.installer,
+        "fetch_steam_app_info",
+        fail_latest_check,
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Latest version unknown" in response.text
 
 
 def test_dashboard_renders_update_available_notice_without_action_when_running(
@@ -952,6 +989,7 @@ def test_dashboard_renders_update_available_notice_without_action_when_running(
     assert "Stop the game server before updating." in response.text
     assert "100" in response.text
     assert "101" in response.text
+    assert 'action="/jobs/server/update-check"' in response.text
     assert "action=\"/jobs/server/update\"" not in response.text
     assert "name=\"confirm\" value=\"running-update\" required" not in response.text
     assert payload["fields"]["server_version.status"] == "Update available"
@@ -960,6 +998,7 @@ def test_dashboard_renders_update_available_notice_without_action_when_running(
     assert [action["name"] for action in payload["actions"]] == [
         "stop",
         "restart",
+        "update-check",
     ]
 
 
@@ -998,10 +1037,14 @@ def test_dashboard_renders_update_available_action_when_stopped(
     assert "Updates" in response.text
     assert "Update available" in response.text
     assert "Stop the game server before updating." not in response.text
+    assert "Check for updates" in response.text
+    assert "Last checked" in response.text
+    assert 'action="/jobs/server/update-check"' in response.text
     assert "action=\"/jobs/server/update\"" in response.text
     assert "name=\"confirm\" value=\"running-update\" required" not in response.text
     assert [action["name"] for action in payload["actions"]] == [
         "start",
+        "update-check",
         "update",
     ]
 

@@ -18,6 +18,7 @@ from armactl.web.jobs import (
     JOB_STATUS_SUCCEEDED,
     SERVER_INSTALL_JOB_KIND,
     SERVER_REPAIR_JOB_KIND,
+    SERVER_UPDATE_CHECK_JOB_KIND,
     SERVER_UPDATE_JOB_KIND,
     JobDispatcher,
     JobHandlerResult,
@@ -33,6 +34,7 @@ from armactl.web.jobs import (
     enqueue_server_install,
     enqueue_server_repair,
     enqueue_server_update,
+    enqueue_server_update_check,
     get_job,
     list_recent_jobs,
     mark_job_failed,
@@ -580,6 +582,7 @@ def test_server_job_dispatcher_registers_explicit_install_repair_update_handlers
         SERVER_INSTALL_JOB_KIND,
         SERVER_REPAIR_JOB_KIND,
         SERVER_UPDATE_JOB_KIND,
+        SERVER_UPDATE_CHECK_JOB_KIND,
     )
 
 
@@ -630,6 +633,19 @@ def test_server_enqueue_reuses_active_repair_job(tmp_path: Path):
     assert second.id == running.id
     assert second.status == JOB_STATUS_RUNNING
     assert [job.kind for job in jobs] == [SERVER_REPAIR_JOB_KIND]
+
+
+def test_server_enqueue_reuses_active_update_check_job(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+
+    first = enqueue_server_update_check(db_path, requested_by_username="owner")
+    running = mark_job_running(db_path, first.id)
+    second = enqueue_server_update_check(db_path, requested_by_username="owner")
+    jobs = list_recent_jobs(db_path)
+
+    assert second.id == running.id
+    assert second.status == JOB_STATUS_RUNNING
+    assert [job.kind for job in jobs] == [SERVER_UPDATE_CHECK_JOB_KIND]
 
 
 def test_server_enqueue_reuses_active_update_job(tmp_path: Path):
@@ -738,6 +754,108 @@ def test_server_update_handler_refuses_running_server_before_streaming_update(
     assert result.job.error_class == "RuntimeError"
     assert result.job.error_message == "Stop the game server before updating."
     assert "Stop the game server before updating." in result.job.stdout_tail
+
+
+def test_server_update_check_handler_caches_success_without_update_backend(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from armactl.web.jobs import server as server_jobs
+    from armactl.web.services import server_versions
+
+    db_path = _db_path(tmp_path)
+    install_dir = tmp_path / "default" / "server"
+    manifest_dir = install_dir / "steamapps"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "appmanifest_1874900.acf").write_text(
+        '"AppState"\n{\n"buildid" "100"\n}\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        server_jobs.discovery,
+        "discover",
+        lambda instance, save=False: SimpleNamespace(
+            install_dir=str(install_dir),
+            server_installed=True,
+            server_running=False,
+        ),
+    )
+    monkeypatch.setattr(
+        server_jobs.installer,
+        "stream_server_update",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("update check must not run server update")
+        ),
+    )
+    monkeypatch.setattr(
+        server_versions.installer,
+        "fetch_steam_app_info",
+        lambda app_id: '"1874900" { "depots" { "branches" { "public" { "buildid" "101" } } } }',
+    )
+    job = enqueue_server_update_check(db_path, requested_by_username="owner")
+
+    result = dispatch_server_job(db_path, job.id)
+    state = server_versions.load_server_version_state(
+        state=SimpleNamespace(
+            install_dir=str(install_dir),
+            server_installed=True,
+            server_running=False,
+        ),
+        db_path=db_path,
+    )
+
+    assert result.job.kind == SERVER_UPDATE_CHECK_JOB_KIND
+    assert result.job.status == JOB_STATUS_SUCCEEDED
+    assert result.job.result_message == "Update check completed."
+    assert "installed=100" in result.job.stdout_tail
+    assert "latest=101" in result.job.stdout_tail
+    assert state.check_state == server_versions.SERVER_VERSION_CHECK_AVAILABLE
+    assert state.latest == "101"
+
+
+def test_server_update_check_handler_failure_is_redacted_and_cached(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from armactl.web.jobs import server as server_jobs
+    from armactl.web.services import server_versions
+
+    db_path = _db_path(tmp_path)
+    install_dir = tmp_path / "default" / "server"
+    manifest_dir = install_dir / "steamapps"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "appmanifest_1874900.acf").write_text(
+        '"AppState"\n{\n"buildid" "100"\n}\n',
+        encoding="utf-8",
+    )
+    state = SimpleNamespace(
+        install_dir=str(install_dir),
+        server_installed=True,
+        server_running=False,
+    )
+
+    monkeypatch.setattr(server_jobs.discovery, "discover", lambda instance, save=False: state)
+    monkeypatch.setattr(
+        server_versions.installer,
+        "fetch_steam_app_info",
+        lambda app_id: (_ for _ in ()).throw(RuntimeError("token=raw-steam-secret")),
+    )
+    job = enqueue_server_update_check(db_path, requested_by_username="owner")
+
+    result = dispatch_server_job(db_path, job.id)
+    loaded = server_versions.load_server_version_state(state=state, db_path=db_path)
+
+    assert result.job.status == JOB_STATUS_FAILED
+    assert loaded.check_state == server_versions.SERVER_VERSION_CHECK_FAILED
+    assert "raw-steam-secret" not in result.job.error_message
+    assert "raw-steam-secret" not in loaded.failure_reason
+    assert "token=***" in result.job.error_message
+    assert "token=***" in loaded.failure_reason
 
 
 def test_server_enqueue_finds_active_job_older_than_recent_limit(tmp_path: Path):

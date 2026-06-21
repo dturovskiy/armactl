@@ -91,6 +91,34 @@ def _enqueue_server_job(request: Request, csrf_token: str, action: str) -> Respo
     return RedirectResponse("/jobs", status_code=status.HTTP_303_SEE_OTHER)
 
 
+def _enqueue_server_update_check_job(request: Request, csrf_token: str) -> Response:
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, SERVER_UPDATE):
+        return permission_denied_response()
+    if not validate_csrf_token(current.config.db_path, current.session.id, csrf_token):
+        return PlainTextResponse(
+            "Invalid CSRF token.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+    try:
+        server_job_actions.request_server_update_check_and_start(
+            current.config.db_path,
+            audit_log_path=current.config.audit_log_path,
+            username=current.user.username,
+            user_id=current.user.id,
+        )
+    except server_job_actions.ServerJobAuditError as exc:
+        return PlainTextResponse(
+            str(exc),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return RedirectResponse("/jobs", status_code=status.HTTP_303_SEE_OTHER)
+
+
 def _enqueue_server_update_job(
     request: Request,
     csrf_token: str,
@@ -146,6 +174,15 @@ def enqueue_server_repair_route(
 ) -> Response:
     """Queue server repair without running it in the HTTP request."""
     return _enqueue_server_job(request, csrf_token, "repair")
+
+
+@router.post("/jobs/server/update-check")
+def enqueue_server_update_check_route(
+    request: Request,
+    csrf_token: str = Form(default=""),
+) -> Response:
+    """Queue a latest-build check without running it in the HTTP request."""
+    return _enqueue_server_update_check_job(request, csrf_token)
 
 
 @router.post("/jobs/server/update")

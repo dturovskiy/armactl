@@ -848,6 +848,122 @@ def test_update_job_requires_csrf(tmp_path: Path, monkeypatch):
     assert response.text == "Invalid CSRF token."
 
 
+def test_unauthenticated_update_check_job_redirects_to_login(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.post("/jobs/server/update-check", data={}, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_update_check_job_permission_denied_returns_403(
+    tmp_path: Path,
+    monkeypatch,
+    set_web_owner_permissions,
+):
+    from armactl.web.app import create_app
+    from armactl.web.auth import permissions
+    from armactl.web.services import server_job_actions
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    set_web_owner_permissions(permissions.ALL_PERMISSIONS - {permissions.SERVER_UPDATE})
+    monkeypatch.setattr(
+        server_job_actions,
+        "request_server_update_check_and_start",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("update-check backend should not be called")
+        ),
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.post("/jobs/server/update-check", data={}, follow_redirects=False)
+
+    assert response.status_code == 403
+    assert response.text == "Permission denied."
+
+
+def test_update_check_job_requires_csrf(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.services import server_job_actions
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    monkeypatch.setattr(
+        server_job_actions,
+        "request_server_update_check_and_start",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("update-check backend should not be called before csrf")
+        ),
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.post(
+        "/jobs/server/update-check",
+        data={"csrf_token": "bad-token"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Invalid CSRF token."
+
+
+def test_post_update_check_creates_queued_job_without_running_backend(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import server as server_jobs
+    from armactl.web.jobs.store import list_recent_jobs
+    from armactl.web.services import server_versions
+
+    monkeypatch.setattr(
+        server_versions.installer,
+        "fetch_steam_app_info",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("HTTP request must not run SteamCMD latest check")
+        ),
+    )
+    scheduled: list[int] = []
+    monkeypatch.setattr(
+        server_jobs,
+        "start_server_job_worker",
+        lambda db_path, job_id: scheduled.append(job_id),
+    )
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+
+    response = client.post(
+        "/jobs/server/update-check",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    jobs = [
+        job
+        for job in list_recent_jobs(tmp_path / "web" / "web.db")
+        if job.kind == "server:update-check"
+    ]
+    audit_events = _audit_events(tmp_path)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/jobs"
+    assert len(jobs) == 1
+    assert jobs[0].status == "queued"
+    assert jobs[0].current_step == "Queued update check"
+    assert scheduled == [jobs[0].id]
+    assert audit_events[-1]["action"] == "job.server-update-check.enqueue"
+    assert audit_events[-1]["details"]["job_kind"] == "server:update-check"
+    assert audit_events[-1]["details"]["created"] == "true"
+
+
 def test_post_update_noops_when_server_is_up_to_date(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
     from armactl.web.jobs import server as server_jobs

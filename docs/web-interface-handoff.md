@@ -117,8 +117,10 @@ explicitly a release task.
   update fails closed; any operator override needs its own future policy.
 - Update routes only perform auth, explicit server:update permission, CSRF,
   stopped-server safety gate, service/job enqueue, and response rendering. Do
-  not shell out to SteamCMD/systemctl from a route. The default latest source is
-  intentionally unknown until a safe latest-build adapter is added.
+  not shell out to SteamCMD/systemctl from a route. Latest-build refresh is an
+  explicit `server:update-check` background job; dashboard/status routes read
+  only the local appmanifest and safe `web.db` cache. Until the cache exists,
+  latest remains controlled `unknown`.
 - Future update workflows live in service/adapter layers: permission -> CSRF ->
   intent audit -> enqueue/mutation -> outcome audit -> job/progress state.
   Update jobs must be idempotent/deduplicated by kind/instance like
@@ -587,10 +589,11 @@ Next recommended implementation order:
 7. Complete the config schema inventory before extending `/config`: verify exact
    Arma Reforger keys, group fields, and decide safe editor versus advanced
    editor behavior.
-8. Continue server update hardening: add a safe latest-build source adapter,
-   formal stop/drain/restart ownership policy, production-scale active-job
-   lookup validation, and eventual standalone worker hardening. The first
-   server:update web job slice now allows update only when the game server is
+8. Continue server update hardening: add formal stop/drain/restart ownership
+   policy, production-scale active-job lookup validation, standalone worker
+   hardening, and release/VM smoke. The current latest check/cache slice is
+   explicit and operator-triggered; full auto-update is not implemented. The
+   server:update web job slice still allows update only when the game server is
    stopped; the fail-closed version gate, dashboard signal, audit path, and
    tests are present.
 9. Add edit/save/delete flows for bot settings and extended config fields

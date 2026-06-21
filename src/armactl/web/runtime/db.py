@@ -9,7 +9,7 @@ from pathlib import Path
 
 from armactl.web.runtime.job_store_maintenance import repair_duplicate_active_jobs
 
-WEB_SCHEMA_VERSION = "9"
+WEB_SCHEMA_VERSION = "10"
 PRIVATE_FILE_MODE = 0o600
 _LEGACY_DEFAULT_TIMESTAMP = "1970-01-01T00:00:00+00:00"
 
@@ -296,6 +296,63 @@ def _ensure_web_jobs_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+def _ensure_web_server_version_checks_schema(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS web_server_version_checks (
+            instance TEXT PRIMARY KEY CHECK(length(trim(instance)) > 0),
+            installed TEXT NOT NULL DEFAULT '',
+            latest TEXT NOT NULL DEFAULT '',
+            branch TEXT NOT NULL DEFAULT 'public',
+            check_state TEXT NOT NULL CHECK(length(trim(check_state)) > 0),
+            failure_reason TEXT NOT NULL DEFAULT '',
+            checked_at TEXT NOT NULL CHECK(length(checked_at) > 0),
+            updated_at TEXT NOT NULL CHECK(length(updated_at) > 0),
+            source TEXT NOT NULL DEFAULT '',
+            job_id INTEGER,
+            FOREIGN KEY(job_id) REFERENCES web_jobs(id) ON DELETE SET NULL
+        )
+        """
+    )
+    _ensure_columns(
+        connection,
+        "web_server_version_checks",
+        (
+            (
+                "instance",
+                (
+                    "instance TEXT NOT NULL DEFAULT 'default' "
+                    "CHECK(length(trim(instance)) > 0)"
+                ),
+            ),
+            ("installed", "installed TEXT NOT NULL DEFAULT ''"),
+            ("latest", "latest TEXT NOT NULL DEFAULT ''"),
+            ("branch", "branch TEXT NOT NULL DEFAULT 'public'"),
+            (
+                "check_state",
+                "check_state TEXT NOT NULL DEFAULT 'unknown' CHECK(length(trim(check_state)) > 0)",
+            ),
+            ("failure_reason", "failure_reason TEXT NOT NULL DEFAULT ''"),
+            (
+                "checked_at",
+                f"checked_at TEXT NOT NULL DEFAULT '{_LEGACY_DEFAULT_TIMESTAMP}'",
+            ),
+            (
+                "updated_at",
+                f"updated_at TEXT NOT NULL DEFAULT '{_LEGACY_DEFAULT_TIMESTAMP}'",
+            ),
+            ("source", "source TEXT NOT NULL DEFAULT ''"),
+            ("job_id", "job_id INTEGER"),
+        ),
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_web_server_version_checks_updated_at
+        ON web_server_version_checks(updated_at)
+        """
+    )
+
+
 def _ensure_web_login_rate_limits_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
@@ -551,6 +608,7 @@ def _ensure_auth_schema(connection: sqlite3.Connection) -> None:
 def _ensure_current_web_schema(connection: sqlite3.Connection) -> None:
     _ensure_auth_schema(connection)
     _ensure_web_jobs_schema(connection)
+    _ensure_web_server_version_checks_schema(connection)
     _ensure_web_login_rate_limits_schema(connection)
     _ensure_web_pending_restarts_schema(connection)
     _ensure_web_pending_work_schema(connection)
@@ -596,6 +654,10 @@ def _migration_9_pending_work_fingerprints(connection: sqlite3.Connection) -> No
     _ensure_web_pending_work_schema(connection)
 
 
+def _migration_10_server_version_checks(connection: sqlite3.Connection) -> None:
+    _ensure_web_server_version_checks_schema(connection)
+
+
 _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (1, _migration_1_auth_schema),
     (2, _migration_2_jobs_schema),
@@ -606,8 +668,8 @@ _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (7, _migration_7_schema_indexes),
     (8, _migration_8_current_schema_compatibility),
     (9, _migration_9_pending_work_fingerprints),
+    (10, _migration_10_server_version_checks),
 )
-
 
 def _read_schema_version(connection: sqlite3.Connection) -> int:
     _ensure_web_schema_meta_table(connection)

@@ -193,6 +193,31 @@ def _action_forms(lifecycle: str, can_run_actions: bool) -> list[dict[str, Any]]
     return []
 
 
+def _server_update_check_action(
+    snapshot: Mapping[str, Any],
+    lifecycle: str,
+    *,
+    can_update_server: bool,
+) -> dict[str, Any] | None:
+    if not can_update_server or lifecycle not in {"running", "stopped"}:
+        return None
+    server_version = _section(snapshot, "server_version")
+    check_state = _text(
+        server_version.get("check_state") or server_version.get("checkState"),
+        "",
+    )
+    if check_state == "checking":
+        return None
+    return {
+        "name": "update-check",
+        "action_path": "/jobs/server/update-check",
+        "label": "Check for updates",
+        "danger": False,
+        "confirm_label": "",
+        "confirm_value": "",
+    }
+
+
 def _server_update_action(
     snapshot: Mapping[str, Any],
     *,
@@ -390,6 +415,11 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
     installed_version = _text(server_version.get("installed"), "unknown")
     latest_version = _text(server_version.get("latest"), "unknown")
     branch = _text(server_version.get("branch"), "unknown")
+    last_checked = _text(
+        server_version.get("last_checked") or server_version.get("lastChecked"),
+        "never",
+    )
+    check_state = _text(server_version.get("check_state") or server_version.get("checkState"))
 
     cards = [
         {
@@ -427,6 +457,18 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
                     latest_version,
                     translate_value=latest_version == "unknown",
                     field="server_version.latest",
+                ),
+                _item(
+                    "Last checked",
+                    last_checked,
+                    translate_value=last_checked == "never",
+                    field="server_version.last_checked",
+                ),
+                _item(
+                    "Check state",
+                    check_state,
+                    translate_value=True,
+                    field="server_version.check_state",
                 ),
                 _item(
                     "Branch",
@@ -636,10 +678,17 @@ def build_dashboard_view(
     server_name = _text(config.get("server_name"), "")
     heading = server_name if lifecycle in ACTIVE_LIFECYCLES and server_name else "Dashboard"
     actions = _action_forms(lifecycle, can_run_actions)
+    update_check_action = _server_update_check_action(
+        snapshot,
+        lifecycle,
+        can_update_server=can_update_server,
+    )
     update_action = _server_update_action(
         snapshot,
         can_update_server=can_update_server,
     )
+    if update_check_action is not None:
+        actions = [*actions, update_check_action]
     if update_action is not None:
         actions = [*actions, update_action]
     management_links, management_note = _management_links(

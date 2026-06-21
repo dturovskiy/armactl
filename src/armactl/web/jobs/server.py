@@ -18,8 +18,14 @@ from armactl.web.jobs.store import get_or_create_active_job
 SERVER_INSTALL_JOB_KIND = "server:install"
 SERVER_REPAIR_JOB_KIND = "server:repair"
 SERVER_UPDATE_JOB_KIND = "server:update"
+SERVER_UPDATE_CHECK_JOB_KIND = "server:update-check"
 SERVER_JOB_KINDS = frozenset(
-    {SERVER_INSTALL_JOB_KIND, SERVER_REPAIR_JOB_KIND, SERVER_UPDATE_JOB_KIND}
+    {
+        SERVER_INSTALL_JOB_KIND,
+        SERVER_REPAIR_JOB_KIND,
+        SERVER_UPDATE_JOB_KIND,
+        SERVER_UPDATE_CHECK_JOB_KIND,
+    }
 )
 STOP_RUNNING_SERVER_UPDATE_MESSAGE = "Stop the game server before updating."
 
@@ -94,6 +100,24 @@ def enqueue_server_repair(
     return job
 
 
+def ensure_server_update_check_job(
+    db_path,
+    *,
+    requested_by_username: str,
+    requested_by_user_id: int | None = None,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> tuple[JobRecord, bool]:
+    """Return an active update-check job, creating a queued job if needed."""
+    return get_or_create_active_job(
+        db_path,
+        kind=SERVER_UPDATE_CHECK_JOB_KIND,
+        requested_by_username=requested_by_username,
+        requested_by_user_id=requested_by_user_id,
+        instance=instance,
+        current_step="Queued update check",
+    )
+
+
 def ensure_server_update_job(
     db_path,
     *,
@@ -121,6 +145,23 @@ def enqueue_server_update(
 ) -> JobRecord:
     """Create or return a queued/running server update job."""
     job, _created = ensure_server_update_job(
+        db_path,
+        requested_by_username=requested_by_username,
+        requested_by_user_id=requested_by_user_id,
+        instance=instance,
+    )
+    return job
+
+
+def enqueue_server_update_check(
+    db_path,
+    *,
+    requested_by_username: str,
+    requested_by_user_id: int | None = None,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> JobRecord:
+    """Create or return a queued/running server update-check job."""
+    job, _created = ensure_server_update_check_job(
         db_path,
         requested_by_username=requested_by_username,
         requested_by_user_id=requested_by_user_id,
@@ -158,6 +199,40 @@ def handle_server_repair(context: JobContext) -> JobHandlerResult:
     return JobHandlerResult(
         result_message="Server repair completed.",
         current_step="Repair complete",
+        progress_current=1,
+        progress_total=1,
+    )
+
+
+def handle_server_update_check(context: JobContext) -> JobHandlerResult:
+    """Run an explicit latest-build check and cache its safe result."""
+    from armactl.web.services import server_versions
+
+    instance = context.job.instance or paths.DEFAULT_INSTANCE_NAME
+    context.append_output(stdout=f"Checking latest server build for {instance}.")
+    state = discovery.discover(instance=instance, save=False)
+    version_state = server_versions.refresh_latest_server_version_state(
+        context.db_path,
+        instance=instance,
+        state=state,
+        job_id=context.job.id,
+    )
+    installed = version_state.installed or "unknown"
+    latest = version_state.latest or "unknown"
+    context.append_output(
+        stdout=(
+            f"{version_state.message}: installed={installed}; "
+            f"latest={latest}; branch={version_state.branch}"
+        )
+    )
+    if version_state.check_state == server_versions.SERVER_VERSION_CHECK_FAILED:
+        raise RuntimeError(
+            version_state.failure_reason
+            or server_versions.SERVER_VERSION_MESSAGE_FAILED
+        )
+    return JobHandlerResult(
+        result_message=server_versions.SERVER_VERSION_MESSAGE_CHECK_COMPLETED,
+        current_step="Update check complete",
         progress_current=1,
         progress_total=1,
     )
@@ -216,6 +291,7 @@ def create_server_job_dispatcher() -> JobDispatcher:
         {
             SERVER_INSTALL_JOB_KIND: handle_server_install,
             SERVER_REPAIR_JOB_KIND: handle_server_repair,
+            SERVER_UPDATE_CHECK_JOB_KIND: handle_server_update_check,
             SERVER_UPDATE_JOB_KIND: handle_server_update,
         }
     )
