@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from web_route_helpers import _client, _login, _set_cookie
+from web_route_helpers import _client, _login, _session_cookie_name, _set_cookie
 
 from armactl.state import PortInfo, ServerState
 from armactl.web.auth.cookies import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
@@ -259,7 +259,7 @@ def test_management_pages_do_not_render_secrets(tmp_path: Path, monkeypatch):
     _install_management_page_fakes(monkeypatch)
     client = _client(create_app(data_root=tmp_path))
     login_response = _login(client, "owner", password)
-    session_token = login_response.cookies.get(SESSION_COOKIE_NAME)
+    session_token = login_response.cookies.get(_session_cookie_name(client))
 
     html = "\n".join(
         client.get(path, follow_redirects=False).text

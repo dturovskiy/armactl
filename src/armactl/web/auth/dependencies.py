@@ -57,7 +57,7 @@ def get_web_runtime_config(request: Request) -> WebRuntimeConfig:
 def get_current_session(request: Request) -> CurrentSession | None:
     """Return the current authenticated session, if the request has one."""
     config = get_web_runtime_config(request)
-    session_token = read_session_token(request)
+    session_token = read_session_token(request, config)
     if session_token is None:
         return None
 
@@ -84,7 +84,7 @@ def require_permission(current: CurrentSession, permission: str) -> bool:
 
 def get_form_csrf_token(request: Request, current: CurrentSession) -> CsrfTokenForResponse:
     """Return a valid CSRF token for authenticated forms."""
-    cookie_token = read_csrf_token(request)
+    cookie_token = read_csrf_token(request, current.config)
     if (
         cookie_token is not None
         and validate_csrf_token(current.config.db_path, current.session.id, cookie_token)

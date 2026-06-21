@@ -138,6 +138,32 @@ def test_ensure_web_runtime_persists_missing_session_secret(tmp_path: Path):
     assert "ARMACTL_WEB_SESSION_SECRET=" in text
 
 
+def test_ensure_web_runtime_persists_missing_cookie_namespace(tmp_path: Path):
+    runtime_dir = tmp_path / "web"
+    runtime_dir.mkdir()
+    env_path = runtime_dir / "web.env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "ARMACTL_WEB_BIND_HOST=127.0.0.1",
+                f"ARMACTL_WEB_BIND_PORT={WEB_PANEL_DEFAULT_PORT}",
+                "ARMACTL_WEB_HTTPS_REQUIRED=false",
+                "ARMACTL_WEB_SESSION_SECRET=test-secret",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    created = ensure_web_runtime(tmp_path)
+    reloaded = load_web_runtime_config(tmp_path)
+    text = env_path.read_text(encoding="utf-8")
+
+    assert created.cookie_namespace
+    assert reloaded.cookie_namespace == created.cookie_namespace
+    assert "ARMACTL_WEB_COOKIE_NAMESPACE=" in text
+
+
 def test_config_roundtrip_preserves_bind_and_https_settings(tmp_path: Path):
     original = ensure_web_runtime(tmp_path)
     updated = replace(
@@ -360,6 +386,27 @@ def test_config_rejects_reserved_arma_game_port(tmp_path: Path):
     )
 
     with pytest.raises(WebRuntimeConfigError, match="Port 2001 is reserved"):
+        load_web_runtime_config(tmp_path)
+
+
+def test_config_rejects_invalid_cookie_namespace(tmp_path: Path):
+    runtime_dir = tmp_path / "web"
+    runtime_dir.mkdir()
+    (runtime_dir / "web.env").write_text(
+        "\n".join(
+            [
+                "ARMACTL_WEB_BIND_HOST=127.0.0.1",
+                f"ARMACTL_WEB_BIND_PORT={WEB_PANEL_DEFAULT_PORT}",
+                "ARMACTL_WEB_HTTPS_REQUIRED=false",
+                "ARMACTL_WEB_COOKIE_NAMESPACE=bad namespace",
+                "ARMACTL_WEB_SESSION_SECRET=test-secret",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(WebRuntimeConfigError, match="COOKIE_NAMESPACE"):
         load_web_runtime_config(tmp_path)
 
 

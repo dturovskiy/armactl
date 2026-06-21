@@ -11,9 +11,9 @@ from typing import Any
 
 import pytest
 from starlette.exceptions import StarletteDeprecationWarning
+from web_route_helpers import _session_cookie_name
 
 from armactl.state import PortInfo, ServerState
-from armactl.web.auth.cookies import SESSION_COOKIE_NAME
 from armactl.web.auth.setup import setup_owner_user
 
 
@@ -662,7 +662,7 @@ def test_config_edit_audit_failure_reports_saved_with_warning(
 def test_config_edit_does_not_render_secrets(tmp_path: Path, monkeypatch):
     config_path = _write_config(tmp_path)
     client = _authed_client(tmp_path, monkeypatch, config_path)
-    session_token = client.cookies.get(SESSION_COOKIE_NAME)
+    session_token = client.cookies.get(_session_cookie_name(client))
 
     response = client.get("/config", follow_redirects=False)
 

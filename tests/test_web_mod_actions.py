@@ -8,12 +8,12 @@ import warnings
 from pathlib import Path
 
 from starlette.exceptions import StarletteDeprecationWarning
+from web_route_helpers import _session_cookie_name
 
 from armactl.addon_cleanup import CleanupResult
 from armactl.config_manager import ConfigError
 from armactl.mods_manager import ModAddResult, ModUpdateResult
 from armactl.state import ServerState
-from armactl.web.auth.cookies import SESSION_COOKIE_NAME
 from armactl.web.auth.permissions import MODS_VIEW
 from armactl.web.auth.setup import setup_owner_user
 from armactl.web.auth.users import get_user_by_username
@@ -920,7 +920,7 @@ def test_mods_html_and_audit_do_not_expose_auth_secrets(tmp_path: Path, monkeypa
     client = _client(app)
     login_response = _login(client, "owner", password)
     assert login_response.status_code == 303
-    session_token = login_response.cookies.get(SESSION_COOKIE_NAME)
+    session_token = login_response.cookies.get(_session_cookie_name(client))
     csrf_token = _mods_csrf_token(client)
 
     page_response = client.get("/mods", follow_redirects=False)

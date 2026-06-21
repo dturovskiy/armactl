@@ -20,6 +20,11 @@ from armactl.web.runtime.paths import (
 TRUE_VALUES = {"1", "true", "yes", "on"}
 FALSE_VALUES = {"0", "false", "no", "off"}
 SESSION_SECRET_BYTES = 48
+COOKIE_NAMESPACE_BYTES = 12
+COOKIE_NAMESPACE_MAX_LENGTH = 64
+COOKIE_NAMESPACE_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+)
 DEFAULT_HTTPS_REQUIRED = False
 
 
@@ -37,6 +42,7 @@ class WebRuntimeConfig:
     db_path: Path
     audit_log_path: Path
     session_secret: str = field(repr=False)
+    cookie_namespace: str = field(repr=False)
     bind_host: str = DEFAULT_WEB_HOST
     bind_port: int = WEB_PANEL_DEFAULT_PORT
     https_required: bool = DEFAULT_HTTPS_REQUIRED
@@ -45,6 +51,11 @@ class WebRuntimeConfig:
 def _generate_session_secret() -> str:
     """Generate a new cookie/session signing secret without exposing it."""
     return secrets.token_urlsafe(SESSION_SECRET_BYTES)
+
+
+def _generate_cookie_namespace() -> str:
+    """Generate a stable namespace for cookies on shared hostnames."""
+    return secrets.token_urlsafe(COOKIE_NAMESPACE_BYTES).rstrip("=")
 
 
 def _parse_env_mapping(text: str) -> dict[str, str]:
@@ -106,8 +117,20 @@ def _validate_env_value(field_name: str, value: str, *, required: bool = True) -
     return normalized
 
 
+def _validate_cookie_namespace(value: str) -> str:
+    normalized = _validate_env_value("ARMACTL_WEB_COOKIE_NAMESPACE", value)
+    if len(normalized) > COOKIE_NAMESPACE_MAX_LENGTH:
+        raise WebRuntimeConfigError("ARMACTL_WEB_COOKIE_NAMESPACE is too long.")
+    if any(character not in COOKIE_NAMESPACE_CHARS for character in normalized):
+        raise WebRuntimeConfigError(
+            "ARMACTL_WEB_COOKIE_NAMESPACE can contain only letters, digits, _ or -."
+        )
+    return normalized
+
+
 def _validate_config(config: WebRuntimeConfig) -> None:
     _validate_env_value("ARMACTL_WEB_SESSION_SECRET", config.session_secret)
+    _validate_cookie_namespace(config.cookie_namespace)
     _validate_env_value("ARMACTL_WEB_BIND_HOST", config.bind_host)
     if not isinstance(config.https_required, bool):
         raise WebRuntimeConfigError("ARMACTL_WEB_HTTPS_REQUIRED must be true or false.")
@@ -125,6 +148,12 @@ def _config_from_mapping(data_root: Path | None, data: dict[str, str]) -> WebRun
     if not session_secret:
         session_secret = _generate_session_secret()
 
+    cookie_namespace = data.get("ARMACTL_WEB_COOKIE_NAMESPACE", "").strip()
+    if not cookie_namespace:
+        cookie_namespace = _generate_cookie_namespace()
+    else:
+        cookie_namespace = _validate_cookie_namespace(cookie_namespace)
+
     bind_host = data.get("ARMACTL_WEB_BIND_HOST", DEFAULT_WEB_HOST).strip() or DEFAULT_WEB_HOST
     bind_port = _parse_port(data.get("ARMACTL_WEB_BIND_PORT", str(WEB_PANEL_DEFAULT_PORT)))
     https_required = _parse_bool(
@@ -139,6 +168,7 @@ def _config_from_mapping(data_root: Path | None, data: dict[str, str]) -> WebRun
         db_path=db_path,
         audit_log_path=audit_log_path,
         session_secret=session_secret,
+        cookie_namespace=cookie_namespace,
         bind_host=bind_host,
         bind_port=bind_port,
         https_required=https_required,
@@ -155,7 +185,10 @@ def load_web_runtime_config(data_root: Path | None = None) -> WebRuntimeConfig:
 
 def _mapping_needs_normalized_save(data: dict[str, str]) -> bool:
     """Return whether a partial config should be rewritten with generated defaults."""
-    return not data.get("ARMACTL_WEB_SESSION_SECRET", "").strip()
+    return (
+        not data.get("ARMACTL_WEB_SESSION_SECRET", "").strip()
+        or not data.get("ARMACTL_WEB_COOKIE_NAMESPACE", "").strip()
+    )
 
 
 def ensure_web_runtime_config(data_root: Path | None = None) -> WebRuntimeConfig:
@@ -175,6 +208,7 @@ def render_web_runtime_config(config: WebRuntimeConfig) -> str:
     """Render a normalized `web.env` payload."""
     _validate_config(config)
     session_secret = _validate_env_value("ARMACTL_WEB_SESSION_SECRET", config.session_secret)
+    cookie_namespace = _validate_cookie_namespace(config.cookie_namespace)
     bind_host = _validate_env_value("ARMACTL_WEB_BIND_HOST", config.bind_host)
     https_required = "true" if config.https_required else "false"
 
@@ -187,6 +221,7 @@ def render_web_runtime_config(config: WebRuntimeConfig) -> str:
         f"ARMACTL_WEB_BIND_HOST={bind_host}",
         f"ARMACTL_WEB_BIND_PORT={config.bind_port}",
         f"ARMACTL_WEB_HTTPS_REQUIRED={https_required}",
+        f"ARMACTL_WEB_COOKIE_NAMESPACE={cookie_namespace}",
         f"ARMACTL_WEB_SESSION_SECRET={session_secret}",
     ]
     return "\n".join(lines) + "\n"

@@ -8,14 +8,16 @@ from pathlib import Path
 
 from web_route_helpers import (
     _client,
+    _csrf_cookie_name,
     _form_token,
     _login,
+    _login_csrf_cookie_name,
+    _session_cookie_name,
     _session_set_cookie,
     _set_cookie,
     _set_cookie_header,
 )
 
-from armactl.web.auth.cookies import CSRF_COOKIE_NAME, LOGIN_CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
 from armactl.web.auth.sessions import create_session, revoke_session, validate_session
 from armactl.web.auth.setup import setup_owner_user
 from armactl.web.runtime import ensure_web_runtime, save_web_runtime_config
@@ -44,10 +46,10 @@ def test_login_form_sets_httponly_login_csrf_cookie(tmp_path: Path):
     client = _client(create_app(data_root=tmp_path))
 
     response = client.get("/login")
-    header = _set_cookie_header(response, LOGIN_CSRF_COOKIE_NAME)
+    header = _set_cookie_header(response, _login_csrf_cookie_name(client))
 
     assert response.status_code == 200
-    assert response.cookies.get(LOGIN_CSRF_COOKIE_NAME) == _form_token(response.text)
+    assert response.cookies.get(_login_csrf_cookie_name(client)) == _form_token(response.text)
     assert "HttpOnly" in header
     assert "SameSite=lax" in header
     assert "Path=/login" in header
@@ -75,7 +77,7 @@ def test_successful_login_sets_session_cookie_and_redirects(tmp_path: Path):
     client = _client(create_app(data_root=tmp_path))
 
     response = _login(client, "owner", password)
-    session_cookie = response.cookies.get(SESSION_COOKIE_NAME)
+    session_cookie = response.cookies.get(_session_cookie_name(client))
 
     assert response.status_code == 303
     assert response.headers["location"] == "/dashboard"
@@ -94,7 +96,7 @@ def test_wrong_credentials_do_not_set_cookie_and_show_controlled_error(tmp_path:
     response = _login(client, "owner", "wrong password")
 
     assert response.status_code == 401
-    assert SESSION_COOKIE_NAME not in response.cookies
+    assert _session_cookie_name(client) not in response.cookies
     assert "Username or password is invalid." in response.text
     assert "owner login password" not in response.text
     assert "wrong password" not in response.text
@@ -115,7 +117,7 @@ def test_login_without_csrf_fails_safely(tmp_path: Path):
     )
 
     assert response.status_code == 400
-    assert SESSION_COOKIE_NAME not in response.cookies
+    assert _session_cookie_name(client) not in response.cookies
     assert "Login form expired. Try again." in response.text
     assert password not in response.text
     assert "Traceback" not in response.text
@@ -142,15 +144,15 @@ def test_invalid_expired_or_revoked_session_cookie_redirects_to_login(
         )
 
     client = _client(create_app(data_root=tmp_path))
-    _set_cookie(client, SESSION_COOKIE_NAME, "not-a-valid-session")
+    _set_cookie(client, _session_cookie_name(client), "not-a-valid-session")
     invalid_response = client.get("/dashboard", follow_redirects=False)
 
     client = _client(create_app(data_root=tmp_path))
-    _set_cookie(client, SESSION_COOKIE_NAME, expired_session.token)
+    _set_cookie(client, _session_cookie_name(client), expired_session.token)
     expired_response = client.get("/dashboard", follow_redirects=False)
 
     client = _client(create_app(data_root=tmp_path))
-    _set_cookie(client, SESSION_COOKIE_NAME, revoked_session.token)
+    _set_cookie(client, _session_cookie_name(client), revoked_session.token)
     revoked_response = client.get("/dashboard", follow_redirects=False)
 
     assert invalid_response.status_code == 303
@@ -168,8 +170,8 @@ def test_logout_with_valid_csrf_revokes_session_and_clears_cookie(tmp_path: Path
     setup_owner_user(tmp_path, "owner", password)
     client = _client(create_app(data_root=tmp_path))
     login_response = _login(client, "owner", password)
-    session_token = login_response.cookies.get(SESSION_COOKIE_NAME)
-    csrf_token = login_response.cookies.get(CSRF_COOKIE_NAME)
+    session_token = login_response.cookies.get(_session_cookie_name(client))
+    csrf_token = login_response.cookies.get(_csrf_cookie_name(client))
     assert csrf_token
 
     response = client.post(
@@ -193,7 +195,7 @@ def test_logout_without_or_wrong_csrf_fails_safely(tmp_path: Path):
     db_path = tmp_path / "web" / "web.db"
     session = create_session(db_path, user.id)
     client = _client(create_app(data_root=tmp_path))
-    _set_cookie(client, SESSION_COOKIE_NAME, session.token)
+    _set_cookie(client, _session_cookie_name(client), session.token)
 
     missing_response = client.post("/logout", data={}, follow_redirects=False)
     wrong_response = client.post(
@@ -218,7 +220,7 @@ def test_cookie_flags_follow_https_required(tmp_path: Path):
 
     response = _login(client, "owner", password)
     header = _session_set_cookie(response)
-    csrf_header = _set_cookie_header(response, CSRF_COOKIE_NAME)
+    csrf_header = _set_cookie_header(response, _csrf_cookie_name(client))
 
     assert "HttpOnly" in header
     assert "SameSite=lax" in header
@@ -238,7 +240,7 @@ def test_cookie_flags_set_secure_when_https_required(tmp_path: Path):
     client = _client(create_app(data_root=tmp_path), base_url="https://testserver")
 
     form_response = client.get("/login")
-    login_csrf_header = _set_cookie_header(form_response, LOGIN_CSRF_COOKIE_NAME)
+    login_csrf_header = _set_cookie_header(form_response, _login_csrf_cookie_name(client))
     response = client.post(
         "/login",
         data={
@@ -249,7 +251,7 @@ def test_cookie_flags_set_secure_when_https_required(tmp_path: Path):
         follow_redirects=False,
     )
     header = _session_set_cookie(response)
-    csrf_header = _set_cookie_header(response, CSRF_COOKIE_NAME)
+    csrf_header = _set_cookie_header(response, _csrf_cookie_name(client))
 
     assert "HttpOnly" in login_csrf_header
     assert "SameSite=lax" in login_csrf_header
@@ -272,16 +274,37 @@ def test_repeated_wrong_login_attempts_return_rate_limit(tmp_path: Path):
     for _ in range(5):
         response = _login(client, "owner", "wrong password")
         assert response.status_code == 401
-        assert SESSION_COOKIE_NAME not in response.cookies
+        assert _session_cookie_name(client) not in response.cookies
 
     limited_response = _login(client, "owner", "wrong password")
 
     assert limited_response.status_code == 429
-    assert SESSION_COOKIE_NAME not in limited_response.cookies
+    assert _session_cookie_name(client) not in limited_response.cookies
     assert "Too many login attempts. Try again later." in limited_response.text
     assert "wrong password" not in limited_response.text
     assert password not in limited_response.text
     assert "Traceback" not in limited_response.text
+
+
+def test_cookie_names_are_isolated_between_runtime_configs(tmp_path: Path):
+    from armactl.web.app import create_app
+    from armactl.web.auth.cookies import session_cookie_name
+
+    left_root = tmp_path / "left"
+    right_root = tmp_path / "right"
+    setup_owner_user(left_root, "owner", "owner password")
+    setup_owner_user(right_root, "owner", "owner password")
+    left_client = _client(create_app(data_root=left_root))
+    right_client = _client(create_app(data_root=right_root))
+
+    left_response = _login(left_client, "owner", "owner password")
+    right_response = _login(right_client, "owner", "owner password")
+
+    left_name = session_cookie_name(ensure_web_runtime(left_root))
+    right_name = session_cookie_name(ensure_web_runtime(right_root))
+    assert left_name != right_name
+    assert left_response.cookies.get(left_name)
+    assert right_response.cookies.get(right_name)
 
 
 def test_correct_password_is_blocked_during_login_lockout(tmp_path: Path):
@@ -297,7 +320,7 @@ def test_correct_password_is_blocked_during_login_lockout(tmp_path: Path):
     response = _login(client, "owner", password)
 
     assert response.status_code == 429
-    assert SESSION_COOKIE_NAME not in response.cookies
+    assert _session_cookie_name(client) not in response.cookies
     assert "Too many login attempts. Try again later." in response.text
     assert password not in response.text
     assert "Traceback" not in response.text

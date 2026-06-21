@@ -100,7 +100,7 @@ def login_submit(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
-    if not validate_login_csrf(request, csrf_token):
+    if not validate_login_csrf(request, csrf_token, config):
         return _login_template(
             request,
             error="Login form expired. Try again.",

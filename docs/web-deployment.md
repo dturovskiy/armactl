@@ -183,6 +183,14 @@ it for public HTTPS deployments. If it is enabled, plain HTTP browser testing
 will not send the session cookie; test through HTTPS, an SSH tunnel with the
 setting disabled for local-only smoke, or a local reverse proxy.
 
+When several armactl-web panels are exposed through the same browser hostname
+(for example one public IP with different ports), browser cookies are still
+scoped by hostname, not by port. Each VM runtime therefore stores its own
+`ARMACTL_WEB_COOKIE_NAMESPACE` in `web.env`; do not copy this value between
+VMs. External reverse proxies should also preserve the original Host header,
+including the port when one is used, so generated static asset URLs point back
+to the correct public endpoint.
+
 A public port-forward to `http://GAME_VM:8765` without TLS is only acceptable as
 a short smoke/test window. Remove it immediately after the check, and do not
 leave it as the production access path.

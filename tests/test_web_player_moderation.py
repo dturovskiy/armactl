@@ -8,11 +8,11 @@ import warnings
 from pathlib import Path
 
 from starlette.exceptions import StarletteDeprecationWarning
+from web_route_helpers import _session_cookie_name
 
 from armactl.player_view import PlayerView
 from armactl.rcon import PlayerEntry
 from armactl.state import ServerState
-from armactl.web.auth.cookies import SESSION_COOKIE_NAME
 from armactl.web.auth.permissions import ADMINS_VIEW
 from armactl.web.auth.setup import setup_owner_user
 from armactl.web.auth.users import get_user_by_username
@@ -448,7 +448,7 @@ def test_player_moderation_html_does_not_expose_auth_or_raw_token_secrets(
     client = _client(app)
     login_response = _login(client, "owner", password)
     assert login_response.status_code == 303
-    session_token = login_response.cookies.get(SESSION_COOKIE_NAME)
+    session_token = login_response.cookies.get(_session_cookie_name(client))
 
     response = client.get("/admins", follow_redirects=False)
 

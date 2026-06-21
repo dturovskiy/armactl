@@ -11,6 +11,7 @@ from web_route_helpers import (
     _action_csrf_token,
     _client,
     _login,
+    _session_cookie_name,
 )
 
 from armactl.metrics import (
@@ -22,7 +23,6 @@ from armactl.metrics import (
 from armactl.player_view import PlayerView
 from armactl.state import PortInfo, ServerState
 from armactl.status_summary import ConfigSummary, ModsSummary, ModSummaryEntry
-from armactl.web.auth.cookies import SESSION_COOKIE_NAME
 from armactl.web.auth.setup import setup_owner_user
 from armactl.web.auth.users import get_user_by_username
 from armactl.web.i18n import LANGUAGE_COOKIE_NAME, THEME_COOKIE_NAME
@@ -390,7 +390,7 @@ def test_dashboard_status_json_does_not_include_secrets_or_paths(
     _install_dashboard_model_fakes(monkeypatch)
     client = _client(create_app(data_root=tmp_path))
     login_response = _login(client, "owner", password)
-    session_token = login_response.cookies.get(SESSION_COOKIE_NAME)
+    session_token = login_response.cookies.get(_session_cookie_name(client))
 
     response = client.get("/dashboard/status.json", follow_redirects=False)
 
@@ -441,7 +441,7 @@ def test_password_hash_and_session_token_do_not_appear_in_dashboard_html(
     _install_dashboard_model_fakes(monkeypatch)
     client = _client(create_app(data_root=tmp_path))
     login_response = _login(client, "owner", password)
-    session_token = login_response.cookies.get(SESSION_COOKIE_NAME)
+    session_token = login_response.cookies.get(_session_cookie_name(client))
 
     response = client.get("/dashboard")
 

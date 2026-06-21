@@ -9,10 +9,10 @@ from pathlib import Path
 
 import pytest
 from starlette.exceptions import StarletteDeprecationWarning
+from web_route_helpers import _session_cookie_name
 
 from armactl.config_manager import ConfigError
 from armactl.state import ServerState
-from armactl.web.auth.cookies import SESSION_COOKIE_NAME
 from armactl.web.auth.permissions import ADMINS_VIEW
 from armactl.web.auth.setup import setup_owner_user
 from armactl.web.auth.users import get_user_by_username
@@ -844,7 +844,7 @@ def test_admins_html_and_audit_do_not_expose_auth_secrets(tmp_path: Path, monkey
     client = _client(create_app(data_root=tmp_path))
     login_response = _login(client, "owner", password)
     assert login_response.status_code == 303
-    session_token = login_response.cookies.get(SESSION_COOKIE_NAME)
+    session_token = login_response.cookies.get(_session_cookie_name(client))
     csrf_token = _admins_csrf_token(client)
 
     page_response = client.get("/admins", follow_redirects=False)

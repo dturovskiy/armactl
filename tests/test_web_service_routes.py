@@ -9,8 +9,10 @@ from types import SimpleNamespace
 
 from web_route_helpers import (
     _client,
+    _csrf_cookie_name,
     _login,
     _login_action_csrf_token,
+    _session_cookie_name,
 )
 
 from armactl.metrics import (
@@ -22,7 +24,6 @@ from armactl.metrics import (
 from armactl.player_view import PlayerView
 from armactl.state import PortInfo, ServerState
 from armactl.status_summary import ConfigSummary, ModsSummary, ModSummaryEntry
-from armactl.web.auth.cookies import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
 from armactl.web.auth.setup import setup_owner_user
 from armactl.web.auth.users import get_user_by_username
 
@@ -287,7 +288,7 @@ def test_service_action_permission_denied_returns_controlled_403(
     monkeypatch.setattr(service_actions, "run_service_action_and_audit", fail_action)
     client = _client(create_app(data_root=tmp_path))
     login_response = _login(client, "owner", password)
-    csrf_token = login_response.cookies.get(CSRF_COOKIE_NAME)
+    csrf_token = login_response.cookies.get(_csrf_cookie_name(client))
 
     response = client.post(
         "/service/start",
@@ -744,8 +745,8 @@ def test_service_action_html_and_audit_do_not_expose_auth_secrets(
     )
     client = _client(create_app(data_root=tmp_path))
     login_response = _login(client, "owner", password)
-    session_token = login_response.cookies.get(SESSION_COOKIE_NAME)
-    csrf_token = login_response.cookies.get(CSRF_COOKIE_NAME)
+    session_token = login_response.cookies.get(_session_cookie_name(client))
+    csrf_token = login_response.cookies.get(_csrf_cookie_name(client))
     assert csrf_token
 
     response = client.post(

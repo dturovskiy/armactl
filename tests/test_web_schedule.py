@@ -8,10 +8,10 @@ import warnings
 from pathlib import Path
 
 from starlette.exceptions import StarletteDeprecationWarning
+from web_route_helpers import _session_cookie_name
 
 from armactl.platform.service_adapter import ServiceResult
 from armactl.state import ServerState
-from armactl.web.auth.cookies import SESSION_COOKIE_NAME
 from armactl.web.auth.setup import setup_owner_user
 
 
@@ -739,7 +739,7 @@ def test_dashboard_links_to_schedule_page_when_permission_allows(
     assert "Restart timer controls" in response.text
     assert "Boot Policy" in response.text
     assert "scheduled restarts will not guarantee boot-start" in response.text
-    assert client.cookies.get(SESSION_COOKIE_NAME)
+    assert client.cookies.get(_session_cookie_name(client))
 
 
 def test_schedule_restart_now_backend_success_audit_failure_clears_pending_work(
