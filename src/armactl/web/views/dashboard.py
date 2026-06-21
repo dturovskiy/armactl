@@ -193,6 +193,34 @@ def _action_forms(lifecycle: str, can_run_actions: bool) -> list[dict[str, Any]]
     return []
 
 
+def _server_update_action(
+    snapshot: Mapping[str, Any],
+    *,
+    can_update_server: bool,
+) -> dict[str, Any] | None:
+    if not can_update_server:
+        return None
+    server_version = _section(snapshot, "server_version")
+    can_update = bool(
+        server_version.get("can_update") or server_version.get("canUpdate")
+    )
+    running = bool(
+        snapshot.get("running")
+        or server_version.get("server_running")
+        or server_version.get("serverRunning")
+    )
+    if not can_update or running:
+        return None
+    return {
+        "name": "update",
+        "action_path": "/jobs/server/update",
+        "label": "Update",
+        "danger": False,
+        "confirm_label": "",
+        "confirm_value": "",
+    }
+
+
 def _quick_action_note(lifecycle: str, actions: list[dict[str, Any]]) -> str:
     if actions:
         return ""
@@ -358,6 +386,10 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
     fps = _section(snapshot, "fps_metrics")
     config = _section(snapshot, "config")
     mods = _section(snapshot, "mods")
+    server_version = _section(snapshot, "server_version")
+    installed_version = _text(server_version.get("installed"), "unknown")
+    latest_version = _text(server_version.get("latest"), "unknown")
+    branch = _text(server_version.get("branch"), "unknown")
 
     cards = [
         {
@@ -371,6 +403,36 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
                     "Max players",
                     config.get("max_players", "unknown"),
                     field="config.max_players",
+                ),
+            ],
+        },
+        {
+            "title": "Updates",
+            "layout": "compact",
+            "items": [
+                _item(
+                    "Status",
+                    server_version.get("message", "Latest version unknown"),
+                    translate_value=True,
+                    field="server_version.status",
+                ),
+                _item(
+                    "Installed",
+                    installed_version,
+                    translate_value=installed_version == "unknown",
+                    field="server_version.installed",
+                ),
+                _item(
+                    "Latest",
+                    latest_version,
+                    translate_value=latest_version == "unknown",
+                    field="server_version.latest",
+                ),
+                _item(
+                    "Branch",
+                    branch,
+                    translate_value=branch == "unknown",
+                    field="server_version.branch",
                 ),
             ],
         },
@@ -456,6 +518,26 @@ def _diagnostics(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str, 
     diagnostics: list[dict[str, Any]] = []
     overview = _section(snapshot, "overview")
     paths = _section(snapshot, "paths")
+    server_version = _section(snapshot, "server_version")
+
+    server_update_available = (
+        _text(server_version.get("check_state") or server_version.get("checkState"), "")
+        == "available"
+    )
+    server_update_running = bool(
+        snapshot.get("running")
+        or server_version.get("server_running")
+        or server_version.get("serverRunning")
+    )
+    if lifecycle in ACTIVE_LIFECYCLES and server_update_available and server_update_running:
+        diagnostics.append(
+            {
+                "severity": "warning",
+                "title": "Server update",
+                "message": "Stop the game server before updating.",
+                "items": [_item("Status", "Update available", translate_value=True)],
+            }
+        )
 
     if overview.get("empty_state"):
         diagnostics.append(
@@ -546,6 +628,7 @@ def build_dashboard_view(
     can_view_files: bool = False,
     can_view_schedule: bool = False,
     can_view_logs: bool = False,
+    can_update_server: bool = False,
 ) -> dict[str, Any]:
     """Shape a raw dashboard snapshot into a lifecycle-aware template model."""
     lifecycle = _text(snapshot.get("lifecycle"), "unknown")
@@ -553,6 +636,12 @@ def build_dashboard_view(
     server_name = _text(config.get("server_name"), "")
     heading = server_name if lifecycle in ACTIVE_LIFECYCLES and server_name else "Dashboard"
     actions = _action_forms(lifecycle, can_run_actions)
+    update_action = _server_update_action(
+        snapshot,
+        can_update_server=can_update_server,
+    )
+    if update_action is not None:
+        actions = [*actions, update_action]
     management_links, management_note = _management_links(
         lifecycle,
         can_view_config=can_view_config,

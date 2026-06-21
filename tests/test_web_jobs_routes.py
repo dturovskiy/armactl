@@ -58,6 +58,49 @@ def _insert_raw_web_job(
     return int(job_id)
 
 
+def _server_version_state(check_state: str, *, running: bool = False):
+    from armactl.web.services import server_versions
+
+    if check_state == server_versions.SERVER_VERSION_CHECK_UPTODATE:
+        return server_versions.ServerVersionState(
+            installed="100",
+            latest="100",
+            branch="public",
+            check_state=check_state,
+            status="up to date",
+            message="Server is already up to date",
+            up_to_date=True,
+            server_running=running,
+        )
+    if check_state == server_versions.SERVER_VERSION_CHECK_AVAILABLE:
+        return server_versions.ServerVersionState(
+            installed="100",
+            latest="101",
+            branch="public",
+            check_state=check_state,
+            status="update available",
+            message="Update available",
+            can_update=True,
+            server_running=running,
+        )
+    if check_state == server_versions.SERVER_VERSION_CHECK_FAILED:
+        return server_versions.ServerVersionState(
+            check_state=check_state,
+            status="check failed",
+            message="Version check failed",
+            failure_reason="probe failed",
+            server_running=running,
+        )
+    return server_versions.ServerVersionState(
+        installed="100",
+        branch="public",
+        check_state=server_versions.SERVER_VERSION_CHECK_UNKNOWN,
+        status="unknown",
+        message="Latest version unknown",
+        server_running=running,
+    )
+
+
 def test_unauthenticated_jobs_redirects_to_login(tmp_path: Path):
     from armactl.web.app import create_app
 
@@ -738,3 +781,387 @@ def test_jobs_page_shows_queued_install_repair_jobs(tmp_path: Path, monkeypatch)
     assert "server:install" in response.text
     assert "queued" in response.text
     assert "Queued install" in response.text
+
+
+def test_unauthenticated_update_job_redirects_to_login(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.post("/jobs/server/update", data={}, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_update_job_permission_denied_returns_403(
+    tmp_path: Path,
+    monkeypatch,
+    set_web_owner_permissions,
+):
+    from armactl.web.app import create_app
+    from armactl.web.auth import permissions
+    from armactl.web.services import server_job_actions
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    set_web_owner_permissions(permissions.ALL_PERMISSIONS - {permissions.SERVER_UPDATE})
+    monkeypatch.setattr(
+        server_job_actions,
+        "request_server_update_and_start",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("update backend should not be called")
+        ),
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.post("/jobs/server/update", data={}, follow_redirects=False)
+
+    assert response.status_code == 403
+    assert response.text == "Permission denied."
+
+
+def test_update_job_requires_csrf(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.services import server_job_actions
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    monkeypatch.setattr(
+        server_job_actions,
+        "request_server_update_and_start",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("update backend should not be called before csrf")
+        ),
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.post(
+        "/jobs/server/update",
+        data={"csrf_token": "bad-token"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Invalid CSRF token."
+
+
+def test_post_update_noops_when_server_is_up_to_date(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import server as server_jobs
+    from armactl.web.jobs.store import list_recent_jobs
+    from armactl.web.services import server_job_actions, server_versions
+
+    monkeypatch.setattr(
+        server_job_actions.server_versions,
+        "load_server_version_state",
+        lambda **kwargs: _server_version_state(
+            server_versions.SERVER_VERSION_CHECK_UPTODATE
+        ),
+    )
+    monkeypatch.setattr(
+        server_jobs,
+        "start_server_job_worker",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("up-to-date update must not start a worker")
+        ),
+    )
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+
+    response = client.post(
+        "/jobs/server/update",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    jobs = list_recent_jobs(tmp_path / "web" / "web.db")
+    audit_events = _audit_events(tmp_path)
+
+    assert response.status_code == 200
+    assert response.text == "Server is already up to date"
+    assert [job for job in jobs if job.kind == "server:update"] == []
+    assert audit_events[-1]["action"] == "job.server-update.check"
+    assert audit_events[-1]["success"] is True
+    assert audit_events[-1]["details"]["check_state"] == "uptodate"
+    assert audit_events[-1]["details"]["installed"] == "100"
+    assert audit_events[-1]["details"]["latest"] == "100"
+
+
+@pytest.mark.parametrize(
+    ("check_state", "message"),
+    [
+        ("unknown", "Latest version unknown"),
+        ("failed", "Version check failed"),
+    ],
+)
+def test_post_update_fails_closed_when_latest_unknown_or_check_failed(
+    tmp_path: Path,
+    monkeypatch,
+    check_state: str,
+    message: str,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import server as server_jobs
+    from armactl.web.jobs.store import list_recent_jobs
+    from armactl.web.services import server_job_actions
+
+    monkeypatch.setattr(
+        server_job_actions.server_versions,
+        "load_server_version_state",
+        lambda **kwargs: _server_version_state(check_state),
+    )
+    monkeypatch.setattr(
+        server_jobs,
+        "start_server_job_worker",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("fail-closed update must not start a worker")
+        ),
+    )
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+
+    response = client.post(
+        "/jobs/server/update",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    jobs = list_recent_jobs(tmp_path / "web" / "web.db")
+
+    assert response.status_code == 409
+    assert response.text == message
+    assert [job for job in jobs if job.kind == "server:update"] == []
+
+
+def test_post_update_available_creates_queued_job_without_running_backend(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import server as server_jobs
+    from armactl.web.jobs.store import list_recent_jobs
+    from armactl.web.services import server_job_actions, server_versions
+
+    load_calls: list[dict] = []
+
+    def fake_load_server_version_state(**kwargs):
+        load_calls.append(kwargs)
+        return _server_version_state(
+            server_versions.SERVER_VERSION_CHECK_AVAILABLE
+        )
+
+    monkeypatch.setattr(
+        server_job_actions.server_versions,
+        "load_server_version_state",
+        fake_load_server_version_state,
+    )
+    monkeypatch.setattr(
+        server_jobs.installer,
+        "stream_server_update",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("HTTP request must not run update backend")
+        ),
+    )
+    scheduled: list[int] = []
+    monkeypatch.setattr(
+        server_jobs,
+        "start_server_job_worker",
+        lambda db_path, job_id: scheduled.append(job_id),
+    )
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+
+    response = client.post(
+        "/jobs/server/update",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    jobs = [
+        job
+        for job in list_recent_jobs(tmp_path / "web" / "web.db")
+        if job.kind == "server:update"
+    ]
+    audit_events = _audit_events(tmp_path)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/jobs"
+    assert len(jobs) == 1
+    assert jobs[0].status == "queued"
+    assert jobs[0].current_step == "Queued update"
+    assert scheduled == [jobs[0].id]
+    assert load_calls == [
+        {"instance": "default", "db_path": tmp_path / "web" / "web.db"}
+    ]
+    assert audit_events[-1]["action"] == "job.server-update.enqueue"
+    assert audit_events[-1]["details"]["job_kind"] == "server:update"
+    assert audit_events[-1]["details"]["created"] == "true"
+
+
+def test_post_update_running_server_blocks_update_and_creates_no_job(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import server as server_jobs
+    from armactl.web.jobs.store import list_recent_jobs
+    from armactl.web.services import server_job_actions, server_versions
+
+    monkeypatch.setattr(
+        server_job_actions.server_versions,
+        "load_server_version_state",
+        lambda **kwargs: _server_version_state(
+            server_versions.SERVER_VERSION_CHECK_AVAILABLE,
+            running=True,
+        ),
+    )
+    monkeypatch.setattr(
+        server_jobs,
+        "start_server_job_worker",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("running-server update must not start a worker")
+        ),
+    )
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+
+    response = client.post(
+        "/jobs/server/update",
+        data={"csrf_token": csrf_token, "confirm": "running-update"},
+        follow_redirects=False,
+    )
+    jobs = [
+        job
+        for job in list_recent_jobs(tmp_path / "web" / "web.db")
+        if job.kind == "server:update"
+    ]
+    audit_events = _audit_events(tmp_path)
+
+    assert response.status_code == 400
+    assert response.text == "Stop the game server before updating."
+    assert jobs == []
+    assert audit_events[-1]["action"] == "job.server-update.check"
+    assert audit_events[-1]["success"] is False
+    assert audit_events[-1]["message"] == "Stop the game server before updating."
+    assert audit_events[-1]["details"]["check_state"] == "available"
+    assert audit_events[-1]["details"]["server_running"] == "true"
+
+
+def test_update_job_intent_audit_failure_does_not_create_job(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs.store import list_recent_jobs
+    from armactl.web.services import server_job_actions, server_versions
+    from armactl.web.services.audit import AuditLogError
+
+    monkeypatch.setattr(
+        server_job_actions.server_versions,
+        "load_server_version_state",
+        lambda **kwargs: _server_version_state(
+            server_versions.SERVER_VERSION_CHECK_AVAILABLE
+        ),
+    )
+    monkeypatch.setattr(
+        server_job_actions,
+        "append_audit_event",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AuditLogError("disk full token=raw-job-secret")
+        ),
+    )
+    monkeypatch.setattr(
+        server_job_actions.server_jobs,
+        "start_server_job_worker",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("worker should not start when intent audit fails")
+        ),
+    )
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+
+    response = client.post(
+        "/jobs/server/update",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    jobs = [
+        job
+        for job in list_recent_jobs(tmp_path / "web" / "web.db")
+        if job.kind == "server:update"
+    ]
+
+    assert response.status_code == 500
+    assert response.text == "Job was not queued because audit logging failed."
+    assert jobs == []
+    assert "raw-job-secret" not in response.text
+
+
+def test_update_job_outcome_audit_failure_cancels_created_job(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs.store import list_recent_jobs
+    from armactl.web.services import server_job_actions, server_versions
+    from armactl.web.services.audit import AuditLogError
+
+    monkeypatch.setattr(
+        server_job_actions.server_versions,
+        "load_server_version_state",
+        lambda **kwargs: _server_version_state(
+            server_versions.SERVER_VERSION_CHECK_AVAILABLE
+        ),
+    )
+
+    def fail_outcome_audit(*args, **kwargs):
+        details = kwargs.get("details") or {}
+        if details.get("phase") == "outcome":
+            raise AuditLogError("disk full token=raw-job-secret")
+
+    monkeypatch.setattr(server_job_actions, "append_audit_event", fail_outcome_audit)
+    monkeypatch.setattr(
+        server_job_actions.server_jobs,
+        "start_server_job_worker",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("worker should not start when outcome audit fails")
+        ),
+    )
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+
+    response = client.post(
+        "/jobs/server/update",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    jobs = [
+        job
+        for job in list_recent_jobs(tmp_path / "web" / "web.db")
+        if job.kind == "server:update"
+    ]
+
+    assert response.status_code == 500
+    assert response.text == "Job action could not be completed because audit logging failed."
+    assert len(jobs) == 1
+    assert jobs[0].status == "cancelled"
+    assert jobs[0].result_message == "Cancelled because audit logging failed."
+    assert "raw-job-secret" not in response.text

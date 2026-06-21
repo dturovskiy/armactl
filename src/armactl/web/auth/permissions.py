@@ -24,6 +24,7 @@ PLAYERS_VIEW = "players:view"
 BOT_VIEW = "bot:view"
 SCHEDULE_VIEW = "schedule:view"
 SCHEDULE_MANAGE = "schedule:manage"
+SERVER_UPDATE = "server:update"
 
 ALL_PERMISSIONS = frozenset(
     {
@@ -45,6 +46,7 @@ ALL_PERMISSIONS = frozenset(
         BOT_VIEW,
         SCHEDULE_VIEW,
         SCHEDULE_MANAGE,
+        SERVER_UPDATE,
     }
 )
 

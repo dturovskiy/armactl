@@ -549,6 +549,21 @@
     "Restart-required work was saved to fallback storage because normal pending storage failed.": "Restart-required work was saved to fallback storage because normal pending storage failed.",
     "Changes were saved and require restart, but pending restart storage failed.": "Changes were saved and require restart, but pending restart storage failed.",
     "Backend success": "Backend success",
-    "Player registry refresh failed": "Player registry refresh failed"
+    "Player registry refresh failed": "Player registry refresh failed",
+    "Updates": "Updates",
+    "Latest": "Latest",
+    "Branch": "Branch",
+    "Update": "Update",
+    "Server update": "Server update",
+    "Server is already up to date": "Server is already up to date",
+    "Update available": "Update available",
+    "Latest version unknown": "Latest version unknown",
+    "Version check failed": "Version check failed",
+    "Update job running": "Update job running",
+    "Server update completed.": "Server update completed.",
+    "Update complete": "Update complete",
+    "Queued update": "Queued update",
+    "Update job queued.": "Update job queued.",
+    "Stop the game server before updating.": "Stop the game server before updating."
   }
 }

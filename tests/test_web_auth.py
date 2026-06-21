@@ -115,6 +115,7 @@ def test_owner_has_every_declared_permission():
         "bot:view",
         "schedule:view",
         "schedule:manage",
+        "server:update",
     }
     assert all(user_has_permission(user, permission) for permission in ALL_PERMISSIONS)
 

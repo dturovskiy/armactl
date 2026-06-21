@@ -892,3 +892,142 @@ def test_dashboard_and_jobs_show_fallback_pending_work_without_leaking_secrets(
     assert "max_players" in jobs_response.text
     assert "No pending operator work." not in dashboard_response.text
     assert "No pending operator work." not in jobs_response.text
+
+
+def test_dashboard_renders_unknown_update_signal_without_breaking(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch, lifecycle="stopped")
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Updates" in response.text
+    assert "Latest version unknown" in response.text
+    assert 'action="/jobs/server/update"' not in response.text
+    assert "Traceback" not in response.text
+
+
+def test_dashboard_renders_update_available_notice_without_action_when_running(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.page_models import dashboard as dashboard_model
+    from armactl.web.services import server_versions
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch, lifecycle="running")
+    monkeypatch.setattr(
+        dashboard_model.server_versions,
+        "load_server_version_state",
+        lambda **kwargs: server_versions.ServerVersionState(
+            installed="100",
+            latest="101",
+            branch="public",
+            check_state=server_versions.SERVER_VERSION_CHECK_AVAILABLE,
+            status="update available",
+            message="Update available",
+            can_update=True,
+            server_running=True,
+        ),
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+    payload = client.get("/dashboard/status.json", follow_redirects=False).json()
+
+    assert response.status_code == 200
+    assert "Updates" in response.text
+    assert "Update available" in response.text
+    assert "Stop the game server before updating." in response.text
+    assert "100" in response.text
+    assert "101" in response.text
+    assert "action=\"/jobs/server/update\"" not in response.text
+    assert "name=\"confirm\" value=\"running-update\" required" not in response.text
+    assert payload["fields"]["server_version.status"] == "Update available"
+    assert payload["fields"]["server_version.installed"] == "100"
+    assert payload["fields"]["server_version.latest"] == "101"
+    assert [action["name"] for action in payload["actions"]] == [
+        "stop",
+        "restart",
+    ]
+
+
+def test_dashboard_renders_update_available_action_when_stopped(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.page_models import dashboard as dashboard_model
+    from armactl.web.services import server_versions
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch, lifecycle="stopped")
+    monkeypatch.setattr(
+        dashboard_model.server_versions,
+        "load_server_version_state",
+        lambda **kwargs: server_versions.ServerVersionState(
+            installed="100",
+            latest="101",
+            branch="public",
+            check_state=server_versions.SERVER_VERSION_CHECK_AVAILABLE,
+            status="update available",
+            message="Update available",
+            can_update=True,
+            server_running=False,
+        ),
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+    payload = client.get("/dashboard/status.json", follow_redirects=False).json()
+
+    assert response.status_code == 200
+    assert "Updates" in response.text
+    assert "Update available" in response.text
+    assert "Stop the game server before updating." not in response.text
+    assert "action=\"/jobs/server/update\"" in response.text
+    assert "name=\"confirm\" value=\"running-update\" required" not in response.text
+    assert [action["name"] for action in payload["actions"]] == [
+        "start",
+        "update",
+    ]
+
+
+def test_dashboard_version_check_failure_degrades_to_controlled_signal(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.page_models import dashboard as dashboard_model
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch, lifecycle="stopped")
+    monkeypatch.setattr(
+        dashboard_model.server_versions,
+        "load_server_version_state",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("version boom")),
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Version check failed" in response.text
+    assert "Partial data" in response.text
+    assert "version boom" in response.text
+    assert "Traceback" not in response.text

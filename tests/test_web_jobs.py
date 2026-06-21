@@ -18,6 +18,7 @@ from armactl.web.jobs import (
     JOB_STATUS_SUCCEEDED,
     SERVER_INSTALL_JOB_KIND,
     SERVER_REPAIR_JOB_KIND,
+    SERVER_UPDATE_JOB_KIND,
     JobDispatcher,
     JobHandlerResult,
     JobStoreError,
@@ -31,6 +32,7 @@ from armactl.web.jobs import (
     enqueue_job,
     enqueue_server_install,
     enqueue_server_repair,
+    enqueue_server_update,
     get_job,
     list_recent_jobs,
     mark_job_failed,
@@ -571,10 +573,14 @@ def test_web_jobs_import_does_not_import_tui_or_textual(
     assert_import_does_not_import_modules("armactl.web.jobs", FORBIDDEN_IMPORT_PREFIXES)
 
 
-def test_server_job_dispatcher_registers_explicit_install_repair_handlers():
+def test_server_job_dispatcher_registers_explicit_install_repair_update_handlers():
     dispatcher = create_server_job_dispatcher()
 
-    assert dispatcher.registered_kinds == (SERVER_INSTALL_JOB_KIND, SERVER_REPAIR_JOB_KIND)
+    assert dispatcher.registered_kinds == (
+        SERVER_INSTALL_JOB_KIND,
+        SERVER_REPAIR_JOB_KIND,
+        SERVER_UPDATE_JOB_KIND,
+    )
 
 
 def test_server_install_handler_streams_generator_output(tmp_path: Path, monkeypatch):
@@ -624,6 +630,114 @@ def test_server_enqueue_reuses_active_repair_job(tmp_path: Path):
     assert second.id == running.id
     assert second.status == JOB_STATUS_RUNNING
     assert [job.kind for job in jobs] == [SERVER_REPAIR_JOB_KIND]
+
+
+def test_server_enqueue_reuses_active_update_job(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+
+    first = enqueue_server_update(db_path, requested_by_username="owner")
+    running = mark_job_running(db_path, first.id)
+    second = enqueue_server_update(db_path, requested_by_username="owner")
+    jobs = list_recent_jobs(db_path)
+
+    assert second.id == running.id
+    assert second.status == JOB_STATUS_RUNNING
+    assert [job.kind for job in jobs] == [SERVER_UPDATE_JOB_KIND]
+
+
+def test_server_update_handler_streams_update_without_repair_flow(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from armactl.web.jobs import server as server_jobs
+
+    db_path = _db_path(tmp_path)
+    install_dir = tmp_path / "default" / "server"
+    install_dir.mkdir(parents=True)
+    (install_dir / "ArmaReforgerServer").write_text("binary", encoding="utf-8")
+    update_calls: list[tuple[str, str]] = []
+    discover_calls: list[tuple[str, bool]] = []
+
+    def fake_discover(instance: str, save: bool = False):
+        discover_calls.append((instance, save))
+        return SimpleNamespace(
+            install_dir=str(install_dir),
+            server_running=False,
+        )
+
+    def fake_update(update_install_dir, *, instance: str):
+        update_calls.append((str(update_install_dir), instance))
+        yield "update step"
+
+    monkeypatch.setattr(server_jobs.discovery, "discover", fake_discover)
+    monkeypatch.setattr(server_jobs.installer, "stream_server_update", fake_update)
+    monkeypatch.setattr(
+        server_jobs.repair,
+        "run_repair",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("update must not run repair flow")
+        ),
+    )
+    job = enqueue_server_update(db_path, requested_by_username="owner")
+
+    result = dispatch_server_job(db_path, job.id)
+
+    assert update_calls == [(str(install_dir), "default")]
+    assert discover_calls == [("default", False), ("default", True)]
+    assert result.job.kind == SERVER_UPDATE_JOB_KIND
+    assert result.job.status == JOB_STATUS_SUCCEEDED
+    assert result.job.result_message == "Server update completed."
+    assert "update step" in result.job.stdout_tail
+    assert (install_dir / ".armactl-package-manifest.json").is_file()
+
+
+def test_server_update_handler_refuses_running_server_before_streaming_update(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from armactl.web.jobs import server as server_jobs
+
+    db_path = _db_path(tmp_path)
+    install_dir = tmp_path / "default" / "server"
+    install_dir.mkdir(parents=True)
+    discover_calls: list[tuple[str, bool]] = []
+
+    def fake_discover(instance: str, save: bool = False):
+        discover_calls.append((instance, save))
+        return SimpleNamespace(
+            install_dir=str(install_dir),
+            server_running=True,
+        )
+
+    monkeypatch.setattr(server_jobs.discovery, "discover", fake_discover)
+    monkeypatch.setattr(
+        server_jobs.installer,
+        "stream_server_update",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("running-server update must not call SteamCMD")
+        ),
+    )
+    monkeypatch.setattr(
+        server_jobs.integrity,
+        "mark_install_started",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("running-server update must not mark install started")
+        ),
+    )
+    job = enqueue_server_update(db_path, requested_by_username="owner")
+
+    result = dispatch_server_job(db_path, job.id)
+
+    assert discover_calls == [("default", False)]
+    assert result.job.kind == SERVER_UPDATE_JOB_KIND
+    assert result.job.status == JOB_STATUS_FAILED
+    assert result.job.error_class == "RuntimeError"
+    assert result.job.error_message == "Stop the game server before updating."
+    assert "Stop the game server before updating." in result.job.stdout_tail
 
 
 def test_server_enqueue_finds_active_job_older_than_recent_limit(tmp_path: Path):
@@ -747,6 +861,7 @@ def test_server_job_audit_failure_does_not_cancel_existing_active_job(
     [
         ("install", enqueue_server_install, SERVER_INSTALL_JOB_KIND),
         ("repair", enqueue_server_repair, SERVER_REPAIR_JOB_KIND),
+        ("update", enqueue_server_update, SERVER_UPDATE_JOB_KIND),
     ],
 )
 def test_server_job_action_reuses_active_job_without_starting_worker(

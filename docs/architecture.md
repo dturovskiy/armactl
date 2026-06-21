@@ -450,12 +450,12 @@ armactl install
   → state.json
 ```
 
-### Web server update flow (future)
+### Web server update flow
 
 ```text
 dashboard read model
   → version adapter/API reads installed build and latest available build if safe
-  → dashboard shows up to date / update available / unknown / check failed
+  → dashboard shows up to date / update available / unknown / check failed / updating
 
 operator confirms update
   → authenticated POST + server:update/jobs:update + CSRF + impact confirmation
@@ -466,19 +466,19 @@ operator confirms update
   → outcome audit and job status visible on /jobs
 ```
 
-The future update action must not be a blocking HTTP request or a direct route
-shell-out. It should not run automatically by default. If installed
-version/build already equals the latest available version/build, no update job
-should be created; the UI should show `Server is already up to date` as a
-controlled successful no-op, audit the safe read-only check result without
-secrets, and keep the dashboard at `up to date`. If latest is unknown or the
-check failed, do not auto-update; show controlled `unknown` or `check failed`
-state and require a separate future policy for any operator override. If the
-game server is running and an update is actually available, require explicit
-confirmation, optionally stop/drain before update, and restart only when the
-operator confirms or the update workflow explicitly owns restart. Preserve
-config/state, avoid secrets in logs, and show rollback/recovery notes where the
-backend can provide them.
+The first web update slice is implemented as an explicit `server:update` job,
+not a blocking HTTP request or direct route shell-out. It does not run
+automatically. If installed version/build equals latest available
+version/build, no update job is created; the UI returns `Server is already up
+to date` as a controlled no-op, audits the safe read-only check result without
+secrets, and keeps the dashboard at `up to date`. If latest is unknown or the
+check failed, update fails closed and shows controlled `unknown` or
+`check failed` state. The default adapter reads installed build from the local
+Steam appmanifest and leaves latest unknown until a safe latest-build source is
+added. If the game server is running and an update is available, the route
+requires explicit confirmation; stop/drain/restart ownership remains future
+policy hardening. Preserve config/state, avoid secrets in logs, and show
+rollback/recovery notes where the backend can provide them.
 
 ### Web schedule timezone flow (future)
 

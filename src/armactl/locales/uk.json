@@ -1134,6 +1134,21 @@
     "Restart-required work was saved to fallback storage because normal pending storage failed.": "Завдання, що потребує перезапуску, збережено у резервному сховищі, бо основне сховище pending work недоступне.",
     "Changes were saved and require restart, but pending restart storage failed.": "Зміни збережено і потрібен перезапуск, але зберегти pending restart не вдалося.",
     "Backend success": "Успіх backend",
-    "Player registry refresh failed": "Не вдалося оновити реєстр гравців"
+    "Player registry refresh failed": "Не вдалося оновити реєстр гравців",
+    "Updates": "Оновлення",
+    "Latest": "Остання",
+    "Branch": "Гілка",
+    "Update": "Оновити",
+    "Server update": "Оновлення сервера",
+    "Server is already up to date": "Сервер уже оновлений",
+    "Update available": "Доступне оновлення",
+    "Latest version unknown": "Остання версія невідома",
+    "Version check failed": "Перевірка версії не вдалася",
+    "Update job running": "Завдання оновлення виконується",
+    "Server update completed.": "Оновлення сервера завершено.",
+    "Update complete": "Оновлення завершено",
+    "Queued update": "Оновлення в черзі",
+    "Update job queued.": "Завдання оновлення поставлено в чергу.",
+    "Stop the game server before updating.": "Зупиніть ігровий сервер перед оновленням."
   }
 }

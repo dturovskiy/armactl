@@ -1752,14 +1752,15 @@ status endpoint. They use only safe numeric DTO fields and do not persist
 backend metric history. A dedicated FPS history chart should be designed as a
 separate UI step instead of being squeezed into the compact live-server card.
 
-Future server-version state belongs in the same read-model discipline. The
-dashboard should be able to show the installed server build/version, the latest
-available game/server build/version when it can be determined safely, and a
-compact status: `up to date`, `update available`, `unknown`, or `check failed`.
-Failure to determine the latest version must degrade to an unknown/check-failed
-badge and must not break the dashboard HTML or status JSON. The version source
-should be a backend adapter/API over safe metadata such as SteamCMD/app
-manifest/log/version metadata, not hardcoded parsing in routes or templates.
+Server-version state follows the same read-model discipline. The dashboard
+shows installed server build/version when the local Steam appmanifest exposes
+it, latest available build/version when a safe adapter can provide it, and a
+compact status: `up to date`, `update available`, `unknown`, `check failed`,
+or `updating`. Failure to determine the latest version degrades to an
+unknown/check-failed badge and must not break dashboard HTML or status JSON.
+The default adapter intentionally leaves latest as `unknown` rather than
+shelling out or doing network work from dashboard rendering; a safe latest
+source remains a follow-up. Routes/templates do not parse SteamCMD output.
 
 The web UI should have its own templates/static assets under `src/armactl/web/`.
 It should not import files from the separate marketing website repository, and
@@ -1930,7 +1931,7 @@ not the foreground debug runner.
 - Telegram bot configuration through `bot_config` without exposing token values.
 - Validation errors rendered in UI.
 
-### Phase 4b - Install and repair jobs
+### Phase 4b - Install, repair, and update jobs
 
 - `server:install` and `server:repair` are explicit web job kinds.
 - Dashboard actions enqueue jobs and redirect to `/jobs`; HTTP requests do
@@ -1940,39 +1941,36 @@ not the foreground debug runner.
   metadata.
 - A durable standalone worker daemon remains future hardening for process
   restarts and multi-worker deployments.
-- Update remains future work. The future update flow must follow this contract:
-  - Version check is separate from update execution. It is read-only or a
-    lightweight/background job and feeds a dashboard read model with installed
-    build, latest available build when safely known, and `up to date` /
-    `update available` / `unknown` / `check failed` state. If the installed
-    server version/build equals the latest available version/build, do not
-    create an update job. Show a controlled result such as `Server is already up
-    to date`, treat it as a successful no-op rather than a failure, audit the
-    safe read-only check result without secrets, and keep the dashboard state at
-    `up to date`. If the latest version is unknown or the check failed, do not
-    start update automatically; show controlled `unknown` or `check failed`
-    state and allow any operator override only through a separate future policy.
-  - Version discovery lives behind an adapter/API that may use SteamCMD, app
-    manifests, logs, or server metadata. Do not hardcode Steam output parsing in
-    routes/templates, and do not store Steam credentials or secrets in `web.db`.
+- A first update slice is implemented as `server:update`:
+  - Version check is separate from update execution and feeds a dashboard read
+    model with installed build, latest build when safely known, and `up to date`
+    / `update available` / `unknown` / `check failed` / `updating` state. If the
+    installed server version/build equals the latest available version/build, no
+    update job is created; the web action returns `Server is already up to date`
+    and audits the safe no-op check result without secrets. If latest is unknown
+    or the check failed, update fails closed and does not enqueue a job.
+  - The default version adapter reads installed build from the local Steam
+    appmanifest and leaves latest unknown until a safe latest-build source is
+    added. Version discovery stays behind an adapter/API; routes/templates do
+    not parse SteamCMD output and `web.db` does not store Steam secrets.
   - The "Update server" action is a separate explicit background job, not a
-    direct route shell-out. The route does only auth, explicit
-    `server:update` or `jobs:update` permission, CSRF, confirmation, service/job
-    enqueue, and response rendering.
+    direct route shell-out. The route does only auth, explicit server:update
+    permission, CSRF, stopped-server safety gate, service/job enqueue, and
+    response rendering.
   - The service workflow is permission -> CSRF -> intent audit ->
     enqueue/mutation -> outcome audit -> job/progress state. Output tails and
     failure metadata are bounded and redacted, with no secrets in logs.
   - Update jobs are idempotent and deduplicated by kind/instance like
     install/repair jobs, with controlled already-running/already-current
     outcomes instead of duplicate active jobs.
-  - Update is never automatic by default. Operators must see impact before
-    confirming: the server may stop/restart, players may disconnect, and
-    config/state should be preserved. The job result should include
-    rollback/recovery notes where the backend can provide them.
-  - If the game server is running, the future policy must require explicit
-    confirmation, may optionally stop/drain before updating, and should restart
-    only when the operator confirms or the update workflow explicitly owns the
-    restart step.
+  - Update is never automatic by default. In this first slice, update is
+    allowed only when the game server is stopped. If the game server is
+    running, the action fails closed before job creation/worker start, and the
+    job handler refuses again before SteamCMD or install-marker mutation.
+  - Stop/drain/restart ownership remains future hardening. A later workflow
+    must explicitly own downtime policy, player drain, restart confirmation,
+    config/state preservation, and rollback/recovery notes before updating a
+    running server.
   - `/jobs` shows update jobs with progress/status/log tails. The dashboard may
     show compact `update available` or `update running` signals, but update
     availability must not be mixed with pending operator work unless a manual

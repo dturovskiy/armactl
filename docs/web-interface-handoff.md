@@ -107,29 +107,29 @@ explicitly a release task.
   traversal and symlink-escape rejection, CSRF, explicit confirmation for
   destructive actions, audit, and backup/quarantine or rollback where practical.
 - Do not run install/repair/update as blocking HTTP requests.
-- Future server update work must keep version check separate from update
-  execution. The check is read-only or a lightweight/background job that feeds a
-  dashboard read model with installed build, latest available build when safely
-  known, and `up to date` / `update available` / `unknown` / `check failed`
-  state. Check failures must not break dashboard rendering or status JSON. If
-  installed version/build equals the latest available version/build, do not
-  enqueue an update job; show `Server is already up to date` as a controlled
-  successful no-op, not a failure or background job. Audit the safe check result
-  without secrets. If latest is unknown or the check failed, do not run update
-  automatically; any future operator override needs its own explicit policy.
-- Future update routes must only perform auth, explicit `server:update` or
-  `jobs:update` permission, CSRF, operator confirmation, service/job enqueue,
-  and response rendering. Do not shell out to SteamCMD/systemctl from a route.
+- Server update first slice keeps version check separate from update execution.
+  The read model feeds the dashboard with installed build, latest build when
+  safely known, and `up to date` / `update available` / `unknown` /
+  `check failed` / `updating` state. Check failures do not break dashboard
+  rendering or status JSON. If installed build equals latest build, the POST
+  returns `Server is already up to date`, audits a safe no-op check result, and
+  does not enqueue `server:update`. If latest is unknown or the check failed,
+  update fails closed; any operator override needs its own future policy.
+- Update routes only perform auth, explicit server:update permission, CSRF,
+  stopped-server safety gate, service/job enqueue, and response rendering. Do
+  not shell out to SteamCMD/systemctl from a route. The default latest source is
+  intentionally unknown until a safe latest-build adapter is added.
 - Future update workflows live in service/adapter layers: permission -> CSRF ->
   intent audit -> enqueue/mutation -> outcome audit -> job/progress state.
   Update jobs must be idempotent/deduplicated by kind/instance like
   install/repair jobs, expose bounded redacted progress/logs in `/jobs`, and
   produce controlled failure results with no secrets in logs.
-- Update must not run automatically by default. If the game server is running,
-  require explicit confirmation; optionally stop/drain before update; restart
-  only when the operator confirms or when the update workflow explicitly owns
-  restart. Preserve config/state and show rollback/recovery notes where the
-  backend can provide them.
+- Update must not run automatically by default. In the first server:update web
+  slice, update is allowed only when the game server is stopped. If the game
+  server is running, fail closed without creating a job or starting a worker;
+  the job handler must also refuse before SteamCMD or install-marker mutation.
+  Stop/drain/restart ownership policy remains future hardening and must be
+  explicit before any running-server update flow exists.
 - Version/update backend code must be adapter-backed for Linux/systemd now and
   future Windows support later. SteamCMD, app manifest, log/version metadata,
   systemctl, process, and path logic must not spread through routes or
@@ -587,11 +587,12 @@ Next recommended implementation order:
 7. Complete the config schema inventory before extending `/config`: verify exact
    Arma Reforger keys, group fields, and decide safe editor versus advanced
    editor behavior.
-8. Add server version/update flow only after a safe backend adapter/API exists:
-   dashboard version state first, then read-only/latest-version check, then an
-   explicit deduped background update job with audit, progress/log visibility,
-   running-server confirmation policy, no secrets in `web.db` or logs, and
-   tests for dedupe, failure, audit, and dashboard states.
+8. Continue server update hardening: add a safe latest-build source adapter,
+   formal stop/drain/restart ownership policy, production-scale active-job
+   lookup validation, and eventual standalone worker hardening. The first
+   server:update web job slice now allows update only when the game server is
+   stopped; the fail-closed version gate, dashboard signal, audit path, and
+   tests are present.
 9. Add edit/save/delete flows for bot settings and extended config fields
    through existing backend modules; keep any raw JSON config editor as a
    separate owner/admin-only `/config` break-glass design. Advanced/bulk admin

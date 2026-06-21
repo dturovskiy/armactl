@@ -16,7 +16,7 @@ from armactl.web.auth.dependencies import (
     permission_denied_response,
     require_permission,
 )
-from armactl.web.auth.permissions import ACTIONS_RUN, JOBS_VIEW
+from armactl.web.auth.permissions import ACTIONS_RUN, JOBS_VIEW, SERVER_UPDATE
 from armactl.web.jobs.store import list_recent_jobs
 from armactl.web.services import job_integrity, server_job_actions
 from armactl.web.services.pending_work import list_pending_work_with_fallback
@@ -91,6 +91,45 @@ def _enqueue_server_job(request: Request, csrf_token: str, action: str) -> Respo
     return RedirectResponse("/jobs", status_code=status.HTTP_303_SEE_OTHER)
 
 
+def _enqueue_server_update_job(
+    request: Request,
+    csrf_token: str,
+    confirm: str,
+) -> Response:
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, SERVER_UPDATE):
+        return permission_denied_response()
+    if not validate_csrf_token(current.config.db_path, current.session.id, csrf_token):
+        return PlainTextResponse(
+            "Invalid CSRF token.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+    try:
+        result = server_job_actions.request_server_update_and_start(
+            current.config.db_path,
+            audit_log_path=current.config.audit_log_path,
+            username=current.user.username,
+            user_id=current.user.id,
+            confirm_running=confirm == "running-update",
+        )
+    except server_job_actions.ServerJobAuditError as exc:
+        return PlainTextResponse(
+            str(exc),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    if result.status == server_job_actions.SERVER_UPDATE_ACTION_QUEUED:
+        return RedirectResponse("/jobs", status_code=status.HTTP_303_SEE_OTHER)
+    if result.status == server_job_actions.SERVER_UPDATE_ACTION_UP_TO_DATE:
+        return PlainTextResponse(result.message, status_code=status.HTTP_200_OK)
+    if result.status == server_job_actions.SERVER_UPDATE_ACTION_BLOCKED:
+        return PlainTextResponse(result.message, status_code=status.HTTP_400_BAD_REQUEST)
+    return PlainTextResponse(result.message, status_code=status.HTTP_409_CONFLICT)
+
+
 @router.post("/jobs/server/install")
 def enqueue_server_install_route(
     request: Request,
@@ -107,6 +146,16 @@ def enqueue_server_repair_route(
 ) -> Response:
     """Queue server repair without running it in the HTTP request."""
     return _enqueue_server_job(request, csrf_token, "repair")
+
+
+@router.post("/jobs/server/update")
+def enqueue_server_update_route(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    confirm: str = Form(default=""),
+) -> Response:
+    """Queue server update only after the service-layer version gate passes."""
+    return _enqueue_server_update_job(request, csrf_token, confirm)
 
 
 @router.get("/jobs", response_class=HTMLResponse)

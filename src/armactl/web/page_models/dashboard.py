@@ -29,6 +29,7 @@ from armactl.web.page_models.common import (
     _unavailable,
 )
 from armactl.web.security.exposure import get_exposure_warning
+from armactl.web.services import server_versions
 
 DEFAULT_GAME_PORT = 2001
 DEFAULT_A2S_PORT = 17777
@@ -56,6 +57,7 @@ class DashboardSnapshot:
     operational_status: dict[str, Any]
     config: dict[str, Any]
     mods: dict[str, Any]
+    server_version: dict[str, Any]
     host_metrics: dict[str, Any]
     fps_metrics: dict[str, Any]
     players: dict[str, Any]
@@ -355,6 +357,28 @@ def _load_sat_summary(state: ServerState, errors: list[DashboardError]) -> dict[
     return {"available": bool(summary.get("available")), **summary}
 
 
+def _load_server_version(
+    instance: str,
+    state: ServerState,
+    web_config: Any | None,
+    errors: list[DashboardError],
+) -> dict[str, Any]:
+    db_path = getattr(web_config, "db_path", None) if web_config is not None else None
+    try:
+        return server_versions.load_server_version_state(
+            instance=instance,
+            state=state,
+            db_path=db_path,
+        ).to_dict()
+    except Exception as error:  # noqa: BLE001 - dashboard rendering must degrade.
+        message = str(error) or error.__class__.__name__
+        errors.append(DashboardError(section="server_version", message=message))
+        return server_versions.failed_server_version_state(
+            failure_reason=error,
+            server_running=state.server_running,
+        ).to_dict()
+
+
 def load_dashboard_snapshot(
     instance: str,
     *,
@@ -452,6 +476,7 @@ def load_dashboard_snapshot(
         operational_status=operational_status,
         config=config_summary,
         mods=mods_summary,
+        server_version=_load_server_version(instance, state, web_config, errors),
         host_metrics=host_metrics,
         fps_metrics=fps_metrics,
         players=players,

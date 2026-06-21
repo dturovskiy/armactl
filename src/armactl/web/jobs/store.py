@@ -473,6 +473,31 @@ def get_or_create_active_job(
     except sqlite3.Error as exc:
         raise JobStoreError("Failed to create web job.") from exc
 
+def get_active_job(
+    db_path: Path,
+    *,
+    kind: str,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> JobRecord | None:
+    """Return the oldest active kind/instance job, if one exists."""
+    normalized_kind = _normalize_kind(kind)
+    normalized_instance = _normalize_non_empty_text(
+        instance,
+        "instance",
+        max_length=MAX_JOB_INSTANCE_LENGTH,
+    )
+
+    try:
+        with _connect(db_path) as connection:
+            return _fetch_active_job(
+                connection,
+                kind=normalized_kind,
+                instance=normalized_instance,
+            )
+    except sqlite3.Error as exc:
+        raise JobStoreError("Failed to read active web job.") from exc
+
+
 
 def get_job(db_path: Path, job_id: int) -> JobRecord | None:
     """Return one web job by id, if it exists."""
