@@ -476,6 +476,7 @@ def test_mods_add_success_writes_safe_audit(tmp_path: Path, monkeypatch):
     assert event["target"] == "CCCCCCCCCCCCCCCC"
     assert event["success"] is True
     assert event["details"]["changed"] == "yes"
+    assert event["details"]["mod_label"] == "Charlie (CCCCCCCCCCCCCCCC)"
     from armactl.web.services.pending_work import KIND_MODS, get_pending_work
 
     item = get_pending_work(tmp_path / "web" / "web.db", kind=KIND_MODS)
@@ -484,7 +485,7 @@ def test_mods_add_success_writes_safe_audit(tmp_path: Path, monkeypatch):
     assert item.source_path == "/mods"
     assert item.source_action == "mod.add"
     assert item.title == "Mod changes"
-    assert item.details == "CCCCCCCCCCCCCCCC"
+    assert item.details == "Charlie (CCCCCCCCCCCCCCCC)"
 
 
 def test_mods_add_unchanged_writes_audit_without_restart_notice(
@@ -577,10 +578,51 @@ def test_mod_service_pending_db_failure_writes_fallback_and_warns(
     assert item is not None
     assert item.is_fallback is True
     assert item.source_action == "mod.add"
-    assert item.details == "CCCCCCCCCCCCCCCC"
+    assert item.details == "Charlie token=*** (CCCCCCCCCCCCCCCC)"
     assert "raw-mod-secret" not in pending_work.fallback_pending_work_path(
         tmp_path / "web" / "web.db"
     ).read_text(encoding="utf-8")
+
+
+def test_mods_remove_pending_work_identifies_config_mod_by_name(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions, pending_work
+
+    config_path = _write_mod_config(
+        tmp_path,
+        [
+            {
+                "modId": "AAAAAAAAAAAAAAAA",
+                "name": "Where Am I",
+                "version": "1.0",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    result = mod_actions.run_mod_action_and_audit(
+        mod_actions.ACTION_REMOVE,
+        instance="default",
+        mod_id="AAAAAAAAAAAAAAAA",
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+        db_path=tmp_path / "web" / "web.db",
+    )
+
+    assert result.success is True
+    item = pending_work.get_pending_work(
+        tmp_path / "web" / "web.db",
+        kind=pending_work.KIND_MODS,
+    )
+    assert item is not None
+    assert item.source_action == "mod.remove"
+    assert item.details == "Where Am I (AAAAAAAAAAAAAAAA)"
 
 
 def test_mods_pending_warning_from_service_is_rendered(

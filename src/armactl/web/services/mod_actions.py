@@ -93,6 +93,14 @@ def _safe_text(value: object, *, max_length: int = 500) -> str:
     return redacted
 
 
+def _mod_target_label(reference: str, name: object = "") -> str:
+    safe_reference = _safe_text(reference, max_length=64).upper()
+    safe_name = _safe_text(name, max_length=128)
+    if safe_name:
+        return f"{safe_name} ({safe_reference})"
+    return safe_reference
+
+
 def _validated_optional_text(value: Any, *, message: str) -> str:
     text = str(value or "").strip()
     if len(text) > MAX_MOD_TEXT_LENGTH or any(ord(char) < 32 for char in text):
@@ -135,6 +143,41 @@ def _safe_mods_restart_fingerprint(config_path: Path) -> str:
 
 def _mod_id(value: Any) -> str:
     return mods_manager.require_valid_mod_id(value)
+
+
+def _mod_name_from_entries(mods: list[dict[str, Any]], reference: str) -> str:
+    for mod in mods:
+        if not isinstance(mod, dict):
+            continue
+        try:
+            entry_id = _mod_id(mod.get("modId"))
+        except ConfigError:
+            continue
+        if entry_id == reference:
+            return _safe_text(mod.get("name"), max_length=128)
+    return ""
+
+
+def _existing_mod_name(
+    config_path: Path,
+    reference: str,
+    *,
+    active: bool = True,
+    disabled: bool = True,
+) -> str:
+    try:
+        if active:
+            name = _mod_name_from_entries(mods_manager.get_mods(config_path), reference)
+            if name:
+                return name
+        if disabled:
+            return _mod_name_from_entries(
+                mods_manager.get_disabled_mods(config_path),
+                reference,
+            )
+    except (ConfigError, OSError, TypeError, ValueError):
+        return ""
+    return ""
 
 
 def _config_path(instance: str) -> Path:
@@ -225,6 +268,10 @@ def add_or_update_mod(
         mod_name = _validated_optional_text(name, message="Mod name is invalid.")
         mod_version = _validated_optional_text(version, message="Mod version is invalid.")
         config_path = _config_path(normalized_instance)
+        target_label = _mod_target_label(
+            reference,
+            mod_name or _existing_mod_name(config_path, reference),
+        )
         result = mods_manager.add_mod_detailed(
             config_path,
             reference,
@@ -248,6 +295,7 @@ def add_or_update_mod(
             changed=True,
             message="Mod added.",
             exit_code=0,
+            details={"mod_label": target_label},
         )
     if result.status == "updated":
         return _result(
@@ -258,6 +306,7 @@ def add_or_update_mod(
             changed=True,
             message="Mod updated.",
             exit_code=0,
+            details={"mod_label": target_label},
         )
     if result.status == "reactivated":
         return _result(
@@ -268,6 +317,7 @@ def add_or_update_mod(
             changed=True,
             message="Mod enabled.",
             exit_code=0,
+            details={"mod_label": target_label},
         )
     return _result(
         action=ACTION_ADD,
@@ -277,6 +327,7 @@ def add_or_update_mod(
         changed=False,
         message="Mod was unchanged.",
         exit_code=0,
+        details={"mod_label": target_label},
     )
 
 
@@ -290,6 +341,10 @@ def disable_mod(
     try:
         reference = _mod_id(mod_id)
         config_path = _config_path(normalized_instance)
+        target_label = _mod_target_label(
+            reference,
+            _existing_mod_name(config_path, reference, disabled=False),
+        )
         changed = mods_manager.disable_mod(config_path, reference)
     except (ModActionError, ConfigError) as error:
         return _failure(
@@ -307,6 +362,7 @@ def disable_mod(
         changed=changed,
         message="Mod disabled." if changed else "Mod was unchanged.",
         exit_code=0,
+        details={"mod_label": target_label},
     )
 
 
@@ -320,6 +376,10 @@ def enable_mod(
     try:
         reference = _mod_id(mod_id)
         config_path = _config_path(normalized_instance)
+        target_label = _mod_target_label(
+            reference,
+            _existing_mod_name(config_path, reference, active=False),
+        )
         changed = mods_manager.enable_mod(config_path, reference)
     except (ModActionError, ConfigError) as error:
         return _failure(
@@ -337,6 +397,7 @@ def enable_mod(
         changed=changed,
         message="Mod enabled." if changed else "Mod was unchanged.",
         exit_code=0,
+        details={"mod_label": target_label},
     )
 
 
@@ -350,6 +411,10 @@ def remove_mod(
     try:
         reference = _mod_id(mod_id)
         config_path = _config_path(normalized_instance)
+        target_label = _mod_target_label(
+            reference,
+            _existing_mod_name(config_path, reference),
+        )
         result = mods_manager.remove_mod_detailed(config_path, reference)
     except (ModActionError, ConfigError) as error:
         return _failure(
@@ -367,7 +432,7 @@ def remove_mod(
         changed=result.config_changed,
         message="Mod removed." if result.config_changed else "Mod was unchanged.",
         exit_code=0,
-        details=_cleanup_details(result),
+        details={"mod_label": target_label, **_cleanup_details(result)},
     )
 
 
@@ -472,6 +537,7 @@ def _mark_restart_pending_for_mod_result(
 ) -> ModActionResult:
     if db_path is None or not result.changed:
         return result
+    pending_details = str(result.details.get("mod_label") or result.target)
     current_fingerprint = ""
     if baseline_fingerprint:
         try:
@@ -487,7 +553,7 @@ def _mark_restart_pending_for_mod_result(
             kind=pending_work.KIND_MODS,
             source_action=result.action,
             username=username,
-            details=result.target,
+            details=pending_details,
             baseline_fingerprint=baseline_fingerprint,
             current_fingerprint=current_fingerprint,
         )
@@ -498,7 +564,7 @@ def _mark_restart_pending_for_mod_result(
             kind=pending_work.KIND_MODS,
             source_action=result.action,
             username=username,
-            details=result.target,
+            details=pending_details,
         )
     return replace(
         result,
