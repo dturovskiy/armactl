@@ -538,3 +538,16 @@ The web service runs beside the game server in the same VM. On Proxmox,
 multiple game VMs can each use the same local web port because each VM has its
 own network namespace. Public exposure should be handled by a reverse proxy with
 one subdomain or route per VM.
+
+The central Proxmox/edge routing layer is intentionally outside armactl core.
+`deus-gateway` owns VM discovery and public route/proxy mapping; armactl owns
+only the per-VM game-server control plane. Keep Proxmox inventory, public port
+maps, and future hostname routing out of armactl routes, page models, and
+service workflows.
+
+Longer term, `deus-gateway` or a separate hub service may own the product layer:
+central login, organizations, paid plans, entitlements, and the list of
+instances a user can open. That hub should not perform local server mutations
+directly. It should delegate to a selected VM-local armactl web/agent over a
+secure handoff or API boundary, so local server state and emergency control
+remain per VM.

@@ -320,6 +320,13 @@ that the whole web panel is still only planned.
 - [ ] Додати optional IP allowlist / trusted proxy handling для remote deployments
 - [x] Додати VM smoke checklist docs для web panel
 - [x] Додати reverse proxy / HTTPS deployment docs
+- [x] Зафіксувати `deus-gateway` як окремий deployment repo/tool для Proxmox/edge routing, не як частину armactl core
+- [x] Зафіксувати тимчасову multi-VM smoke-схему: `8766 -> serhiivka`, `8767 -> chervonopilya`, `tryzub pending`
+- [x] Зафіксувати майбутню доменну схему: `serhiivka.<domain>`, `chervonopilya.<domain>`, `tryzub.<domain>` після rollout, `dashboard.<domain>` для gateway/status
+- [x] Додати короткий VM smoke checklist для паралельних armactl-web інстансів через gateway
+- [x] Провести фінальний architecture/shortcut audit після gateway-відхилення перед поверненням у main web feature plan; результат: `docs/final-gateway-hub-audit-results-20260621.md`
+- [ ] Зафіксувати future hub/product-layer design перед реалізацією: central login/instance picker/plans live in hub, VM-local armactl-web keeps server actions/audit/recovery
+- [ ] Повернутись до main web feature plan після чистого audit: server update flow, config schema inventory, player history/banlist, timezone UX, users/security foundation
 - [x] Додати read-only logs/report web views з bounded/redacted output
 - [ ] Додати prettier audit JSONL rendering для `/logs` без raw стіни JSON
 - [ ] Додати logs/report download-export для allowlisted bounded sources

@@ -611,6 +611,30 @@ Next recommended implementation order:
    POST+CSRF, confirmation, backups/rollback when a file-backed list changes,
    audit logging, and no player IP storage by default.
 
+
+## Deployment deviation closure
+
+The temporary multi-VM deployment work is documented in `docs/web-deployment.md`.
+Current smoke routing is `8766 -> serhiivka`, `8767 -> chervonopilya`, and
+`tryzub` is pending rollout. This routing belongs to the separate
+`deus-gateway` deployment repository/tool, not to armactl core.
+
+Future production access should move from public test ports to HTTPS hostnames:
+`serhiivka.<domain>`, `chervonopilya.<domain>`, `tryzub.<domain>` when ready,
+and `dashboard.<domain>` for the central gateway/status surface. Each VM keeps
+its own `armactl-web` runtime, database, audit log, and cookie namespace.
+
+Potential hub shape: `dashboard.<domain>` can later be a central login/product
+portal that shows the instances available to the signed-in user. Billing,
+plans, organizations, and high-level access grants belong there. Instance
+actions still belong to the selected VM-local dashboard/agent, with local audit
+and recovery preserved.
+
+Before returning from gateway/deployment work to the main web feature plan, run
+a final architecture/shortcut audit. It should confirm that deployment-specific
+logic did not leak into armactl routes/services, the docs match the live VM
+layout, and parallel web panels remain isolated in one browser.
+
 ## Implementation prompt template
 
 Use this template for a new implementation chat:

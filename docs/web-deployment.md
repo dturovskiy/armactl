@@ -260,6 +260,74 @@ Do not reuse the default Arma service ports for the web panel:
 when deliberately running without a separate proxy, which is not the recommended
 production model.
 
+
+## Multi-VM gateway deployment
+
+`deus-gateway` is a separate deployment repository/tool. It is not part of the
+armactl core package and should not grow into armactl web route/service code.
+Its job is to live on the Proxmox/edge host, discover game VMs, and manage the
+reverse-proxy or port-forward mapping to each VM-local `armactl-web` instance.
+Each game VM still runs its own armactl web panel and stores its own runtime
+state under that VM user data root.
+
+Current temporary smoke topology as of 2026-06-21:
+
+| Public endpoint | Target VM | Target service | Status |
+| --- | --- | --- | --- |
+| `178.158.196.136:8766` | `serhiivka` | `192.168.1.5:8765` | active smoke route |
+| `178.158.196.136:8767` | `chervonopilya` | `192.168.1.7:8765` | active smoke route |
+| pending | `tryzub` | pending `:8765` health check/public route | not published yet |
+
+This port map is temporary and exists to validate multiple parallel web panels
+behind one public IP. It is not the final production layout.
+
+Future domain topology should be host-based behind HTTPS, for example:
+
+| Hostname | Purpose |
+| --- | --- |
+| `serhiivka.<domain>` | serhiivka VM armactl web panel |
+| `chervonopilya.<domain>` | chervonopilya VM armactl web panel |
+| `tryzub.<domain>` | tryzub VM armactl web panel after rollout |
+| `dashboard.<domain>` | central deus-gateway inventory/status dashboard |
+
+The central dashboard may later become a hub with login, instance selection,
+organizations, and paid plan/entitlement UI. Keep that product layer separate
+from VM-local server operations: selecting an instance should hand off to the
+corresponding VM-local `armactl-web` surface or API boundary.
+
+DNS may use explicit `A` records or a controlled wildcard pointing to the public
+edge IP. The reverse proxy must preserve the original `Host` header and route by
+hostname, not by a shared cookie or a shared armactl runtime. Do not copy
+`ARMACTL_WEB_COOKIE_NAMESPACE` between VMs.
+
+### Multi-VM smoke checklist
+
+For each VM:
+
+1. Pull the expected armactl branch and run `./armactl web --access lan`.
+2. Confirm `./armactl web service status` shows active/enabled and the expected
+   bind address.
+3. Confirm `curl http://127.0.0.1:8765/healthz` returns `{"ok":true}` inside
+   the VM.
+4. Confirm the gateway/proxy endpoint returns `/healthz` for the correct VM.
+5. Open two VM panels in the same browser and log in to both; logging into one
+   must not invalidate the other.
+6. Confirm CSS/JS/static assets load through the gateway/proxy endpoint.
+7. Confirm the dashboard title/config/player limits match the target VM, not the
+   other VM.
+8. Confirm a normal dashboard refresh does not show stale data or cross-VM
+   session leakage.
+9. If testing service actions, confirm the progress overlay appears and the
+   action writes a safe audit entry on that VM only.
+10. Keep CLI/SSH access as the fallback while the gateway deployment is still in
+    smoke mode.
+
+Before returning from gateway/deployment work to the main web feature plan, run
+one final architecture and shortcut audit. It should verify that gateway logic
+stays outside armactl core, per-VM runtime separation still holds, auth/session
+cookies are isolated, deployment docs match reality, and no temporary Proxmox or
+port-map behavior leaked into route/service modules.
+
 ## Troubleshooting
 
 ### Service installed but not started

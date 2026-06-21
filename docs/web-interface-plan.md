@@ -2007,6 +2007,33 @@ not the foreground debug runner.
 - Document backup/restore of `~/armactl-data/web/`.
 - Document how to disable the web service while keeping CLI/TUI available.
 
+
+### Phase 6b - Multi-VM gateway deployment closure
+
+- `deus-gateway` is the separate Proxmox/edge deployment repository for VM
+  discovery and reverse-proxy/port assignment. Do not fold gateway inventory or
+  Proxmox-specific routing into armactl web routes/services.
+- Temporary smoke map: `8766 -> serhiivka`, `8767 -> chervonopilya`, and
+  `tryzub` pending until its VM-local web health check and public route are
+  confirmed.
+- Future production shape should be domain-based behind HTTPS:
+  `serhiivka.<domain>`, `chervonopilya.<domain>`, `tryzub.<domain>` when ready,
+  and `dashboard.<domain>` for the central gateway/status view.
+- Keep each VM on its own local armactl runtime, web database, cookie namespace,
+  audit log, and game-server state. Gateway routes traffic; it does not merge
+  control-plane state.
+- Future hub direction: the central `dashboard.<domain>` surface may become a
+  product/control hub with login, user/org management, paid plans,
+  entitlements, and the list of instances available to the current user. It
+  should hand off to a selected VM-local `armactl-web` instance through a
+  short-lived signed code/token or equivalent secure flow. The selected
+  instance remains the owner of server actions, config, mods, files, logs,
+  jobs, audit, and emergency local recovery.
+- Before returning to the normal feature plan after gateway work, run a final
+  architecture/shortcut audit covering routes/services/adapters, deployment
+  docs, auth/session cookies, pending work, jobs, player registry, and any
+  gateway-specific assumptions.
+
 ## Local test plan
 
 - Unit-test auth, config loading, CSRF, and filesystem path handling.
