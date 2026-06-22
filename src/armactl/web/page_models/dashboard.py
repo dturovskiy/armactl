@@ -362,6 +362,8 @@ def _load_server_version(
     state: ServerState,
     web_config: Any | None,
     errors: list[DashboardError],
+    *,
+    server_running: bool | None = None,
 ) -> dict[str, Any]:
     db_path = getattr(web_config, "db_path", None) if web_config is not None else None
     try:
@@ -369,13 +371,18 @@ def _load_server_version(
             instance=instance,
             state=state,
             db_path=db_path,
+            server_running=server_running,
         ).to_dict()
     except Exception as error:  # noqa: BLE001 - dashboard rendering must degrade.
         message = str(error) or error.__class__.__name__
         errors.append(DashboardError(section="server_version", message=message))
         return server_versions.failed_server_version_state(
             failure_reason=error,
-            server_running=state.server_running,
+            server_running=(
+                bool(server_running)
+                if server_running is not None
+                else state.server_running
+            ),
         ).to_dict()
 
 
@@ -476,7 +483,13 @@ def load_dashboard_snapshot(
         operational_status=operational_status,
         config=config_summary,
         mods=mods_summary,
-        server_version=_load_server_version(instance, state, web_config, errors),
+        server_version=_load_server_version(
+            instance,
+            state,
+            web_config,
+            errors,
+            server_running=dashboard_running,
+        ),
         host_metrics=host_metrics,
         fps_metrics=fps_metrics,
         players=players,

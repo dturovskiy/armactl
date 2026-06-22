@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from armactl import paths
+from armactl.platform.service_adapter import get_service_adapter
 from armactl.web.jobs import server as server_jobs
 from armactl.web.jobs.models import JobRecord
 from armactl.web.jobs.store import cancel_job
@@ -21,6 +22,7 @@ JOB_CHECK_AUDIT_FAILED_MESSAGE = (
 )
 UPDATE_JOB_QUEUED_MESSAGE = "Update job queued."
 STOP_RUNNING_SERVER_UPDATE_MESSAGE = "Stop the game server before updating."
+SERVER_RUNNING_STATE_UNAVAILABLE_MESSAGE = "Server running state is unavailable."
 SERVER_UPDATE_ACTION_QUEUED = "queued"
 SERVER_UPDATE_ACTION_UP_TO_DATE = "up_to_date"
 SERVER_UPDATE_ACTION_UNAVAILABLE = "unavailable"
@@ -287,9 +289,31 @@ def request_server_update_and_start(
 ) -> ServerUpdateActionResult:
     """Check update state and enqueue server:update only when safely available."""
     del confirm_running
+    try:
+        service_status = get_service_adapter().get_service_status()
+    except Exception as exc:
+        version_state = server_versions.failed_server_version_state(
+            failure_reason=exc,
+            server_running=True,
+        )
+        _audit_update_check_or_raise(
+            audit_log_path,
+            version_state=version_state,
+            username=username,
+            instance=instance,
+            success=False,
+            message=SERVER_RUNNING_STATE_UNAVAILABLE_MESSAGE,
+        )
+        return ServerUpdateActionResult(
+            status=SERVER_UPDATE_ACTION_BLOCKED,
+            message=SERVER_RUNNING_STATE_UNAVAILABLE_MESSAGE,
+            version_state=version_state,
+        )
+
     version_state = server_versions.load_server_version_state(
         instance=instance,
         db_path=db_path,
+        server_running=server_versions.service_status_blocks_update(service_status),
     )
 
     if version_state.check_state == server_versions.SERVER_VERSION_CHECK_UPTODATE:

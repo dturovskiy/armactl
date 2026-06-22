@@ -475,7 +475,10 @@ def test_updates_update_blocks_running_server_without_job(
     assert jobs == []
 
 
-def test_load_updates_page_uses_persisted_state_without_discovery(tmp_path: Path):
+def test_load_updates_page_uses_live_service_status_when_state_is_stale(
+    tmp_path: Path,
+    monkeypatch,
+):
     from types import SimpleNamespace
 
     from armactl.web.page_models import updates as updates_page_model
@@ -485,12 +488,23 @@ def test_load_updates_page_uses_persisted_state_without_discovery(tmp_path: Path
         server_installed=True,
         binary_exists=True,
         config_exists=True,
-        server_running=True,
+        server_running=False,
         install_dir=str(tmp_path / "default" / "server"),
     )
     save_state(state, tmp_path / "default" / "state.json")
     db_path = tmp_path / "web" / "web.db"
     ensure_web_db(db_path)
+
+    class FakeServiceAdapter:
+        def get_service_status(self, service_name):
+            del service_name
+            return {"active_state": "active", "sub_state": "running"}
+
+    monkeypatch.setattr(
+        updates_page_model,
+        "get_service_adapter",
+        lambda: FakeServiceAdapter(),
+    )
 
     page = updates_page_model.load_updates_page(
         "default",

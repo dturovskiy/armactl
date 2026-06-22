@@ -1116,7 +1116,11 @@ def test_post_update_available_creates_queued_job_without_running_backend(
     assert jobs[0].current_step == "Queued update"
     assert scheduled == [jobs[0].id]
     assert load_calls == [
-        {"instance": "default", "db_path": tmp_path / "web" / "web.db"}
+        {
+            "instance": "default",
+            "db_path": tmp_path / "web" / "web.db",
+            "server_running": False,
+        }
     ]
     assert audit_events[-1]["action"] == "job.server-update.enqueue"
     assert audit_events[-1]["details"]["job_kind"] == "server:update"
@@ -1132,12 +1136,21 @@ def test_post_update_running_server_blocks_update_and_creates_no_job(
     from armactl.web.jobs.store import list_recent_jobs
     from armactl.web.services import server_job_actions, server_versions
 
+    class FakeServiceAdapter:
+        def get_service_status(self):
+            return {"active_state": "active", "sub_state": "running"}
+
+    monkeypatch.setattr(
+        server_job_actions,
+        "get_service_adapter",
+        lambda: FakeServiceAdapter(),
+    )
     monkeypatch.setattr(
         server_job_actions.server_versions,
         "load_server_version_state",
         lambda **kwargs: _server_version_state(
             server_versions.SERVER_VERSION_CHECK_AVAILABLE,
-            running=True,
+            running=kwargs["server_running"],
         ),
     )
     monkeypatch.setattr(

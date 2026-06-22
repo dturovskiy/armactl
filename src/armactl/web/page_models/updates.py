@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from armactl import paths
+from armactl.platform.service_adapter import get_service_adapter
 from armactl.state import ServerState, load_state
 from armactl.web.services import server_versions
 
@@ -33,15 +34,22 @@ def load_updates_page(
     normalized_instance = paths.validate_instance_name(instance)
     state = _state_from_disk(normalized_instance, web_config.data_root)
     try:
+        service_status = get_service_adapter().get_service_status(state.service_name)
+        live_server_running = server_versions.service_status_blocks_update(service_status)
+    except Exception:
+        live_server_running = True
+
+    try:
         version_state = server_versions.load_server_version_state(
             instance=normalized_instance,
             state=state,
             db_path=web_config.db_path,
+            server_running=live_server_running,
         )
     except Exception as error:  # noqa: BLE001 - page rendering must fail closed.
         version_state = server_versions.failed_server_version_state(
             failure_reason=error,
-            server_running=state.server_running,
+            server_running=live_server_running,
         )
     return dict(
         instance=normalized_instance,

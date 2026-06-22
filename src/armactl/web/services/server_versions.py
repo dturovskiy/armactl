@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,6 +48,24 @@ MAX_STEAM_APP_INFO_PARSE_CHARS = 2_000_000
 MAX_STEAM_APP_INFO_TOKENS = 80_000
 
 MAX_VERSION_TEXT_LENGTH = 80
+
+def service_status_blocks_update(status: Mapping[str, object] | None) -> bool:
+    """Return whether live service status should block server update."""
+    if not status:
+        return False
+    if bool(status.get("active")):
+        return True
+    active_state = str(
+        status.get("active_state") or status.get("ActiveState") or ""
+    ).strip().lower()
+    sub_state = str(
+        status.get("sub_state") or status.get("SubState") or ""
+    ).strip().lower()
+    return active_state in {"active", "activating"} or sub_state in {
+        "running",
+        "start",
+        "auto-restart",
+    }
 
 _STEAM_KV_TOKEN_RE = re.compile('"((?:\\\\.|[^"\\\\])*)"|([{}])')
 _CACHE_CHECK_STATES = frozenset(
@@ -596,6 +615,7 @@ def load_server_version_state(
     adapter: ServerVersionAdapter | None = None,
     db_path: Path | None = None,
     last_checked: str | None = None,
+    server_running: bool | None = None,
 ) -> ServerVersionState:
     """Load a safe read-only server update state for web rendering/workflows."""
     try:
@@ -607,7 +627,10 @@ def load_server_version_state(
         )
 
     normalized_instance = paths.validate_instance_name(instance)
-    server_running = bool(server_state.server_running)
+    if server_running is None:
+        server_running = bool(server_state.server_running)
+    else:
+        server_running = bool(server_running)
     install_dir = Path(server_state.install_dir or paths.server_dir(normalized_instance))
     cached = _cached_or_none(db_path, instance=normalized_instance)
     cached_installed = cached.installed if cached is not None else ""
