@@ -422,6 +422,7 @@ def test_jobs_page_shows_pending_work_when_background_jobs_empty_and_redacts_det
     assert response.status_code == 200
     assert "Pending operator work" in response.text
     assert "These are not background jobs" in response.text
+    assert "Start or restart game server" in response.text
     assert "Background jobs" in response.text
     assert "Config changes" in response.text
     assert 'href="/config"' in response.text
@@ -434,6 +435,7 @@ def test_jobs_page_shows_pending_work_when_background_jobs_empty_and_redacts_det
     assert "pending-work-item" in response.text
     assert "pending-work-main-row" in response.text
     assert "pending-work-meta-row" in response.text
+    assert "pending-work-time-field" in response.text
     assert "pending-work-table" not in response.text
     assert "hunter2" not in response.text
     assert "raw-token" not in response.text
@@ -469,6 +471,7 @@ def test_jobs_page_shows_human_pending_admin_action(tmp_path: Path):
     assert "Зміни адмінів" in response.text
     assert "Видалення адміна" in response.text
     assert "76561198000000001" in response.text
+    assert "Запустити або перезапустити ігровий сервер" in response.text
     assert "admin.remove" not in response.text
 def test_unauthenticated_install_and_repair_jobs_redirect_to_login(tmp_path: Path):
     from armactl.web.app import create_app

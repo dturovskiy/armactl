@@ -1197,6 +1197,27 @@ button.danger {
   text-align: center;
 }
 
+
+.pending-work-date-stack {
+  display: grid;
+  gap: 3px;
+  min-width: 170px;
+}
+
+.pending-work-date-stack span {
+  display: grid;
+  gap: 1px;
+}
+
+.pending-work-date-stack strong {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.pending-work-time-field {
+  grid-column: span 2;
+}
 .pending-work-meta-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

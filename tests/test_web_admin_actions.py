@@ -411,7 +411,7 @@ def test_admins_add_success_writes_safe_audit(tmp_path: Path, monkeypatch):
     assert item.source_path == "/admins"
     assert item.source_action == "admin.add"
     assert item.title == "Admin changes"
-    assert item.details == "76561198000000002"
+    assert item.details == "76561198000000002; label=Captain"
 
 
 def test_admins_update_success_writes_update_audit(tmp_path: Path, monkeypatch):
@@ -495,7 +495,7 @@ def test_admin_service_pending_db_failure_writes_fallback_and_warns(
     assert item is not None
     assert item.is_fallback is True
     assert item.source_action == "admin.add"
-    assert item.details == "ABCDEF1234567890"
+    assert item.details == "ABCDEF1234567890; label=Captain token=***"
     assert "raw-admin-secret" not in pending_work.fallback_pending_work_path(
         tmp_path / "web" / "web.db"
     ).read_text(encoding="utf-8")

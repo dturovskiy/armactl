@@ -323,6 +323,14 @@ def _admin_intent_audit_failure(action, instance, target):
     )
 
 
+def _pending_admin_details(result: AdminActionResult, label: str = "") -> str:
+    target = _safe_text(result.target, max_length=MAX_ADMIN_REFERENCE_LENGTH)
+    safe_label = _safe_text(label, max_length=MAX_ADMIN_LABEL_LENGTH)
+    if safe_label and result.action in {ACTION_ADD, ACTION_UPDATE}:
+        return f"{target}; label={safe_label}"
+    return target
+
+
 def audit_admin_action_result(
     result: AdminActionResult,
     *,
@@ -361,6 +369,7 @@ def _mark_restart_pending_for_admin_result(
     db_path: Path | None,
     username: str,
     baseline_fingerprint: str = "",
+    label: str = "",
 ) -> AdminActionResult:
     if db_path is None or not result.changed:
         return result
@@ -379,7 +388,7 @@ def _mark_restart_pending_for_admin_result(
             kind=pending_work.KIND_ADMINS,
             source_action=result.action,
             username=username,
-            details=result.target,
+            details=_pending_admin_details(result, label),
             baseline_fingerprint=baseline_fingerprint,
             current_fingerprint=current_fingerprint,
         )
@@ -390,7 +399,7 @@ def _mark_restart_pending_for_admin_result(
             kind=pending_work.KIND_ADMINS,
             source_action=result.action,
             username=username,
-            details=result.target,
+            details=_pending_admin_details(result, label),
         )
     return replace(
         result,
@@ -446,4 +455,5 @@ def run_admin_action_and_audit(
         db_path=db_path,
         username=username,
         baseline_fingerprint=baseline_fingerprint,
+        label=label,
     )

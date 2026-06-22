@@ -82,7 +82,7 @@
 {% endif %}
 <section class="panel full-width pending-work-panel" id="pending-work">
   <h2>{{ t("Pending operator work") }}</h2>
-  <p class="muted">{{ t("Saved changes waiting for manual action, usually a game-server restart.") }} {{ t("These are not background jobs.") }}</p>
+  <p class="muted">{{ t("Saved changes waiting for manual action, usually a game-server start or restart.") }} {{ t("These are not background jobs.") }}</p>
   {% if pending_work_items %}
     <div class="pending-work-list">
       {% for item in pending_work_items %}
@@ -101,8 +101,8 @@
               <dd><span class="status-pill {% if item.is_fallback %}status-pill-warning{% else %}status-pill-ok{% endif %}">{{ t(item.storage_label) }}</span></dd>
             </div>
             <div><dt>{{ t("Requested by") }}</dt><dd>{{ item.created_by_username }}</dd></div>
-            <div><dt>{{ t("Updated") }}</dt><dd>{{ item.updated_at }}</dd></div>
-            <div><dt>{{ t("Created") }}</dt><dd>{{ item.created_at }}</dd></div>
+            <div class="pending-work-time-field"><dt>{{ t("Updated") }}</dt><dd>{{ item.updated_at }}</dd></div>
+            <div class="pending-work-time-field"><dt>{{ t("Created") }}</dt><dd>{{ item.created_at }}</dd></div>
           </dl>
         </article>
       {% endfor %}

@@ -812,7 +812,8 @@ def test_dashboard_shows_compact_pending_work_summary(tmp_path: Path, monkeypatc
     assert "Saved changes waiting for manual action" in response.text
     assert "Config changes" in response.text
     assert 'href="/config"' in response.text
-    assert "Restart game server" in response.text
+    assert "Start or restart game server" in response.text
+    assert "Updated / created" in response.text
     assert "View all work" in response.text
     assert response.text.count('href="/jobs"') == 1
     assert "View all jobs" not in response.text
@@ -940,10 +941,11 @@ def test_dashboard_and_jobs_show_fallback_pending_work_without_leaking_secrets(
         assert "Pending operator work" in response.text
         assert "Config changes" in response.text
         assert "Fallback storage" in response.text
-        assert "Restart game server" in response.text
+        assert "Start or restart game server" in response.text
         assert "raw-user-secret" not in response.text
         assert "raw-detail-secret" not in response.text
         assert "raw-token" not in response.text
+    assert "Updated / created" in dashboard_response.text
     assert "max_players" in jobs_response.text
     assert "No pending operator work." not in dashboard_response.text
     assert "No pending operator work." not in jobs_response.text

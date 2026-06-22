@@ -83,7 +83,7 @@ class PendingWorkItem:
     @property
     def resolution_action_label(self) -> str:
         if self.resolution_action == RESOLUTION_RESTART_GAME_SERVER:
-            return "Restart game server"
+            return "Start or restart game server"
         return self.resolution_action
 
     @property
