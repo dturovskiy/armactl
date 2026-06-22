@@ -101,9 +101,11 @@
               <dd><span class="status-pill {% if item.is_fallback %}status-pill-warning{% else %}status-pill-ok{% endif %}">{{ t(item.storage_label) }}</span></dd>
             </div>
             <div><dt>{{ t("Requested by") }}</dt><dd>{{ item.created_by_username }}</dd></div>
-            <div class="pending-work-time-field"><dt>{{ t("Updated") }}</dt><dd>{{ item.updated_at }}</dd></div>
-            <div class="pending-work-time-field"><dt>{{ t("Created") }}</dt><dd>{{ item.created_at }}</dd></div>
           </dl>
+          <div class="pending-work-dates-row">
+            <span><strong>{{ t("Updated") }}</strong> {{ item.updated_at }}</span>
+            <span><strong>{{ t("Created") }}</strong> {{ item.created_at }}</span>
+          </div>
         </article>
       {% endfor %}
     </div>

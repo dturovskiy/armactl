@@ -435,7 +435,7 @@ def test_jobs_page_shows_pending_work_when_background_jobs_empty_and_redacts_det
     assert "pending-work-item" in response.text
     assert "pending-work-main-row" in response.text
     assert "pending-work-meta-row" in response.text
-    assert "pending-work-time-field" in response.text
+    assert "pending-work-dates-row" in response.text
     assert "pending-work-table" not in response.text
     assert "hunter2" not in response.text
     assert "raw-token" not in response.text

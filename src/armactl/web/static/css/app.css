@@ -1215,12 +1215,25 @@ button.danger {
   text-transform: uppercase;
 }
 
-.pending-work-time-field {
-  grid-column: span 2;
+.pending-work-dates-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.pending-work-dates-row strong {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
 }
 .pending-work-meta-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px 14px;
   margin: 0;
 }
