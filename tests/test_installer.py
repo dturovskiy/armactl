@@ -1,5 +1,6 @@
 """Integration-style tests for the installer orchestration flow."""
 
+import json
 import types
 from pathlib import Path
 from unittest.mock import patch
@@ -9,6 +10,7 @@ import pytest
 import armactl.i18n as i18n
 import armactl.installer as installer
 import armactl.service_manager as service_manager
+from armactl.server_config_schema import generated_default_config_values
 
 
 def test_run_install_orchestrates_default_instance_flow() -> None:
@@ -109,9 +111,7 @@ def test_run_install_uses_instance_specific_service_name() -> None:
 def test_download_server_includes_steamcmd_details_in_error() -> None:
     class FakeProc:
         def __init__(self) -> None:
-            self.stdout = iter(
-                ["ERROR! Failed to install app '1874900' (No subscription)\n"]
-            )
+            self.stdout = iter(["ERROR! Failed to install app '1874900' (No subscription)\n"])
 
         def wait(self) -> int:
             return 7
@@ -218,9 +218,7 @@ def test_download_server_retries_transient_steamcmd_failure() -> None:
 def test_stream_server_update_raises_after_retry_attempts() -> None:
     class FakeProc:
         def __init__(self) -> None:
-            self.stdout = iter(
-                ["ERROR! Failed to install app '1874900' (Missing configuration)\n"]
-            )
+            self.stdout = iter(["ERROR! Failed to install app '1874900' (Missing configuration)\n"])
 
         def wait(self) -> int:
             return 7
@@ -254,9 +252,7 @@ def test_stream_server_update_raises_after_retry_attempts() -> None:
 def test_download_server_does_not_retry_permanent_steamcmd_error() -> None:
     class FakeProc:
         def __init__(self) -> None:
-            self.stdout = iter(
-                ["ERROR! Failed to install app '1874900' (No subscription)\n"]
-            )
+            self.stdout = iter(["ERROR! Failed to install app '1874900' (No subscription)\n"])
 
         def wait(self) -> int:
             return 7
@@ -278,3 +274,30 @@ def test_download_server_does_not_retry_permanent_steamcmd_error() -> None:
 
     popen_mock.assert_called_once()
     assert "No subscription" in str(exc_info.value)
+
+
+def test_render_default_config_uses_shared_registry_defaults() -> None:
+    rendered = installer.render_default_config(
+        rcon_password="generated-rcon-secret",
+        password_admin="generated-admin-secret",
+    )
+
+    assert json.loads(rendered) == generated_default_config_values(
+        rcon_password="generated-rcon-secret",
+        password_admin="generated-admin-secret",
+    )
+
+
+def test_write_default_config_uses_shared_registry_defaults(tmp_path: Path) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+
+    installer.write_default_config(
+        config_path,
+        rcon_password="generated-rcon-secret",
+        password_admin="generated-admin-secret",
+    )
+
+    assert json.loads(config_path.read_text(encoding="utf-8")) == generated_default_config_values(
+        rcon_password="generated-rcon-secret",
+        password_admin="generated-admin-secret",
+    )

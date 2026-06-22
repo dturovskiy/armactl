@@ -53,6 +53,7 @@ explicitly a release task.
   handling when applicable.
 - Normal `config.json` editing belongs on `/config` with structured safe
   controls. Do not turn `/files` into the primary config editor.
+- Server config field/default ownership lives in `src/armactl/server_config_schema.py`. Generated defaults are registry plus `templates/config.json.j2`; `docs/examples/config.full-example.json` is sample-only. Web, TUI, and CLI structured config surfaces should use the shared registry/projections and scalar validation, not independent field truth.
 - Any raw JSON config editor must be a future owner/admin-only break-glass
   button or mode inside `/config`, with explicit permission, CSRF, double
   confirmation, JSON validation, backup, audit, redacted errors, and pending

@@ -1608,7 +1608,7 @@ Current normal web-safe fields remain limited to `game.name`, `game.scenarioId`,
 `game.gameProperties.serverMaxViewDistance`, and
 `game.gameProperties.serverMinGrassDistance`. They stay under `settings:manage`
 with backup, audit, and pending-restart behavior, now described by
-`CONFIG_FIELD_DESCRIPTORS` in the web config edit service.
+the shared server config registry, projected into the web config edit service.
 
 Structured TUI-only advanced fields are now explicitly classified before web
 edit: `bindPort`/`publicPort`, `a2s.port`, `rcon.port`, `game.password`,
@@ -1618,8 +1618,8 @@ settings, and similar network/security fields belong behind future
 policy and must not be rendered casually.
 
 Local sources confirm `game.gameProperties.disableThirdPerson` as a boolean in
-both config templates, but the local template defaults differ (`false` in the
-sample template and `true` in the Jinja template), and upstream semantics plus
+the generated config template and full example, but their values differ (`false` in the
+full example and `true` in the Jinja template), and upstream semantics plus
 restart behavior still need verification before any web control is added. Local
 sources do not confirm crossplay/platform keys or value shapes; do not invent
 them. Candidate
@@ -1628,7 +1628,18 @@ non-secret fields such as `game.gameProperties.networkViewDistance`,
 `operating.lobbyPlayerSynchronise` remain blocked on verification and explicit
 risk/permission decisions.
 
-The descriptor-backed allowlist foundation is now implemented for the existing
+The source-of-truth audit is captured in `docs/source-of-truth-audit-results-20260622.md`.
+The follow-up foundation slice is now implemented: runtime server config source
+of truth is `~/armactl-data/<instance>/config/config.json`; generated defaults
+come from `src/armactl/server_config_schema.py` plus
+`templates/config.json.j2`; and `docs/examples/config.full-example.json`
+is sample-only large mod-pack data, not a runtime default. Web safe fields are a
+thin projection over the shared registry, TUI structured config uses registry
+paths/defaults and shared scalar validation for existing non-secret fields, and
+CLI `config set-*` commands remain compatibility adapters over registered
+fields and validation.
+
+The shared-registry allowlist foundation is now implemented for the existing
 seven fields. The next expansion slice should add controls only after field
 semantics, defaults, restart behavior, permissions, and risk class are verified.
 Each new field still needs parser/validation, audit changed-field naming,

@@ -141,7 +141,7 @@ def _audit_log_text(data_root: Path) -> str:
 
 def _audit_events(data_root: Path) -> list[dict[str, Any]]:
     events = [json.loads(line) for line in _audit_log_text(data_root).splitlines()]
-    return [event for event in events if (event.get('details') or {}).get('phase') != 'intent']
+    return [event for event in events if (event.get("details") or {}).get("phase") != "intent"]
 
 
 def _unchanged_post_data(csrf_token: str) -> dict[str, str]:
@@ -156,11 +156,14 @@ def _unchanged_post_data(csrf_token: str) -> dict[str, str]:
 
 
 def test_config_edit_descriptor_registry_covers_current_safe_fields_only():
+    from armactl.server_config_schema import web_config_field_descriptors
     from armactl.web.auth.permissions import SETTINGS_MANAGE
     from armactl.web.services import config_edit
 
     descriptors = config_edit.editable_config_field_descriptors()
 
+    assert descriptors == web_config_field_descriptors()
+    assert config_edit.CONFIG_FIELD_DESCRIPTORS == web_config_field_descriptors()
     assert tuple(descriptor.form_name for descriptor in descriptors) == (
         "name",
         "scenario_id",
@@ -182,9 +185,7 @@ def test_config_edit_descriptor_registry_covers_current_safe_fields_only():
         "game.gameProperties.serverMaxViewDistance",
         "game.gameProperties.serverMinGrassDistance",
     )
-    assert {
-        descriptor.permission for descriptor in descriptors
-    } == {SETTINGS_MANAGE}
+    assert {descriptor.permission for descriptor in descriptors} == {SETTINGS_MANAGE}
     assert {descriptor.risk_class for descriptor in descriptors} == {"safe"}
     assert {descriptor.secret_behavior for descriptor in descriptors} == {"not-secret"}
     assert {descriptor.restart_behavior for descriptor in descriptors} == {
@@ -678,8 +679,8 @@ def test_config_edit_audit_failure_reports_saved_with_warning(
     csrf_token = _form_token(client.get("/config").text)
 
     def fail_audit(*args, **kwargs):
-        if (kwargs.get('details') or {}).get('phase') == 'outcome':
-            raise AuditLogError('disk full')
+        if (kwargs.get("details") or {}).get("phase") == "outcome":
+            raise AuditLogError("disk full")
 
     monkeypatch.setattr(config_edit, "append_audit_event", fail_audit)
 
@@ -736,6 +737,7 @@ def test_config_edit_import_does_not_import_tui_textual(
         ("armactl.tui", "textual"),
     )
 
+
 def test_config_edit_intent_audit_failure_aborts_save(
     tmp_path: Path,
     monkeypatch,
@@ -746,22 +748,23 @@ def test_config_edit_intent_audit_failure_aborts_save(
     original_config = _sample_config()
     config_path = _write_config(tmp_path, deepcopy(original_config))
     from armactl.web.services import config_edit
+
     client = _authed_client(tmp_path, monkeypatch, config_path)
-    csrf_token = _form_token(client.get('/config').text)
+    csrf_token = _form_token(client.get("/config").text)
 
     def fail_intent(*args, **kwargs):
-        if (kwargs.get('details') or {}).get('phase') == 'intent':
-            raise AuditLogError('disk full')
+        if (kwargs.get("details") or {}).get("phase") == "intent":
+            raise AuditLogError("disk full")
 
-    monkeypatch.setattr(config_edit, 'append_audit_event', fail_intent)
+    monkeypatch.setattr(config_edit, "append_audit_event", fail_intent)
     response = client.post(
-        '/config',
+        "/config",
         data=_valid_post_data(csrf_token),
         follow_redirects=False,
     )
 
     assert response.status_code == 400
-    assert 'Config was not saved because audit logging failed.' in response.text
+    assert "Config was not saved because audit logging failed." in response.text
     assert json.loads(config_path.read_text()) == original_config
-    assert not list(config_path.parent.glob('config.json.before-web-config-save-*.bak'))
-    assert list_pending_work(tmp_path / 'web' / 'web.db') == []
+    assert not list(config_path.parent.glob("config.json.before-web-config-save-*.bak"))
+    assert list_pending_work(tmp_path / "web" / "web.db") == []

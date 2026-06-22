@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import shutil
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -12,7 +12,18 @@ from typing import Any
 
 from armactl import config_manager, discovery, paths
 from armactl.redaction import redact_sensitive_text
-from armactl.web.auth.permissions import SETTINGS_MANAGE
+from armactl.server_config_schema import (
+    ServerConfigField,
+    ServerConfigSchemaError,
+    parse_form_field_value,
+    web_config_field_descriptors,
+)
+from armactl.server_config_schema import (
+    nested_value as schema_nested_value,
+)
+from armactl.server_config_schema import (
+    set_nested_value as schema_set_nested_value,
+)
 from armactl.web.services import pending_work
 from armactl.web.services.audit import AuditLogError, append_audit_event
 
@@ -52,44 +63,18 @@ class _PreparedConfigEdit:
     current_fingerprint: str = ""
 
 
-@dataclass(frozen=True)
-class ConfigFieldUi:
-    """UI metadata for an allowlisted config field."""
-
-    label: str
-    control: str
-    group: str
-    css_class: str = ""
-    required: bool = False
-    max_length: int | None = None
-    min_value: int | None = None
-    step: int | None = None
-
-
-@dataclass(frozen=True)
-class ConfigFieldDescriptor:
-    """Descriptor for one safe web-editable config field."""
-
-    form_name: str
-    config_path: tuple[str, ...]
-    parser: Callable[[Mapping[str, Any], ConfigFieldDescriptor], Any]
-    validation_message: str
-    risk_class: str
-    permission: str
-    secret_behavior: str
-    audit_field_name: str
-    restart_behavior: str
-    ui: ConfigFieldUi
-    minimum: int | None = None
-
-
 _STRING_LIMIT = 512
 CONFIG_SAVE_ACTION = "config.save"
-RISK_SAFE = "safe"
-SECRET_BEHAVIOR_NOT_SECRET = "not-secret"
-RESTART_BEHAVIOR_CHANGED_ONLY = "changed-values-mark-restart-pending"
-UI_GROUP_FORM_GRID = "form_grid"
-UI_GROUP_CHECKBOX_GRID = "checkbox_grid"
+
+CONFIG_FIELD_DESCRIPTORS = web_config_field_descriptors()
+ALLOWLISTED_CONFIG_FORM_FIELDS = tuple(
+    descriptor.form_name for descriptor in CONFIG_FIELD_DESCRIPTORS
+)
+_FIELD_PATHS = {
+    descriptor.audit_field_name: descriptor.config_path
+    for descriptor in CONFIG_FIELD_DESCRIPTORS
+    if descriptor.audit_field_name is not None
+}
 
 
 def _safe_text(value: Any) -> str:
@@ -98,219 +83,8 @@ def _safe_text(value: Any) -> str:
     return str(value).strip()
 
 
-def _string_field(form: Mapping[str, Any], key: str, message: str) -> str:
-    value = _safe_text(form.get(key))
-    if not value:
-        raise ConfigEditError(message)
-    if len(value) > _STRING_LIMIT or any(ord(char) < 32 for char in value):
-        raise ConfigEditError(message)
-    return value
-
-
-def _int_field(
-    form: Mapping[str, Any],
-    key: str,
-    message: str,
-    *,
-    minimum: int,
-) -> int:
-    raw = _safe_text(form.get(key))
-    try:
-        value = int(raw, 10)
-    except (TypeError, ValueError) as exc:
-        raise ConfigEditError(message) from exc
-    if str(value) != raw and raw not in {f"+{value}", f"0{value}"}:
-        raise ConfigEditError(message)
-    if value < minimum:
-        raise ConfigEditError(message)
-    return value
-
-
-def _bool_field(form: Mapping[str, Any], key: str) -> bool:
-    if key not in form or form.get(key) in (None, ""):
-        return False
-    value = _safe_text(form.get(key)).lower()
-    if value in {"1", "true", "on", "yes"}:
-        return True
-    if value in {"0", "false", "off", "no"}:
-        return False
-    raise ConfigEditError("Boolean field value is invalid.")
-
-
-def _parse_required_string(
-    form: Mapping[str, Any],
-    descriptor: ConfigFieldDescriptor,
-) -> str:
-    return _string_field(form, descriptor.form_name, descriptor.validation_message)
-
-
-def _parse_int(form: Mapping[str, Any], descriptor: ConfigFieldDescriptor) -> int:
-    if descriptor.minimum is None:
-        raise ConfigEditError(descriptor.validation_message)
-    return _int_field(
-        form,
-        descriptor.form_name,
-        descriptor.validation_message,
-        minimum=descriptor.minimum,
-    )
-
-
-def _parse_bool(form: Mapping[str, Any], descriptor: ConfigFieldDescriptor) -> bool:
-    return _bool_field(form, descriptor.form_name)
-
-
-CONFIG_FIELD_DESCRIPTORS = (
-    ConfigFieldDescriptor(
-        form_name="name",
-        config_path=("game", "name"),
-        parser=_parse_required_string,
-        validation_message="game.name is required.",
-        risk_class=RISK_SAFE,
-        permission=SETTINGS_MANAGE,
-        secret_behavior=SECRET_BEHAVIOR_NOT_SECRET,
-        audit_field_name="name",
-        restart_behavior=RESTART_BEHAVIOR_CHANGED_ONLY,
-        ui=ConfigFieldUi(
-            label="Server name",
-            control="text",
-            group=UI_GROUP_FORM_GRID,
-            css_class="field-wide",
-            required=True,
-            max_length=_STRING_LIMIT,
-        ),
-    ),
-    ConfigFieldDescriptor(
-        form_name="scenario_id",
-        config_path=("game", "scenarioId"),
-        parser=_parse_required_string,
-        validation_message="game.scenarioId is required.",
-        risk_class=RISK_SAFE,
-        permission=SETTINGS_MANAGE,
-        secret_behavior=SECRET_BEHAVIOR_NOT_SECRET,
-        audit_field_name="scenario_id",
-        restart_behavior=RESTART_BEHAVIOR_CHANGED_ONLY,
-        ui=ConfigFieldUi(
-            label="Scenario ID",
-            control="text",
-            group=UI_GROUP_FORM_GRID,
-            css_class="field-wide",
-            required=True,
-            max_length=_STRING_LIMIT,
-        ),
-    ),
-    ConfigFieldDescriptor(
-        form_name="max_players",
-        config_path=("game", "maxPlayers"),
-        parser=_parse_int,
-        validation_message="game.maxPlayers must be a positive integer.",
-        risk_class=RISK_SAFE,
-        permission=SETTINGS_MANAGE,
-        secret_behavior=SECRET_BEHAVIOR_NOT_SECRET,
-        audit_field_name="max_players",
-        restart_behavior=RESTART_BEHAVIOR_CHANGED_ONLY,
-        ui=ConfigFieldUi(
-            label="Max players",
-            control="number",
-            group=UI_GROUP_FORM_GRID,
-            required=True,
-            min_value=1,
-            step=1,
-        ),
-        minimum=1,
-    ),
-    ConfigFieldDescriptor(
-        form_name="visible",
-        config_path=("game", "visible"),
-        parser=_parse_bool,
-        validation_message="Boolean field value is invalid.",
-        risk_class=RISK_SAFE,
-        permission=SETTINGS_MANAGE,
-        secret_behavior=SECRET_BEHAVIOR_NOT_SECRET,
-        audit_field_name="visible",
-        restart_behavior=RESTART_BEHAVIOR_CHANGED_ONLY,
-        ui=ConfigFieldUi(
-            label="Visible",
-            control="checkbox",
-            group=UI_GROUP_CHECKBOX_GRID,
-        ),
-    ),
-    ConfigFieldDescriptor(
-        form_name="battleye",
-        config_path=("game", "gameProperties", "battlEye"),
-        parser=_parse_bool,
-        validation_message="Boolean field value is invalid.",
-        risk_class=RISK_SAFE,
-        permission=SETTINGS_MANAGE,
-        secret_behavior=SECRET_BEHAVIOR_NOT_SECRET,
-        audit_field_name="battleye",
-        restart_behavior=RESTART_BEHAVIOR_CHANGED_ONLY,
-        ui=ConfigFieldUi(
-            label="BattlEye",
-            control="checkbox",
-            group=UI_GROUP_CHECKBOX_GRID,
-        ),
-    ),
-    ConfigFieldDescriptor(
-        form_name="server_max_view_distance",
-        config_path=("game", "gameProperties", "serverMaxViewDistance"),
-        parser=_parse_int,
-        validation_message=(
-            "game.gameProperties.serverMaxViewDistance must be a positive integer."
-        ),
-        risk_class=RISK_SAFE,
-        permission=SETTINGS_MANAGE,
-        secret_behavior=SECRET_BEHAVIOR_NOT_SECRET,
-        audit_field_name="server_max_view_distance",
-        restart_behavior=RESTART_BEHAVIOR_CHANGED_ONLY,
-        ui=ConfigFieldUi(
-            label="Server max view distance",
-            control="number",
-            group=UI_GROUP_FORM_GRID,
-            required=True,
-            min_value=1,
-            step=1,
-        ),
-        minimum=1,
-    ),
-    ConfigFieldDescriptor(
-        form_name="server_min_grass_distance",
-        config_path=("game", "gameProperties", "serverMinGrassDistance"),
-        parser=_parse_int,
-        validation_message=(
-            "game.gameProperties.serverMinGrassDistance must be a non-negative integer."
-        ),
-        risk_class=RISK_SAFE,
-        permission=SETTINGS_MANAGE,
-        secret_behavior=SECRET_BEHAVIOR_NOT_SECRET,
-        audit_field_name="server_min_grass_distance",
-        restart_behavior=RESTART_BEHAVIOR_CHANGED_ONLY,
-        ui=ConfigFieldUi(
-            label="Server min grass distance",
-            control="number",
-            group=UI_GROUP_FORM_GRID,
-            required=True,
-            min_value=0,
-            step=1,
-        ),
-        minimum=0,
-    ),
-)
-ALLOWLISTED_CONFIG_FORM_FIELDS = tuple(
-    descriptor.form_name for descriptor in CONFIG_FIELD_DESCRIPTORS
-)
-_FIELD_PATHS = {
-    descriptor.audit_field_name: descriptor.config_path
-    for descriptor in CONFIG_FIELD_DESCRIPTORS
-}
-
-
 def _nested_value(data: Mapping[str, Any], path: tuple[str, ...]) -> Any:
-    value: Any = data
-    for key in path:
-        if not isinstance(value, Mapping):
-            return None
-        value = value.get(key)
-    return value
+    return schema_nested_value(data, path)
 
 
 def _changed_fields(before: Mapping[str, Any], after: Mapping[str, Any]) -> tuple[str, ...]:
@@ -331,14 +105,13 @@ def _submitted_fields(form: Mapping[str, Any]) -> tuple[str, ...]:
 
 def _config_restart_fingerprint(config: Mapping[str, Any]) -> str:
     payload = {
-        field: _nested_value(config, field_path)
-        for field, field_path in _FIELD_PATHS.items()
+        field: _nested_value(config, field_path) for field, field_path in _FIELD_PATHS.items()
     }
     return pending_work.safe_state_fingerprint(payload)
 
 
-def editable_config_field_descriptors() -> tuple[ConfigFieldDescriptor, ...]:
-    """Return the current safe web config field registry."""
+def editable_config_field_descriptors() -> tuple[ServerConfigField, ...]:
+    """Return the current safe web config field projection."""
     return CONFIG_FIELD_DESCRIPTORS
 
 
@@ -352,7 +125,7 @@ def extract_config_edit_form(form: Mapping[str, Any]) -> dict[str, Any]:
 
 def _form_value_for_descriptor(
     config: Mapping[str, Any],
-    descriptor: ConfigFieldDescriptor,
+    descriptor: ServerConfigField,
 ) -> Any:
     value = _nested_value(config, descriptor.config_path)
     if descriptor.ui.control == "checkbox":
@@ -399,13 +172,10 @@ def build_config_edit_fields(config: Mapping[str, Any]) -> tuple[dict[str, Any],
 
 
 def _set_nested_value(data: dict[str, Any], path: tuple[str, ...], value: Any) -> None:
-    target = data
-    for key in path[:-1]:
-        next_value = target.get(key)
-        if not isinstance(next_value, dict):
-            raise ConfigEditError(f"{'.'.join(path[:-1])} must be an object.")
-        target = next_value
-    target[path[-1]] = value
+    try:
+        schema_set_nested_value(data, path, value)
+    except ServerConfigSchemaError as exc:
+        raise ConfigEditError(str(exc)) from exc
 
 
 def _updated_config(data: dict[str, Any], form: Mapping[str, Any]) -> dict[str, Any]:
@@ -421,7 +191,10 @@ def _updated_config(data: dict[str, Any], form: Mapping[str, Any]) -> dict[str, 
         raise ConfigEditError("game.gameProperties must be an object.")
 
     for descriptor in CONFIG_FIELD_DESCRIPTORS:
-        value = descriptor.parser(form, descriptor)
+        try:
+            value = parse_form_field_value(form, descriptor)
+        except ServerConfigSchemaError as exc:
+            raise ConfigEditError(str(exc)) from exc
         _set_nested_value(updated, descriptor.config_path, value)
     return updated
 

@@ -25,7 +25,7 @@ from textual.widgets import (
     TextArea,
 )
 
-from armactl import paths, ports
+from armactl import paths, ports, server_config_schema
 from armactl.addon_cleanup import cleanup_unconfigured_addons
 from armactl.admins_manager import add_admin, get_admins, remove_admin
 from armactl.bot_config import (
@@ -359,9 +359,7 @@ class HostTestsScreen(LogWorkerScreen):
             )
             self.app.call_from_thread(self.complete_task)
         else:
-            saved_output.append(
-                tr("Host tests failed with exit code {code}.", code=return_code)
-            )
+            saved_output.append(tr("Host tests failed with exit code {code}.", code=return_code))
             self.app.call_from_thread(
                 self.append_output,
                 tr("[red]Host tests failed with exit code {code}.[/red]", code=return_code),
@@ -379,6 +377,7 @@ class HostTestsScreen(LogWorkerScreen):
 
 class ConfirmScreen(Screen):
     """A simple modal screen for yes/no confirmation."""
+
     def __init__(self, prompt: str, **kwargs):
         super().__init__(**kwargs)
         self.prompt = prompt
@@ -399,6 +398,7 @@ class ConfirmScreen(Screen):
 
 class TailLogScreen(Screen):
     """Screen for viewing live tailing logs via journalctl."""
+
     BINDINGS = [("q", "quit_logs", _("Close Logs"))]
 
     def __init__(self, instance: str, **kwargs):
@@ -434,7 +434,7 @@ class TailLogScreen(Screen):
             ["sudo", "journalctl", "-u", service_name, "-f", "-n", "100"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True
+            text=True,
         )
         try:
             for line in iter(self._tail_process.stdout.readline, ""):
@@ -452,6 +452,7 @@ class TailLogScreen(Screen):
 
 class InfoViewerScreen(Screen):
     """Generic screen to view static text information (like Ports or Status)."""
+
     BINDINGS = [("b", "pop_screen", _("Back"))]
 
     def __init__(self, title: str, content: str, **kwargs):
@@ -1045,16 +1046,14 @@ class ManageScreen(Screen):
             elif mods_summary.count == 0:
                 lines.append(_("No mods configured."))
             if mods_summary.remaining_count > 0:
-                lines.append(
-                    tr("+ {count} more mod(s)", count=mods_summary.remaining_count)
-                )
+                lines.append(tr("+ {count} more mod(s)", count=mods_summary.remaining_count))
         else:
             lines.append(_("Mods summary unavailable."))
 
         lines.extend(
             [
                 "",
-            _("[bold cyan]Players[/bold cyan]"),
+                _("[bold cyan]Players[/bold cyan]"),
             ]
         )
 
@@ -1110,9 +1109,7 @@ class ManageScreen(Screen):
         lines = [_("Ports Status"), ""]
         for name, info in port_rows.items():
             status = (
-                _("[green]OPEN listening[/green]")
-                if info["listening"]
-                else _("[red]CLOSED[/red]")
+                _("[green]OPEN listening[/green]") if info["listening"] else _("[red]CLOSED[/red]")
             )
             lines.append(f"{name:<10} | {info['port']:<6} | {status}")
         return "\n".join(lines)
@@ -2170,12 +2167,12 @@ class CleanupScreen(Screen):
         lines.append(_("[bold cyan]Server Junk Analysis[/bold cyan]"))
         lines.append("-------------------------")
 
-        sz_logs = format_size(stats['logs']['size'])
+        sz_logs = format_size(stats["logs"]["size"])
         lines.append(
             tr("- Old Logs: {count} files ({size})", count=stats["logs"]["count"], size=sz_logs)
         )
 
-        sz_dumps = format_size(stats['dumps']['size'])
+        sz_dumps = format_size(stats["dumps"]["size"])
         lines.append(
             tr(
                 "- Crash Dumps: {count} files ({size})",
@@ -2184,7 +2181,7 @@ class CleanupScreen(Screen):
             )
         )
 
-        sz_backups = format_size(stats['backups']['size'])
+        sz_backups = format_size(stats["backups"]["size"])
         lines.append(
             tr(
                 "- Stale Backups: {count} files ({size})",
@@ -2194,12 +2191,10 @@ class CleanupScreen(Screen):
         )
 
         lines.append("-------------------------")
-        tot = format_size(stats['total_size'])
+        tot = format_size(stats["total_size"])
 
-        if stats['total_size'] > 0:
-            lines.append(
-                tr("[bold red]Total Recoverable Space: {size}[/bold red]", size=tot)
-            )
+        if stats["total_size"] > 0:
+            lines.append(tr("[bold red]Total Recoverable Space: {size}[/bold red]", size=tot))
             btn.disabled = False
         else:
             lines.append(_("[bold green]System is clean! Nothing to remove.[/bold green]"))
@@ -2224,9 +2219,7 @@ class CleanupScreen(Screen):
                     self.refresh_stats()
 
             self.app.push_screen(
-                ConfirmScreen(
-                    _("Are you sure you want to permanently delete these files?")
-                ),
+                ConfirmScreen(_("Are you sure you want to permanently delete these files?")),
                 confirm_cleanup,
             )
 
@@ -2254,8 +2247,7 @@ class CleanupScreen(Screen):
             dir_count = len(preview.deleted)
             freed = format_size(preview.bytes_deleted)
             prompt = tr(
-                "Delete {count} unused workshop addon directory/directories "
-                "and free {size}?",
+                "Delete {count} unused workshop addon directory/directories and free {size}?",
                 count=dir_count,
                 size=freed,
             )
@@ -2358,21 +2350,14 @@ class ConfigEditorScreen(Screen):
             self.app.pop_screen()
             return
 
-        game = self.config_data.get("game", {})
-        rcon = self.config_data.get("rcon", {})
-        a2s = self.config_data.get("a2s", {})
-
-        self.query_one("#inp_name", Input).value = game.get("name", "")
-        self.query_one("#inp_scenario", Input).value = game.get("scenarioId", "")
-        self.query_one("#inp_players", Input).value = str(game.get("maxPlayers", 64))
-
-        self.query_one("#inp_game_port", Input).value = str(self.config_data.get("bindPort", 2001))
-        self.query_one("#inp_a2s_port", Input).value = str(a2s.get("port", 17777))
-        self.query_one("#inp_rcon_port", Input).value = str(rcon.get("port", 19999))
-
-        self.query_one("#inp_game_pass", Input).value = game.get("password", "")
-        self.query_one("#inp_admin_pass", Input).value = game.get("passwordAdmin", "")
-        self.query_one("#inp_rcon_pass", Input).value = rcon.get("password", "")
+        for field in server_config_schema.tui_structured_config_fields():
+            if field.tui_input_id is None:
+                continue
+            value = server_config_schema.config_field_input_value(
+                self.config_data,
+                field.name,
+            )
+            self.query_one(f"#{field.tui_input_id}", Input).value = str(value)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id in ("btn_save", "btn_save_restart"):
@@ -2381,39 +2366,21 @@ class ConfigEditorScreen(Screen):
             self.app.pop_screen()
 
     def save_and_exit(self, restart: bool) -> None:
-        game = self.config_data.get("game", {})
-        rcon = self.config_data.get("rcon", {})
-        a2s = self.config_data.get("a2s", {})
-
-        game["name"] = self.query_one("#inp_name", Input).value
-        game["scenarioId"] = self.query_one("#inp_scenario", Input).value
-        try:
-            game["maxPlayers"] = int(self.query_one("#inp_players", Input).value)
-        except ValueError:
-            pass
-
-        try:
-            self.config_data["bindPort"] = int(self.query_one("#inp_game_port", Input).value)
-            self.config_data["publicPort"] = int(self.query_one("#inp_game_port", Input).value)
-        except ValueError:
-            pass
-        try:
-            a2s["port"] = int(self.query_one("#inp_a2s_port", Input).value)
-            self.config_data["a2s"] = a2s
-        except ValueError:
-            pass
-        try:
-            rcon["port"] = int(self.query_one("#inp_rcon_port", Input).value)
-            self.config_data["rcon"] = rcon
-        except ValueError:
-            pass
-
-        game["password"] = self.query_one("#inp_game_pass", Input).value
-        game["passwordAdmin"] = self.query_one("#inp_admin_pass", Input).value
-        rcon["password"] = self.query_one("#inp_rcon_pass", Input).value
-
-        self.config_data["game"] = game
-        self.config_data["rcon"] = rcon
+        for field in server_config_schema.tui_structured_config_fields():
+            if field.tui_input_id is None:
+                continue
+            raw_value = self.query_one(f"#{field.tui_input_id}", Input).value
+            try:
+                value = server_config_schema.parse_text_field_value(raw_value, field.name)
+            except server_config_schema.ServerConfigSchemaError:
+                continue
+            server_config_schema.set_config_field(
+                self.config_data,
+                field.name,
+                value,
+                create_missing=True,
+                include_linked=True,
+            )
 
         try:
             save_config(self.config_path, self.config_data, backup=True)
@@ -2462,9 +2429,7 @@ class RawConfigScreen(Screen):
                 id="screen-title",
             )
             yield Label(
-                _(
-                    "Manual JSON editor. Save keeps an automatic backup before writing."
-                ),
+                _("Manual JSON editor. Save keeps an automatic backup before writing."),
                 id="raw-config-help",
             )
             yield TextArea("", id="raw-config-editor")
@@ -2851,23 +2816,23 @@ class ModManagerScreen(Screen):
 
     def _import_directory_note(self) -> str:
         modpacks_dir = paths.modpacks_dir(self.instance)
-        templates_dir = self._repo_root() / "templates"
+        examples_dir = self._repo_root() / "docs" / "examples"
         return tr(
             "armactl checks {modpacks_dir} for saved mod packs and "
-            "{templates_dir} for example JSON configs.",
+            "{examples_dir} for example JSON configs.",
             modpacks_dir=modpacks_dir,
-            templates_dir=templates_dir,
+            examples_dir=examples_dir,
         )
 
     def _format_import_suggestion(self, path: Path) -> tuple[str, str]:
         modpacks_dir = paths.modpacks_dir(self.instance)
-        templates_dir = self._repo_root() / "templates"
+        examples_dir = self._repo_root() / "docs" / "examples"
         legacy_export = paths.instance_root(self.instance) / "mods-export.json"
 
         if path.parent == modpacks_dir:
             source = _("Saved mod pack")
-        elif path.parent == templates_dir:
-            source = _("Template example")
+        elif path.parent == examples_dir:
+            source = _("Example config")
         elif path == legacy_export:
             source = _("Legacy export")
         else:
@@ -2884,7 +2849,7 @@ class ModManagerScreen(Screen):
         suggestions: list[tuple[str, str]] = []
         seen: set[str] = set()
         modpacks_dir = paths.modpacks_dir(self.instance)
-        templates_dir = self._repo_root() / "templates"
+        examples_dir = self._repo_root() / "docs" / "examples"
         legacy_export = paths.instance_root(self.instance) / "mods-export.json"
 
         def add_candidate(path: Path) -> None:
@@ -2910,8 +2875,8 @@ class ModManagerScreen(Screen):
 
         add_candidate(legacy_export)
 
-        if templates_dir.exists():
-            for candidate in sorted(templates_dir.glob("*.json")):
+        if examples_dir.exists():
+            for candidate in sorted(examples_dir.glob("*.json")):
                 add_candidate(candidate)
 
         return suggestions
@@ -3199,8 +3164,7 @@ class ModManagerScreen(Screen):
                             elif not (cleanup and cleanup.errors):
                                 self.app.notify(
                                     tr(
-                                        "Removed mod {mod_id}. "
-                                        "No local addon files found.",
+                                        "Removed mod {mod_id}. No local addon files found.",
                                         mod_id=mod_id,
                                     )
                                 )
@@ -3224,8 +3188,6 @@ class ModManagerScreen(Screen):
 
         elif event.button.id == "btn_dedupe_mods":
             count = dedupe_mods(cfg)
-            self.app.notify(
-                tr("Deduped mods. Reclaimed {count} duplicates.", count=count)
-            )
+            self.app.notify(tr("Deduped mods. Reclaimed {count} duplicates.", count=count))
             if count > 0:
                 await self.action_refresh_mods()

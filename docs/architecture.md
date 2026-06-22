@@ -30,6 +30,8 @@ armactl/
 │   ├── architecture.md
 │   ├── localization.md
 │   ├── telegram-bot.md
+│   ├── examples/
+│   │   └── config.full-example.json
 │   └── ...
 ├── scripts/
 │   ├── bootstrap.sh
@@ -61,6 +63,7 @@ armactl/
 │       ├── ports.py
 │       ├── repair.py
 │       ├── service_manager.py
+│       ├── server_config_schema.py
 │       ├── state.py
 │       ├── web/                 # browser management panel package
 │       │   ├── auth/
@@ -93,7 +96,7 @@ armactl/
 | `src/armactl/tui/` | TUI-оболонка (Textual), жодної бізнес-логіки |
 | `src/armactl/web/` | Web-panel routes, page models, services, auth, jobs, templates, static assets; routes are HTTP glue |
 | `dturovskiy/armactl-website` | Separate static marketing site repository, окремо від authenticated management panel |
-| `templates/` | Jinja2-шаблони для config, service, timer, start script |
+| `templates/` | Jinja2-шаблони для generated config renderer, service, timer, start script |
 | `scripts/` | Зручні launcher-и та dev-скрипти |
 | `docs/` | Документація проєкту |
 | `tests/` | Unit та integration тести |
@@ -107,6 +110,7 @@ armactl/
 | `discovery.py` | Пошук існуючого сервера |
 | `state.py` | Читання/запис `state.json` |
 | `config_manager.py` | Безпечне редагування `config.json` |
+| `server_config_schema.py` | Shared registry для підтриманих server config paths/defaults/validation/risk/UI projections |
 | `platform/service_adapter.py` | Adapter contract for service/timer operations; default backend is Linux/systemd |
 | `service_manager.py` | Linux/systemd implementation for service/timer generation, status, control, and schedule |
 | `installer.py` | Install flow: SteamCMD + config + service |
@@ -166,6 +170,8 @@ armactl/
 | `backups/` | Резервні копії конфігу перед кожною зміною |
 | `state.json` | Discovery/state файл armactl |
 | `start-armareforger.sh` | Стартовий скрипт, на який посилається systemd service; запускає SAT admin guard перед сервером |
+
+Runtime server config source of truth is `~/armactl-data/<instance>/config/config.json`. Install and repair generate a missing default from `src/armactl/server_config_schema.py` plus `templates/config.json.j2`. The full sample config lives at `docs/examples/config.full-example.json` and is sample-only, not a runtime default.
 
 `sat-admin-uuid-map.json` is only needed when an official server admin is stored
 as a SteamID64 or label but ServerAdminTools needs its own UUID. Keep

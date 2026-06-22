@@ -31,7 +31,8 @@ if TYPE_CHECKING:
     show_default=True,
 )
 @click.option(
-    "--json-output", "use_json",
+    "--json-output",
+    "use_json",
     is_flag=True,
     default=False,
     help="Output in JSON format (for TUI integration).",
@@ -71,12 +72,12 @@ def main(ctx: click.Context, instance: str, use_json: bool) -> None:
             t.start()
         except subprocess.CalledProcessError:
             click.echo(
-                "Failed to acquire sudo privileges! "
-                "Background commands might fail.",
+                "Failed to acquire sudo privileges! Background commands might fail.",
                 err=True,
             )
 
         from armactl.tui.app import run_tui
+
         # If no strict command given, launch the visual TUI
         run_tui(instance)
 
@@ -84,6 +85,7 @@ def main(ctx: click.Context, instance: str, use_json: bool) -> None:
 def _get_state(ctx: click.Context):
     """Helper: run discovery and return state for current instance."""
     from armactl.discovery import discover
+
     return discover(instance=ctx.obj["instance"], save=False)
 
 
@@ -120,8 +122,7 @@ def status(ctx: click.Context) -> None:
             )
         else:
             click.echo(
-                f"[{instance}] No server found. "
-                "Run './armactl detect' or './armactl install'."
+                f"[{instance}] No server found. Run './armactl detect' or './armactl install'."
             )
         sys.exit(1)
 
@@ -148,10 +149,10 @@ def status(ctx: click.Context) -> None:
     click.echo(f"  Install dir: {state.install_dir}")
     click.echo(f"  Config:      {state.config_path}")
     click.echo(f"  Service:     {'✓' if state.service_exists else '✗'} {state.service_name}")
-    if svc['enabled']:
+    if svc["enabled"]:
         click.echo("  Auto-start:  enabled")
     click.echo(f"  Timer:       {'✓' if state.timer_exists else '✗'} {state.timer_name}")
-    if svc['main_pid']:
+    if svc["main_pid"]:
         click.echo(f"  PID:         {svc['main_pid']}")
     fps_metrics = metrics.query_server_fps_metrics(paths.config_dir(instance))
     if fps_metrics.available:
@@ -170,8 +171,7 @@ def status(ctx: click.Context) -> None:
         click.echo("  Server FPS:  unavailable")
     if state.ports.game:
         click.echo(
-            f"  Ports:       game={state.ports.game} "
-            f"a2s={state.ports.a2s} rcon={state.ports.rcon}"
+            f"  Ports:       game={state.ports.game} a2s={state.ports.a2s} rcon={state.ports.rcon}"
         )
     if sat_status is not None and sat_status.warning:
         click.echo(f"  SAT:         ! {sat_status.warning}")
@@ -204,8 +204,7 @@ def sync_generated(ctx: click.Context) -> None:
         click.echo(f"[{instance}] {prefix} {result.message}")
         if result.success and state.server_running:
             click.echo(
-                f"[{instance}] Restart the server when convenient to apply "
-                "launch script changes."
+                f"[{instance}] Restart the server when convenient to apply launch script changes."
             )
 
     sys.exit(0 if result.success else 1)
@@ -834,7 +833,6 @@ def web_run(
         raise click.ClickException(str(e)) from e
 
 
-
 def _format_web_service_install_summary(result) -> str:
     config = result.config
     https_required = "yes" if config.https_required else "no"
@@ -1041,8 +1039,7 @@ def detect(ctx: click.Context, install_dir: Path | None, config_path: Path | Non
         binary_status = "found" if state.binary_exists else "missing"
         click.echo(f"  ✓ Binary:  {binary_status} ({binary_path})")
         click.echo(
-            f"  Config:  {'found' if state.config_exists else 'missing'} "
-            f"({state.config_path})"
+            f"  Config:  {'found' if state.config_exists else 'missing'} ({state.config_path})"
         )
         click.echo(f"  ✓ Service: {'found' if state.service_exists else 'missing'}")
         click.echo(f"  ✓ Timer:   {'found' if state.timer_exists else 'missing'}")
@@ -1050,8 +1047,7 @@ def detect(ctx: click.Context, install_dir: Path | None, config_path: Path | Non
         click.echo(f"  ✓ Status:  {icon} {'running' if state.server_running else 'stopped'}")
         if state.ports.game:
             click.echo(
-                f"  Ports:   game={state.ports.game} "
-                f"a2s={state.ports.a2s} rcon={state.ports.rcon}"
+                f"  Ports:   game={state.ports.game} a2s={state.ports.a2s} rcon={state.ports.rcon}"
             )
         if state.migrated_from:
             click.echo(f"  ⚠ Detected from legacy paths (migrated_from={state.migrated_from})")
@@ -1062,21 +1058,16 @@ def detect(ctx: click.Context, install_dir: Path | None, config_path: Path | Non
             click.echo(f"  Install dir: {state.install_dir}")
             click.echo(f"  Package integrity: {state.package_integrity or 'unknown'}")
             click.echo(
-                f"  Config:  {'found' if state.config_exists else 'missing'} "
-                f"({state.config_path})"
+                f"  Config:  {'found' if state.config_exists else 'missing'} ({state.config_path})"
             )
             if state.package_missing_files:
-                click.echo(
-                    "  Missing package files: "
-                    + ", ".join(state.package_missing_files[:5])
-                )
+                click.echo("  Missing package files: " + ", ".join(state.package_missing_files[:5]))
             click.echo("  Run 'armactl repair' to validate and complete the install.")
             return
         click.echo("  ✗ No server found.")
         click.echo("  Use 'armactl install' to install, or")
         click.echo(
-            "  Use 'armactl detect --install-dir <path> --config-path <path>' "
-            "for manual detection."
+            "  Use 'armactl detect --install-dir <path> --config-path <path>' for manual detection."
         )
 
 
@@ -1085,6 +1076,7 @@ def detect(ctx: click.Context, install_dir: Path | None, config_path: Path | Non
 def install(ctx: click.Context) -> None:
     """Install server from scratch."""
     from armactl.installer import InstallError, run_install
+
     instance = ctx.obj["instance"]
 
     click.echo(f"[{instance}] Starting installation...")
@@ -1152,7 +1144,11 @@ def config_show(ctx: click.Context) -> None:
 @click.pass_context
 def config_set_name(ctx: click.Context, name: str) -> None:
     """Set server name."""
-    from armactl.config_manager import ConfigError, set_value
+    from armactl.config_manager import ConfigError
+    from armactl.server_config_schema import (
+        ServerConfigSchemaError,
+        save_registered_config_value,
+    )
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -1162,9 +1158,9 @@ def config_set_name(ctx: click.Context, name: str) -> None:
         sys.exit(1)
 
     try:
-        set_value(state.config_path, "game", "name", name)
+        save_registered_config_value(state.config_path, "name", name)
         click.echo(f"[{instance}] Server name set to '{name}'.")
-    except ConfigError as e:
+    except (ConfigError, ServerConfigSchemaError) as e:
         click.echo(f"[{instance}] {e}", err=True)
         sys.exit(1)
 
@@ -1174,7 +1170,11 @@ def config_set_name(ctx: click.Context, name: str) -> None:
 @click.pass_context
 def config_set_scenario(ctx: click.Context, scenario_id: str) -> None:
     """Set scenario ID."""
-    from armactl.config_manager import ConfigError, set_value
+    from armactl.config_manager import ConfigError
+    from armactl.server_config_schema import (
+        ServerConfigSchemaError,
+        save_registered_config_value,
+    )
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -1184,9 +1184,9 @@ def config_set_scenario(ctx: click.Context, scenario_id: str) -> None:
         sys.exit(1)
 
     try:
-        set_value(state.config_path, "game", "scenarioId", scenario_id)
+        save_registered_config_value(state.config_path, "scenario_id", scenario_id)
         click.echo(f"[{instance}] Scenario ID set to '{scenario_id}'.")
-    except ConfigError as e:
+    except (ConfigError, ServerConfigSchemaError) as e:
         click.echo(f"[{instance}] {e}", err=True)
         sys.exit(1)
 
@@ -1196,7 +1196,11 @@ def config_set_scenario(ctx: click.Context, scenario_id: str) -> None:
 @click.pass_context
 def config_set_maxplayers(ctx: click.Context, count: int) -> None:
     """Set max players."""
-    from armactl.config_manager import ConfigError, set_value
+    from armactl.config_manager import ConfigError
+    from armactl.server_config_schema import (
+        ServerConfigSchemaError,
+        save_registered_config_value,
+    )
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -1206,9 +1210,9 @@ def config_set_maxplayers(ctx: click.Context, count: int) -> None:
         sys.exit(1)
 
     try:
-        set_value(state.config_path, "game", "maxPlayers", count)
+        save_registered_config_value(state.config_path, "max_players", count)
         click.echo(f"[{instance}] Max players set to {count}.")
-    except ConfigError as e:
+    except (ConfigError, ServerConfigSchemaError) as e:
         click.echo(f"[{instance}] {e}", err=True)
         sys.exit(1)
 
@@ -1218,7 +1222,11 @@ def config_set_maxplayers(ctx: click.Context, count: int) -> None:
 @click.pass_context
 def config_set_password_admin(ctx: click.Context, password: str) -> None:
     """Set admin password."""
-    from armactl.config_manager import ConfigError, set_value
+    from armactl.config_manager import ConfigError
+    from armactl.server_config_schema import (
+        ServerConfigSchemaError,
+        save_registered_config_value,
+    )
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -1228,9 +1236,9 @@ def config_set_password_admin(ctx: click.Context, password: str) -> None:
         sys.exit(1)
 
     try:
-        set_value(state.config_path, "game", "passwordAdmin", password)
+        save_registered_config_value(state.config_path, "password_admin", password)
         click.echo(f"[{instance}] Admin password updated.")
-    except ConfigError as e:
+    except (ConfigError, ServerConfigSchemaError) as e:
         click.echo(f"[{instance}] {e}", err=True)
         sys.exit(1)
 
@@ -1241,7 +1249,11 @@ def config_set_password_admin(ctx: click.Context, password: str) -> None:
 def config_set_rcon_password(ctx: click.Context, password: str) -> None:
     """Set RCON password."""
     # RCON password uses dedicated server password game properties
-    from armactl.config_manager import ConfigError, set_value
+    from armactl.config_manager import ConfigError
+    from armactl.server_config_schema import (
+        ServerConfigSchemaError,
+        save_registered_config_value,
+    )
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -1251,9 +1263,9 @@ def config_set_rcon_password(ctx: click.Context, password: str) -> None:
         sys.exit(1)
 
     try:
-        set_value(state.config_path, "rcon", "password", password)
+        save_registered_config_value(state.config_path, "rcon_password", password)
         click.echo(f"[{instance}] RCON password updated.")
-    except ConfigError as e:
+    except (ConfigError, ServerConfigSchemaError) as e:
         click.echo(f"[{instance}] {e}", err=True)
         sys.exit(1)
 
@@ -1320,48 +1332,52 @@ def config_validate(ctx: click.Context) -> None:
 # Service commands
 # ---------------------------------------------------------------------------
 
+
 @main.group()
 def service() -> None:
     """Manage systemd service."""
+
 
 @service.command("install")
 @click.pass_context
 def service_install(ctx: click.Context) -> None:
     """Generate and install systemd service."""
     from armactl.service_manager import generate_services
+
     instance = ctx.obj["instance"]
     click.echo(f"[{instance}] Installing services...")
     results = generate_services(instance=instance)
     for r in results:
         click.echo(f"  {'✓' if r.success else '✗'} {r.message}")
 
+
 @service.command("enable")
 @click.pass_context
 def service_enable_cmd(ctx: click.Context) -> None:
     """Enable systemd service."""
     from armactl.service_manager import enable_service
+
     instance = ctx.obj["instance"]
     service_name = (
-        f"armareforger@{instance}.service"
-        if instance != "default"
-        else paths.SERVICE_NAME
+        f"armareforger@{instance}.service" if instance != "default" else paths.SERVICE_NAME
     )
     result = enable_service(service_name)
     click.echo(f"[{instance}] {result.message}")
+
 
 @service.command("disable")
 @click.pass_context
 def service_disable_cmd(ctx: click.Context) -> None:
     """Disable systemd service."""
     from armactl.service_manager import disable_service
+
     instance = ctx.obj["instance"]
     service_name = (
-        f"armareforger@{instance}.service"
-        if instance != "default"
-        else paths.SERVICE_NAME
+        f"armareforger@{instance}.service" if instance != "default" else paths.SERVICE_NAME
     )
     result = disable_service(service_name)
     click.echo(f"[{instance}] {result.message}")
+
 
 @service.command("status")
 @click.pass_context
@@ -1369,13 +1385,16 @@ def service_status_cmd(ctx: click.Context) -> None:
     """Show detailed service status."""
     ctx.invoke(status)
 
+
 # ---------------------------------------------------------------------------
 # Timer commands
 # ---------------------------------------------------------------------------
 
+
 @main.group()
 def timer() -> None:
     """Manage systemd timer."""
+
 
 @timer.command("install")
 @click.pass_context
@@ -1383,39 +1402,41 @@ def timer_install(ctx: click.Context) -> None:
     """Generate and install systemd timer."""
     # Already done in generate_services, but we expose it or just invoke the same
     from armactl.service_manager import generate_services
+
     instance = ctx.obj["instance"]
     click.echo(f"[{instance}] Installing timer (and service files)...")
     results = generate_services(instance=instance)
     for r in results:
         click.echo(f"  {'✓' if r.success else '✗'} {r.message}")
 
+
 @timer.command("enable")
 @click.pass_context
 def timer_enable_cmd(ctx: click.Context) -> None:
     """Enable systemd timer."""
     from armactl.service_manager import enable_service
+
     instance = ctx.obj["instance"]
     timer_name = (
-        f"armareforger-restart@{instance}.timer"
-        if instance != "default"
-        else paths.TIMER_NAME
+        f"armareforger-restart@{instance}.timer" if instance != "default" else paths.TIMER_NAME
     )
     result = enable_service(timer_name)
     click.echo(f"[{instance}] {result.message}")
+
 
 @timer.command("disable")
 @click.pass_context
 def timer_disable_cmd(ctx: click.Context) -> None:
     """Disable systemd timer."""
     from armactl.service_manager import disable_service
+
     instance = ctx.obj["instance"]
     timer_name = (
-        f"armareforger-restart@{instance}.timer"
-        if instance != "default"
-        else paths.TIMER_NAME
+        f"armareforger-restart@{instance}.timer" if instance != "default" else paths.TIMER_NAME
     )
     result = disable_service(timer_name)
     click.echo(f"[{instance}] {result.message}")
+
 
 # ---------------------------------------------------------------------------
 # Mods commands
@@ -1444,6 +1465,7 @@ def schedule_show(ctx: click.Context) -> None:
     schedule = status.get("schedule") or "Unknown"
     click.echo(f"[{instance}] Schedule: {schedule}")
 
+
 @schedule.command("set")
 @click.argument("cron_expr")
 @click.pass_context
@@ -1468,11 +1490,13 @@ def schedule_set(ctx: click.Context, cron_expr: str) -> None:
         if "timer" in r.message.lower() or "daemon" in r.message.lower():
             click.echo(f"  {'✓' if r.success else '✗'} {r.message}")
 
+
 @schedule.command("enable")
 @click.pass_context
 def schedule_enable(ctx: click.Context) -> None:
     """Enable scheduled restarts."""
     ctx.invoke(timer_enable_cmd)
+
 
 @schedule.command("disable")
 @click.pass_context
@@ -1480,11 +1504,13 @@ def schedule_disable(ctx: click.Context) -> None:
     """Disable scheduled restarts."""
     ctx.invoke(timer_disable_cmd)
 
+
 @schedule.command("restart-now")
 @click.pass_context
 def schedule_restart_now(ctx: click.Context) -> None:
     """Trigger immediate restart via timer service."""
     from armactl.service_manager import start_service
+
     instance = ctx.obj["instance"]
     restart_service_name = (
         f"armareforger-restart@{instance}.service"

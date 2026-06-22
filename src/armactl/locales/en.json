@@ -572,7 +572,6 @@
     "Disable mod": "Disable mod",
     "Enable mod": "Enable mod",
     "Remove mod": "Remove mod",
-    "Save config": "Save config",
     "Update schedule": "Update schedule",
     "Build status": "Build status",
     "Update actions": "Update actions",
@@ -586,7 +585,6 @@
     "Check for updates": "Check for updates",
     "Checking for updates": "Checking for updates",
     "Update": "Update",
-    "Update server": "Update server",
     "Server update": "Server update",
     "Server update permission is required.": "Server update permission is required.",
     "Run a build check before updating.": "Run a build check before updating.",
@@ -615,6 +613,9 @@
     "Update complete": "Update complete",
     "Queued update": "Queued update",
     "Update job queued.": "Update job queued.",
-    "Stop the game server before updating.": "Stop the game server before updating."
+    "Stop the game server before updating.": "Stop the game server before updating.",
+    "Suggested files below come from saved mod packs and docs/examples. Selecting one fills the path field.": "Suggested files below come from saved mod packs and docs/examples. Selecting one fills the path field.",
+    "armactl checks {modpacks_dir} for saved mod packs and {examples_dir} for example JSON configs.": "armactl checks {modpacks_dir} for saved mod packs and {examples_dir} for example JSON configs.",
+    "Example config": "Example config"
   }
 }

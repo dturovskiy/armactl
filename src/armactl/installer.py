@@ -16,7 +16,7 @@ from collections import deque
 from collections.abc import Iterator
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from armactl import paths
 from armactl.bot_config import ensure_bot_config
@@ -31,6 +31,10 @@ from armactl.integrity import (
     write_package_manifest,
 )
 from armactl.redaction import redact_sensitive_text, safe_subprocess_error
+from armactl.server_config_schema import (
+    DEFAULT_CONFIG_TEMPLATE_NAME,
+    generated_default_template_context,
+)
 from armactl.service_manager import (
     enable_service,
     generate_services,
@@ -156,9 +160,7 @@ def install_steamcmd() -> None:
         return
 
     if not shutil.which("apt-get"):
-        raise InstallError(
-            _("apt-get not found. steamcmd must be installed manually on this OS.")
-        )
+        raise InstallError(_("apt-get not found. steamcmd must be installed manually on this OS."))
 
     env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
 
@@ -205,9 +207,7 @@ def install_steamcmd() -> None:
 
     if not steamcmd_bin:
         raise InstallError(
-            _(
-                "steamcmd installation seemed to succeed, but binary still not found in PATH."
-            )
+            _("steamcmd installation seemed to succeed, but binary still not found in PATH.")
         )
 
 
@@ -393,10 +393,7 @@ def stream_server_update(
 
             delay_seconds = _steamcmd_retry_delay(attempt, retry_delays)
             if delay_seconds > 0:
-                yield (
-                    "SteamCMD download failed; "
-                    f"retrying in {delay_seconds:.0f}s..."
-                )
+                yield (f"SteamCMD download failed; retrying in {delay_seconds:.0f}s...")
                 time.sleep(delay_seconds)
             else:
                 yield "SteamCMD download failed; retrying..."
@@ -412,32 +409,63 @@ def record_package_manifest(instance: str) -> None:
         ) from e
 
 
-def generate_default_config(instance: str) -> None:
-    """Generate default config.json using Jinja2 template."""
-    config_path = paths.config_file(instance)
-    if config_path.exists():
-        return
+def _templates_dir() -> Path:
+    return Path(__file__).parent.parent.parent / "templates"
 
-    project_root = Path(__file__).parent.parent.parent
-    templates_dir = project_root / "templates"
 
-    if not templates_dir.exists():
-        raise InstallError(tr("Templates directory missing at {path}", path=templates_dir))
+def render_default_config(
+    *,
+    rcon_password: str,
+    password_admin: str,
+    templates_dir: Path | None = None,
+) -> str:
+    """Render the install/repair default config from the shared registry."""
+    resolved_templates_dir = templates_dir or _templates_dir()
+    if not resolved_templates_dir.exists():
+        raise InstallError(tr("Templates directory missing at {path}", path=resolved_templates_dir))
 
-    env = Environment(loader=FileSystemLoader(str(templates_dir)))
-    try:
-        template = env.get_template("config.json.j2")
-        config_render = template.render(
-            rcon_password=secrets.token_urlsafe(8),
-            password_admin=secrets.token_urlsafe(8),
+    env = Environment(
+        loader=FileSystemLoader(str(resolved_templates_dir)),
+        undefined=StrictUndefined,
+    )
+    template = env.get_template(DEFAULT_CONFIG_TEMPLATE_NAME)
+    return template.render(
+        generated_default_template_context(
+            rcon_password=rcon_password,
+            password_admin=password_admin,
         )
+    )
 
+
+def write_default_config(
+    config_path: Path | str,
+    *,
+    rcon_password: str | None = None,
+    password_admin: str | None = None,
+) -> None:
+    """Write a generated default config.json to the requested path."""
+    config_path = Path(config_path)
+    try:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_render = render_default_config(
+            rcon_password=rcon_password or secrets.token_urlsafe(8),
+            password_admin=password_admin or secrets.token_urlsafe(8),
+        )
         with open(config_path, "w", encoding="utf-8") as f:
             f.write(config_render)
     except Exception as e:
         raise InstallError(
             tr("Failed to generate default config: {error}", error=redact_sensitive_text(e))
         ) from e
+
+
+def generate_default_config(instance: str) -> None:
+    """Generate default config.json using the shared registry and Jinja template."""
+    config_path = paths.config_file(instance)
+    if config_path.exists():
+        return
+
+    write_default_config(config_path)
 
 
 def smoke_check(instance: str) -> None:
@@ -509,9 +537,7 @@ def run_install(instance: str) -> Iterator[str]:
 
     yield _("Setting permissions and starting the server...")
     service_name = (
-        f"armareforger@{instance}.service"
-        if instance != "default"
-        else paths.SERVICE_NAME
+        f"armareforger@{instance}.service" if instance != "default" else paths.SERVICE_NAME
     )
     enable_service(service_name)
     restart_service(service_name)  # Ensure clean start.

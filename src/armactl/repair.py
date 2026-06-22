@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-import secrets
 from collections.abc import Iterator
 from pathlib import Path
-
-from jinja2 import Environment, FileSystemLoader
 
 from armactl import paths
 from armactl.admins_manager import migrate_legacy_admins
 from armactl.config_manager import ConfigError, validate_config
 from armactl.discovery import discover_manual
 from armactl.i18n import _, tr
-from armactl.installer import InstallError, stream_server_update
+from armactl.installer import InstallError, stream_server_update, write_default_config
 from armactl.integrity import (
     IntegrityError,
     PackageIntegrity,
@@ -124,18 +121,10 @@ def run_repair(
     yield tr("[{instance}] Step 3: Checking configuration...", instance=instance)
     if not config_path.exists():
         yield _("  ! Config missing! Regenerating default config...")
-        project_root = Path(__file__).resolve().parent.parent.parent
-        templates_dir = project_root / "templates"
-
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        env = Environment(loader=FileSystemLoader(str(templates_dir)))
-        template = env.get_template("config.json.j2")
-        config_render = template.render(
-            rcon_password=secrets.token_urlsafe(8),
-            password_admin=secrets.token_urlsafe(8),
-        )
-        with open(config_path, "w", encoding="utf-8") as f:
-            f.write(config_render)
+        try:
+            write_default_config(config_path)
+        except InstallError as e:
+            raise RepairError(str(e)) from e
         yield _("  OK Default config generated")
     else:
         yield _("  OK Config exists (skipping overwrite)")
@@ -171,10 +160,7 @@ def run_repair(
         for error in config_errors:
             yield tr("  ! Config validation: {error}", error=error)
         raise RepairError(
-            _(
-                "Configuration validation failed. Fix config.json before "
-                "starting the server."
-            )
+            _("Configuration validation failed. Fix config.json before starting the server.")
         )
     yield _("  OK Config validation passed")
 

@@ -1108,7 +1108,7 @@
     "Scenario ID": "ID сценарію",
     "Server max view distance": "Максимальна дальність огляду сервера",
     "Server min grass distance": "Мінімальна дальність трави сервера",
-    "Save config": "Зберегти конфіг",
+    "Save config": "Збереження конфігу",
     "Server config path is unavailable.": "Шлях до конфігу сервера недоступний.",
     "Config file was not found.": "Файл конфігу не знайдено.",
     "Config root must be an object.": "Корінь конфігу має бути об’єктом.",
@@ -1148,7 +1148,7 @@
     "Server management": "Керування сервером",
     "Other jobs": "Інші завдання",
     "Update check": "Перевірка оновлень",
-    "Update server": "Оновлення сервера",
+    "Update server": "Оновити сервер",
     "Install server": "Встановлення сервера",
     "Repair server": "Відновлення сервера",
     "Job details": "Деталі завдання",
@@ -1159,7 +1159,6 @@
     "Disable mod": "Вимкнення моду",
     "Enable mod": "Увімкнення моду",
     "Remove mod": "Видалення моду",
-    "Save config": "Збереження конфігу",
     "Update schedule": "Оновлення розкладу",
     "Build status": "Стан build",
     "Update actions": "Дії оновлення",
@@ -1173,7 +1172,6 @@
     "Check for updates": "Перевірити оновлення",
     "Checking for updates": "Перевірка оновлень",
     "Update": "Оновити",
-    "Update server": "Оновити сервер",
     "Server update": "Оновлення сервера",
     "Server update permission is required.": "Потрібен дозвіл на оновлення сервера.",
     "Run a build check before updating.": "Запустіть перевірку build перед оновленням.",
@@ -1200,6 +1198,9 @@
     "Update complete": "Оновлення завершено",
     "Queued update": "Оновлення в черзі",
     "Update job queued.": "Завдання оновлення поставлено в чергу.",
-    "Stop the game server before updating.": "Зупиніть ігровий сервер перед оновленням."
+    "Stop the game server before updating.": "Зупиніть ігровий сервер перед оновленням.",
+    "Suggested files below come from saved mod packs and docs/examples. Selecting one fills the path field.": "Файли нижче взято зі збережених mod pack-ів і docs/examples. Вибір заповнить поле шляху.",
+    "armactl checks {modpacks_dir} for saved mod packs and {examples_dir} for example JSON configs.": "armactl перевіряє {modpacks_dir} для збережених mod pack-ів і {examples_dir} для прикладів JSON-конфігів.",
+    "Example config": "Приклад конфігу"
   }
 }

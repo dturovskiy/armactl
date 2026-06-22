@@ -1,5 +1,6 @@
 """Tests for repair orchestration."""
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ from armactl.integrity import (
     write_package_manifest,
 )
 from armactl.repair import RepairError, run_repair
+from armactl.server_config_schema import generated_default_config_values
 from armactl.state import ServerState
 
 
@@ -62,6 +64,11 @@ def test_run_repair_defaults_empty_paths_and_refreshes_package_manifest(
         instance="default",
     )
     assert config_path.is_file()
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    assert payload == generated_default_config_values(
+        rcon_password=payload["rcon"]["password"],
+        password_admin=payload["game"]["passwordAdmin"],
+    )
     assert check_package_integrity(server_dir).complete is True
     assert i18n._("  OK Package integrity manifest refreshed") in messages
 

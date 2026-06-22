@@ -170,9 +170,11 @@ def test_add_mods_detailed_handles_bulk_paste_without_repeated_saves(tmp_path: P
     assert load_disabled_mods(config_path) == []
 
 
-def test_template_config_roundtrip_large_mod_pack(tmp_path: Path):
-    """The sample template config should round-trip as a large mod pack."""
-    template_path = Path(__file__).resolve().parents[1] / "templates" / "config.json"
+def test_full_example_config_roundtrip_large_mod_pack(tmp_path: Path):
+    """The sample config example should round-trip as a large mod pack."""
+    template_path = (
+        Path(__file__).resolve().parents[1] / "docs" / "examples" / "config.full-example.json"
+    )
     template_payload = json.loads(template_path.read_text(encoding="utf-8"))
     template_mods = template_payload["game"]["mods"]
     target_config = tmp_path / "target" / "config.json"
