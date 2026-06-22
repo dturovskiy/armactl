@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Form, Request, status
+from fastapi import APIRouter, Request, status
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 from armactl import paths
@@ -77,38 +77,23 @@ def config_page(request: Request) -> Response:
 
 
 @router.post("/config", response_class=HTMLResponse)
-def save_config_page(
-    request: Request,
-    csrf_token: str = Form(default=""),
-    name: str = Form(default=""),
-    scenario_id: str = Form(default=""),
-    max_players: str = Form(default=""),
-    visible: str | None = Form(default=None),
-    battleye: str | None = Form(default=None),
-    server_max_view_distance: str = Form(default=""),
-    server_min_grass_distance: str = Form(default=""),
-) -> Response:
+async def save_config_page(request: Request) -> Response:
     """Save allowlisted basic config fields without restarting the server."""
     current = get_current_session(request)
     if current is None:
         return redirect_to_login(request)
     if not require_permission(current, SETTINGS_MANAGE):
         return permission_denied_response()
+
+    submitted_form = await request.form()
+    csrf_token = str(submitted_form.get("csrf_token") or "")
     if not validate_csrf_token(current.config.db_path, current.session.id, csrf_token):
         return PlainTextResponse(
             "Invalid CSRF token.",
             status_code=status.HTTP_403_FORBIDDEN,
         )
 
-    form = {
-        "name": name,
-        "scenario_id": scenario_id,
-        "max_players": max_players,
-        "visible": visible,
-        "battleye": battleye,
-        "server_max_view_distance": server_max_view_distance,
-        "server_min_grass_distance": server_min_grass_distance,
-    }
+    form = config_edit.extract_config_edit_form(submitted_form)
     try:
         result = config_edit.save_default_config_and_audit(
             paths.DEFAULT_INSTANCE_NAME,

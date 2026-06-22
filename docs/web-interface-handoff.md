@@ -542,9 +542,10 @@ Implemented polish and future work:
 - Windows backend support is future architecture, not MVP. Keep current web
   work Linux/systemd-first until service/log/path/firewall/process/metrics and
   install/update adapter implementations are designed and tested.
-- Config editor expansion should start with a verified `config.json` schema
-  inventory, UI grouping, and safe/dangerous/secret/runtime field decisions.
-  Future third-person and crossplay/platform controls belong in structured
+- Config editor expansion now has a descriptor-backed allowlist foundation for
+  the existing seven web-safe fields. Further expansion still needs verified
+  `config.json` schema details, UI grouping, and safe/dangerous/secret/runtime
+  field decisions. Future third-person and crossplay/platform controls belong in structured
   `/config` safe UI only after exact Arma Reforger keys, value shapes, restart
   behavior, and backend validation are verified; do not add them through
   `/files`. Booleans should be toggles/checkboxes, platform lists checkbox
@@ -638,14 +639,17 @@ Next recommended implementation order:
    current web-safe set remains `game.name`, `game.scenarioId`,
    `game.maxPlayers`, `game.visible`, `game.gameProperties.battlEye`,
    `game.gameProperties.serverMaxViewDistance`, and
-   `game.gameProperties.serverMinGrassDistance` under `settings:manage`.
+   `game.gameProperties.serverMinGrassDistance` under `settings:manage`, now
+   backed by `CONFIG_FIELD_DESCRIPTORS` for parser/validation, risk,
+   permission, redaction, audit naming, restart behavior, and UI metadata.
    TUI-only ports and secrets such as `bindPort`/`publicPort`, `a2s.port`,
    `rcon.port`, `game.password`, `game.passwordAdmin`, and `rcon.password` need
    future advanced/security policy before any web mutation.
 9. Add new safe config controls only after key/value/default/restart behavior is
    verified from official docs or real config samples and added to the inventory.
-   `game.gameProperties.disableThirdPerson` is locally template-confirmed but
-   still needs upstream/default/restart verification. Crossplay/platform keys
+   `game.gameProperties.disableThirdPerson` is locally template-confirmed, but
+   local defaults differ (`false` sample, `true` Jinja), and it still needs
+   upstream semantics/default/restart verification. Crossplay/platform keys
    are not locally confirmed; do not invent them. Safe controls belong in
    `/config`, not `/files`; raw JSON remains owner/mega break-glass, not a
    normal editor.

@@ -97,15 +97,7 @@
 </section>
 
 {% if page.available and can_edit_config %}
-{% set edit = page.edit if page.edit is defined else {} %}
-{% set config = page.config if page.config is defined else {} %}
-{% set edit_name = edit.name if edit.name is defined else config.server_name or "" %}
-{% set edit_scenario = edit.scenario_id if edit.scenario_id is defined else config.scenario_id or "" %}
-{% set edit_max_players = edit.max_players if edit.max_players is defined else config.max_players or "" %}
-{% set edit_visible = edit.visible if edit.visible is defined else config.visible_text == "yes" %}
-{% set edit_battleye = edit.battleye if edit.battleye is defined else config.battleye_text == "yes" %}
-{% set edit_max_view = edit.server_max_view_distance if edit.server_max_view_distance is defined else "" %}
-{% set edit_min_grass = edit.server_min_grass_distance if edit.server_min_grass_distance is defined else "" %}
+{% set edit_fields = page.edit_fields if page.edit_fields is defined else [] %}
 <section class="panel full-width config-edit-panel">
   <div class="section-heading-row">
     <h2>{{ t("Basic server settings") }}</h2>
@@ -114,36 +106,24 @@
   <form method="post" action="/config" class="config-edit-form" data-config-edit-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="form-grid">
-      <label class="field-wide">
-        <span>{{ t("Server name") }}</span>
-        <input type="text" name="name" value="{{ edit_name }}" required maxlength="512">
+      {% for field in edit_fields %}
+      {% if field.ui.group == "form_grid" %}
+      <label{% if field.ui.css_class %} class="{{ field.ui.css_class }}"{% endif %}>
+        <span>{{ t(field.ui.label) }}</span>
+        <input type="{{ field.ui.control }}" name="{{ field.name }}" value="{{ field.value }}"{% if field.ui.min_value is not none %} min="{{ field.ui.min_value }}"{% endif %}{% if field.ui.step is not none %} step="{{ field.ui.step }}"{% endif %}{% if field.ui.required %} required{% endif %}{% if field.ui.max_length is not none %} maxlength="{{ field.ui.max_length }}"{% endif %}>
       </label>
-      <label class="field-wide">
-        <span>{{ t("Scenario ID") }}</span>
-        <input type="text" name="scenario_id" value="{{ edit_scenario }}" required maxlength="512">
-      </label>
-      <label>
-        <span>{{ t("Max players") }}</span>
-        <input type="number" name="max_players" value="{{ edit_max_players }}" min="1" step="1" required>
-      </label>
-      <label>
-        <span>{{ t("Server max view distance") }}</span>
-        <input type="number" name="server_max_view_distance" value="{{ edit_max_view }}" min="1" step="1" required>
-      </label>
-      <label>
-        <span>{{ t("Server min grass distance") }}</span>
-        <input type="number" name="server_min_grass_distance" value="{{ edit_min_grass }}" min="0" step="1" required>
-      </label>
+      {% endif %}
+      {% endfor %}
     </div>
     <div class="checkbox-grid">
+      {% for field in edit_fields %}
+      {% if field.ui.group == "checkbox_grid" %}
       <label class="inline-confirm">
-        <input type="checkbox" name="visible" value="true"{% if edit_visible %} checked{% endif %}>
-        {{ t("Visible") }}
+        <input type="checkbox" name="{{ field.name }}" value="true"{% if field.value %} checked{% endif %}>
+        {{ t(field.ui.label) }}
       </label>
-      <label class="inline-confirm">
-        <input type="checkbox" name="battleye" value="true"{% if edit_battleye %} checked{% endif %}>
-        {{ t("BattlEye") }}
-      </label>
+      {% endif %}
+      {% endfor %}
     </div>
     <div class="form-actions">
       <button type="submit">{{ t("Save config") }}</button>

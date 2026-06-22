@@ -315,7 +315,8 @@ that the whole web panel is still only planned.
 - [x] Complete config schema inventory for `config.json`: current web/TUI/template/read-only sources, validation, restart/runtime unknowns, risk class, permission, UI control type, and next-slice plan; result: `docs/config-schema-inventory.md`
 - [x] Classify TUI-only advanced fields before web edit: `bindPort`/`publicPort`, `a2s.port`, `rcon.port`, `game.password`, `game.passwordAdmin`, `rcon.password`; ports and RCON/A2S need future `settings:advanced`; passwords/secrets stay masked and need stronger future secret policy
 - [x] Mark local third-person/crossplay/platform candidates: `game.gameProperties.disableThirdPerson` is template-confirmed but needs upstream/default/restart verification; crossplay/platform keys are not locally confirmed and must not be invented
-- [ ] Next safe config toggles slice: verify candidate keys/value shapes/defaults/restart behavior against official docs or real config samples, add descriptor-backed allowlist/tests, keep secrets/raw JSON out of normal UI, and keep `/files` out of config editing
+- [x] First safe config toggles foundation slice: moved the existing seven web-safe `/config` fields to a descriptor-backed allowlist with parser/validation, risk, permission, redaction, audit, restart/pending-work, UI metadata, and focused tests; no new toggles added
+- [ ] Next safe config toggle expansion: verify candidate keys/value shapes/defaults/restart behavior against official docs or real config samples before adding controls; keep secrets/raw JSON out of normal UI, keep `/files` out of config editing, and keep crossplay/platform blocked until real keys are confirmed
 - [x] Зафіксувати, що normal `config.json` editing живе у `/config`, не у `/files`; secrets/RCON/admin sensitive fields не показувати casually
 - [x] Додати `armactl-web.service` template і service commands
 - [x] Додати login rate limiting / auth abuse throttling для web login

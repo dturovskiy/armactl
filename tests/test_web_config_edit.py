@@ -66,6 +66,9 @@ def _sample_config() -> dict[str, Any]:
                 "serverMaxViewDistance": 1600,
                 "serverMinGrassDistance": 30,
                 "networkViewDistance": 1200,
+                "disableThirdPerson": True,
+                "fastValidation": True,
+                "VONCanTransmitCrossFaction": False,
                 "battlEye": False,
             },
             "mods": [{"modId": "1234567890ABCDEF", "name": "Keep Mod"}],
@@ -152,6 +155,48 @@ def _unchanged_post_data(csrf_token: str) -> dict[str, str]:
     }
 
 
+def test_config_edit_descriptor_registry_covers_current_safe_fields_only():
+    from armactl.web.auth.permissions import SETTINGS_MANAGE
+    from armactl.web.services import config_edit
+
+    descriptors = config_edit.editable_config_field_descriptors()
+
+    assert tuple(descriptor.form_name for descriptor in descriptors) == (
+        "name",
+        "scenario_id",
+        "max_players",
+        "visible",
+        "battleye",
+        "server_max_view_distance",
+        "server_min_grass_distance",
+    )
+    assert tuple(descriptor.form_name for descriptor in descriptors) == (
+        config_edit.ALLOWLISTED_CONFIG_FORM_FIELDS
+    )
+    assert tuple(".".join(descriptor.config_path) for descriptor in descriptors) == (
+        "game.name",
+        "game.scenarioId",
+        "game.maxPlayers",
+        "game.visible",
+        "game.gameProperties.battlEye",
+        "game.gameProperties.serverMaxViewDistance",
+        "game.gameProperties.serverMinGrassDistance",
+    )
+    assert {
+        descriptor.permission for descriptor in descriptors
+    } == {SETTINGS_MANAGE}
+    assert {descriptor.risk_class for descriptor in descriptors} == {"safe"}
+    assert {descriptor.secret_behavior for descriptor in descriptors} == {"not-secret"}
+    assert {descriptor.restart_behavior for descriptor in descriptors} == {
+        "changed-values-mark-restart-pending"
+    }
+    assert all(descriptor.audit_field_name == descriptor.form_name for descriptor in descriptors)
+    assert not any(
+        descriptor.config_path == ("game", "gameProperties", "disableThirdPerson")
+        for descriptor in descriptors
+    )
+
+
 def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
     config_path = _write_config(tmp_path)
     client = _authed_client(tmp_path, monkeypatch, config_path)
@@ -198,6 +243,9 @@ def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
     assert "bind_port" not in editable_names
     assert "rcon_port" not in editable_names
     assert "password" not in editable_names
+    assert "disable_third_person" not in editable_names
+    assert "disableThirdPerson" not in response.text
+    assert "Disable third person" not in response.text
 
 
 def test_config_page_groups_summary_and_escapes_long_values(tmp_path: Path, monkeypatch):
@@ -308,6 +356,9 @@ def test_config_edit_updates_allowlisted_fields_creates_backup_and_preserves_res
     assert updated["game"]["admins"] == original_config["game"]["admins"]
     assert updated["game"]["mods"] == original_config["game"]["mods"]
     assert updated["game"]["gameProperties"]["networkViewDistance"] == 1200
+    assert updated["game"]["gameProperties"]["disableThirdPerson"] is True
+    assert updated["game"]["gameProperties"]["fastValidation"] is True
+    assert updated["game"]["gameProperties"]["VONCanTransmitCrossFaction"] is False
 
     saved_page = client.get("/config?saved=1", follow_redirects=False)
     assert saved_page.status_code == 200
@@ -345,6 +396,9 @@ def test_config_edit_updates_allowlisted_fields_creates_backup_and_preserves_res
         "server_min_grass_distance",
     ]
     assert event["details"]["backup_path"] == str(backups[0])
+    assert "password" not in event["details"]["changed_fields"]
+    assert "disable_third_person" not in event["details"]["changed_fields"]
+    assert "fast_validation" not in event["details"]["changed_fields"]
     audit_text = _audit_log_text(tmp_path)
     for secret in ("admin-password-secret", "raw-rcon-secret"):
         assert secret not in audit_text
@@ -390,6 +444,7 @@ def test_config_edit_noop_save_does_not_backup_or_request_restart(
         ({"scenario_id": ""}, "game.scenarioId is required."),
         ({"max_players": "0"}, "game.maxPlayers must be a positive integer."),
         ({"max_players": "12.5"}, "game.maxPlayers must be a positive integer."),
+        ({"visible": "maybe"}, "Boolean field value is invalid."),
         (
             {"server_max_view_distance": "0"},
             "game.gameProperties.serverMaxViewDistance must be a positive integer.",

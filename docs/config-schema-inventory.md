@@ -2,8 +2,10 @@
 
 Date: 2026-06-22
 
-Scope: inventory only. This slice does not add third-person, crossplay,
-platform, secret, advanced, raw JSON, or file-manager config editing.
+Scope: inventory plus first descriptor-backed web config editing foundation.
+This slice refactors the existing seven web-safe fields into an allowlist
+registry. It does not add third-person, crossplay, platform, secret, advanced,
+raw JSON, or file-manager config editing.
 
 Sources checked:
 
@@ -27,6 +29,13 @@ Current conclusions:
   `game.gameProperties.battlEye`,
   `game.gameProperties.serverMaxViewDistance`, and
   `game.gameProperties.serverMinGrassDistance`.
+- Those seven fields are now backed by `CONFIG_FIELD_DESCRIPTORS` in
+  `src/armactl/web/services/config_edit.py`. Each descriptor records the form
+  field name, config path, parser/validator, risk class, permission,
+  secret/redaction behavior, audit changed-field name, restart/pending-work
+  behavior, and UI control metadata. The route keeps permission and CSRF checks;
+  the service layer still owns validation, save, audit, backup, and changed-only
+  pending restart behavior.
 - Structured TUI config editing also edits network ports and passwords:
   `bindPort`, `publicPort`, `a2s.port`, `rcon.port`, `game.password`,
   `game.passwordAdmin`, and `rcon.password`.
@@ -40,8 +49,10 @@ Current conclusions:
 - No local code, template, or test confirms a crossplay/platform config key.
   Do not invent one.
 - `game.gameProperties.disableThirdPerson` is locally confirmed in both config
-  templates as a boolean, but exact upstream semantics, defaults, and restart
-  behavior still need verification before a web control is added.
+  templates as a boolean, but the local template defaults differ (`false` in
+  `templates/config.json`, `true` in `templates/config.json.j2`) and exact
+  upstream semantics plus restart behavior still need verification before a web
+  control is added.
 
 ## Field Inventory
 
@@ -60,19 +71,19 @@ Current conclusions:
 | `rcon.blacklist[]` | sample template only; TUI raw | list | no current validation | unknown | dangerous | future policy | no normal UI | Present in `templates/config.json`, absent from Jinja template. |
 | `rcon.whitelist[]` | sample template only; TUI raw | list | no current validation | unknown | dangerous | future policy | no normal UI | Present in `templates/config.json`, absent from Jinja template. |
 | `rcon.maxClients` | Jinja template only; TUI raw | integer | no current validation | unknown | advanced | future `settings:advanced` | number / no normal UI | Present in `templates/config.json.j2`, absent from sample template. |
-| `game.name` | web edit; TUI structured; template | string | web: required, <=512 chars, no control chars; `config_manager`: required string | yes; web marks pending restart | safe | `settings:manage` | text | Current web-safe field. |
+| `game.name` | web descriptor edit; TUI structured; template | string | web: required, <=512 chars, no control chars; `config_manager`: required string | yes; web marks pending restart | safe | `settings:manage` | text | Current web-safe field. |
 | `game.password` | TUI structured password field; template | string | no current validation | unknown | secret | future secret policy; not `settings:manage` | password-masked / no normal UI | Do not expose casually in web UI. |
 | `game.passwordAdmin` | TUI structured password field; template | string | no current validation | unknown | secret | future secret policy; not `settings:manage` | password-masked / no normal UI | TUI-only advanced secret today. |
 | `game.admins[]` | web admins flow; `admins_manager`; template | list of strings | `config_manager`/`admins_manager`: list, <=20 unique non-empty IdentityId or SteamID strings | yes; web marks pending restart | dangerous | `admins:manage` | no normal config UI | Dedicated admins page, not `/config` safe toggles. |
-| `game.scenarioId` | web edit; TUI structured; template | string | web: required, <=512 chars, no control chars; `config_manager`: required string | yes; web marks pending restart | safe | `settings:manage` | text | Current web-safe field. |
-| `game.maxPlayers` | web edit; TUI structured; template | integer | web: integer >=1; `config_manager`: positive integer | yes; web marks pending restart | safe | `settings:manage` | number | Current web-safe field. |
-| `game.visible` | web edit; template | boolean | web: checkbox boolean; no `config_manager` bool validation | yes; web marks pending restart | safe | `settings:manage` | checkbox | Current web-safe field. |
-| `game.gameProperties.serverMaxViewDistance` | web edit; template | integer | web: integer >=1; no `config_manager` field validation | yes; web marks pending restart | safe | `settings:manage` | number | Current web-safe field. |
-| `game.gameProperties.serverMinGrassDistance` | web edit; template | integer | web: integer >=0; no `config_manager` field validation | yes; web marks pending restart | safe | `settings:manage` | number | Current web-safe field. |
+| `game.scenarioId` | web descriptor edit; TUI structured; template | string | web: required, <=512 chars, no control chars; `config_manager`: required string | yes; web marks pending restart | safe | `settings:manage` | text | Current web-safe field. |
+| `game.maxPlayers` | web descriptor edit; TUI structured; template | integer | web: integer >=1; `config_manager`: positive integer | yes; web marks pending restart | safe | `settings:manage` | number | Current web-safe field. |
+| `game.visible` | web descriptor edit; template | boolean | web: checkbox boolean; no `config_manager` bool validation | yes; web marks pending restart | safe | `settings:manage` | checkbox | Current web-safe field. |
+| `game.gameProperties.serverMaxViewDistance` | web descriptor edit; template | integer | web: integer >=1; no `config_manager` field validation | yes; web marks pending restart | safe | `settings:manage` | number | Current web-safe field. |
+| `game.gameProperties.serverMinGrassDistance` | web descriptor edit; template | integer | web: integer >=0; no `config_manager` field validation | yes; web marks pending restart | safe | `settings:manage` | number | Current web-safe field. |
 | `game.gameProperties.networkViewDistance` | template only; TUI raw | integer | no current validation | unknown | advanced | future `settings:advanced` or verified safe policy | number | Non-secret numeric candidate, but bounds/defaults need verification. |
-| `game.gameProperties.disableThirdPerson` | template only; TUI raw | boolean | no current validation | unknown | advanced | future `settings:advanced` until verified safe | checkbox | Third-person candidate. Locally confirmed key; do not implement until semantics/defaults are verified. |
+| `game.gameProperties.disableThirdPerson` | template only; TUI raw | boolean | no current validation | unknown | advanced | future `settings:advanced` until verified safe | checkbox | Third-person candidate. Local templates disagree on default (`false` sample, `true` Jinja); do not implement until semantics/defaults/restart behavior are verified. |
 | `game.gameProperties.fastValidation` | template only; TUI raw | boolean | no current validation | unknown | advanced | future `settings:advanced` | checkbox | Non-secret boolean candidate; operational/security meaning needs verification. |
-| `game.gameProperties.battlEye` | web edit; web read-only summary; template | boolean | web: checkbox boolean; no `config_manager` bool validation | yes; web marks pending restart | safe | `settings:manage` | checkbox | Current web-safe field. |
+| `game.gameProperties.battlEye` | web descriptor edit; web read-only summary; template | boolean | web: checkbox boolean; no `config_manager` bool validation | yes; web marks pending restart | safe | `settings:manage` | checkbox | Current web-safe field. |
 | `game.gameProperties.VONDisableUI` | sample template only; TUI raw | boolean | no current validation | unknown | advanced | future `settings:advanced` | checkbox | Sample-only candidate; absent from Jinja template. |
 | `game.gameProperties.VONDisableDirectSpeechUI` | sample template only; TUI raw | boolean | no current validation | unknown | advanced | future `settings:advanced` | checkbox | Sample-only candidate; absent from Jinja template. |
 | `game.gameProperties.VONCanTransmitCrossFaction` | sample template only; TUI raw | boolean | no current validation | unknown | advanced | future `settings:advanced` | checkbox | Cross-faction voice candidate, not a confirmed platform crossplay key. |
@@ -83,28 +94,27 @@ Current conclusions:
 | `operating.lobbyPlayerSynchronise` | sample template only; TUI raw | boolean | no current validation | unknown | runtime | future policy | no normal UI | Present only in sample template; runtime behavior needs verification. |
 | unknown crossplay/platform field(s) | not locally confirmed | unknown | unknown | unknown | advanced | future `settings:advanced` after verification | no normal UI | No local key/value shape found in code, tests, or templates. Do not add UI until verified from official docs or real config samples. |
 
-## Next Safe-Toggles Implementation Slice
+## Implemented Foundation And Next Slice
 
-1. Keep `/config` as the only normal config editing surface; do not move config
-   editing into `/files`.
-2. Keep the current seven safe fields under `settings:manage`.
-3. Add a small field-descriptor registry for web config editing before adding
-   more controls. Each descriptor should include path, parser, validation,
-   permission, risk class, redaction/secrecy, audit field name, and restart
-   behavior.
-4. Verify candidate keys and value shapes before implementation. First review
-   official Arma Reforger docs or real deployed config samples for
+1. Implemented now: `/config` remains the only normal config editing surface;
+   `/files` is still not a config editor.
+2. Implemented now: the current seven safe fields stay under `settings:manage`
+   and are backed by a descriptor registry with parser/validation, risk,
+   permission, redaction, audit name, changed-only restart behavior, and UI
+   metadata.
+3. Implemented now: tests cover descriptor coverage, GET rendering, POST save,
+   invalid values, unchanged/changed pending restart behavior, preservation of
+   unrelated advanced/secret fields, safe audit changed-field names, and the
+   fact that `disableThirdPerson` is not rendered yet.
+4. Future: verify candidate keys and value shapes before implementation. First
+   review official Arma Reforger docs or real deployed config samples for
    `game.gameProperties.networkViewDistance`,
    `game.gameProperties.disableThirdPerson`,
    `game.gameProperties.fastValidation`, and the sample-only VON fields.
-5. Do not implement crossplay/platform controls until a real key and allowed
-   value shape are confirmed. No local source currently confirms them.
-6. Keep ports, RCON/A2S, bind/public addresses, and other network/security
-   fields behind future `settings:advanced`; keep passwords behind a stronger
-   future secret policy and out of normal rendered pages.
-7. Add focused tests for every new field: GET renders only allowed controls,
-   POST validates values, invalid values do not save or back up, unchanged
-   values do not mark pending restart, changed fields are audited without
-   secrets, and unrelated advanced/secret fields are preserved.
-8. Update this inventory and the web handoff docs in the same implementation
-   slice as any new safe toggle.
+5. Future: do not implement crossplay/platform controls until a real key and
+   allowed value shape are confirmed. No local source currently confirms them.
+6. Future: keep ports, RCON/A2S, bind/public addresses, and other
+   network/security fields behind future `settings:advanced`; keep passwords
+   behind a stronger future secret policy and out of normal rendered pages.
+7. Future: update this inventory and the web handoff docs in the same
+   implementation slice as any new safe toggle.

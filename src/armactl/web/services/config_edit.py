@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import shutil
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +12,7 @@ from typing import Any
 
 from armactl import config_manager, discovery, paths
 from armactl.redaction import redact_sensitive_text
+from armactl.web.auth.permissions import SETTINGS_MANAGE
 from armactl.web.services import pending_work
 from armactl.web.services.audit import AuditLogError, append_audit_event
 
@@ -51,34 +52,44 @@ class _PreparedConfigEdit:
     current_fingerprint: str = ""
 
 
+@dataclass(frozen=True)
+class ConfigFieldUi:
+    """UI metadata for an allowlisted config field."""
+
+    label: str
+    control: str
+    group: str
+    css_class: str = ""
+    required: bool = False
+    max_length: int | None = None
+    min_value: int | None = None
+    step: int | None = None
+
+
+@dataclass(frozen=True)
+class ConfigFieldDescriptor:
+    """Descriptor for one safe web-editable config field."""
+
+    form_name: str
+    config_path: tuple[str, ...]
+    parser: Callable[[Mapping[str, Any], ConfigFieldDescriptor], Any]
+    validation_message: str
+    risk_class: str
+    permission: str
+    secret_behavior: str
+    audit_field_name: str
+    restart_behavior: str
+    ui: ConfigFieldUi
+    minimum: int | None = None
+
+
 _STRING_LIMIT = 512
 CONFIG_SAVE_ACTION = "config.save"
-ALLOWLISTED_CONFIG_FORM_FIELDS = (
-    "name",
-    "scenario_id",
-    "max_players",
-    "visible",
-    "battleye",
-    "server_max_view_distance",
-    "server_min_grass_distance",
-)
-_FIELD_PATHS = {
-    "name": ("game", "name"),
-    "scenario_id": ("game", "scenarioId"),
-    "max_players": ("game", "maxPlayers"),
-    "visible": ("game", "visible"),
-    "battleye": ("game", "gameProperties", "battlEye"),
-    "server_max_view_distance": (
-        "game",
-        "gameProperties",
-        "serverMaxViewDistance",
-    ),
-    "server_min_grass_distance": (
-        "game",
-        "gameProperties",
-        "serverMinGrassDistance",
-    ),
-}
+RISK_SAFE = "safe"
+SECRET_BEHAVIOR_NOT_SECRET = "not-secret"
+RESTART_BEHAVIOR_CHANGED_ONLY = "changed-values-mark-restart-pending"
+UI_GROUP_FORM_GRID = "form_grid"
+UI_GROUP_CHECKBOX_GRID = "checkbox_grid"
 
 
 def _safe_text(value: Any) -> str:
@@ -126,6 +137,173 @@ def _bool_field(form: Mapping[str, Any], key: str) -> bool:
     raise ConfigEditError("Boolean field value is invalid.")
 
 
+def _parse_required_string(
+    form: Mapping[str, Any],
+    descriptor: ConfigFieldDescriptor,
+) -> str:
+    return _string_field(form, descriptor.form_name, descriptor.validation_message)
+
+
+def _parse_int(form: Mapping[str, Any], descriptor: ConfigFieldDescriptor) -> int:
+    if descriptor.minimum is None:
+        raise ConfigEditError(descriptor.validation_message)
+    return _int_field(
+        form,
+        descriptor.form_name,
+        descriptor.validation_message,
+        minimum=descriptor.minimum,
+    )
+
+
+def _parse_bool(form: Mapping[str, Any], descriptor: ConfigFieldDescriptor) -> bool:
+    return _bool_field(form, descriptor.form_name)
+
+
+CONFIG_FIELD_DESCRIPTORS = (
+    ConfigFieldDescriptor(
+        form_name="name",
+        config_path=("game", "name"),
+        parser=_parse_required_string,
+        validation_message="game.name is required.",
+        risk_class=RISK_SAFE,
+        permission=SETTINGS_MANAGE,
+        secret_behavior=SECRET_BEHAVIOR_NOT_SECRET,
+        audit_field_name="name",
+        restart_behavior=RESTART_BEHAVIOR_CHANGED_ONLY,
+        ui=ConfigFieldUi(
+            label="Server name",
+            control="text",
+            group=UI_GROUP_FORM_GRID,
+            css_class="field-wide",
+            required=True,
+            max_length=_STRING_LIMIT,
+        ),
+    ),
+    ConfigFieldDescriptor(
+        form_name="scenario_id",
+        config_path=("game", "scenarioId"),
+        parser=_parse_required_string,
+        validation_message="game.scenarioId is required.",
+        risk_class=RISK_SAFE,
+        permission=SETTINGS_MANAGE,
+        secret_behavior=SECRET_BEHAVIOR_NOT_SECRET,
+        audit_field_name="scenario_id",
+        restart_behavior=RESTART_BEHAVIOR_CHANGED_ONLY,
+        ui=ConfigFieldUi(
+            label="Scenario ID",
+            control="text",
+            group=UI_GROUP_FORM_GRID,
+            css_class="field-wide",
+            required=True,
+            max_length=_STRING_LIMIT,
+        ),
+    ),
+    ConfigFieldDescriptor(
+        form_name="max_players",
+        config_path=("game", "maxPlayers"),
+        parser=_parse_int,
+        validation_message="game.maxPlayers must be a positive integer.",
+        risk_class=RISK_SAFE,
+        permission=SETTINGS_MANAGE,
+        secret_behavior=SECRET_BEHAVIOR_NOT_SECRET,
+        audit_field_name="max_players",
+        restart_behavior=RESTART_BEHAVIOR_CHANGED_ONLY,
+        ui=ConfigFieldUi(
+            label="Max players",
+            control="number",
+            group=UI_GROUP_FORM_GRID,
+            required=True,
+            min_value=1,
+            step=1,
+        ),
+        minimum=1,
+    ),
+    ConfigFieldDescriptor(
+        form_name="visible",
+        config_path=("game", "visible"),
+        parser=_parse_bool,
+        validation_message="Boolean field value is invalid.",
+        risk_class=RISK_SAFE,
+        permission=SETTINGS_MANAGE,
+        secret_behavior=SECRET_BEHAVIOR_NOT_SECRET,
+        audit_field_name="visible",
+        restart_behavior=RESTART_BEHAVIOR_CHANGED_ONLY,
+        ui=ConfigFieldUi(
+            label="Visible",
+            control="checkbox",
+            group=UI_GROUP_CHECKBOX_GRID,
+        ),
+    ),
+    ConfigFieldDescriptor(
+        form_name="battleye",
+        config_path=("game", "gameProperties", "battlEye"),
+        parser=_parse_bool,
+        validation_message="Boolean field value is invalid.",
+        risk_class=RISK_SAFE,
+        permission=SETTINGS_MANAGE,
+        secret_behavior=SECRET_BEHAVIOR_NOT_SECRET,
+        audit_field_name="battleye",
+        restart_behavior=RESTART_BEHAVIOR_CHANGED_ONLY,
+        ui=ConfigFieldUi(
+            label="BattlEye",
+            control="checkbox",
+            group=UI_GROUP_CHECKBOX_GRID,
+        ),
+    ),
+    ConfigFieldDescriptor(
+        form_name="server_max_view_distance",
+        config_path=("game", "gameProperties", "serverMaxViewDistance"),
+        parser=_parse_int,
+        validation_message=(
+            "game.gameProperties.serverMaxViewDistance must be a positive integer."
+        ),
+        risk_class=RISK_SAFE,
+        permission=SETTINGS_MANAGE,
+        secret_behavior=SECRET_BEHAVIOR_NOT_SECRET,
+        audit_field_name="server_max_view_distance",
+        restart_behavior=RESTART_BEHAVIOR_CHANGED_ONLY,
+        ui=ConfigFieldUi(
+            label="Server max view distance",
+            control="number",
+            group=UI_GROUP_FORM_GRID,
+            required=True,
+            min_value=1,
+            step=1,
+        ),
+        minimum=1,
+    ),
+    ConfigFieldDescriptor(
+        form_name="server_min_grass_distance",
+        config_path=("game", "gameProperties", "serverMinGrassDistance"),
+        parser=_parse_int,
+        validation_message=(
+            "game.gameProperties.serverMinGrassDistance must be a non-negative integer."
+        ),
+        risk_class=RISK_SAFE,
+        permission=SETTINGS_MANAGE,
+        secret_behavior=SECRET_BEHAVIOR_NOT_SECRET,
+        audit_field_name="server_min_grass_distance",
+        restart_behavior=RESTART_BEHAVIOR_CHANGED_ONLY,
+        ui=ConfigFieldUi(
+            label="Server min grass distance",
+            control="number",
+            group=UI_GROUP_FORM_GRID,
+            required=True,
+            min_value=0,
+            step=1,
+        ),
+        minimum=0,
+    ),
+)
+ALLOWLISTED_CONFIG_FORM_FIELDS = tuple(
+    descriptor.form_name for descriptor in CONFIG_FIELD_DESCRIPTORS
+)
+_FIELD_PATHS = {
+    descriptor.audit_field_name: descriptor.config_path
+    for descriptor in CONFIG_FIELD_DESCRIPTORS
+}
+
+
 def _nested_value(data: Mapping[str, Any], path: tuple[str, ...]) -> Any:
     value: Any = data
     for key in path:
@@ -144,7 +322,11 @@ def _changed_fields(before: Mapping[str, Any], after: Mapping[str, Any]) -> tupl
 
 
 def _submitted_fields(form: Mapping[str, Any]) -> tuple[str, ...]:
-    return tuple(field for field in ALLOWLISTED_CONFIG_FORM_FIELDS if field in form)
+    return tuple(
+        descriptor.audit_field_name
+        for descriptor in CONFIG_FIELD_DESCRIPTORS
+        if descriptor.form_name in form
+    )
 
 
 def _config_restart_fingerprint(config: Mapping[str, Any]) -> str:
@@ -155,35 +337,75 @@ def _config_restart_fingerprint(config: Mapping[str, Any]) -> str:
     return pending_work.safe_state_fingerprint(payload)
 
 
+def editable_config_field_descriptors() -> tuple[ConfigFieldDescriptor, ...]:
+    """Return the current safe web config field registry."""
+    return CONFIG_FIELD_DESCRIPTORS
+
+
+def extract_config_edit_form(form: Mapping[str, Any]) -> dict[str, Any]:
+    """Return only allowlisted config edit form values keyed by descriptor name."""
+    return {
+        descriptor.form_name: form.get(descriptor.form_name)
+        for descriptor in CONFIG_FIELD_DESCRIPTORS
+    }
+
+
+def _form_value_for_descriptor(
+    config: Mapping[str, Any],
+    descriptor: ConfigFieldDescriptor,
+) -> Any:
+    value = _nested_value(config, descriptor.config_path)
+    if descriptor.ui.control == "checkbox":
+        return value if isinstance(value, bool) else False
+    if descriptor.ui.control == "number":
+        return value if isinstance(value, int) else ""
+    return _safe_text(value)
+
+
 def build_config_edit_form(config: Mapping[str, Any]) -> dict[str, Any]:
     """Return only safe editable values from a loaded server config."""
-    game = config.get("game", {}) if isinstance(config.get("game"), Mapping) else {}
-    properties = (
-        game.get("gameProperties", {})
-        if isinstance(game.get("gameProperties"), Mapping)
-        else {}
-    )
     return {
-        "name": _safe_text(game.get("name")),
-        "scenario_id": _safe_text(game.get("scenarioId")),
-        "max_players": game.get("maxPlayers") if isinstance(game.get("maxPlayers"), int) else "",
-        "visible": game.get("visible") if isinstance(game.get("visible"), bool) else False,
-        "battleye": (
-            properties.get("battlEye")
-            if isinstance(properties.get("battlEye"), bool)
-            else False
-        ),
-        "server_max_view_distance": (
-            properties.get("serverMaxViewDistance")
-            if isinstance(properties.get("serverMaxViewDistance"), int)
-            else ""
-        ),
-        "server_min_grass_distance": (
-            properties.get("serverMinGrassDistance")
-            if isinstance(properties.get("serverMinGrassDistance"), int)
-            else ""
-        ),
+        descriptor.form_name: _form_value_for_descriptor(config, descriptor)
+        for descriptor in CONFIG_FIELD_DESCRIPTORS
     }
+
+
+def build_config_edit_fields(config: Mapping[str, Any]) -> tuple[dict[str, Any], ...]:
+    """Return safe editable values plus UI metadata for the config form."""
+    form = build_config_edit_form(config)
+    return tuple(
+        {
+            "name": descriptor.form_name,
+            "value": form[descriptor.form_name],
+            "config_path": ".".join(descriptor.config_path),
+            "risk_class": descriptor.risk_class,
+            "permission": descriptor.permission,
+            "secret_behavior": descriptor.secret_behavior,
+            "audit_field_name": descriptor.audit_field_name,
+            "restart_behavior": descriptor.restart_behavior,
+            "ui": {
+                "label": descriptor.ui.label,
+                "control": descriptor.ui.control,
+                "group": descriptor.ui.group,
+                "css_class": descriptor.ui.css_class,
+                "required": descriptor.ui.required,
+                "max_length": descriptor.ui.max_length,
+                "min_value": descriptor.ui.min_value,
+                "step": descriptor.ui.step,
+            },
+        }
+        for descriptor in CONFIG_FIELD_DESCRIPTORS
+    )
+
+
+def _set_nested_value(data: dict[str, Any], path: tuple[str, ...], value: Any) -> None:
+    target = data
+    for key in path[:-1]:
+        next_value = target.get(key)
+        if not isinstance(next_value, dict):
+            raise ConfigEditError(f"{'.'.join(path[:-1])} must be an object.")
+        target = next_value
+    target[path[-1]] = value
 
 
 def _updated_config(data: dict[str, Any], form: Mapping[str, Any]) -> dict[str, Any]:
@@ -198,28 +420,9 @@ def _updated_config(data: dict[str, Any], form: Mapping[str, Any]) -> dict[str, 
     if not isinstance(properties, dict):
         raise ConfigEditError("game.gameProperties must be an object.")
 
-    game["name"] = _string_field(form, "name", "game.name is required.")
-    game["scenarioId"] = _string_field(form, "scenario_id", "game.scenarioId is required.")
-    game["maxPlayers"] = _int_field(
-        form,
-        "max_players",
-        "game.maxPlayers must be a positive integer.",
-        minimum=1,
-    )
-    game["visible"] = _bool_field(form, "visible")
-    properties["battlEye"] = _bool_field(form, "battleye")
-    properties["serverMaxViewDistance"] = _int_field(
-        form,
-        "server_max_view_distance",
-        "game.gameProperties.serverMaxViewDistance must be a positive integer.",
-        minimum=1,
-    )
-    properties["serverMinGrassDistance"] = _int_field(
-        form,
-        "server_min_grass_distance",
-        "game.gameProperties.serverMinGrassDistance must be a non-negative integer.",
-        minimum=0,
-    )
+    for descriptor in CONFIG_FIELD_DESCRIPTORS:
+        value = descriptor.parser(form, descriptor)
+        _set_nested_value(updated, descriptor.config_path, value)
     return updated
 
 

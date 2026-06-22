@@ -1598,15 +1598,17 @@ security foundation exists.
 
 ### Config schema inventory - 2026-06-22
 
-The current inventory is captured in `docs/config-schema-inventory.md`. It was
-prepared before adding any new web config toggles and intentionally did not
-change production code, templates, or tests.
+The current inventory is captured in `docs/config-schema-inventory.md`. The
+first implementation slice after the inventory added a descriptor-backed
+allowlist for the existing web-safe fields without adding any new config
+toggles.
 
 Current normal web-safe fields remain limited to `game.name`, `game.scenarioId`,
 `game.maxPlayers`, `game.visible`, `game.gameProperties.battlEye`,
 `game.gameProperties.serverMaxViewDistance`, and
 `game.gameProperties.serverMinGrassDistance`. They stay under `settings:manage`
-with backup, audit, and pending-restart behavior.
+with backup, audit, and pending-restart behavior, now described by
+`CONFIG_FIELD_DESCRIPTORS` in the web config edit service.
 
 Structured TUI-only advanced fields are now explicitly classified before web
 edit: `bindPort`/`publicPort`, `a2s.port`, `rcon.port`, `game.password`,
@@ -1616,20 +1618,23 @@ settings, and similar network/security fields belong behind future
 policy and must not be rendered casually.
 
 Local sources confirm `game.gameProperties.disableThirdPerson` as a boolean in
-both config templates, but its upstream semantics, defaults, and restart behavior
-still need verification before any web control is added. Local sources do not
-confirm crossplay/platform keys or value shapes; do not invent them. Candidate
+both config templates, but the local template defaults differ (`false` in the
+sample template and `true` in the Jinja template), and upstream semantics plus
+restart behavior still need verification before any web control is added. Local
+sources do not confirm crossplay/platform keys or value shapes; do not invent
+them. Candidate
 non-secret fields such as `game.gameProperties.networkViewDistance`,
 `game.gameProperties.fastValidation`, sample-only VON booleans, and
 `operating.lobbyPlayerSynchronise` remain blocked on verification and explicit
 risk/permission decisions.
 
-The next safe-toggle implementation slice should add a descriptor-backed
-allowlist before expanding the form. Each new field needs parser/validation,
-permission, risk class, restart behavior, audit changed-field naming, redaction
-rules, and focused tests proving that secrets and unrelated advanced fields are
-preserved. Safe controls stay in `/config`; raw JSON remains owner/mega
-break-glass work and `/files` must not become the config editor.
+The descriptor-backed allowlist foundation is now implemented for the existing
+seven fields. The next expansion slice should add controls only after field
+semantics, defaults, restart behavior, permissions, and risk class are verified.
+Each new field still needs parser/validation, audit changed-field naming,
+redaction rules, and focused tests proving that secrets and unrelated advanced
+fields are preserved. Safe controls stay in `/config`; raw JSON remains
+owner/mega break-glass work and `/files` must not become the config editor.
 
 | Product area | Current status | Existing source | Web implication |
 |--------------|----------------|-----------------|-----------------|
