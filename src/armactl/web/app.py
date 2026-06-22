@@ -23,6 +23,7 @@ from armactl.web.routes.logs import router as logs_router
 from armactl.web.routes.mods import router as mods_router
 from armactl.web.routes.players import router as players_router
 from armactl.web.routes.preferences import router as preferences_router
+from armactl.web.routes.public_status import router as public_status_router
 from armactl.web.routes.schedule import router as schedule_router
 from armactl.web.routes.service import router as service_router
 from armactl.web.routes.updates import router as updates_router
@@ -81,6 +82,7 @@ def create_app(data_root: Path | None = None) -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(preferences_router)
+    app.include_router(public_status_router)
     app.include_router(dashboard_router)
     app.include_router(updates_router)
     app.include_router(files_router)
