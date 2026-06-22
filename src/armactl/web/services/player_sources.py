@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from armactl import discovery, paths, player_view
 from armactl.rcon import PlayerEntry
 from armactl.web.services.player_identity import (
+    normalize_admin_reference,
     normalize_reliable_player_id,
     safe_player_text,
 )
@@ -39,10 +40,11 @@ class CurrentPlayerRoster:
 
 def _current_player(entry: PlayerEntry) -> CurrentPlayer:
     reliable_id = normalize_reliable_player_id(entry.guid)
+    admin_reference = normalize_admin_reference(entry.guid)
     return CurrentPlayer(
         display_name=safe_player_text(entry.name) or "Unknown player",
         reliable_id=reliable_id,
-        admin_reference=reliable_id,
+        admin_reference=admin_reference,
         source="rcon.guid" if reliable_id else "rcon.roster",
     )
 

@@ -84,27 +84,29 @@
   <h2>{{ t("Pending operator work") }}</h2>
   <p class="muted">{{ t("Saved changes waiting for manual action, usually a game-server restart.") }} {{ t("These are not background jobs.") }}</p>
   {% if pending_work_items %}
-    <table class="pending-work-table">
-      <thead>
-        <tr><th>{{ t("Category") }}</th><th>{{ t("Storage") }}</th><th>{{ t("Source page") }}</th><th>{{ t("Details") }}</th><th>{{ t("Requested by") }}</th><th>{{ t("Created") }}</th><th>{{ t("Updated") }}</th><th>{{ t("Required action") }}</th></tr>
-      </thead>
-      <tbody>
-        {% for item in pending_work_items %}
-          <tr>
-            <td>{{ t(item.kind_label) }}</td>
-            <td><span class="status-pill {% if item.is_fallback %}status-pill-warning{% else %}status-pill-ok{% endif %}">{{ t(item.storage_label) }}</span></td>
-            <td>
-              <a class="text-link" href="{{ item.source_path }}">{{ item.source_path }}</a>
-            </td>
-            <td>{{ pending_detail_label(item) }}</td>
-            <td>{{ item.created_by_username }}</td>
-            <td>{{ item.created_at }}</td>
-            <td>{{ item.updated_at }}</td>
-            <td><span class="status-pill status-pill-warning">{{ t(item.resolution_action_label) }}</span></td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="pending-work-list">
+      {% for item in pending_work_items %}
+        <article class="pending-work-item">
+          <div class="pending-work-main-row">
+            <div class="pending-work-title-group">
+              <span class="pending-work-kind">{{ t(item.kind_label) }}</span>
+              <strong>{{ pending_detail_label(item) }}</strong>
+              <a class="text-link pending-work-source" href="{{ item.source_path }}">{{ item.source_path }}</a>
+            </div>
+            <span class="status-pill status-pill-warning pending-work-required-action">{{ t(item.resolution_action_label) }}</span>
+          </div>
+          <dl class="pending-work-meta-row">
+            <div>
+              <dt>{{ t("Storage") }}</dt>
+              <dd><span class="status-pill {% if item.is_fallback %}status-pill-warning{% else %}status-pill-ok{% endif %}">{{ t(item.storage_label) }}</span></dd>
+            </div>
+            <div><dt>{{ t("Requested by") }}</dt><dd>{{ item.created_by_username }}</dd></div>
+            <div><dt>{{ t("Updated") }}</dt><dd>{{ item.updated_at }}</dd></div>
+            <div><dt>{{ t("Created") }}</dt><dd>{{ item.created_at }}</dd></div>
+          </dl>
+        </article>
+      {% endfor %}
+    </div>
   {% else %}
     <p class="muted">{{ t("No pending operator work.") }}</p>
   {% endif %}

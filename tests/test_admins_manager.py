@@ -50,6 +50,32 @@ def test_add_numeric_steamid64_writes_official_server_acl_and_label_sidecar(tmp_
     ]
 
 
+def test_add_identity_uuid_normalizes_lowercase_for_server_schema(tmp_path: Path) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    _write_config(config_path)
+
+    assert add_admin(config_path, "21761A7F-C9B4-4BFF-8375-B4B43ABB95EC", "Operator")
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["game"]["admins"] == ["21761a7f-c9b4-4bff-8375-b4b43abb95ec"]
+    assert get_admins(config_path)[0]["identityId"] == "21761a7f-c9b4-4bff-8375-b4b43abb95ec"
+
+
+def test_short_hex_string_is_not_treated_as_identity_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+
+    def fake_public_profile(vanity: str) -> admins_manager.ResolvedSteamIdentity:
+        calls.append(vanity)
+        return admins_manager.ResolvedSteamIdentity("76561198000000001", source="steam vanity:test")
+
+    monkeypatch.setattr(admins_manager, "_resolve_vanity_with_public_profile", fake_public_profile)
+
+    resolved = resolve_steam_identity("ABCDEF1234567890")
+
+    assert calls == ["ABCDEF1234567890"]
+    assert resolved.identity_id == "76561198000000001"
+
+
 def test_readding_same_profile_updates_label_without_duplicate(tmp_path: Path) -> None:
     config_path = tmp_path / "instance" / "config" / "config.json"
     _write_config(config_path)

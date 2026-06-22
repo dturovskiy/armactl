@@ -28,7 +28,9 @@ ADMINS_KEY = "admins"
 MAX_ADMINS = 20
 STEAM_WEB_API_KEY_ENV = "STEAM_WEB_API_KEY"
 STEAM_ID64_RE = re.compile(r"^[0-9]{17}$")
-IDENTITY_ID_RE = re.compile(r"^[0-9A-Fa-f{}\-]{16,80}$")
+IDENTITY_ID_RE = re.compile(
+    r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
+)
 VANITY_RE = re.compile(r"^[A-Za-z0-9_-]{2,64}$")
 
 
@@ -73,8 +75,16 @@ def _identity_value(item: Any) -> str:
     return str(value or "").strip()
 
 
+def _canonical_admin_identity(identity: str) -> str:
+    if STEAM_ID64_RE.fullmatch(identity):
+        return identity
+    if IDENTITY_ID_RE.fullmatch(identity):
+        return identity.lower()
+    return identity
+
+
 def _normalize_entry(item: Any, *, default_source: str = "") -> dict[str, str]:
-    identity = _identity_value(item)
+    identity = _canonical_admin_identity(_identity_value(item))
     if not identity:
         raise ConfigError("Admin entry is missing an IdentityId or SteamID.")
     if isinstance(item, dict):
@@ -333,7 +343,7 @@ def resolve_steam_identity(reference: str, *, api_key: str | None = None) -> Res
     if STEAM_ID64_RE.fullmatch(value):
         return ResolvedSteamIdentity(value, source="steamid64")
     if IDENTITY_ID_RE.fullmatch(value):
-        return ResolvedSteamIdentity(value.upper(), source="identityId")
+        return ResolvedSteamIdentity(value.lower(), source="identityId")
 
     parsed = urlparse(value if "://" in value else f"https://steamcommunity.com/id/{value}")
     host = parsed.netloc.lower().split(":", 1)[0]

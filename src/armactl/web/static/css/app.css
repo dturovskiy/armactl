@@ -1143,13 +1143,90 @@ button.danger {
   vertical-align: top;
 }
 
+.pending-work-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.pending-work-item {
+  display: grid;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--warning);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.pending-work-main-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.pending-work-title-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.pending-work-title-group strong {
+  overflow-wrap: anywhere;
+}
+
+.pending-work-kind {
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.pending-work-source {
+  white-space: nowrap;
+}
+
+.pending-work-required-action {
+  white-space: normal;
+  text-align: center;
+}
+
+.pending-work-meta-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px 14px;
+  margin: 0;
+}
+
+.pending-work-meta-row div {
+  min-width: 0;
+}
+
+.pending-work-meta-row dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.pending-work-meta-row dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
 .pending-work-source-action {
   display: block;
   margin-top: 3px;
   color: var(--muted);
   font-size: 0.82rem;
 }
-
 .pending-work-empty {
   margin-top: 10px;
   padding: 10px 12px;

@@ -430,8 +430,11 @@ def test_jobs_page_shows_pending_work_when_background_jobs_empty_and_redacts_det
     assert "max_players" in response.text
     assert "No background jobs." in response.text
     assert "No jobs yet." not in response.text
-    assert "pending-work-table" in response.text
-    assert "pending-work-card" not in response.text
+    assert "pending-work-list" in response.text
+    assert "pending-work-item" in response.text
+    assert "pending-work-main-row" in response.text
+    assert "pending-work-meta-row" in response.text
+    assert "pending-work-table" not in response.text
     assert "hunter2" not in response.text
     assert "raw-token" not in response.text
     assert "session-secret" not in response.text

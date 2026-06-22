@@ -91,8 +91,8 @@ def _panel(
 def _reliable_player(name: str = "Alpha") -> ModerationPlayer:
     return ModerationPlayer(
         display_name=name,
-        identity_id="ABCDEF1234567890",
-        admin_reference="ABCDEF1234567890",
+        identity_id="21761a7f-c9b4-4bff-8375-b4b43abb95ec",
+        admin_reference="21761a7f-c9b4-4bff-8375-b4b43abb95ec",
         source="rcon.guid",
         status="active",
         last_seen="online now",
@@ -206,7 +206,7 @@ def test_player_moderation_dto_uses_only_reliable_guid(monkeypatch):
             entries=(
                 PlayerEntry(
                     name="Alpha token=raw-player-secret",
-                    guid="ABCDEF1234567890",
+                    guid="21761a7f-c9b4-4bff-8375-b4b43abb95ec",
                 ),
                 PlayerEntry(name="Slot Only", player_id="12"),
             ),
@@ -221,7 +221,7 @@ def test_player_moderation_dto_uses_only_reliable_guid(monkeypatch):
     assert panel.total_count == 2
     reliable, readonly = panel.players
     assert reliable.display_name == "Alpha token=***"
-    assert reliable.admin_reference == "ABCDEF1234567890"
+    assert reliable.admin_reference == "21761a7f-c9b4-4bff-8375-b4b43abb95ec"
     assert reliable.can_add_admin is True
     assert readonly.display_name == "Slot Only"
     assert readonly.admin_reference == ""
@@ -245,8 +245,8 @@ def test_player_moderation_filter_matches_name_and_identity(monkeypatch):
             current=2,
             max_players=64,
             entries=(
-                PlayerEntry(name="Alpha", guid="ABCDEF1234567890"),
-                PlayerEntry(name="Bravo", guid="BBBBBBBBBBBBBBBB"),
+                PlayerEntry(name="Alpha", guid="21761a7f-c9b4-4bff-8375-b4b43abb95ec"),
+                PlayerEntry(name="Bravo", guid="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
             ),
             count_source="rcon",
             roster_available=True,
@@ -254,7 +254,7 @@ def test_player_moderation_filter_matches_name_and_identity(monkeypatch):
     )
 
     by_name = players_page_model.load_player_moderation_panel(query="brav")
-    by_id = players_page_model.load_player_moderation_panel(query="cdef")
+    by_id = players_page_model.load_player_moderation_panel(query="4bff")
 
     assert [player.display_name for player in by_name.players] == ["Bravo"]
     assert [player.display_name for player in by_id.players] == ["Alpha"]
@@ -273,7 +273,7 @@ def test_admins_page_renders_player_moderation_section(tmp_path: Path, monkeypat
     assert "Players / Moderation" in response.text
     assert "&lt;Alpha &amp; Co&gt;" in response.text
     assert "<Alpha & Co>" not in response.text
-    assert "ABCDEF1234567890" in response.text
+    assert "21761a7f-c9b4-4bff-8375-b4b43abb95ec" in response.text
     assert "Add as admin" in response.text
     assert "Restart the server to apply admin changes." not in response.text
 
@@ -368,19 +368,19 @@ def test_add_admin_from_player_uses_existing_admin_action_flow(
         "/admins/add",
         data={
             "csrf_token": csrf_token,
-            "admin_reference": "ABCDEF1234567890",
+            "admin_reference": "21761a7f-c9b4-4bff-8375-b4b43abb95ec",
             "label": "Alpha",
         },
         follow_redirects=False,
     )
 
     assert response.status_code == 200
-    assert calls == [(config_path, "ABCDEF1234567890", "Alpha")]
+    assert calls == [(config_path, "21761a7f-c9b4-4bff-8375-b4b43abb95ec", "Alpha")]
     assert "Admin added." in response.text
     assert "Restart the server to apply admin changes." in response.text
     event = _audit_events(tmp_path)[0]
     assert event["action"] == "admin.add"
-    assert event["target"] == "ABCDEF1234567890"
+    assert event["target"] == "21761a7f-c9b4-4bff-8375-b4b43abb95ec"
     assert event["success"] is True
 
 
@@ -416,7 +416,7 @@ def test_player_add_admin_requires_manage_permission(
         "/admins/add",
         data={
             "csrf_token": csrf_token,
-            "admin_reference": "ABCDEF1234567890",
+            "admin_reference": "21761a7f-c9b4-4bff-8375-b4b43abb95ec",
             "label": "Alpha",
         },
         follow_redirects=False,
@@ -438,7 +438,7 @@ def test_player_add_admin_requires_csrf(tmp_path: Path, monkeypatch):
         "/admins/add",
         data={
             "csrf_token": "wrong-token",
-            "admin_reference": "ABCDEF1234567890",
+            "admin_reference": "21761a7f-c9b4-4bff-8375-b4b43abb95ec",
             "label": "Alpha",
         },
         follow_redirects=False,
@@ -464,8 +464,8 @@ def test_player_moderation_html_does_not_expose_auth_or_raw_token_secrets(
         lambda instance, query="": _panel(
             ModerationPlayer(
                 display_name="Sneaky token=***",
-                identity_id="ABCDEF1234567890",
-                admin_reference="ABCDEF1234567890",
+                identity_id="21761a7f-c9b4-4bff-8375-b4b43abb95ec",
+                admin_reference="21761a7f-c9b4-4bff-8375-b4b43abb95ec",
                 source="rcon.guid",
                 status="active",
                 last_seen="online now",
