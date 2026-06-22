@@ -1562,7 +1562,7 @@ Internal API readiness:
 | Players/moderation | Medium | Current-player moderation foundation is implemented on `/admins` using `player_view`/RCON roster data and add-to-game-admin only for reliable IDs; `/players` and instance-scoped `players.db` are implemented for reliable IDs, nickname history, first/last seen, and seen count; source collection, registry storage, page DTOs, and refresh+audit workflow are split into separate modules; future session/activity history with duration, detail views, extra ingestion adapters, and ban-list management remain; do not infer IDs from nicknames or A2S counts, and do not store IPs by default |
 | Config/mods/admins/bot settings | Medium-high | Basic allowlisted config editing is implemented through `config_manager`; future config expansion must start with a verified config schema inventory and safe controls in `/config`, not `/files`; raw JSON remains an owner/admin-only `/config` break-glass flow; basic mod add/update/enable/disable/remove is implemented through `mods_manager`; game admin add/update/remove is implemented through `admins_manager`; bot mutations, advanced modpack/bulk mod flows, advanced admin bulk/raw flows, and broader config fields remain future work with form validation, CSRF, and redacted error rendering |
 | Logs/report | Medium-high | Bounded read-only audit, fixed journal, and redacted report preview views are implemented; add streaming/download later without `os.execvp` |
-| Install/repair/update | Medium | Install and repair enqueue explicit web background jobs; update remains future work behind a version-check adapter/read model and an explicit update job; never block a request thread or shell out from a route |
+| Install/repair/update | Medium-high | Install, repair, update-check, and stopped-server update execution are explicit web background jobs. Dashboard/routes use appmanifest/cache read models and service-layer enqueue workflows; routes must not block request threads or parse SteamCMD output. Future hardening: human-readable versions, stop/drain/restart ownership, production-scale worker validation, and standalone worker daemon. |
 | File manager | Medium | Safe adapter, browser foundation, single-file download, and server-root upload-new-file are implemented; overwrite/delete/rename and remote mount support remain future work; `/files` must not become the raw `config.json` editor |
 | Web users/roles/entitlements | Low | Implement new `web.db` models; do not reuse game admins as web users |
 
@@ -1572,11 +1572,70 @@ The current repo already implements most of the management behavior that the
 web panel should expose. The web work should reuse these modules and not copy
 logic from TUI screens.
 
+### TUI/Web parity snapshot - 2026-06-22
+
+Current web parity is intentionally split into three buckets so the project does
+not confuse implemented web flows with TUI-only tools or unsafe future work.
+
+**Done in web:** login/session/CSRF/permissions; dashboard/status with live
+refresh; start/stop/restart; background jobs for install, repair, update-check,
+and stopped-server update; `/updates`; basic structured `/config`; basic
+`/mods`; game admins and current-player quick add; `/players` registry
+foundation; fixed-root `/files` browse/preview/download/upload-new-file; bounded
+`/logs`/report; basic `/schedule`; read-only `/bot`; and the public
+server-status endpoint used by the separate server website.
+
+**Future web parity:** TUI Host Tests as a safe diagnostic background job;
+Maintenance/Cleanup with dry-run and confirmations; bot edit/service actions;
+modpack import/export/bulk workflows; prettier/live logs; timezone-explicit
+schedule input; player history/session/banlist; config schema expansion; and
+users/policy/security foundation.
+
+**Deliberately not now:** normal raw JSON editing, editing config through the
+file manager, web terminal, host reboot/shutdown, file delete/edit/overwrite,
+paid/security-sensitive tools, and banlist management before the policy/users
+security foundation exists.
+
+### Config schema inventory - 2026-06-22
+
+The current inventory is captured in `docs/config-schema-inventory.md`. It was
+prepared before adding any new web config toggles and intentionally did not
+change production code, templates, or tests.
+
+Current normal web-safe fields remain limited to `game.name`, `game.scenarioId`,
+`game.maxPlayers`, `game.visible`, `game.gameProperties.battlEye`,
+`game.gameProperties.serverMaxViewDistance`, and
+`game.gameProperties.serverMinGrassDistance`. They stay under `settings:manage`
+with backup, audit, and pending-restart behavior.
+
+Structured TUI-only advanced fields are now explicitly classified before web
+edit: `bindPort`/`publicPort`, `a2s.port`, `rcon.port`, `game.password`,
+`game.passwordAdmin`, and `rcon.password`. Ports, A2S, RCON, bind/public address
+settings, and similar network/security fields belong behind future
+`settings:advanced`; passwords and secrets require a stronger future secret
+policy and must not be rendered casually.
+
+Local sources confirm `game.gameProperties.disableThirdPerson` as a boolean in
+both config templates, but its upstream semantics, defaults, and restart behavior
+still need verification before any web control is added. Local sources do not
+confirm crossplay/platform keys or value shapes; do not invent them. Candidate
+non-secret fields such as `game.gameProperties.networkViewDistance`,
+`game.gameProperties.fastValidation`, sample-only VON booleans, and
+`operating.lobbyPlayerSynchronise` remain blocked on verification and explicit
+risk/permission decisions.
+
+The next safe-toggle implementation slice should add a descriptor-backed
+allowlist before expanding the form. Each new field needs parser/validation,
+permission, risk class, restart behavior, audit changed-field naming, redaction
+rules, and focused tests proving that secrets and unrelated advanced fields are
+preserved. Safe controls stay in `/config`; raw JSON remains owner/mega
+break-glass work and `/files` must not become the config editor.
+
 | Product area | Current status | Existing source | Web implication |
 |--------------|----------------|-----------------|-----------------|
 | Dashboard/status | Implemented in TUI, CLI, and the web read-only dashboard | discovery, state, status_summary, metrics, player_view, ports, bot_config | Keep future routes thin and continue extending the facade instead of route-local aggregation |
 | Server controls | Implemented | `service_manager`, CLI `start/stop/restart`, TUI `ManageScreen` | Web start/stop/restart now wraps existing calls for the default instance; schedule controls are implemented separately and job-backed operations remain future work |
-| Install/repair/update jobs | Install/repair job-backed, update future | `installer`, `repair`, `web_jobs`, future server-version/update adapter | Update must use a read-only version check, service-layer enqueue workflow, background job progress, and adapter-backed SteamCMD/app manifest/log/version metadata; no Steam credentials in `web.db` |
+| Install/repair/update jobs | Implemented as web background jobs for install, repair, update-check, and stopped-server update | `installer`, `repair`, `web_jobs`, `server_versions`, Steam appmanifest/latest-build cache | Keep update as check-first/no-op-aware flow: if installed == latest, show controlled already-up-to-date result and do not enqueue update; if latest is unknown/check-failed, fail closed; if game server is running, block update until stopped. No Steam secrets in `web.db`. |
 | Logs/report | Implemented for journal/report, TUI live view, and bounded read-only web views | `logs`, `report`, `TailLogScreen` | Web exposes fixed sources and redacted report preview; add browser streaming/download later |
 | Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Web supports allowlisted basic field edits through `config_manager` behind `settings:manage`; future web expansion should inventory verified fields into Basic, Gameplay, Visibility/Crossplay, Network/A2S/RCON, Security, Advanced, and Danger Zone groups; advanced fields need `settings:advanced`; generic/raw JSON and secrets remain out of scope except for a future owner/mega-eligible `/config` break-glass mode with `config:raw_edit` |
 | Mods manager | Implemented beyond basic parity | `mods_manager`, `mods_state`, `addon_cleanup`, `ModManagerScreen` | Web can view active/disabled mods and add/update/enable/disable/remove one mod at a time through `mods_manager` with auth, CSRF, `mods:manage`, confirmation for remove, and audit; bulk paste/import/export/clear-all/modpack workflows remain future |

@@ -311,9 +311,12 @@ that the whole web panel is still only planned.
 - [x] Додати background dispatcher/read-only jobs UI foundation перед install/repair/update flows
 - [x] Додати read-only management pages для config/mods/admins/bot через backend modules
 - [ ] Спроєктувати settings IA: dashboard summary, basic config, mods, mod settings, network/advanced, diagnostics, danger zone
-- [ ] Додати config schema inventory для `config.json`: supported fields, UI groups Basic/Gameplay/Visibility-Crossplay/Network-A2S-RCON/Security/Advanced/Danger Zone, safe vs advanced editor decision
-- [ ] Після config schema inventory явно розглянути third-person view і crossplay/platform settings: перевірити реальні Arma Reforger keys/value shapes, класифікувати safe/dangerous/secret/runtime, safe controls вести через `/config`, не `/files`; raw JSON лишається owner/mega-only break-glass flow
-- [ ] Зафіксувати, що normal `config.json` editing живе у `/config`, не у `/files`; secrets/RCON/admin sensitive fields не показувати casually
+- [x] Почати config schema inventory seed: currently web-safe fields are `game.name`, `game.scenarioId`, `game.maxPlayers`, `game.visible`, `game.gameProperties.battlEye`, `game.gameProperties.serverMaxViewDistance`, and `game.gameProperties.serverMinGrassDistance`
+- [x] Complete config schema inventory for `config.json`: current web/TUI/template/read-only sources, validation, restart/runtime unknowns, risk class, permission, UI control type, and next-slice plan; result: `docs/config-schema-inventory.md`
+- [x] Classify TUI-only advanced fields before web edit: `bindPort`/`publicPort`, `a2s.port`, `rcon.port`, `game.password`, `game.passwordAdmin`, `rcon.password`; ports and RCON/A2S need future `settings:advanced`; passwords/secrets stay masked and need stronger future secret policy
+- [x] Mark local third-person/crossplay/platform candidates: `game.gameProperties.disableThirdPerson` is template-confirmed but needs upstream/default/restart verification; crossplay/platform keys are not locally confirmed and must not be invented
+- [ ] Next safe config toggles slice: verify candidate keys/value shapes/defaults/restart behavior against official docs or real config samples, add descriptor-backed allowlist/tests, keep secrets/raw JSON out of normal UI, and keep `/files` out of config editing
+- [x] Зафіксувати, що normal `config.json` editing живе у `/config`, не у `/files`; secrets/RCON/admin sensitive fields не показувати casually
 - [x] Додати `armactl-web.service` template і service commands
 - [x] Додати login rate limiting / auth abuse throttling для web login
 - [x] Додати явне HTTPS/external-bind warning у web UI/runtime summary
@@ -325,8 +328,16 @@ that the whole web panel is still only planned.
 - [x] Зафіксувати майбутню доменну схему: `serhiivka.<domain>`, `chervonopilya.<domain>`, `tryzub.<domain>` після rollout, `dashboard.<domain>` для gateway/status
 - [x] Додати короткий VM smoke checklist для паралельних armactl-web інстансів через gateway
 - [x] Провести фінальний architecture/shortcut audit після gateway-відхилення перед поверненням у main web feature plan; результат: `docs/final-gateway-hub-audit-results-20260621.md`
-- [ ] Зафіксувати future hub/product-layer design перед реалізацією: central login/instance picker/plans live in hub, VM-local armactl-web keeps server actions/audit/recovery
-- [ ] Повернутись до main web feature plan після чистого audit: server update flow, config schema inventory, player history/banlist, timezone UX, users/security foundation
+- [x] Зафіксувати future hub/product-layer design перед реалізацією: central login/instance picker/plans live in hub, VM-local armactl-web keeps server actions/audit/recovery
+- [x] Повернутись до main web feature plan після чистого audit і закрити перший feature slice: server update check/update flow
+- [x] Провести TUI/Web parity inventory перед config schema work: звірити TUI main/manage screens з web routes і розділити стан на done/future/deliberately-not-now
+- [x] Зафіксувати current web parity done: login/session/CSRF, dashboard/status, start/stop/restart, install/repair/update jobs, `/updates`, basic `/config`, basic `/mods`, game admins, `/players`, `/files`, `/logs`, `/schedule`, bot read-only, public status endpoint
+- [ ] Перенести web Host Tests flow з TUI як allowlisted background diagnostic job з audit, bounded output і без raw shell
+- [ ] Додати web Maintenance/Cleanup flow: old logs/backups/dumps and unused workshop addons, з dry-run, confirmation, audit і rollback notes where possible
+- [ ] Додати bot edit/service web flow через `bot_config`/bot service helpers: token masked, chat IDs validated, service actions audited; current `/bot` stays read-only until then
+- [ ] Додати modpack/bulk mod workflows з TUI parity: import append/replace, export, dedupe/cleanup, explicit confirmations and audit
+- [ ] Deliberately not now: normal raw JSON editor, config editing through `/files`, terminal/host controls, file delete/edit/overwrite, banlist, paid/security-sensitive tools before policy/users/security foundation
+- [ ] Продовжити main web feature plan після config schema inventory: player history/banlist, timezone UX, users/security foundation, settings registry, dashboard redesign integration
 - [x] Додати read-only logs/report web views з bounded/redacted output
 - [ ] Додати prettier audit JSONL rendering для `/logs` без raw стіни JSON
 - [ ] Додати logs/report download-export для allowlisted bounded sources

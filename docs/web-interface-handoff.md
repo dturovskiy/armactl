@@ -624,27 +624,49 @@ Next recommended implementation order:
    Before implementing terminal, host controls, premium diagnostics, or
    allowlist management, add and pass the security review gate from
    `docs/web-interface-plan.md`.
-7. Complete the config schema inventory before extending `/config`: verify exact
-   Arma Reforger keys, group fields, and decide safe editor versus advanced
-   editor behavior.
-8. Continue server update hardening: add formal stop/drain/restart ownership
+7. Use the TUI/Web parity snapshot in `docs/web-interface-plan.md` before adding
+   more web features. Current web parity covers login/session/CSRF, dashboard,
+   start/stop/restart, install/repair/update jobs, `/updates`, basic `/config`,
+   basic `/mods`, game admins, `/players`, `/files`, `/logs`, basic `/schedule`,
+   read-only `/bot`, and the public server-status endpoint. Future parity work is
+   host tests, cleanup, bot edit/service actions, modpack import/export/bulk
+   workflows, live/prettier logs, timezone-explicit schedule input, player
+   history/banlist, config schema expansion, and users/policy/security.
+8. Use `docs/config-schema-inventory.md` before extending `/config`. The
+   inventory classifies current web/TUI/template/read-only fields, validation,
+   restart/runtime unknowns, risk class, permission, and UI control type. The
+   current web-safe set remains `game.name`, `game.scenarioId`,
+   `game.maxPlayers`, `game.visible`, `game.gameProperties.battlEye`,
+   `game.gameProperties.serverMaxViewDistance`, and
+   `game.gameProperties.serverMinGrassDistance` under `settings:manage`.
+   TUI-only ports and secrets such as `bindPort`/`publicPort`, `a2s.port`,
+   `rcon.port`, `game.password`, `game.passwordAdmin`, and `rcon.password` need
+   future advanced/security policy before any web mutation.
+9. Add new safe config controls only after key/value/default/restart behavior is
+   verified from official docs or real config samples and added to the inventory.
+   `game.gameProperties.disableThirdPerson` is locally template-confirmed but
+   still needs upstream/default/restart verification. Crossplay/platform keys
+   are not locally confirmed; do not invent them. Safe controls belong in
+   `/config`, not `/files`; raw JSON remains owner/mega break-glass, not a
+   normal editor.
+10. Continue server update hardening: add formal stop/drain/restart ownership
    policy, production-scale active-job lookup validation, standalone worker
    hardening, and release/VM smoke. The current latest check/cache slice is
    explicit and operator-triggered; full auto-update is not implemented. The
    server:update web job slice still allows update only when the game server is
    stopped; the fail-closed version gate, dashboard signal, audit path, and
    tests are present.
-9. Add edit/save/delete flows for bot settings and extended config fields
+11. Add edit/save/delete flows for bot settings and extended config fields
    through existing backend modules; keep any raw JSON config editor as a
    separate owner/admin-only `/config` break-glass design. Advanced/bulk admin
    workflows remain future and should still avoid mixing game admins with web
    users/roles. Advanced modpack workflows such as bulk paste, import/export,
    and clear-all remain future and should keep remove/cleanup confirmations
    explicit.
-10. Add atomic overwrite/delete/rename flows on top of the split safe
+12. Add atomic overwrite/delete/rename flows on top of the split safe
    filesystem adapter after single-file upload has been reviewed; do not use
    `/files` as the normal config editor.
-11. Add player registry details/history and ban-list management after the
+13. Add player registry details/history and ban-list management after the
    identity ingestion source is validated on a real server log/RCON sample.
    Reuse the current source/storage/page/workflow split instead of mixing web
    DTOs, current roster collection, SQLite persistence, and audit workflow.
