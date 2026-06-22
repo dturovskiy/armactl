@@ -1753,12 +1753,19 @@ backend metric history. A dedicated FPS history chart should be designed as a
 separate UI step instead of being squeezed into the compact live-server card.
 
 Server-version state follows the same read-model discipline. The dashboard
-shows installed server build/version when the local Steam appmanifest exposes
-it, latest available build/version when a safe adapter can provide it, and a
+shows installed server build when the local Steam appmanifest exposes
+it, latest available build when a safe adapter can provide it, and a
 compact status: `up to date`, `update available`, `unknown`, `check failed`,
-or `updating`. Failure to determine the latest version degrades to an
+or `updating`. Failure to determine the latest build degrades to an
 unknown/check-failed badge and must not break dashboard HTML or status JSON.
 Dashboard rendering intentionally never shells out or does network work. The
+dedicated /updates page is the full build-update UI surface and keeps the same
+read-model discipline: GET reads persisted state plus the local appmanifest and
+web.db cache only, shows installed/latest build, branch, last checked, check
+state, checking/updating progress states, and does not run SteamCMD, discovery,
+network, or shell commands. Dashboard keeps a compact Updates block and links
+to /updates for management. Human-readable game version remains future optional;
+the current UI names this metadata build everywhere. The
 explicit `Check for updates` action enqueues `server:update-check`; that
 background job queries SteamCMD `app_info_print`, parses only the public branch
 build ID through the version service/adapter boundary, and stores bounded safe
@@ -1948,7 +1955,7 @@ not the foreground debug runner.
   - Version check is separate from update execution and feeds a dashboard read
     model with installed build, latest build when safely known, and `up to date`
     / `update available` / `unknown` / `check failed` / `updating` state. If the
-    installed server version/build equals the latest available version/build, no
+    installed server build equals the latest available build, no
     update job is created; the web action returns `Server is already up to date`
     and audits the safe no-op check result without secrets. If latest is unknown
     or the check failed, update fails closed and does not enqueue a job.

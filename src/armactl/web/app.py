@@ -25,6 +25,7 @@ from armactl.web.routes.players import router as players_router
 from armactl.web.routes.preferences import router as preferences_router
 from armactl.web.routes.schedule import router as schedule_router
 from armactl.web.routes.service import router as service_router
+from armactl.web.routes.updates import router as updates_router
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = PACKAGE_DIR / "templates"
@@ -79,6 +80,7 @@ def create_app(data_root: Path | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(preferences_router)
     app.include_router(dashboard_router)
+    app.include_router(updates_router)
     app.include_router(files_router)
     app.include_router(jobs_router)
     app.include_router(logs_router)

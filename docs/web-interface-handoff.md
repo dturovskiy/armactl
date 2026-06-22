@@ -121,6 +121,7 @@ explicitly a release task.
   explicit `server:update-check` background job; dashboard/status routes read
   only the local appmanifest and safe `web.db` cache. Until the cache exists,
   latest remains controlled `unknown`.
+- The dedicated /updates page is the completed update UI page slice: GET is read-only over persisted/read-model state, buttons post through existing server:update-check/server:update job services with auth, server:update permission, and CSRF, and dashboard keeps only a compact update block plus a management link. Human-readable game version labels and any stop/drain/restart ownership policy remain future optional work.
 - Future update workflows live in service/adapter layers: permission -> CSRF ->
   intent audit -> enqueue/mutation -> outcome audit -> job/progress state.
   Update jobs must be idempotent/deduplicated by kind/instance like
@@ -234,6 +235,8 @@ audit coverage.
 | `POST /preferences/language`, `POST /preferences/theme` | None; authenticated requests validate session CSRF | Yes when authenticated | No audit; local web preference cookie only | No | Values are normalized allowlisted UI preferences |
 | `POST /service/{start,stop,restart}` | `actions:run` | Yes; stop/restart require confirmation | `start`, `stop`, `restart` | Successful performed `restart` clears restart-related pending work | Backend messages are redacted before audit/rendering |
 | `POST /jobs/server/install`, `POST /jobs/server/repair` | `actions:run` | Yes | `job.server-install.enqueue`, `job.server-repair.enqueue` | No; these are background jobs in `web_jobs`, not pending operator work | Job metadata/output tails are bounded and redacted |
+| `POST /jobs/server/update-check`, `POST /updates/check` | `server:update` | Yes | `job.server-update-check.enqueue` | No; this is a background job in `web_jobs`, not pending operator work | Job metadata/output tails are bounded and redacted |
+| `POST /jobs/server/update`, `POST /updates/update` | `server:update`; service layer requires latest build known, different from installed build, and stopped game server | Yes | `job.server-update.check` for no-op/block gate results; `job.server-update.enqueue` only when queued | No; this is a background job in `web_jobs`, not pending operator work | Job metadata/output tails are bounded and redacted; no Steam credentials or raw command output |
 | `POST /files/{root_id}/upload` | `files:write` plus root upload allowlist | Yes | `file.upload` intent before final publish, `file.upload` success outcome after publish, `file.upload.publish-failed` if publish fails | No; upload-new-file does not imply a known restart/apply step | Audit stores root/path/size only, no file contents |
 | `POST /config` | `settings:manage` | Yes | `config.save` when fields change | Stacks `config` restart work when changed | Allowlisted non-secret fields only; backup path/details redacted |
 | `POST /mods/add`, `/mods/disable`, `/mods/enable`, `/mods/remove` | `mods:manage`; remove requires confirmation | Yes | `mod.add`, `mod.update`, `mod.disable`, `mod.enable`, `mod.remove` | Stacks `mods` restart work when changed | IDs/names/messages are bounded and redacted |
@@ -241,11 +244,11 @@ audit coverage.
 | `POST /players/refresh` | `players:view` | Yes | `players.refresh` intent/outcome | No | Intent audit gates roster/persist; source/storage failures write controlled failure outcome audit; no IP storage by default |
 | `POST /schedule/set`, `/schedule/enable`, `/schedule/disable`, `/schedule/autostart/enable`, `/schedule/autostart/disable`, `/schedule/restart-now` | `schedule:manage`; restart-now and autostart-disable require confirmation | Yes | `schedule.set`, `schedule.enable`, `schedule.disable`, `service.autostart-enable`, `service.autostart-disable`, `schedule.restart-now` | Successful performed `schedule.restart-now` clears restart-related pending work | Schedule/service messages are bounded and redacted |
 
-Future update route inventory target: when `POST /jobs/server/update` or an
-equivalent route is added, it should use `server:update` or `jobs:update`, CSRF,
-explicit impact confirmation, intent/outcome audit events, and background
-`web_jobs` metadata only. It should not create pending operator work unless the
-operator must take a separate manual action after the job.
+Update route inventory note: update-check and update actions are implemented as
+background-job flows from both dashboard/jobs and `/updates` surfaces. They use
+`server:update`, CSRF, controlled no-op/block responses, intent/outcome audit
+events, and `web_jobs` metadata only. They should not create pending operator
+work unless the operator must take a separate manual action after the job.
 
 ## Broad Exception Audit Inventory
 
@@ -369,17 +372,17 @@ Completed foundation:
     without running long operations inside the HTTP request. The route starts a
     web-process background worker thread for the queued job, and the explicit
     server job dispatcher registers safe handlers that stream installer/repair
-    generator output into bounded redacted job tails. A durable standalone
-    worker daemon remains future hardening; update remains future work and must
-    add a read-only version check/read model before exposing an update action.
+    generator output into bounded redacted job tails. Update is covered by the
+    server update UI/job slice below and follows the same non-blocking job model
+    when the version gate allows enqueue. A durable standalone worker daemon
+    remains future hardening.
     The job-store duplicate-active persistence blocker is closed for these
     flows: schema maintenance cancels pre-existing duplicate active rows while
     keeping the oldest active job, active lookup has an indexed
     `(kind, instance, status, created_at, id)` path, and `/jobs` exposes
     job-store integrity warnings separately from pending operator work. Follow-up
-    owner: next jobs/update slice. Run query-plan and latency checks on
-    production-scale job history before adding update jobs or a standalone
-    worker daemon.
+    owner: update hardening slice. Run query-plan and latency checks on
+    production-scale job history before adding a standalone worker daemon.
 25. Basic web config editing: `/config` now supports CSRF-protected
     `settings:manage` edits for allowlisted `game.name`, `game.scenarioId`,
     `game.maxPlayers`, `game.visible`, BattlEye, and server distance fields.
@@ -510,6 +513,15 @@ Completed foundation:
     runner for `players`/`player_names`, read-path migration for existing DBs,
     and preserved mode `0600`. No IP storage, banlist, activity tracking, or
     user-facing feature surface was added in this slice.
+42. Server update UI slice: dashboard now keeps a compact Updates block and link
+    to `/updates`, while `/updates` is the dedicated operator page for installed
+    build, latest known build, and update state. `Check for updates` enqueues a
+    `server:update-check` job. `Update server` enqueues `server:update` only
+    when latest build is known, differs from installed build, and the game
+    server is stopped. Unknown/checking/failed/up-to-date/update-available
+    states are controlled read-model states and must not break dashboard or
+    `/updates` rendering. Running-server update attempts fail closed with
+    controlled operator copy and no update job.
 
 Implemented polish and future work:
 
@@ -565,6 +577,32 @@ Implemented polish and future work:
   confirmation, audit logging, and backups/rollback where applicable. Store no
   player IPs by default unless a later privacy/security review explicitly
   approves it.
+
+## VM Smoke: Server Update UI
+
+Run this after the update UI docs/code are pulled on both current smoke VMs.
+
+- On Serhiivka and Chervonopilya, run `git pull --ff-only` in the deployed
+  source checkout on `feat/web-interface`, then run
+  `./armactl web service restart`.
+- Log in to each VM-local web panel through the current gateway route.
+- Confirm the dashboard renders and shows the compact Updates card/link to
+  `/updates`.
+- Open `/updates`; unknown, checking, failed, up-to-date, and
+  update-available states must render without page errors or broken layout.
+- Use `Check for updates` from dashboard or `/updates`; confirm a
+  `server:update-check` job appears in `/jobs` with bounded progress/log
+  output.
+- If latest build is unknown, check failed, or installed build equals latest
+  build, `Update server` must not enqueue `server:update`; the operator should
+  see controlled unknown/failed/up-to-date/no-op copy.
+- If latest build is known and differs from installed build, `Update server`
+  should be available only while the game server is stopped. While the game
+  server is running, the action must be hidden or return the controlled
+  running-server block message and create no `server:update` job.
+- Verify audit contains safe events for update-check enqueue, update no-op or
+  block checks, and update enqueue only when an update is actually queued. No
+  secrets, Steam credentials, or raw command output should appear.
 
 Next recommended implementation order:
 

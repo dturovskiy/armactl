@@ -1,0 +1,51 @@
+{% extends "layout.html" %}
+{% block title %}{{ t("Updates - armactl web") }}{% endblock %}
+{% block heading %}{{ t("Server updates") }}{% endblock %}
+{% block topbar_actions %}
+<a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
+<form method="post" action="/logout" class="logout-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <span class="user-label">{{ current_user.username }}</span>
+  <button type="submit">{{ t("Log out") }}</button>
+</form>
+{% endblock %}
+{% block content %}
+<section class="panel full-width">
+  <div class="section-heading-row">
+    <h2>{{ t("Build status") }}</h2>
+    <span class="status-pill status-pill-{{ page.status.css_class }}">{{ t(page.status.check_state_label) }}</span>
+  </div>
+  <p class="notice">{{ t(page.status.message) }}</p>
+  <dl class="key-value-list">
+    {% for item in page["items"] %}
+      <dt>{{ t(item.label) }}</dt>
+      <dd>{% if item.translate_value %}{{ t(item.value) }}{% else %}{{ item.value }}{% endif %}</dd>
+    {% endfor %}
+  </dl>
+  {% if page.failure_reason %}
+    <p class="notice-inline notice-error">{{ page.failure_reason }}</p>
+  {% endif %}
+</section>
+
+<section class="panel full-width">
+  <h2>{{ t("Update actions") }}</h2>
+  {% if page.update_note %}
+    <p class="notice-inline {% if page.server_running %}notice-warning{% else %}notice-unavailable{% endif %}">{{ t(page.update_note) }}</p>
+  {% endif %}
+  <div class="action-grid">
+    <form method="post" action="/updates/check" class="action-form action-tile">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit"{% if page.check_disabled %} disabled aria-disabled="true"{% endif %}>{{ t("Check for updates") }}</button>
+      {% if page.check_disabled_reason %}
+        <span class="muted">{{ t(page.check_disabled_reason) }}</span>
+      {% endif %}
+    </form>
+    {% if page.backend_allows_update %}
+      <form method="post" action="/updates/update" class="action-form action-tile">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">{{ t("Update server") }}</button>
+      </form>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

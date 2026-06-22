@@ -333,11 +333,12 @@ that the whole web panel is still only planned.
 - [ ] Додати logs live follow/auto-refresh з pause/refresh controls
 - [ ] Додати logs filters/search/highlighting для level/source/text і `ERROR`/`WARNING`
 - [x] Підключити install/repair flows до background jobs без blocking HTTP requests
-- [x] Додати version check/read model для installed server build/version, latest available build/version і статусів `up to date` / `update available` / `unknown` / `check failed`
+- [x] Додати build check/read model для installed server build, latest available build і future optional human-readable version і статусів `up to date` / `update available` / `unknown` / `check failed`
 - [x] Додати safe explicit latest-build check/cache через `server:update-check`: dashboard GET читає тільки local appmanifest + `web.db` cache, а SteamCMD `app_info_print` працює лише у background job
-- [x] Для update UX не створювати update job, коли installed build/version == latest available; показати controlled `Server is already up to date`, audit safe check result без secrets і dashboard `up to date`
+- [x] Для update UX не створювати update job, коли installed build == latest available build; показати controlled `Server is already up to date`, audit safe check result без secrets і dashboard `up to date`
 - [x] Якщо version check failed або latest unknown, не запускати update автоматично; показати controlled `unknown`/`check failed` і дозволяти operator override тільки за окремою future policy
-- [x] Додати dashboard version badge/signal, який не ламає dashboard, якщо latest version недоступна
+- [x] Додати dashboard version badge/signal, який не ламає dashboard, якщо latest build недоступний
+- [x] Додати окрему /updates сторінку для server build update flow: GET читає тільки persisted/read-model state, показує build fields/states, Check for updates, Update server лише коли backend gate дозволяє, і dashboard лишає компактний update-блок з management link
 - [x] Підключити update server flow до окремого background job без blocking HTTP requests або route shell-out
 - [x] Додати audit/progress/log visibility для update intent, enqueue, running output, controlled failure і outcome
 - [x] Зафіксувати first-slice running-server update policy: web update дозволений тільки коли game server stopped; running fail-closed без job/worker/SteamCMD mutation

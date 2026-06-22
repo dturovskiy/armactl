@@ -468,8 +468,8 @@ operator confirms update
 
 The first web update slice is implemented as an explicit `server:update` job,
 not a blocking HTTP request or direct route shell-out. It does not run
-automatically. If installed version/build equals latest available
-version/build, no update job is created; the UI returns `Server is already up
+automatically. If installed build equals latest available
+build, no update job is created; the UI returns `Server is already up
 to date` as a controlled no-op, audits the safe read-only check result without
 secrets, and keeps the dashboard at `up to date`. If latest is unknown or the
 check failed, update fails closed and shows controlled `unknown` or

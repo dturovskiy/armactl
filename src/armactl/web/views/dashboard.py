@@ -268,6 +268,7 @@ def _management_links(
     can_view_files: bool,
     can_view_logs: bool,
     can_view_schedule: bool = False,
+    can_update_server: bool = False,
 ) -> tuple[list[dict[str, str]], str]:
     if lifecycle not in ACTIVE_LIFECYCLES:
         if lifecycle == "not_installed":
@@ -289,6 +290,14 @@ def _management_links(
                 "href": "/schedule",
                 "label": "Schedule",
                 "description": "Restart timer controls",
+            }
+        )
+    if can_update_server:
+        links.append(
+            {
+                "href": "/updates",
+                "label": "Updates",
+                "description": "Server build update flow",
             }
         )
     if can_view_mods:
@@ -442,18 +451,18 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
             "items": [
                 _item(
                     "Status",
-                    server_version.get("message", "Latest version unknown"),
+                    server_version.get("message", "Latest build unknown"),
                     translate_value=True,
                     field="server_version.status",
                 ),
                 _item(
-                    "Installed",
+                    "Installed build",
                     installed_version,
                     translate_value=installed_version == "unknown",
                     field="server_version.installed",
                 ),
                 _item(
-                    "Latest",
+                    "Latest build",
                     latest_version,
                     translate_value=latest_version == "unknown",
                     field="server_version.latest",
@@ -700,6 +709,7 @@ def build_dashboard_view(
         can_view_files=can_view_files,
         can_view_schedule=can_view_schedule,
         can_view_logs=can_view_logs,
+        can_update_server=can_update_server,
     )
     return {
         "heading": heading,

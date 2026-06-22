@@ -87,7 +87,7 @@ def _server_version_state(check_state: str, *, running: bool = False):
         return server_versions.ServerVersionState(
             check_state=check_state,
             status="check failed",
-            message="Version check failed",
+            message="Build check failed",
             failure_reason="probe failed",
             server_running=running,
         )
@@ -96,7 +96,7 @@ def _server_version_state(check_state: str, *, running: bool = False):
         branch="public",
         check_state=server_versions.SERVER_VERSION_CHECK_UNKNOWN,
         status="unknown",
-        message="Latest version unknown",
+        message="Latest build unknown",
         server_running=running,
     )
 
@@ -1011,8 +1011,8 @@ def test_post_update_noops_when_server_is_up_to_date(tmp_path: Path, monkeypatch
 @pytest.mark.parametrize(
     ("check_state", "message"),
     [
-        ("unknown", "Latest version unknown"),
-        ("failed", "Version check failed"),
+        ("unknown", "Latest build unknown"),
+        ("failed", "Build check failed"),
     ],
 )
 def test_post_update_fails_closed_when_latest_unknown_or_check_failed(

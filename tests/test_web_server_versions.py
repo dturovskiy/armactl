@@ -143,7 +143,7 @@ def test_server_version_state_unknown_when_latest_missing(tmp_path: Path):
 
     assert version_state.check_state == server_versions.SERVER_VERSION_CHECK_UNKNOWN
     assert version_state.status == "unknown"
-    assert version_state.message == "Latest version unknown"
+    assert version_state.message == "Latest build unknown"
     assert version_state.installed == "100"
     assert version_state.latest == ""
     assert version_state.can_update is False
@@ -159,7 +159,7 @@ def test_server_version_state_failed_when_adapter_raises(tmp_path: Path):
 
     assert version_state.check_state == server_versions.SERVER_VERSION_CHECK_FAILED
     assert version_state.status == "check failed"
-    assert version_state.message == "Version check failed"
+    assert version_state.message == "Build check failed"
     assert "raw-secret" not in version_state.failure_reason
     assert "token=***" in version_state.failure_reason
     assert version_state.can_update is False

@@ -510,6 +510,7 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert 'href="/jobs"' in root_response.text
     assert 'href="/files"' in root_response.text
     assert 'href="/logs"' in root_response.text
+    assert 'href="/updates"' in root_response.text
     assert "Pending operator work" in root_response.text
     assert "No pending operator work." in root_response.text
     assert "All saved changes are applied. No action is required." in root_response.text
@@ -916,9 +917,11 @@ def test_dashboard_renders_unknown_update_signal_without_breaking(
 
     assert response.status_code == 200
     assert "Updates" in response.text
-    assert "Latest version unknown" in response.text
+    assert "Latest build unknown" in response.text
     assert "Check for updates" in response.text
     assert "Last checked" in response.text
+    assert "Installed build" in response.text
+    assert "Latest build" in response.text
     assert "Check state" in response.text
     assert 'action="/jobs/server/update-check"' in response.text
     assert 'action="/jobs/server/update"' not in response.text
@@ -949,7 +952,7 @@ def test_dashboard_version_read_model_does_not_run_steamcmd(
     response = client.get("/dashboard", follow_redirects=False)
 
     assert response.status_code == 200
-    assert "Latest version unknown" in response.text
+    assert "Latest build unknown" in response.text
 
 
 def test_dashboard_renders_update_available_notice_without_action_when_running(
@@ -1070,7 +1073,7 @@ def test_dashboard_version_check_failure_degrades_to_controlled_signal(
     response = client.get("/dashboard", follow_redirects=False)
 
     assert response.status_code == 200
-    assert "Version check failed" in response.text
+    assert "Build check failed" in response.text
     assert "Partial data" in response.text
     assert "version boom" in response.text
     assert "Traceback" not in response.text

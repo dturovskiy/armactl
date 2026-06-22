@@ -599,6 +599,14 @@ button {
   cursor: pointer;
 }
 
+button:disabled,
+button[aria-disabled="true"] {
+  border-color: var(--border);
+  background: var(--border);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
 button.secondary {
   border-color: var(--border);
   background: var(--surface);
