@@ -1160,7 +1160,9 @@ button.danger {
 }
 
 .job-card {
-  padding: 14px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
   border: 1px solid var(--border);
   border-left-width: 4px;
   border-radius: 8px;
@@ -1196,14 +1198,112 @@ button.danger {
 }
 
 .job-status {
+  align-self: start;
+  padding: 3px 8px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.78rem;
   font-weight: 700;
+  line-height: 1.2;
+}
+
+.job-row-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.job-row-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.job-row-title h3 {
+  margin: 0;
+  font-size: 0.98rem;
+  line-height: 1.25;
+}
+
+.job-row-title code {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.job-category {
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.job-row-summary,
+.job-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px 14px;
+  margin: 0;
+}
+
+.job-row-summary div,
+.job-details-grid div {
+  min-width: 0;
+}
+
+.job-row-summary dt,
+.job-details-grid dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.job-row-summary dd,
+.job-details-grid dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.job-row-message {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.job-row-message-error {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.job-details {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.job-details summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.job-details-grid {
+  margin-top: 10px;
 }
 
 .job-output-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  margin-top: 14px;
+  margin-top: 12px;
 }
 
 .job-output-block h3 {
@@ -1213,7 +1313,7 @@ button.danger {
 }
 
 .job-output-block pre {
-  max-height: 260px;
+  max-height: 220px;
   margin: 0;
   overflow: auto;
   white-space: pre-wrap;
@@ -1224,7 +1324,6 @@ button.danger {
   background: var(--bg);
   color: var(--text);
 }
-
 table {
   width: 100%;
   margin-top: 14px;

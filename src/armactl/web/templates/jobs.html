@@ -14,6 +14,41 @@
 {% macro job_id_list(job_ids) -%}
   {%- for job_id in job_ids -%}#{{ job_id }}{% if not loop.last %}, {% endif %}{%- endfor -%}
 {%- endmacro %}
+{% macro job_category_label(kind) -%}
+  {%- if kind.startswith("server:update") -%}{{ t("Server updates") }}
+  {%- elif kind.startswith("server:") -%}{{ t("Server management") }}
+  {%- else -%}{{ t("Other jobs") }}
+  {%- endif -%}
+{%- endmacro %}
+{% macro job_action_label(kind) -%}
+  {%- if kind == "server:update-check" -%}{{ t("Update check") }}
+  {%- elif kind == "server:update" -%}{{ t("Update server") }}
+  {%- elif kind == "server:install" -%}{{ t("Install server") }}
+  {%- elif kind == "server:repair" -%}{{ t("Repair server") }}
+  {%- else -%}{{ kind }}
+  {%- endif -%}
+{%- endmacro %}{% macro pending_action_label(action) -%}
+  {%- if action == "admin.add" -%}{{ t("Add admin") }}
+  {%- elif action == "admin.update" -%}{{ t("Update admin") }}
+  {%- elif action == "admin.remove" -%}{{ t("Remove admin") }}
+  {%- elif action == "mod.add" -%}{{ t("Add mod") }}
+  {%- elif action == "mod.disable" -%}{{ t("Disable mod") }}
+  {%- elif action == "mod.enable" -%}{{ t("Enable mod") }}
+  {%- elif action == "mod.remove" -%}{{ t("Remove mod") }}
+  {%- elif action == "config.save" -%}{{ t("Save config") }}
+  {%- elif action == "schedule.set" -%}{{ t("Update schedule") }}
+  {%- else -%}{{ action }}
+  {%- endif -%}
+{%- endmacro %}
+{% macro pending_detail_label(item) -%}
+  {%- if item.source_action -%}
+    {{ pending_action_label(item.source_action) }}{% if item.details %}: {{ item.details }}{% endif %}
+  {%- elif item.details -%}
+    {{ item.details }}
+  {%- else -%}
+    {{ t("none") }}
+  {%- endif -%}
+{%- endmacro %}
 <div data-jobs-refresh-root data-jobs-refresh-interval-ms="5000">
 {% if job_store_diagnostics %}
 <section class="panel full-width job-store-integrity-panel" id="job-store-integrity">
@@ -60,9 +95,8 @@
             <td><span class="status-pill {% if item.is_fallback %}status-pill-warning{% else %}status-pill-ok{% endif %}">{{ t(item.storage_label) }}</span></td>
             <td>
               <a class="text-link" href="{{ item.source_path }}">{{ item.source_path }}</a>
-              {% if item.source_action %}<span class="pending-work-source-action">{{ item.source_action }}</span>{% endif %}
             </td>
-            <td>{{ item.details or t("none") }}</td>
+            <td>{{ pending_detail_label(item) }}</td>
             <td>{{ item.created_by_username }}</td>
             <td>{{ item.created_at }}</td>
             <td>{{ item.updated_at }}</td>
@@ -81,43 +115,52 @@
     <div class="job-list">
       {% for job in jobs %}
         <article class="job-card job-card-{{ job.status }}">
-          <div class="section-heading-row">
-            <h2>{{ job.kind }}</h2>
+          <div class="job-row-header">
+            <div class="job-row-title">
+              <span class="job-category">{{ job_category_label(job.kind) }}</span>
+              <h3>{{ job_action_label(job.kind) }}</h3>
+              <code>{{ job.kind }}</code>
+            </div>
             <span class="job-status job-status-{{ job.status }}">{{ t(job.status) }}</span>
           </div>
-          <dl>
-            <dt>{{ t("Job ID") }}</dt><dd>#{{ job.id }}</dd>
-            <dt>{{ t("Instance") }}</dt><dd>{{ job.instance }}</dd>
-            <dt>{{ t("Requested by") }}</dt><dd>{{ job.requested_by_username }}</dd>
-            <dt>{{ t("Created") }}</dt><dd>{{ job.created_at }}</dd>
-            <dt>{{ t("Updated") }}</dt><dd>{{ job.updated_at }}</dd>
-            <dt>{{ t("Started") }}</dt><dd>{{ job.started_at or t("not started") }}</dd>
-            <dt>{{ t("Finished") }}</dt><dd>{{ job.finished_at or t("not finished") }}</dd>
-            <dt>{{ t("Progress") }}</dt><dd>{{ job.progress_current }}{% if job.progress_total %} / {{ job.progress_total }}{% endif %}</dd>
-            <dt>{{ t("Current step") }}</dt><dd>{{ job.current_step or t("none") }}</dd>
-            {% if job.result_message %}
-              <dt>{{ t("Result") }}</dt><dd>{{ t(job.result_message) }}</dd>
-            {% endif %}
-            {% if job.error_message %}
-              <dt>{{ t("Error") }}</dt><dd>{% if job.error_class %}{{ job.error_class }}: {% endif %}{{ job.error_message }}</dd>
-            {% endif %}
+          <dl class="job-row-summary">
+            <div><dt>{{ t("Job ID") }}</dt><dd>#{{ job.id }}</dd></div>
+            <div><dt>{{ t("Instance") }}</dt><dd>{{ job.instance }}</dd></div>
+            <div><dt>{{ t("Requested by") }}</dt><dd>{{ job.requested_by_username }}</dd></div>
+            <div><dt>{{ t("Updated") }}</dt><dd>{{ job.updated_at }}</dd></div>
+            <div><dt>{{ t("Progress") }}</dt><dd>{{ job.progress_current }}{% if job.progress_total %} / {{ job.progress_total }}{% endif %}</dd></div>
           </dl>
-          {% if job.stdout_tail or job.stderr_tail %}
-            <div class="job-output-grid">
-              {% if job.stdout_tail %}
-                <section class="job-output-block">
-                  <h3>{{ t("Last stdout lines") }}</h3>
-                  <pre>{{ job.stdout_tail }}</pre>
-                </section>
-              {% endif %}
-              {% if job.stderr_tail %}
-                <section class="job-output-block">
-                  <h3>{{ t("Last stderr lines") }}</h3>
-                  <pre>{{ job.stderr_tail }}</pre>
-                </section>
-              {% endif %}
+          {% if job.result_message or job.error_message %}
+            <div class="job-row-message {% if job.error_message %}job-row-message-error{% endif %}">
+              {% if job.result_message %}<strong>{{ t("Result") }}:</strong> {{ t(job.result_message) }}{% endif %}
+              {% if job.error_message %}<strong>{{ t("Error") }}:</strong> {% if job.error_class %}{{ job.error_class }}: {% endif %}{{ job.error_message }}{% endif %}
             </div>
           {% endif %}
+          <details class="job-details">
+            <summary>{{ t("Job details") }}</summary>
+            <dl class="job-details-grid">
+              <div><dt>{{ t("Created") }}</dt><dd>{{ job.created_at }}</dd></div>
+              <div><dt>{{ t("Started") }}</dt><dd>{{ job.started_at or t("not started") }}</dd></div>
+              <div><dt>{{ t("Finished") }}</dt><dd>{{ job.finished_at or t("not finished") }}</dd></div>
+              <div><dt>{{ t("Current step") }}</dt><dd>{{ job.current_step or t("none") }}</dd></div>
+            </dl>
+            {% if job.stdout_tail or job.stderr_tail %}
+              <div class="job-output-grid">
+                {% if job.stdout_tail %}
+                  <section class="job-output-block">
+                    <h3>{{ t("Last stdout lines") }}</h3>
+                    <pre>{{ job.stdout_tail }}</pre>
+                  </section>
+                {% endif %}
+                {% if job.stderr_tail %}
+                  <section class="job-output-block">
+                    <h3>{{ t("Last stderr lines") }}</h3>
+                    <pre>{{ job.stderr_tail }}</pre>
+                  </section>
+                {% endif %}
+              </div>
+            {% endif %}
+          </details>
         </article>
       {% endfor %}
     </div>

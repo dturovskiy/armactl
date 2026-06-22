@@ -135,6 +135,9 @@ def test_authenticated_owner_sees_jobs_page(tmp_path: Path):
     assert "data-jobs-refresh-root" in response.text
     assert "No pending operator work." in response.text
     assert "safe:test" in response.text
+    assert "Other jobs" in response.text
+    assert "job-row-summary" in response.text
+    assert "Job details" in response.text
     assert "succeeded" in response.text
     assert "Job completed." in response.text
     assert "Last stdout lines" in response.text or "Останні рядки stdout" in response.text
@@ -202,6 +205,7 @@ def test_jobs_page_renders_ukrainian_labels(tmp_path: Path):
     assert "Фонові завдання" in response.text
     assert "Запитав" in response.text
     assert "у черзі" in response.text
+    assert "Інші завдання" in response.text
 
 
 def test_jobs_output_is_escaped_and_secrets_are_not_rendered(tmp_path: Path):
@@ -421,7 +425,8 @@ def test_jobs_page_shows_pending_work_when_background_jobs_empty_and_redacts_det
     assert "Background jobs" in response.text
     assert "Config changes" in response.text
     assert 'href="/config"' in response.text
-    assert "config.save" in response.text
+    assert "Save config" in response.text
+    assert "config.save" not in response.text
     assert "max_players" in response.text
     assert "No background jobs." in response.text
     assert "No jobs yet." not in response.text
@@ -437,6 +442,31 @@ def test_jobs_page_shows_pending_work_when_background_jobs_empty_and_redacts_det
     assert CSRF_COOKIE_NAME not in response.text
 
 
+
+def test_jobs_page_shows_human_pending_admin_action(tmp_path: Path):
+    from armactl.web.app import create_app
+    from armactl.web.services.pending_work import KIND_ADMINS, mark_restart_pending
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    mark_restart_pending(
+        tmp_path / "web" / "web.db",
+        kind=KIND_ADMINS,
+        source_action="admin.remove",
+        username="owner",
+        details="76561198000000001",
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    _set_cookie(client, LANGUAGE_COOKIE_NAME, "uk")
+
+    response = client.get("/jobs", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Зміни адмінів" in response.text
+    assert "Видалення адміна" in response.text
+    assert "76561198000000001" in response.text
+    assert "admin.remove" not in response.text
 def test_unauthenticated_install_and_repair_jobs_redirect_to_login(tmp_path: Path):
     from armactl.web.app import create_app
 
