@@ -964,6 +964,51 @@ def test_post_update_check_creates_queued_job_without_running_backend(
     assert audit_events[-1]["details"]["created"] == "true"
 
 
+def test_post_update_check_uses_fresh_cache_without_creating_job(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import server as server_jobs
+    from armactl.web.jobs.store import list_recent_jobs
+    from armactl.web.services import server_versions
+
+    scheduled: list[int] = []
+    monkeypatch.setattr(
+        server_jobs,
+        "start_server_job_worker",
+        lambda db_path, job_id: scheduled.append(job_id),
+    )
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    db_path = tmp_path / "web" / "web.db"
+    server_versions.save_server_version_check(
+        db_path,
+        installed="100",
+        latest="101",
+        check_state=server_versions.SERVER_VERSION_CHECK_AVAILABLE,
+        source=server_versions.STEAMCMD_APP_INFO_SOURCE,
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+
+    response = client.post(
+        "/jobs/server/update-check",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    jobs = [
+        job
+        for job in list_recent_jobs(db_path)
+        if job.kind == "server:update-check"
+    ]
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/jobs"
+    assert jobs == []
+    assert scheduled == []
+
 def test_post_update_noops_when_server_is_up_to_date(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
     from armactl.web.jobs import server as server_jobs

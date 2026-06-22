@@ -6,7 +6,7 @@ import re
 import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Protocol
 
@@ -48,6 +48,8 @@ MAX_STEAM_APP_INFO_PARSE_CHARS = 2_000_000
 MAX_STEAM_APP_INFO_TOKENS = 80_000
 
 MAX_VERSION_TEXT_LENGTH = 80
+SERVER_VERSION_CHECK_CACHE_TTL_SECONDS = 600
+
 
 def service_status_blocks_update(status: Mapping[str, object] | None) -> bool:
     """Return whether live service status should block server update."""
@@ -461,6 +463,29 @@ def load_cached_server_version_check(
     if row is None:
         return None
     return _cached_check_from_row(row)
+
+
+def cached_check_has_fresh_result(
+    cached: CachedServerVersionCheck | None,
+    *,
+    max_age_seconds: int = SERVER_VERSION_CHECK_CACHE_TTL_SECONDS,
+    now: datetime | None = None,
+) -> bool:
+    """Return whether cached latest-build data is fresh enough to avoid a new check."""
+    if cached is None or cached.check_state not in {
+        SERVER_VERSION_CHECK_UPTODATE,
+        SERVER_VERSION_CHECK_AVAILABLE,
+    }:
+        return False
+    try:
+        checked_at = datetime.fromisoformat(cached.checked_at)
+    except ValueError:
+        return False
+    if checked_at.tzinfo is None:
+        checked_at = checked_at.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    age = current.astimezone(timezone.utc) - checked_at.astimezone(timezone.utc)
+    return timedelta(0) <= age <= timedelta(seconds=max_age_seconds)
 
 
 def save_server_version_check(

@@ -824,6 +824,54 @@ def test_dashboard_shows_compact_pending_work_summary(tmp_path: Path, monkeypatc
     assert "raw-secret" not in response.text
 
 
+def test_dashboard_shows_only_active_background_jobs(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import create_job, mark_job_running, mark_job_succeeded
+
+    password = "owner dashboard jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch)
+    db_path = tmp_path / "web" / "web.db"
+    completed = create_job(db_path, kind="safe:done", requested_by_username="owner")
+    mark_job_running(db_path, completed.id)
+    mark_job_succeeded(db_path, completed.id, result_message="Done")
+    create_job(db_path, kind="safe:queued", requested_by_username="owner")
+    running = create_job(db_path, kind="safe:running", requested_by_username="owner")
+    mark_job_running(db_path, running.id)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Background jobs" in response.text
+    assert "safe:running" in response.text
+    assert "safe:queued" in response.text
+    assert "safe:done" not in response.text
+    assert "succeeded" not in response.text
+    assert "Done" not in response.text
+
+
+def test_dashboard_hides_completed_background_jobs(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import create_job, mark_job_running, mark_job_succeeded
+
+    password = "owner dashboard jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch)
+    db_path = tmp_path / "web" / "web.db"
+    completed = create_job(db_path, kind="safe:done", requested_by_username="owner")
+    mark_job_running(db_path, completed.id)
+    mark_job_succeeded(db_path, completed.id, result_message="Done")
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Background jobs" not in response.text
+    assert "safe:done" not in response.text
+
 def test_dashboard_facade_error_returns_controlled_html(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
 

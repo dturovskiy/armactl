@@ -563,6 +563,49 @@ def list_recent_jobs(
     return [_record_from_row(row) for row in rows]
 
 
+def list_active_jobs(
+    db_path: Path,
+    *,
+    limit: int = DEFAULT_RECENT_JOB_LIMIT,
+) -> list[JobRecord]:
+    """Return active queued/running jobs, newest first."""
+    normalized_limit = _normalize_limit(limit)
+
+    try:
+        with _connect(db_path) as connection:
+            rows = connection.execute(
+                """
+                SELECT id,
+                       kind,
+                       status,
+                       requested_by_user_id,
+                       requested_by_username,
+                       instance,
+                       progress_current,
+                       progress_total,
+                       current_step,
+                       result_message,
+                       stdout_tail,
+                       stderr_tail,
+                       error_message,
+                       error_class,
+                       created_at,
+                       updated_at,
+                       started_at,
+                       finished_at
+                FROM web_jobs
+                WHERE status IN (?, ?)
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (JOB_STATUS_QUEUED, JOB_STATUS_RUNNING, normalized_limit),
+            ).fetchall()
+    except sqlite3.Error as exc:
+        raise JobStoreError("Failed to list active web jobs.") from exc
+
+    return [_record_from_row(row) for row in rows]
+
+
 def mark_job_running(
     db_path: Path,
     job_id: int,

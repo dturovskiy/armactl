@@ -28,7 +28,7 @@ from armactl.web.auth.permissions import (
     SERVER_UPDATE,
 )
 from armactl.web.i18n import resolve_language, translation_helpers
-from armactl.web.jobs.store import list_recent_jobs
+from armactl.web.jobs.store import list_active_jobs
 from armactl.web.page_models import dashboard as dashboard_page_model
 from armactl.web.services.pending_work import list_pending_work_with_fallback
 from armactl.web.views.dashboard import (
@@ -90,7 +90,7 @@ def _render_dashboard(request: Request, current: CurrentSession) -> Response:
 
     form_csrf = get_form_csrf_token(request, current)
     can_view_jobs = permissions["can_view_jobs"]
-    recent_jobs = list_recent_jobs(current.config.db_path, limit=3) if can_view_jobs else []
+    recent_jobs = list_active_jobs(current.config.db_path, limit=3) if can_view_jobs else []
     pending_work_items = list_pending_work_with_fallback(
         current.config.db_path, instance="default", limit=3
     )

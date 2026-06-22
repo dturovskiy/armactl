@@ -36,6 +36,7 @@ from armactl.web.jobs import (
     enqueue_server_update,
     enqueue_server_update_check,
     get_job,
+    list_active_jobs,
     list_recent_jobs,
     mark_job_failed,
     mark_job_running,
@@ -305,6 +306,7 @@ def test_create_get_and_list_recent_jobs(tmp_path: Path):
     fetched = get_job(db_path, first.id)
     recent = list_recent_jobs(db_path)
     queued = list_recent_jobs(db_path, status=JOB_STATUS_QUEUED)
+    active = list_active_jobs(db_path)
 
     assert fetched == first
     assert first.kind == "install:update"
@@ -319,6 +321,7 @@ def test_create_get_and_list_recent_jobs(tmp_path: Path):
     assert get_job(db_path, 9999) is None
     assert [job.id for job in recent] == [second.id, first.id]
     assert [job.id for job in queued] == [second.id, first.id]
+    assert [job.id for job in active] == [second.id, first.id]
 
 
 def test_valid_job_status_transitions_set_timestamps(tmp_path: Path):
@@ -353,6 +356,15 @@ def test_valid_job_status_transitions_set_timestamps(tmp_path: Path):
     assert succeeded.progress_current == 4
     assert succeeded.progress_total == 4
 
+
+def test_list_active_jobs_excludes_terminal_jobs(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+    completed = create_job(db_path, kind="safe:done", requested_by_username="owner")
+    mark_job_running(db_path, completed.id)
+    mark_job_succeeded(db_path, completed.id)
+    queued = create_job(db_path, kind="safe:queued", requested_by_username="owner")
+
+    assert [job.id for job in list_active_jobs(db_path)] == [queued.id]
 
 def test_failed_and_cancelled_jobs_are_controlled_terminal_states(tmp_path: Path):
     db_path = _db_path(tmp_path)

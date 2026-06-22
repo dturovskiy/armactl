@@ -266,8 +266,14 @@ def request_server_update_check_and_start(
     username: str,
     user_id: int | None,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
-) -> JobRecord:
-    """Enqueue an explicit background latest-build check."""
+) -> JobRecord | None:
+    """Enqueue a latest-build check unless a fresh successful result exists."""
+    cached = server_versions.load_cached_server_version_check(
+        db_path,
+        instance=instance,
+    )
+    if server_versions.cached_check_has_fresh_result(cached):
+        return None
     return enqueue_server_job_and_start(
         db_path,
         action="update-check",

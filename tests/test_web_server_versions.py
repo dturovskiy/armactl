@@ -259,6 +259,36 @@ def test_latest_check_cache_overwrites_idempotently(tmp_path: Path):
     assert loaded.latest == "100"
 
 
+def test_cached_check_freshness(tmp_path: Path):
+    from datetime import datetime, timedelta, timezone
+
+    db_path = tmp_path / "web" / "web.db"
+    fresh = server_versions.save_server_version_check(
+        db_path,
+        installed="100",
+        latest="101",
+        check_state=server_versions.SERVER_VERSION_CHECK_AVAILABLE,
+        checked_at=datetime.now(timezone.utc).isoformat(),
+    )
+    stale = server_versions.save_server_version_check(
+        db_path,
+        installed="100",
+        latest="101",
+        check_state=server_versions.SERVER_VERSION_CHECK_AVAILABLE,
+        checked_at=(datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat(),
+    )
+    failed = server_versions.save_server_version_check(
+        db_path,
+        installed="100",
+        latest="",
+        check_state=server_versions.SERVER_VERSION_CHECK_FAILED,
+        checked_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    assert server_versions.cached_check_has_fresh_result(fresh)
+    assert not server_versions.cached_check_has_fresh_result(stale)
+    assert not server_versions.cached_check_has_fresh_result(failed)
+
 def test_server_version_state_reports_active_update_job(tmp_path: Path):
     db_path = tmp_path / "web" / "web.db"
     ensure_web_db(db_path)
