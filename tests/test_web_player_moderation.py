@@ -159,6 +159,34 @@ def _audit_events(data_root: Path) -> list[dict]:
     return [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
 
 
+def test_player_moderation_uses_full_roster_timeout(monkeypatch):
+    from armactl.web.services import player_sources
+
+    calls: dict[str, float] = {}
+    monkeypatch.setattr(
+        player_sources.discovery,
+        "discover",
+        lambda instance, save=False: _state(),
+    )
+
+    def query_player_view(*args, **kwargs):
+        calls["timeout"] = kwargs["timeout"]
+        calls["roster_timeout"] = kwargs["roster_timeout"]
+        return PlayerView(
+            available=True,
+            current=0,
+            max_players=64,
+            entries=(),
+            count_source="rcon",
+            roster_available=True,
+        )
+
+    monkeypatch.setattr(player_sources.player_view, "query_player_view", query_player_view)
+
+    player_sources.load_current_player_roster()
+
+    assert calls == {"timeout": 0.35, "roster_timeout": 1.5}
+
 def test_player_moderation_dto_uses_only_reliable_guid(monkeypatch):
     from armactl.web.page_models import players as players_page_model
     from armactl.web.services import player_sources

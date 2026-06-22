@@ -1,6 +1,10 @@
 {% extends "layout.html" %}
 {% block title %}{{ t("Admins - armactl web") }}{% endblock %}
 {% block heading %}{{ t("Game Admins") }}{% endblock %}
+
+{% block extra_scripts %}
+<script defer src="{{ url_for('static', path='/js/admins.js') }}?v={{ web_static_version }}"></script>
+{% endblock %}
 {% block topbar_actions %}
 <a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
 <form method="post" action="/logout" class="logout-form">
@@ -97,7 +101,7 @@
   <div class="section-heading-row">
     <h2>{{ t("Add or update game admin") }}</h2>
   </div>
-  <form method="post" action="/admins/add" class="config-edit-form admin-edit-form">
+  <form method="post" action="/admins/add" class="config-edit-form admin-edit-form" data-admin-edit-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="form-grid">
       <label class="field-wide">

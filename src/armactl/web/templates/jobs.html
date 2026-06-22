@@ -1,5 +1,6 @@
 {% extends "layout.html" %}
 {% block title %}{{ t("Jobs - armactl web") }}{% endblock %}
+{% block extra_scripts %}<script defer src="{{ url_for('static', path='/js/jobs.js') }}?v={{ web_static_version }}"></script>{% endblock %}
 {% block heading %}{{ t("Operations") }}{% endblock %}
 {% block topbar_actions %}
 <a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
@@ -13,6 +14,7 @@
 {% macro job_id_list(job_ids) -%}
   {%- for job_id in job_ids -%}#{{ job_id }}{% if not loop.last %}, {% endif %}{%- endfor -%}
 {%- endmacro %}
+<div data-jobs-refresh-root data-jobs-refresh-interval-ms="5000">
 {% if job_store_diagnostics %}
 <section class="panel full-width job-store-integrity-panel" id="job-store-integrity">
   <h2>{{ t("Job-store integrity") }}</h2>
@@ -104,13 +106,13 @@
             <div class="job-output-grid">
               {% if job.stdout_tail %}
                 <section class="job-output-block">
-                  <h3>{{ t("Stdout tail") }}</h3>
+                  <h3>{{ t("Last stdout lines") }}</h3>
                   <pre>{{ job.stdout_tail }}</pre>
                 </section>
               {% endif %}
               {% if job.stderr_tail %}
                 <section class="job-output-block">
-                  <h3>{{ t("Stderr tail") }}</h3>
+                  <h3>{{ t("Last stderr lines") }}</h3>
                   <pre>{{ job.stderr_tail }}</pre>
                 </section>
               {% endif %}
@@ -123,4 +125,5 @@
     <p class="muted">{{ t("No background jobs.") }}</p>
   {% endif %}
 </section>
+</div>
 {% endblock %}

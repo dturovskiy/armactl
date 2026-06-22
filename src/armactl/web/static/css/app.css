@@ -1179,9 +1179,19 @@ button.danger {
   color: var(--error);
 }
 
-.job-card-running,
+.job-card-running {
+  border-left-color: var(--accent);
+}
+
 .job-status-running {
+  color: var(--accent);
+}
+
+.job-card-queued {
   border-left-color: var(--warning);
+}
+
+.job-status-queued {
   color: var(--warning);
 }
 

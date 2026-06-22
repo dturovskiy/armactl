@@ -169,6 +169,37 @@ def test_admin_action_helper_calls_admins_manager_add_and_reports_update(
     assert calls == [(config_path, "76561198000000002", "Updated Captain")]
 
 
+def test_admin_action_helper_trims_pasted_admin_fields(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import admin_actions
+
+    config_path = _write_admin_config(tmp_path, ["76561198000000002"])
+    calls: list[tuple[Path, str, str]] = []
+    monkeypatch.setattr(
+        admin_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def add_admin(path: Path, admin_reference: str, name: str = "") -> bool:
+        calls.append((path, admin_reference, name))
+        return False
+
+    monkeypatch.setattr(admin_actions.admins_manager, "add_admin", add_admin)
+
+    result = admin_actions.run_admin_action(
+        admin_actions.ACTION_ADD,
+        admin_reference="\t 76561198000000002 \n",
+        label="\t Updated Captain \r\n",
+    )
+
+    assert result.success is True
+    assert result.changed is True
+    assert calls == [(config_path, "76561198000000002", "Updated Captain")]
+
+
 def test_admin_action_helper_returns_controlled_backend_error(
     tmp_path: Path,
     monkeypatch,

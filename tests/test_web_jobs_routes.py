@@ -114,13 +114,14 @@ def test_unauthenticated_jobs_redirects_to_login(tmp_path: Path):
 
 def test_authenticated_owner_sees_jobs_page(tmp_path: Path):
     from armactl.web.app import create_app
-    from armactl.web.jobs import create_job, mark_job_running, mark_job_succeeded
+    from armactl.web.jobs import append_job_output, create_job, mark_job_running, mark_job_succeeded
 
     password = "owner jobs password"
     setup_owner_user(tmp_path, "owner", password)
     db_path = tmp_path / "web" / "web.db"
     job = create_job(db_path, kind="safe:test", requested_by_username="owner")
     mark_job_running(db_path, job.id, current_step="Working", progress_current=1, progress_total=2)
+    append_job_output(db_path, job.id, stdout="step output")
     mark_job_succeeded(db_path, job.id, result_message="Job completed.", current_step="Done")
     client = _client(create_app(data_root=tmp_path))
     _login(client, "owner", password)
@@ -130,13 +131,29 @@ def test_authenticated_owner_sees_jobs_page(tmp_path: Path):
     assert response.status_code == 200
     assert "Operations" in response.text
     assert "Background jobs" in response.text
+    assert "/static/js/jobs.js" in response.text
+    assert "data-jobs-refresh-root" in response.text
     assert "No pending operator work." in response.text
     assert "safe:test" in response.text
     assert "succeeded" in response.text
     assert "Job completed." in response.text
+    assert "Last stdout lines" in response.text or "Останні рядки stdout" in response.text
     assert "owner" in response.text
     assert 'action="/logout"' in response.text
 
+
+def test_jobs_js_static_asset_is_served(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.get("/static/js/jobs.js", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "javascript" in response.headers["content-type"]
+    assert "data-jobs-refresh-root" in response.text
+    assert "job-card-running" in response.text
+    assert "background-jobs" in response.text
 
 def test_jobs_permission_denied_returns_controlled_403(
     tmp_path: Path,
@@ -231,6 +248,8 @@ def test_jobs_page_distinguishes_empty_pending_work_and_background_jobs(tmp_path
     assert response.status_code == 200
     assert "Pending operator work" in response.text
     assert "Background jobs" in response.text
+    assert "/static/js/jobs.js" in response.text
+    assert "data-jobs-refresh-root" in response.text
     assert "No pending operator work." in response.text
     assert "No background jobs." in response.text
     assert "No jobs yet." not in response.text

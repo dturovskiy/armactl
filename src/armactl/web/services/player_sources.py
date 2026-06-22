@@ -11,7 +11,7 @@ from armactl.web.services.player_identity import (
     safe_player_text,
 )
 
-PLAYER_ROSTER_TIMEOUT_SECONDS = 0.35
+PLAYER_ROSTER_TIMEOUT_SECONDS = 1.5
 PLAYER_A2S_TIMEOUT_SECONDS = 0.35
 
 

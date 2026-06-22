@@ -42,7 +42,7 @@ from armactl.web.jobs import (
     mark_job_running,
     mark_job_succeeded,
 )
-from armactl.web.jobs.store import MAX_JOB_OUTPUT_CHARS
+from armactl.web.jobs.store import MAX_JOB_OUTPUT_CHARS, TRUNCATED_JOB_OUTPUT_PREFIX
 from armactl.web.runtime import ensure_web_db
 from armactl.web.runtime.job_store_maintenance import (
     JOB_STORE_DUPLICATE_ACTIVE_REPAIR_AT_META_KEY,
@@ -428,6 +428,7 @@ def test_job_output_tail_is_bounded_and_redacted(tmp_path: Path):
     updated = append_job_output(db_path, job.id, stdout=output, stderr=error_output)
 
     assert len(updated.stdout_tail) <= MAX_JOB_OUTPUT_CHARS
+    assert updated.stdout_tail.startswith(TRUNCATED_JOB_OUTPUT_PREFIX)
     assert updated.stdout_tail.endswith("tail-marker password=***")
     assert "hunter2" not in updated.stdout_tail
     assert "secret-value" not in updated.stderr_tail
@@ -536,6 +537,7 @@ def test_handler_output_is_bounded_and_redacted(tmp_path: Path):
 
     assert result.job.status == JOB_STATUS_SUCCEEDED
     assert len(result.job.stdout_tail) <= MAX_JOB_OUTPUT_CHARS
+    assert result.job.stdout_tail.startswith(TRUNCATED_JOB_OUTPUT_PREFIX)
     assert "hunter2" not in result.job.stdout_tail
     assert result.job.stdout_tail.endswith("password=***")
     assert "secret-value" not in result.job.stderr_tail

@@ -889,6 +889,8 @@
     "Result": "Результат",
     "Stdout tail": "Хвіст stdout",
     "Stderr tail": "Хвіст stderr",
+    "Last stdout lines": "Останні рядки stdout",
+    "Last stderr lines": "Останні рядки stderr",
     "not started": "не запущено",
     "not finished": "не завершено",
     "queued": "у черзі",

@@ -31,6 +31,7 @@ MAX_JOB_STEP_LENGTH = 200
 MAX_JOB_MESSAGE_LENGTH = 1000
 MAX_JOB_ERROR_CLASS_LENGTH = 200
 MAX_JOB_OUTPUT_CHARS = 8000
+TRUNCATED_JOB_OUTPUT_PREFIX = "... output truncated ...\n"
 DEFAULT_RECENT_JOB_LIMIT = 20
 MAX_RECENT_JOB_LIMIT = 100
 
@@ -108,19 +109,30 @@ def _safe_job_text(value: object, *, max_length: int) -> str:
     return text
 
 
+def _tail_with_truncation_marker(text: str, *, max_length: int) -> str:
+    if len(text) <= max_length:
+        return text
+    marker = TRUNCATED_JOB_OUTPUT_PREFIX
+    tail_length = max(max_length - len(marker), 0)
+    tail = text[-tail_length:] if tail_length else ""
+    newline_index = tail.find("\n")
+    if newline_index > 0 and newline_index < len(tail) - 1:
+        tail = tail[newline_index + 1 :]
+    return f"{marker}{tail}"[-max_length:]
+
+
 def _safe_tail(existing: str, chunk: object, *, max_length: int = MAX_JOB_OUTPUT_CHARS) -> str:
-    safe_chunk = _sanitize_job_text(chunk)
-    if len(safe_chunk) > max_length:
-        safe_chunk = safe_chunk[-max_length:]
+    safe_chunk = _tail_with_truncation_marker(
+        _sanitize_job_text(chunk),
+        max_length=max_length,
+    )
     if not safe_chunk:
         combined = existing
     elif existing:
         combined = f"{existing}\n{safe_chunk}"
     else:
         combined = safe_chunk
-    if len(combined) > max_length:
-        return combined[-max_length:]
-    return combined
+    return _tail_with_truncation_marker(combined, max_length=max_length)
 
 
 def _normalize_kind(kind: str) -> str:

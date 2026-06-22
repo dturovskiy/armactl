@@ -176,6 +176,8 @@ def test_authenticated_owner_can_view_management_pages(tmp_path: Path, monkeypat
     assert admins_response.status_code == 200
     assert "ABC123" in admins_response.text
     assert "Local Captain" in admins_response.text
+    assert "/static/js/admins.js" in admins_response.text
+    assert "data-admin-edit-form" in admins_response.text
     assert bot_response.status_code == 200
     assert "Token configured" in bot_response.text
     assert "raw-bot-token-secret" not in bot_response.text

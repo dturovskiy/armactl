@@ -38,7 +38,9 @@ def _static_asset_version() -> str:
         STATIC_DIR / "css" / "app.css",
         STATIC_DIR / "js" / "dashboard.js",
         STATIC_DIR / "js" / "preferences.js",
+        STATIC_DIR / "js" / "admins.js",
         STATIC_DIR / "js" / "service_actions.js",
+        STATIC_DIR / "js" / "jobs.js",
     )
     mtimes: list[int] = []
     for candidate in candidates:

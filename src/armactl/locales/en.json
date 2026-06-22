@@ -293,6 +293,8 @@
     "Error": "Error",
     "Stdout tail": "Stdout tail",
     "Stderr tail": "Stderr tail",
+    "Last stdout lines": "Last stdout lines",
+    "Last stderr lines": "Last stderr lines",
     "not started": "not started",
     "not finished": "not finished",
     "queued": "queued",
