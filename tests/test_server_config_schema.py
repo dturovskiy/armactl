@@ -118,6 +118,11 @@ def test_web_tui_cli_safe_fields_share_registry_paths() -> None:
     assert third_person.audit_field_name == "disable_third_person"
     assert third_person.ui is not None
     assert third_person.ui.label == "Disable third-person view"
+    assert third_person.ui.helper_text == ""
+    visible = web_fields["visible"]
+    assert visible.ui is not None
+    assert visible.ui.label == "Show server in server browser"
+    assert visible.ui.helper_text == ""
     assert {"name", "scenario_id", "max_players"} <= tui_fields.keys()
     assert {"name", "scenario_id", "max_players"} <= cli_fields.keys()
     assert "disable_third_person" not in tui_fields

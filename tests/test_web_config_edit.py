@@ -204,9 +204,11 @@ def test_config_edit_descriptor_registry_covers_current_safe_fields_only():
     assert third_person.ui is not None
     assert third_person.ui.control == "checkbox"
     assert third_person.ui.label == "Disable third-person view"
-    assert third_person.ui.helper_text == (
-        "When enabled, third-person camera/player third-person view is disabled."
-    )
+    assert third_person.ui.helper_text == ""
+    visible = next(descriptor for descriptor in descriptors if descriptor.form_name == "visible")
+    assert visible.ui is not None
+    assert visible.ui.label == "Show server in server browser"
+    assert visible.ui.helper_text == ""
 
 
 def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
@@ -257,10 +259,15 @@ def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
     assert "rcon_port" not in editable_names
     assert "password" not in editable_names
     assert "disableThirdPerson" not in response.text
+    assert "Show server in server browser" in response.text
+    assert (
+        "When disabled, the server can run but is hidden from the public server list."
+        not in response.text
+    )
     assert "Disable third-person view" in response.text
     assert (
         "When enabled, third-person camera/player third-person view is disabled."
-        in response.text
+        not in response.text
     )
     assert 'name="disable_third_person" value="true" checked' in response.text
 

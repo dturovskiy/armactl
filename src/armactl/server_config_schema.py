@@ -339,7 +339,11 @@ SERVER_CONFIG_FIELDS: tuple[ServerConfigField, ...] = (
         audit_field_name="visible",
         generated_default=True,
         template_variable="visible",
-        ui=U("Visible", "checkbox", UI_GROUP_CHECKBOX_GRID),
+        ui=U(
+            "Show server in server browser",
+            "checkbox",
+            UI_GROUP_CHECKBOX_GRID,
+        ),
     ),
     F(
         "server_max_view_distance",
@@ -400,14 +404,7 @@ SERVER_CONFIG_FIELDS: tuple[ServerConfigField, ...] = (
         audit_field_name="disable_third_person",
         generated_default=True,
         template_variable="disable_third_person",
-        ui=U(
-            "Disable third-person view",
-            "checkbox",
-            UI_GROUP_CHECKBOX_GRID,
-            helper_text=(
-                "When enabled, third-person camera/player third-person view is disabled."
-            ),
-        ),
+        ui=U("Disable third-person view", "checkbox", UI_GROUP_CHECKBOX_GRID),
     ),
     F(
         "fast_validation",
