@@ -571,7 +571,9 @@ Implemented polish and future work:
   restart-required/pending-work behavior.
 - `/files` remains for safe browse/download/upload flows. Future delete and text
   editing, if added, must be separate from `/config`, root/path/extension/size
-  limited, backed up, and audited.
+  limited, backed up, and audited. The Safe Text File Editor is tracked in
+  `docs/web-text-file-editor-plan.md` and must not become a generic edit-any-file
+  shortcut.
 - ServerAdminTools runtime config belongs to future Mod Settings or Diagnostics.
   Dashboard should show SAT only for real health/guard problems, and SAT
   admins/gameMasters/bans edits must preserve unrelated SAT config.

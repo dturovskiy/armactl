@@ -397,7 +397,7 @@ that the whole web panel is still only planned.
 - [x] Додати download single file для web file browser
 - [x] Додати upload одного нового файла в server root для web file browser без overwrite
 - [ ] Додати повний threat-model note для uploads beyond current guards: no execute, no auto-unpack, size/path/name limits, bounded redacted preview; upload-new-file already has path/name/size checks and audit
-- [ ] Якщо future text editor для `/files` потрібний, обмежити root/path/extension/size, додати backup/audit, і не використовувати його як primary config editor
+- [ ] Спроєктувати/реалізувати Safe Text File Editor за `docs/web-text-file-editor-plan.md`: окрема `/files` edit-flow для allowlisted text files, Save/Save as/dirty-state/hotkeys/search/backup/diff/validation/audit, і не primary config editor
 - [ ] Додати safe single-file delete для web file browser: files only, no dirs, `files:delete`, confirmation, CSRF, audit, no symlink/traversal escape
 - [ ] Додати atomic overwrite для web file browser з окремим permission/confirmation/backup/audit
 - [ ] Додати delete/rename для web file browser

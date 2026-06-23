@@ -341,9 +341,11 @@ because they can destroy server state or become filesystem escape primitives.
 
 `/files` remains for safe browsing, download, upload, and future bounded delete
 flows. It must not become a general raw config editor. Text preview is for
-inspection, not the primary `config.json` workflow. If future text-file editing
-is added, it must be separate from `/config`, limited by root/path/extension and
-size, and include backup plus audit logging.
+inspection, not the primary `config.json` workflow. Future text-file editing is
+tracked as a separate Safe Text File Editor feature in
+`docs/web-text-file-editor-plan.md`; it must be separate from `/config`, limited
+by root/path/extension and size, and include editor basics, backup, validation,
+diff/review, and audit logging.
 
 The next practical file slice should be single-file delete for cleanup of
 operator-owned artifacts such as old backups and logs. Requirements:
