@@ -54,10 +54,16 @@ explicitly a release task.
 - Normal `config.json` editing belongs on `/config` with structured safe
   controls. Do not turn `/files` into the primary config editor.
 - Server config field/default ownership lives in `src/armactl/server_config_schema.py`. Generated defaults are registry plus `templates/config.json.j2`; `docs/examples/config.full-example.json` is sample-only. Web, TUI, and CLI structured config surfaces should use the shared registry/projections and scalar validation, not independent field truth.
+- Config UX is intentionally layered: basic `/config` safe fields are visible by
+  default; future advanced structured fields must open through an explicit
+  advanced action with `settings:advanced`; full JSON edit/import/export is a
+  break-glass `/config` mode with `config:raw_edit`, not a `/files` shortcut.
 - Any raw JSON config editor must be a future owner/admin-only break-glass
   button or mode inside `/config`, with explicit permission, CSRF, double
   confirmation, JSON validation, backup, audit, redacted errors, and pending
-  restart/work behavior.
+  restart/work behavior. Config file upload/replace must go through this
+  validation path; `/files` may browse/download allowed files but must not be
+  the normal config replacement workflow.
 - Player registry and moderation must use reliable identity/admin references;
   never invent IDs from nicknames or A2S slot-only data, and do not store player
   IPs by default without a future privacy/security review.
@@ -90,10 +96,11 @@ explicitly a release task.
   not authorization by itself; every route/action still checks a named
   permission.
 - Treat config editing as three levels: `settings:manage` for existing
-  allowlisted safe fields, `settings:advanced` for future ports/RCON/A2S,
-  crossplay/platform/third-person/security fields, and `config:raw_edit` for
-  owner/mega-eligible break-glass raw JSON with double confirmation, validation,
-  backup, audit, redacted errors, and pending-work behavior.
+  allowlisted safe fields including the implemented `disableThirdPerson` toggle,
+  `settings:advanced` for future ports/RCON/A2S, crossplay/platform/security
+  fields, and `config:raw_edit` for owner/mega-eligible break-glass raw JSON
+  with double confirmation, validation, backup, audit, redacted errors, and
+  pending-work behavior.
 - Keep pending operator work separate from background jobs. Do not fake pending
   restart work as a queued job, and do not hide pending work just because the
   background job list is empty.
@@ -429,8 +436,13 @@ Completed foundation:
     adapter over `mods_manager` helpers, render controlled
     success/error/unchanged states, show restart-required only after real
     changes, and append redacted JSONL audit events with compact cleanup
-    summary for remove. Bulk paste/import/export/clear-all/modpack workflows,
-    raw JSON editing, and archive extraction remain future work.
+    summary for remove. Future add-by-link/ID should accept supported
+    Workshop/mod URLs or pasted text containing a 16-hex ID, reuse
+    `mods_manager.extract_mod_ids` and shared validation, fetch metadata/name
+    through a service boundary when available, allow manual name fallback, and
+    keep `version` optional/omitted by default unless the operator explicitly
+    pins one. Bulk paste/import/export/clear-all/modpack workflows, raw JSON
+    editing, and archive extraction remain future work.
 32. Players / moderation foundation: `/admins` now includes a lightweight
     moderation section backed by the existing `player_view`/RCON roster path.
     It shows current players, filters by nickname or reliable ID through a
@@ -544,14 +556,15 @@ Implemented polish and future work:
   work Linux/systemd-first until service/log/path/firewall/process/metrics and
   install/update adapter implementations are designed and tested.
 - Config editor expansion now has a descriptor-backed allowlist foundation for
-  the existing seven web-safe fields. Further expansion still needs verified
-  `config.json` schema details, UI grouping, and safe/dangerous/secret/runtime
-  field decisions. Future third-person and crossplay/platform controls belong in structured
-  `/config` safe UI only after exact Arma Reforger keys, value shapes, restart
-  behavior, and backend validation are verified; do not add them through
-  `/files`. Booleans should be toggles/checkboxes, platform lists checkbox
-  groups or segmented controls, numeric fields validated inputs, secrets kept
-  out of casual views, and raw JSON kept as owner/mega-only break-glass work.
+  eight web-safe fields, including the implemented `disableThirdPerson` safe
+  toggle. Further expansion still needs verified `config.json` schema details,
+  UI grouping, and safe/dangerous/secret/runtime field decisions. Future
+  crossplay/platform controls belong in structured `/config` safe UI only after
+  exact Arma Reforger keys, value shapes, restart behavior, and backend
+  validation are verified; do not add them through `/files`. Booleans should be
+  toggles/checkboxes, platform lists checkbox groups or segmented controls,
+  numeric fields validated inputs, secrets kept out of casual views, and raw
+  JSON kept as owner/mega-only break-glass work.
 - Emergency raw JSON config editing remains future owner/admin-only break-glass
   work inside `/config`, not `/files`, with permission, CSRF, double
   confirmation, JSON validation, backup, audit, redacted errors, and clear
@@ -640,10 +653,10 @@ Next recommended implementation order:
 8. Use `docs/config-schema-inventory.md` before extending `/config`. The
    inventory classifies current web/TUI/template/read-only fields, validation,
    restart/runtime unknowns, risk class, permission, and UI control type. The
-   current web-safe set remains `game.name`, `game.scenarioId`,
-   `game.maxPlayers`, `game.visible`, `game.gameProperties.battlEye`,
-   `game.gameProperties.serverMaxViewDistance`, and
-   `game.gameProperties.serverMinGrassDistance` under `settings:manage`, now
+   current web-safe set is `game.name`, `game.scenarioId`, `game.maxPlayers`,
+   `game.visible`, `game.gameProperties.disableThirdPerson`,
+   `game.gameProperties.battlEye`, `game.gameProperties.serverMaxViewDistance`,
+   and `game.gameProperties.serverMinGrassDistance` under `settings:manage`,
    backed by `CONFIG_FIELD_DESCRIPTORS` for parser/validation, risk,
    permission, redaction, audit naming, restart behavior, and UI metadata.
    TUI-only ports and secrets such as `bindPort`/`publicPort`, `a2s.port`,
@@ -651,12 +664,11 @@ Next recommended implementation order:
    future advanced/security policy before any web mutation.
 9. Add new safe config controls only after key/value/default/restart behavior is
    verified from official docs or real config samples and added to the inventory.
-   `game.gameProperties.disableThirdPerson` is locally template-confirmed, but
-   local defaults differ (`false` sample, `true` Jinja), and it still needs
-   upstream semantics/default/restart verification. Crossplay/platform keys
-   are not locally confirmed; do not invent them. Safe controls belong in
-   `/config`, not `/files`; raw JSON remains owner/mega break-glass, not a
-   normal editor.
+   `game.gameProperties.disableThirdPerson` is the first implemented safe
+   config toggle; its checkbox is direct, so checked stores `true`. Crossplay
+   and platform keys are not locally confirmed; do not invent them. Safe
+   controls belong in `/config`, not `/files`; raw JSON remains owner/mega
+   break-glass, not a normal editor.
 10. Continue server update hardening: add formal stop/drain/restart ownership
    policy, production-scale active-job lookup validation, standalone worker
    hardening, and release/VM smoke. The current latest check/cache slice is
@@ -668,9 +680,10 @@ Next recommended implementation order:
    through existing backend modules; keep any raw JSON config editor as a
    separate owner/admin-only `/config` break-glass design. Advanced/bulk admin
    workflows remain future and should still avoid mixing game admins with web
-   users/roles. Advanced modpack workflows such as bulk paste, import/export,
-   and clear-all remain future and should keep remove/cleanup confirmations
-   explicit.
+   users/roles. Advanced modpack workflows such as add-by-link/ID, bulk paste,
+   import/export, and clear-all remain future and should reuse `mods_manager`
+   parsing/validation/import/export primitives, keep `version` optional unless
+   explicitly pinned, and keep remove/cleanup confirmations explicit.
 12. Add atomic overwrite/delete/rename flows on top of the split safe
    filesystem adapter after single-file upload has been reviewed; do not use
    `/files` as the normal config editor.

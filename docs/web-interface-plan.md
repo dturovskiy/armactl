@@ -259,13 +259,15 @@ Network/A2S/RCON, Security, Advanced, or Danger Zone. For each field, decide
 whether it is safe, dangerous, secret, runtime/mod-specific, or break-glass raw
 JSON work.
 
-After that inventory, explicitly evaluate safe UI controls for third-person view
-and crossplay/platform settings. Do not add these fields until the exact Arma
-Reforger config keys, value shapes, defaults, restart behavior, and backend
-validation are verified against the real schema/backend or official docs. If
-they are safe, non-secret server config fields, expose them through structured
-`/config` controls, not through `/files`. Raw JSON editing remains a separate
-owner/mega-eligible break-glass flow inside `/config`.
+After that inventory, the first safe gameplay toggle is implemented for
+`game.gameProperties.disableThirdPerson`. The UI label follows the config key
+action (`Disable third-person view`), and checked means the stored config value
+is `true`. Crossplay/platform settings remain blocked until exact Arma Reforger
+config keys, value shapes, defaults, restart behavior, and backend validation
+are verified against the real schema/backend or official docs. Safe, non-secret
+server config fields belong in structured `/config` controls, not `/files`. Raw
+JSON editing remains a separate owner/mega-eligible break-glass flow inside
+`/config`.
 
 Form controls should match the data shape: booleans become toggles or
 checkboxes, supported platform/crossplay lists become checkbox groups or
@@ -278,6 +280,21 @@ config workflow. If added, it must be an owner/admin-only button or mode inside
 `/config`, never in `/files`, and require an explicit permission, CSRF, double
 confirmation, JSON validation, backup before save, audit logging, redacted
 errors, and clear restart-required or pending-work behavior.
+
+The intended config UX has three explicit levels:
+
+1. Basic config is the default `/config` view and contains the most common
+   allowlisted fields under `settings:manage`.
+2. Advanced structured config is future work inside `/config`, opened only by an
+   explicit advanced action and guarded by `settings:advanced`; it should still
+   use schema-backed widgets, validation, backup, audit, and pending-work
+   behavior rather than free-form JSON.
+3. Full config JSON edit/import/export is a break-glass `/config` mode, not a
+   `/files` workflow. If implemented, it needs `config:raw_edit`, owner/mega
+   eligibility, double confirmation, JSON validation before write, backup,
+   audit, redacted errors, and clear rollback/recovery notes. Downloading a
+   config backup/export can be useful, but upload/replace must still go through
+   the `/config` break-glass validation path.
 
 ServerAdminTools runtime config belongs to future `Mod Settings` or
 `Diagnostics`, not dashboard noise. The dashboard should show SAT only for real
@@ -416,7 +433,7 @@ The review must cover:
   | Feature | Minimum permission | Extra gates |
   |---------|--------------------|-------------|
   | Structured config edit | `settings:manage` | allowlisted fields only, backup, audit, pending work |
-  | Advanced config fields, including ports, RCON/A2S, crossplay, platform policy, third-person, and security toggles | `settings:advanced` | schema inventory, safe widgets, validation, redacted errors, explicit restart warning |
+  | Advanced config fields, including ports, RCON/A2S, crossplay, platform policy, and security toggles | `settings:advanced` | schema inventory, safe widgets, validation, redacted errors, explicit restart warning |
   | Emergency raw JSON config editor | `config:raw_edit` | owner/mega eligibility, double confirmation, JSON validation, backup before save, audit, pending work, secrets redacted |
   | File text edit/upload | `files:write` plus `files:edit` when editing existing files | allowlisted roots, extension/size/path checks, backup/audit, no primary config editing through `/files` |
   | File delete/overwrite/rename/archive extraction | `files:delete` or operation-specific permission | files only unless separately designed, CSRF, confirmation, traversal/symlink checks, audit, backup/restore path when practical |
@@ -1560,7 +1577,7 @@ Internal API readiness:
 | Read-only status/dashboard | High | Implemented through one dashboard DTO from discovery, service/timer status, metrics, players, config summary, mods, web runtime, and safe bot summary |
 | Start/stop/restart | High | Default-instance web controls are implemented with auth, confirmation, CSRF, audit log, and route-level permission checks |
 | Players/moderation | Medium | Current-player moderation foundation is implemented on `/admins` using `player_view`/RCON roster data and add-to-game-admin only for reliable IDs; `/players` and instance-scoped `players.db` are implemented for reliable IDs, nickname history, first/last seen, and seen count; source collection, registry storage, page DTOs, and refresh+audit workflow are split into separate modules; future session/activity history with duration, detail views, extra ingestion adapters, and ban-list management remain; do not infer IDs from nicknames or A2S counts, and do not store IPs by default |
-| Config/mods/admins/bot settings | Medium-high | Basic allowlisted config editing is implemented through `config_manager`; future config expansion must start with a verified config schema inventory and safe controls in `/config`, not `/files`; raw JSON remains an owner/admin-only `/config` break-glass flow; basic mod add/update/enable/disable/remove is implemented through `mods_manager`; game admin add/update/remove is implemented through `admins_manager`; bot mutations, advanced modpack/bulk mod flows, advanced admin bulk/raw flows, and broader config fields remain future work with form validation, CSRF, and redacted error rendering |
+| Config/mods/admins/bot settings | Medium-high | Basic allowlisted config editing is implemented through `config_manager`; future config expansion must start with a verified config schema inventory and safe controls in `/config`, not `/files`; raw JSON remains an owner/admin-only `/config` break-glass flow; basic mod add/update/enable/disable/remove is implemented through `mods_manager`; future mod add-by-link/ID and bulk flows must reuse `mods_manager` parsing/validation, keep `version` optional/pinned only by explicit operator choice, and avoid route-local parsers; game admin add/update/remove is implemented through `admins_manager`; bot mutations, advanced admin bulk/raw flows, and broader config fields remain future work with form validation, CSRF, and redacted error rendering |
 | Logs/report | Medium-high | Bounded read-only audit, fixed journal, and redacted report preview views are implemented; add streaming/download later without `os.execvp` |
 | Install/repair/update | Medium-high | Install, repair, update-check, and stopped-server update execution are explicit web background jobs. Dashboard/routes use appmanifest/cache read models and service-layer enqueue workflows; routes must not block request threads or parse SteamCMD output. Future hardening: human-readable versions, stop/drain/restart ownership, production-scale worker validation, and standalone worker daemon. |
 | File manager | Medium | Safe adapter, browser foundation, single-file download, and server-root upload-new-file are implemented; overwrite/delete/rename and remote mount support remain future work; `/files` must not become the raw `config.json` editor |
@@ -1605,6 +1622,7 @@ toggles.
 
 Current normal web-safe fields remain limited to `game.name`, `game.scenarioId`,
 `game.maxPlayers`, `game.visible`, `game.gameProperties.battlEye`,
+`game.gameProperties.disableThirdPerson`,
 `game.gameProperties.serverMaxViewDistance`, and
 `game.gameProperties.serverMinGrassDistance`. They stay under `settings:manage`
 with backup, audit, and pending-restart behavior, now described by
@@ -1617,16 +1635,15 @@ settings, and similar network/security fields belong behind future
 `settings:advanced`; passwords and secrets require a stronger future secret
 policy and must not be rendered casually.
 
-Local sources confirm `game.gameProperties.disableThirdPerson` as a boolean in
-the generated config template and full example, but their values differ (`false` in the
-full example and `true` in the Jinja template), and upstream semantics plus
-restart behavior still need verification before any web control is added. Local
-sources do not confirm crossplay/platform keys or value shapes; do not invent
-them. Candidate
-non-secret fields such as `game.gameProperties.networkViewDistance`,
-`game.gameProperties.fastValidation`, sample-only VON booleans, and
-`operating.lobbyPlayerSynchronise` remain blocked on verification and explicit
-risk/permission decisions.
+`game.gameProperties.disableThirdPerson` is now implemented as the first safe
+config toggle. The runtime/generated default is `true` in the shared schema and
+`templates/config.json.j2`; the full example remains sample-only. The checkbox
+is labeled `Disable third-person view`, and checked means the stored config key
+is `true`. Local sources do not confirm crossplay/platform keys or value shapes;
+do not invent them. Candidate non-secret fields such as
+`game.gameProperties.networkViewDistance`, `game.gameProperties.fastValidation`,
+sample-only VON booleans, and `operating.lobbyPlayerSynchronise` remain blocked
+on verification and explicit risk/permission decisions.
 
 The source-of-truth audit is captured in `docs/source-of-truth-audit-results-20260622.md`.
 The follow-up foundation slice is now implemented: runtime server config source
@@ -1639,10 +1656,11 @@ paths/defaults and shared scalar validation for existing non-secret fields, and
 CLI `config set-*` commands remain compatibility adapters over registered
 fields and validation.
 
-The shared-registry allowlist foundation is now implemented for the existing
-seven fields. The next expansion slice should add controls only after field
-semantics, defaults, restart behavior, permissions, and risk class are verified.
-Each new field still needs parser/validation, audit changed-field naming,
+The shared-registry allowlist foundation is now implemented for the eight safe
+fields, including the first gameplay toggle. The next expansion slice should
+add controls only after field semantics, defaults, restart behavior,
+permissions, and risk class are verified. Each new field still needs
+parser/validation, audit changed-field naming,
 redaction rules, and focused tests proving that secrets and unrelated advanced
 fields are preserved. Safe controls stay in `/config`; raw JSON remains
 owner/mega break-glass work and `/files` must not become the config editor.
@@ -1654,7 +1672,7 @@ owner/mega break-glass work and `/files` must not become the config editor.
 | Install/repair/update jobs | Implemented as web background jobs for install, repair, update-check, and stopped-server update | `installer`, `repair`, `web_jobs`, `server_versions`, Steam appmanifest/latest-build cache | Keep update as check-first/no-op-aware flow: if installed == latest, show controlled already-up-to-date result and do not enqueue update; if latest is unknown/check-failed, fail closed; if game server is running, block update until stopped. No Steam secrets in `web.db`. |
 | Logs/report | Implemented for journal/report, TUI live view, and bounded read-only web views | `logs`, `report`, `TailLogScreen` | Web exposes fixed sources and redacted report preview; add browser streaming/download later |
 | Config editor | Implemented in structured and raw TUI flows | `config_manager`, `ConfigEditorScreen`, `RawConfigScreen` | Web supports allowlisted basic field edits through `config_manager` behind `settings:manage`; future web expansion should inventory verified fields into Basic, Gameplay, Visibility/Crossplay, Network/A2S/RCON, Security, Advanced, and Danger Zone groups; advanced fields need `settings:advanced`; generic/raw JSON and secrets remain out of scope except for a future owner/mega-eligible `/config` break-glass mode with `config:raw_edit` |
-| Mods manager | Implemented beyond basic parity | `mods_manager`, `mods_state`, `addon_cleanup`, `ModManagerScreen` | Web can view active/disabled mods and add/update/enable/disable/remove one mod at a time through `mods_manager` with auth, CSRF, `mods:manage`, confirmation for remove, and audit; bulk paste/import/export/clear-all/modpack workflows remain future |
+| Mods manager | Implemented beyond basic parity | `mods_manager`, `mods_state`, `addon_cleanup`, `ModManagerScreen` | Web can view active/disabled mods and add/update/enable/disable/remove one mod at a time through `mods_manager` with auth, CSRF, `mods:manage`, confirmation for remove, and audit. Future add-by-link/ID should accept supported Workshop/mod URLs or pasted text containing a 16-hex ID, reuse `extract_mod_ids`/shared validators, fetch name metadata through a service boundary when available, allow manual name fallback, and keep `version` optional/omitted by default unless the operator explicitly pins a version. Bulk paste/import/export/clear-all/modpack workflows remain future and must reuse the same primitives. |
 | Server admins | Implemented for Arma `game.admins` | `admins_manager`, `AdminManagerScreen` | Web can view game admins and add/update/remove one admin at a time through `admins_manager` with auth, CSRF, `admins:manage`, confirmation for remove, and audit; keep game admins separate from web users/roles |
 | Player registry and bans | Registry foundation implemented, bans future | `player_sources` wraps current `player_view`/RCON data; `player_registry` owns instance SQLite storage; logs/RCON/SAT may become ingestion sources after adapter review | `/admins` exposes current players with server-rendered search and add-to-game-admin only when a reliable identity ID is available; `/players` stores reliable IDs and nickname history in instance-scoped SQLite through explicit refresh; page DTOs live in `page_models/players.py` and refresh/audit lives in `player_actions`; next steps are recent/history/detail views, session duration with connected/disconnected timestamps, extra ingestion adapters, and ban-list management with reliable IDs only, auth, permissions, CSRF, confirmation, backups, audit logging, and no IP storage by default |
 | Backups/cleanup | Partially implemented | `config_manager` backups, `cleaner`, `CleanupScreen` | Config backups exist; full server backup/restore is future work |
@@ -1781,8 +1799,9 @@ MVP views:
 - Logs: latest journal lines, later live streaming
 - Config: safe structured summary plus allowlisted basic field editing with validation and adjacent backup
 - Mods: view active and disabled mods, add/update one mod, enable/disable, and
-  confirmed remove; bulk paste/import/export/clear-all/modpack workflows remain
-  future
+  confirmed remove; future add-by-link/ID, metadata lookup/manual name fallback,
+  optional version pinning, bulk paste/import/export/clear-all/modpack workflows,
+  and addon cleanup must reuse `mods_manager`/`addon_cleanup` primitives
 - Admins: view game admin IDs/local labels and add, update, or remove one admin
   at a time; advanced bulk/raw flows remain future
 - Bot: read-only Telegram status now; future safe configuration forms
@@ -2008,8 +2027,11 @@ not the foreground debug runner.
   work, not part of the normal operator config flow.
 - Basic mod add/update/enable/disable/remove is implemented through
   `mods_manager` with active/disabled sections, confirmation before remove,
-  and audit logging. Bulk paste/import/export/clear-all/modpack workflows
-  remain future work.
+  and audit logging. Future add-by-link/ID should parse supported URLs or
+  pasted text through shared mod-ID extraction, optionally fetch metadata/name,
+  allow manual name fallback, and keep `version` optional/omitted by default
+  unless explicitly pinned. Bulk paste/import/export/clear-all/modpack workflows
+  remain future work and must reuse these same backend primitives.
 - Game admin add/update/remove is implemented through `admins_manager`, kept
   separate from web users and roles. Advanced bulk/raw admin flows remain
   future work.

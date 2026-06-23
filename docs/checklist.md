@@ -314,11 +314,11 @@ that the whole web panel is still only planned.
 - [x] Почати config schema inventory seed: currently web-safe fields are `game.name`, `game.scenarioId`, `game.maxPlayers`, `game.visible`, `game.gameProperties.battlEye`, `game.gameProperties.serverMaxViewDistance`, and `game.gameProperties.serverMinGrassDistance`
 - [x] Complete config schema inventory for `config.json`: current web/TUI/template/read-only sources, validation, restart/runtime unknowns, risk class, permission, UI control type, and next-slice plan; result: `docs/config-schema-inventory.md`
 - [x] Classify TUI-only advanced fields before web edit: `bindPort`/`publicPort`, `a2s.port`, `rcon.port`, `game.password`, `game.passwordAdmin`, `rcon.password`; ports and RCON/A2S need future `settings:advanced`; passwords/secrets stay masked and need stronger future secret policy
-- [x] Mark local third-person/crossplay/platform candidates: `game.gameProperties.disableThirdPerson` is template-confirmed but needs upstream/default/restart verification; crossplay/platform keys are not locally confirmed and must not be invented
+- [x] Mark local third-person/crossplay/platform candidates: `game.gameProperties.disableThirdPerson` is now implemented as a safe `settings:manage` toggle with runtime default owned by schema/Jinja; crossplay/platform keys are not locally confirmed and must not be invented
 - [x] First safe config toggles foundation slice: moved the existing seven web-safe `/config` fields to a descriptor-backed allowlist with parser/validation, risk, permission, redaction, audit, restart/pending-work, UI metadata, and focused tests; no new toggles added
 - [x] Провести source-of-truth audit для JSON/config/state перед новими config toggles; результат: docs/source-of-truth-audit-results-20260622.md
 - [x] Перед новими config toggles: введено shared server config schema/default registry; Web/TUI/CLI safe overlapping fields йдуть через registry/projection; generated defaults = registry + templates/config.json.j2; docs/examples/config.full-example.json = sample-only
-- [ ] Next safe config toggle expansion: після schema/default registry додати third_person_view як позитивний UI-перемикач з інверсією у game.gameProperties.disableThirdPerson; keep secrets/raw JSON out of normal UI, keep /files out of config editing, and keep crossplay/platform blocked until real keys are confirmed
+- [x] First safe config toggle expansion: додано `disable_third_person` / `game.gameProperties.disableThirdPerson` як прямий UI-перемикач `Disable third-person view` без інверсії; checked => config key `true`; secrets/raw JSON лишаються поза normal UI, `/files` не є config editor, crossplay/platform blocked until real keys are confirmed
 - [x] Зафіксувати, що normal `config.json` editing живе у `/config`, не у `/files`; secrets/RCON/admin sensitive fields не показувати casually
 - [x] Додати `armactl-web.service` template і service commands
 - [x] Додати login rate limiting / auth abuse throttling для web login
@@ -336,9 +336,10 @@ that the whole web panel is still only planned.
 - [x] Провести TUI/Web parity inventory перед config schema work: звірити TUI main/manage screens з web routes і розділити стан на done/future/deliberately-not-now
 - [x] Зафіксувати current web parity done: login/session/CSRF, dashboard/status, start/stop/restart, install/repair/update jobs, `/updates`, basic `/config`, basic `/mods`, game admins, `/players`, `/files`, `/logs`, `/schedule`, bot read-only, public status endpoint
 - [ ] Перенести web Host Tests flow з TUI як allowlisted background diagnostic job з audit, bounded output і без raw shell
-- [ ] Додати web Maintenance/Cleanup flow: old logs/backups/dumps and unused workshop addons, з dry-run, confirmation, audit і rollback notes where possible
+- [ ] Додати web Maintenance/Cleanup flow: old logs/backups/dumps and unused workshop addons через існуючі backend helpers; для addon cleanup обов'язково reuse `addon_cleanup.cleanup_unconfigured_addons`, dry-run/analyze first, explicit confirmation, intent/outcome audit, preserve active + disabled mods, skip unknown dirs/symlinks/noncanonical paths, show deleted/skipped/errors/freed size, і не підміняти це generic file delete
 - [ ] Додати bot edit/service web flow через `bot_config`/bot service helpers: token masked, chat IDs validated, service actions audited; current `/bot` stays read-only until then
-- [ ] Додати modpack/bulk mod workflows з TUI parity: import append/replace, export, dedupe/cleanup, explicit confirmations and audit
+- [ ] Додати web mod add-by-link/ID flow: accept raw 16-hex Mod ID or supported Workshop/mod URL/pasted text containing an ID, parse through existing `mods_manager.extract_mod_ids`/validation primitives, fetch metadata/name through a service boundary when available, allow manual name fallback, keep version/pinned build optional and omitted by default, and route all writes through the mods service audit/pending-work flow
+- [ ] Додати modpack/bulk mod workflows з TUI parity: bulk paste, import append/replace, export, dedupe, cleanup dry-run, optional per-mod version/pinning, explicit confirmations and audit; reuse the same mod ID parser/validators and avoid a second source of truth
 - [ ] Deliberately not now: normal raw JSON editor, config editing through `/files`, terminal/host controls, file delete/edit/overwrite, banlist, paid/security-sensitive tools before policy/users/security foundation
 - [ ] Продовжити main web feature plan після config schema inventory: player history/banlist, timezone UX, users/security foundation, settings registry, dashboard redesign integration
 - [x] Додати read-only logs/report web views з bounded/redacted output
@@ -371,14 +372,15 @@ that the whole web panel is still only planned.
 - [x] Додати safe web add/update/remove для game admins через `admins_manager` з auth/CSRF/`admins:manage`/audit
 - [x] Додати basic web add/update/enable/disable/remove для mods через `mods_manager` з auth/CSRF/`mods:manage`/audit
 - [ ] Додати edit/save/delete flows для bot і розширених config полів через backend modules
-- [ ] Спроєктувати bulk paste/import/export/clear all/advanced modpack workflows для web mods окремим future flow
+- [ ] Спроєктувати bulk paste/import/export/clear all/advanced modpack workflows для web mods окремим future flow, але на тих самих `mods_manager` primitives: `modId` required, `name` metadata/manual label, `version` optional/pinned only when operator explicitly asks
 - [ ] Спроєктувати окремі mod settings pages для SAT та інших модів з власними runtime config checks
 - [ ] Спроєктувати SAT runtime edits для admins/gameMasters/bans як narrow field updates з backup/audit, не full overwrite unrelated SAT config
 - [x] Прибрати нейтральне SAT-missing повідомлення з dashboard; показувати SAT на dashboard тільки як реальну health/guard проблему
 - [ ] Спроєктувати network/advanced server settings page для game/A2S/RCON ports і sensitive server options
 - [ ] Спроєктувати diagnostics page для SAT/config/ports/paths/telemetry/log health checks
 - [ ] Спроєктувати advanced danger zone для raw JSON, backup restore і destructive maintenance actions
-- [ ] Розділити config permissions: `settings:manage` для allowlisted safe fields, `settings:advanced` для ports/RCON/A2S/crossplay/platform/third-person/security, `config:raw_edit` для break-glass raw JSON
+- [ ] Реалізувати future layered config UX beyond the documented contract: basic safe /config fields stay default, advanced structured mode opens only after explicit action plus settings:advanced, and full JSON edit/import/export is only /config break-glass with validation/backup/audit, never normal /files upload/replace
+- [ ] Розділити config permissions: `settings:manage` для allowlisted safe fields including the implemented third-person disable toggle, `settings:advanced` для ports/RCON/A2S/crossplay/platform/security, `config:raw_edit` для break-glass raw JSON
 - [ ] Спроєктувати owner/mega-eligible emergency raw JSON config editor як окремий button/mode у `/config`, не `/files`, з explicit permission/CSRF/double confirm/JSON validation/backup/audit/redacted errors/pending-work behavior
 - [x] Додати web moderation foundation на `/admins`: current players, server-rendered search, add-to-game-admin only with reliable identity
 - [x] Додати instance-scoped player registry foundation (`players.db`) для reliable IDs, nickname history, first/last seen і seen count
