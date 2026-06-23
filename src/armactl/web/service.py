@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
+import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -118,6 +121,66 @@ def check_web_service_runtime(project_root: Path | None = None) -> ServiceResult
             error=error_text or _("Unknown"),
         ),
         result.returncode or 1,
+    )
+
+
+def _health_check_host(bind_host: str) -> str:
+    normalized = bind_host.strip()
+    if normalized in {"", "0.0.0.0", "::", "[::]"}:
+        return "127.0.0.1"
+    if ":" in normalized and not normalized.startswith("["):
+        return f"[{normalized}]"
+    return normalized
+
+
+def web_health_url(config: WebRuntimeConfig) -> str:
+    host = _health_check_host(config.bind_host)
+    return f"http://{host}:{config.bind_port}/healthz"
+
+
+def check_web_http_health(
+    config: WebRuntimeConfig | None = None,
+    data_root: Path | None = None,
+    *,
+    timeout_seconds: float = 0.0,
+) -> ServiceResult:
+    try:
+        runtime_config = config or load_web_runtime_config(data_root)
+    except WebRuntimeConfigError as error:
+        return ServiceResult(
+            False,
+            tr(
+                "Web HTTP health check unavailable: {error}",
+                error=redact_sensitive_text(error),
+            ),
+            1,
+        )
+
+    url = web_health_url(runtime_config)
+    deadline = time.monotonic() + max(timeout_seconds, 0.0)
+    last_error = ""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    while True:
+        try:
+            with opener.open(url, timeout=1.0) as response:
+                if response.status == 200:
+                    return ServiceResult(True, _("Web HTTP health check is ready."))
+                last_error = f"HTTP {response.status}"
+        except (OSError, TimeoutError, urllib.error.URLError) as error:
+            last_error = redact_sensitive_text(error)
+
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.2)
+
+    return ServiceResult(
+        False,
+        tr(
+            "Web HTTP health check failed at {url}: {error}",
+            url=url,
+            error=last_error or _("Unknown"),
+        ),
+        1,
     )
 
 
@@ -278,10 +341,17 @@ def get_web_service_status(data_root: Path | None = None) -> dict[str, Any]:
         config_error = redact_sensitive_text(error)
 
     status = get_service_status(web_service_name())
+    if config is None:
+        http_result = ServiceResult(False, _("Web HTTP health check unavailable."), 1)
+    elif status.get("active"):
+        http_result = check_web_http_health(config=config)
+    else:
+        http_result = ServiceResult(False, _("Web service is not active."), 1)
     status.update(
         service_file=str(web_service_file()),
         installed=web_service_file().exists(),
         runtime=check_web_service_runtime().to_dict(),
+        http=http_result.to_dict(),
         config=_safe_config_status(config, config_error),
     )
     return status

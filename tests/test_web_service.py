@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -148,6 +149,14 @@ def test_web_service_runtime_check_verifies_armactl_import(
     assert commands == [
         [str(python_bin), "-c", "import armactl, fastapi, uvicorn, argon2, multipart"]
     ]
+
+
+def test_web_health_url_checks_loopback_for_wildcard_bind(tmp_path: Path) -> None:
+    from armactl.web import service
+
+    config = replace(ensure_web_runtime(tmp_path), bind_host="0.0.0.0", bind_port=8765)
+
+    assert service.web_health_url(config) == "http://127.0.0.1:8765/healthz"
 
 
 def test_web_service_lifecycle_helpers_call_fixed_unit(monkeypatch):

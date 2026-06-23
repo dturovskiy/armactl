@@ -790,6 +790,11 @@ def test_web_service_lifecycle_cli_calls_service_helpers(monkeypatch):
     monkeypatch.setattr(web_service, "restart_web_service", result_for("restart"))
     monkeypatch.setattr(web_service, "enable_web_service", result_for("enable"))
     monkeypatch.setattr(web_service, "disable_web_service", result_for("disable"))
+    monkeypatch.setattr(
+        web_service,
+        "check_web_http_health",
+        lambda timeout_seconds=0.0: ServiceResult(True, "http ready"),
+    )
 
     for command in ("start", "stop", "restart", "enable", "disable"):
         result = invoke_web("service", command)
@@ -817,6 +822,7 @@ def test_web_service_status_prints_safe_summary(tmp_path: Path, monkeypatch):
             "active_state": "active",
             "main_pid": 321,
             "runtime": {"success": True, "message": "runtime ready", "exit_code": 0},
+            "http": {"success": True, "message": "http ready", "exit_code": 0},
             "config": {
                 "available": True,
                 "data_root": str(config.data_root),
@@ -840,6 +846,7 @@ def test_web_service_status_prints_safe_summary(tmp_path: Path, monkeypatch):
     assert "Enabled:        yes" in result.output
     assert "PID:            321" in result.output
     assert f"Bind:           127.0.0.1:{WEB_PANEL_DEFAULT_PORT}" in result.output
+    assert "HTTP check:     ✓ http ready" in result.output
     assert config.session_secret not in result.output
     assert "ARMACTL_WEB_SESSION_SECRET" not in result.output
 

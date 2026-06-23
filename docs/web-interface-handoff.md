@@ -586,7 +586,10 @@ Run this after the update UI docs/code are pulled on both current smoke VMs.
 
 - On Serhiivka and Chervonopilya, run `git pull --ff-only` in the deployed
   source checkout on `feat/web-interface`, then run
-  `./armactl web service restart`.
+  `./armactl web service restart`. The CLI waits for `/healthz` after successful
+  systemd start/restart; `./armactl web service status` also reports a separate
+  `HTTP check` line so operators do not confuse dependency readiness with the
+  web socket being live.
 - Log in to each VM-local web panel through the current gateway route.
 - Confirm the dashboard renders and shows the compact Updates card/link to
   `/updates`.

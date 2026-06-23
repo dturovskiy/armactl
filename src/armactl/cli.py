@@ -870,6 +870,21 @@ def _echo_web_service_result(action: str, result) -> None:
     sys.exit(0 if result.success else result.exit_code or 1)
 
 
+def _echo_web_service_result_and_wait_for_http(action: str, result) -> None:
+    marker = "✓" if result.success else "✗"
+    click.echo(f"Web service {action}.")
+    click.echo(f"  {marker} {result.message}")
+    if not result.success:
+        sys.exit(result.exit_code or 1)
+
+    from armactl.web.service import check_web_http_health
+
+    http_result = check_web_http_health(timeout_seconds=20)
+    http_marker = "✓" if http_result.success else "✗"
+    click.echo(f"  {http_marker} {http_result.message}")
+    sys.exit(0 if http_result.success else http_result.exit_code or 1)
+
+
 @web.group("service", help="Manage the production armactl web systemd service.")
 def web_service() -> None:
     pass
@@ -900,7 +915,7 @@ def web_service_install(data_root: Path | None) -> None:
 def web_service_start() -> None:
     from armactl.web.service import start_web_service
 
-    _echo_web_service_result("start", start_web_service())
+    _echo_web_service_result_and_wait_for_http("start", start_web_service())
 
 
 @web_service.command("stop", help="Stop armactl-web.service.")
@@ -914,7 +929,7 @@ def web_service_stop() -> None:
 def web_service_restart() -> None:
     from armactl.web.service import restart_web_service
 
-    _echo_web_service_result("restart", restart_web_service())
+    _echo_web_service_result_and_wait_for_http("restart", restart_web_service())
 
 
 @web_service.command("enable", help="Enable armactl-web.service on boot.")
@@ -991,6 +1006,11 @@ def web_service_status(data_root: Path | None) -> None:
     runtime_marker = "✓" if runtime.get("success") else "✗"
     runtime_message = runtime.get("message", "unknown")
     click.echo(f"  Runtime check:  {runtime_marker} {runtime_message}")
+    http = status.get("http", {})
+    if isinstance(http, dict) and http:
+        http_marker = "✓" if http.get("success") else "✗"
+        http_message = http.get("message", "unknown")
+        click.echo(f"  HTTP check:     {http_marker} {http_message}")
 
 
 # ---------------------------------------------------------------------------
