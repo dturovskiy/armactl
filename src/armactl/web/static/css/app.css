@@ -1071,6 +1071,24 @@ button.danger {
   gap: 12px;
 }
 
+.config-checkbox-field {
+  align-items: flex-start;
+  max-width: 360px;
+}
+
+.config-checkbox-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.config-checkbox-helper {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
 .config-message h2 {
   margin-bottom: 6px;
 }

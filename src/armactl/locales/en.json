@@ -118,6 +118,8 @@
     "Max players": "Max players",
     "Visible": "Visible",
     "BattlEye": "BattlEye",
+    "Disable third-person view": "Disable third-person view",
+    "When enabled, third-person camera/player third-person view is disabled.": "When enabled, third-person camera/player third-person view is disabled.",
     "Game port": "Game port",
     "A2S port": "A2S port",
     "RCON port": "RCON port",

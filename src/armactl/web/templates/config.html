@@ -118,9 +118,14 @@
     <div class="checkbox-grid">
       {% for field in edit_fields %}
       {% if field.ui.group == "checkbox_grid" %}
-      <label class="inline-confirm">
+      <label class="inline-confirm config-checkbox-field">
         <input type="checkbox" name="{{ field.name }}" value="true"{% if field.value %} checked{% endif %}>
-        {{ t(field.ui.label) }}
+        <span class="config-checkbox-copy">
+          <span>{{ t(field.ui.label) }}</span>
+          {% if field.ui.helper_text %}
+          <span class="config-checkbox-helper">{{ t(field.ui.helper_text) }}</span>
+          {% endif %}
+        </span>
       </label>
       {% endif %}
       {% endfor %}

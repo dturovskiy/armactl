@@ -8,8 +8,11 @@ platform controls.
 
 ## Result
 
-Addressed by the follow-up implementation slice on 2026-06-22. No new
-third-person, crossplay, platform, raw JSON, or secret web controls were added.
+Addressed by the follow-up implementation slice on 2026-06-22. At that point
+no new third-person, crossplay, platform, raw JSON, or secret web controls were
+added. Superseding update on 2026-06-23: `game.gameProperties.disableThirdPerson`
+is now implemented as the first safe direct toggle through the shared registry;
+crossplay/platform, raw JSON, and secret controls remain blocked.
 
 The blocker found by the audit was not current production breakage. The blocker
 was ownership ambiguity: generated defaults, sample data, web field descriptors,
@@ -64,7 +67,7 @@ Known example divergences from generated defaults:
 | rcon.password | Sample secret value, not a default. |
 | game.gameProperties.serverMinGrassDistance | Sample tuning. |
 | game.gameProperties.networkViewDistance | Sample tuning. |
-| game.gameProperties.disableThirdPerson | Sample value only; no UI was added in this slice. |
+| game.gameProperties.disableThirdPerson | Sample value only; runtime/generated default is owned by schema/Jinja and is `true`; web UI was added in the 2026-06-23 follow-up slice. |
 
 Sample-only fields include rcon.blacklist, rcon.whitelist, VON booleans, and
 operating.lobbyPlayerSynchronise. Generated-only field currently includes
@@ -85,17 +88,13 @@ appropriate.
 
 ## Guardrails Still Active
 
-- Do not add a third-person UI control in this slice.
+- `game.gameProperties.disableThirdPerson` is now implemented as a direct
+  `settings:manage` safe toggle. UI checked means
+  `game.gameProperties.disableThirdPerson = true`; do not invert this control.
 - Do not invent crossplay or platform keys.
 - Do not expose raw JSON editing in normal web config UI.
 - Do not move config editing into /files.
 - Keep secrets out of normal web rendering and audit details.
-
-When third-person is implemented later, expose a positive operator field such as
-third_person_view and map it explicitly to the negative server key:
-
-- third_person_view = true -> game.gameProperties.disableThirdPerson = false
-- third_person_view = false -> game.gameProperties.disableThirdPerson = true
 
 ## Validation Coverage
 
@@ -107,6 +106,7 @@ Regression tests now cover:
 - exact example/generated divergence tracking;
 - Web safe field projection matching the shared registry;
 - preservation of unrelated advanced and secret fields during web save;
-- disableThirdPerson not rendering in the web UI;
+- disableThirdPerson rendering as a safe web checkbox with direct true/false
+  POST semantics and state-aware pending-work behavior;
 - CLI compatibility command update and invalid string rejection through a registered config field;
 - TUI/Web/CLI overlapping safe fields sharing registry paths and shared scalar validation where applicable.

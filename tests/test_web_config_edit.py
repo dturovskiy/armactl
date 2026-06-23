@@ -128,6 +128,7 @@ def _valid_post_data(csrf_token: str) -> dict[str, str]:
         "scenario_id": "UpdatedScenario.conf",
         "max_players": "48",
         "visible": "true",
+        "disable_third_person": "true",
         "battleye": "true",
         "server_max_view_distance": "2500",
         "server_min_grass_distance": "60",
@@ -150,6 +151,7 @@ def _unchanged_post_data(csrf_token: str) -> dict[str, str]:
         "name": "Old Server",
         "scenario_id": "OldScenario.conf",
         "max_players": "32",
+        "disable_third_person": "true",
         "server_max_view_distance": "1600",
         "server_min_grass_distance": "30",
     }
@@ -169,6 +171,7 @@ def test_config_edit_descriptor_registry_covers_current_safe_fields_only():
         "scenario_id",
         "max_players",
         "visible",
+        "disable_third_person",
         "battleye",
         "server_max_view_distance",
         "server_min_grass_distance",
@@ -181,6 +184,7 @@ def test_config_edit_descriptor_registry_covers_current_safe_fields_only():
         "game.scenarioId",
         "game.maxPlayers",
         "game.visible",
+        "game.gameProperties.disableThirdPerson",
         "game.gameProperties.battlEye",
         "game.gameProperties.serverMaxViewDistance",
         "game.gameProperties.serverMinGrassDistance",
@@ -192,9 +196,16 @@ def test_config_edit_descriptor_registry_covers_current_safe_fields_only():
         "changed-values-mark-restart-pending"
     }
     assert all(descriptor.audit_field_name == descriptor.form_name for descriptor in descriptors)
-    assert not any(
-        descriptor.config_path == ("game", "gameProperties", "disableThirdPerson")
-        for descriptor in descriptors
+    third_person = next(
+        descriptor for descriptor in descriptors if descriptor.form_name == "disable_third_person"
+    )
+    assert third_person.config_path == ("game", "gameProperties", "disableThirdPerson")
+    assert third_person.value_type == "boolean"
+    assert third_person.ui is not None
+    assert third_person.ui.control == "checkbox"
+    assert third_person.ui.label == "Disable third-person view"
+    assert third_person.ui.helper_text == (
+        "When enabled, third-person camera/player third-person view is disabled."
     )
 
 
@@ -239,14 +250,33 @@ def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
         "server_max_view_distance",
         "server_min_grass_distance",
         "visible",
+        "disable_third_person",
         "battleye",
     }
     assert "bind_port" not in editable_names
     assert "rcon_port" not in editable_names
     assert "password" not in editable_names
-    assert "disable_third_person" not in editable_names
     assert "disableThirdPerson" not in response.text
-    assert "Disable third person" not in response.text
+    assert "Disable third-person view" in response.text
+    assert (
+        "When enabled, third-person camera/player third-person view is disabled."
+        in response.text
+    )
+    assert 'name="disable_third_person" value="true" checked' in response.text
+
+
+def test_config_page_uses_generated_default_for_missing_disable_third_person(
+    tmp_path: Path, monkeypatch
+):
+    config = _sample_config()
+    del config["game"]["gameProperties"]["disableThirdPerson"]
+    config_path = _write_config(tmp_path, config)
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+
+    response = client.get("/config", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert 'name="disable_third_person" value="true" checked' in response.text
 
 
 def test_config_page_groups_summary_and_escapes_long_values(tmp_path: Path, monkeypatch):
@@ -438,6 +468,52 @@ def test_config_edit_noop_save_does_not_backup_or_request_restart(
     assert "notice-success" not in unchanged_page.text
 
 
+def test_config_edit_disable_third_person_toggle_tracks_pending_state(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services.pending_work import KIND_CONFIG, get_pending_work
+
+    original_config = _sample_config()
+    config_path = _write_config(tmp_path, deepcopy(original_config))
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+    csrf_token = _form_token(client.get("/config").text)
+
+    disable_data = _unchanged_post_data(csrf_token)
+    disable_data.pop("disable_third_person")
+    response = client.post(
+        "/config",
+        data=disable_data,
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/config?saved=1"
+    updated = json.loads(config_path.read_text())
+    assert updated["game"]["gameProperties"]["disableThirdPerson"] is False
+    item = get_pending_work(tmp_path / "web" / "web.db", kind=KIND_CONFIG)
+    assert item is not None
+    assert item.details == "disable_third_person"
+
+    csrf_token = _form_token(client.get("/config").text)
+    response = client.post(
+        "/config",
+        data=_unchanged_post_data(csrf_token),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/config?saved=1"
+    assert json.loads(config_path.read_text()) == original_config
+    assert get_pending_work(tmp_path / "web" / "web.db", kind=KIND_CONFIG) is None
+
+    events = _audit_events(tmp_path)
+    assert [event["details"]["changed_fields"] for event in events] == [
+        ["disable_third_person"],
+        ["disable_third_person"],
+    ]
+
+
 @pytest.mark.parametrize(
     ("override", "message"),
     [
@@ -446,6 +522,7 @@ def test_config_edit_noop_save_does_not_backup_or_request_restart(
         ({"max_players": "0"}, "game.maxPlayers must be a positive integer."),
         ({"max_players": "12.5"}, "game.maxPlayers must be a positive integer."),
         ({"visible": "maybe"}, "Boolean field value is invalid."),
+        ({"disable_third_person": "maybe"}, "Boolean field value is invalid."),
         (
             {"server_max_view_distance": "0"},
             "game.gameProperties.serverMaxViewDistance must be a positive integer.",
@@ -491,6 +568,7 @@ def test_config_edit_rejects_invalid_values_without_backup(
         "scenario_id",
         "max_players",
         "visible",
+        "disable_third_person",
         "battleye",
         "server_max_view_distance",
         "server_min_grass_distance",

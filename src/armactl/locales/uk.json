@@ -724,6 +724,8 @@
     "Max players": "Максимум гравців",
     "Visible": "Видимий",
     "BattlEye": "BattlEye",
+    "Disable third-person view": "Вимкнути вигляд від третьої особи",
+    "When enabled, third-person camera/player third-person view is disabled.": "Коли увімкнено, камеру/вигляд гравця від третьої особи вимкнено.",
     "Game port": "Ігровий порт",
     "A2S port": "A2S порт",
     "RCON port": "RCON порт",

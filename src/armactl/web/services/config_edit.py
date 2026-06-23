@@ -15,6 +15,7 @@ from armactl.redaction import redact_sensitive_text
 from armactl.server_config_schema import (
     ServerConfigField,
     ServerConfigSchemaError,
+    config_field_input_value,
     parse_form_field_value,
     web_config_field_descriptors,
 )
@@ -127,7 +128,7 @@ def _form_value_for_descriptor(
     config: Mapping[str, Any],
     descriptor: ServerConfigField,
 ) -> Any:
-    value = _nested_value(config, descriptor.config_path)
+    value = config_field_input_value(config, descriptor.name)
     if descriptor.ui.control == "checkbox":
         return value if isinstance(value, bool) else False
     if descriptor.ui.control == "number":
@@ -165,6 +166,7 @@ def build_config_edit_fields(config: Mapping[str, Any]) -> tuple[dict[str, Any],
                 "max_length": descriptor.ui.max_length,
                 "min_value": descriptor.ui.min_value,
                 "step": descriptor.ui.step,
+                "helper_text": descriptor.ui.helper_text,
             },
         }
         for descriptor in CONFIG_FIELD_DESCRIPTORS

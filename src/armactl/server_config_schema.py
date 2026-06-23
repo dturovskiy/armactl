@@ -63,6 +63,7 @@ class ServerConfigFieldUi:
     max_length: int | None = None
     min_value: int | None = None
     step: int | None = None
+    helper_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -395,9 +396,18 @@ SERVER_CONFIG_FIELDS: tuple[ServerConfigField, ...] = (
         ("game", "gameProperties", "disableThirdPerson"),
         VALUE_BOOLEAN,
         "Boolean field value is invalid.",
-        **ADVANCED_FUTURE,
+        **SAFE_WEB,
+        audit_field_name="disable_third_person",
         generated_default=True,
         template_variable="disable_third_person",
+        ui=U(
+            "Disable third-person view",
+            "checkbox",
+            UI_GROUP_CHECKBOX_GRID,
+            helper_text=(
+                "When enabled, third-person camera/player third-person view is disabled."
+            ),
+        ),
     ),
     F(
         "fast_validation",
@@ -452,6 +462,7 @@ WEB_CONFIG_FIELD_NAMES = (
     "scenario_id",
     "max_players",
     "visible",
+    "disable_third_person",
     "battleye",
     "server_max_view_distance",
     "server_min_grass_distance",

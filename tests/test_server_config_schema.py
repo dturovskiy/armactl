@@ -104,13 +104,24 @@ def test_web_tui_cli_safe_fields_share_registry_paths() -> None:
         "scenario_id",
         "max_players",
         "visible",
+        "disable_third_person",
         "battleye",
         "server_max_view_distance",
         "server_min_grass_distance",
     )
-    assert "disable_third_person" not in web_fields
+    third_person = web_fields["disable_third_person"]
+    assert third_person.config_path == ("game", "gameProperties", "disableThirdPerson")
+    assert third_person.value_type == schema.VALUE_BOOLEAN
+    assert third_person.generated_default is True
+    assert third_person.permission == schema.SETTINGS_MANAGE_PERMISSION
+    assert third_person.restart_behavior == schema.RESTART_BEHAVIOR_CHANGED_ONLY
+    assert third_person.audit_field_name == "disable_third_person"
+    assert third_person.ui is not None
+    assert third_person.ui.label == "Disable third-person view"
     assert {"name", "scenario_id", "max_players"} <= tui_fields.keys()
     assert {"name", "scenario_id", "max_players"} <= cli_fields.keys()
+    assert "disable_third_person" not in tui_fields
+    assert "disable_third_person" not in cli_fields
 
     for field_name in web_fields.keys() & tui_fields.keys():
         assert tui_fields[field_name].config_path == web_fields[field_name].config_path
