@@ -191,7 +191,7 @@ Use:
 
 ## Web Dashboard Notes
 
-The local browser dashboard is implemented on `feat/web-interface`; CLI, TUI, and Telegram remain reliable fallback management paths.
+The local browser dashboard is included; CLI, TUI, and Telegram remain reliable fallback management paths.
 
 Keep these layers separate when troubleshooting:
 

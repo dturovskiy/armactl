@@ -6,9 +6,9 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 [![Ubuntu 24.04](https://img.shields.io/badge/ubuntu-24.04-E95420.svg)](README.md)
 
-`armactl` is a free, local-first manager for **Arma Reforger Dedicated Server** on Ubuntu. It installs and repairs a server, manages `systemd`, edits `config.json`, works with mods and schedules, exposes optional Telegram controls, and includes a local browser dashboard on the `feat/web-interface` branch.
+`armactl` is a free, local-first manager for **Arma Reforger Dedicated Server** on Ubuntu. It installs and repairs a server, manages `systemd`, edits `config.json`, works with mods and schedules, exposes optional Telegram controls, and includes a local browser dashboard.
 
-The released management paths remain CLI, TUI, and the optional Telegram bot. The local web dashboard is implemented on this branch and is being hardened for production use.
+The local web dashboard is included and is being hardened for production use. CLI, TUI, and the optional Telegram bot remain reliable fallback management paths.
 
 ## Screenshot
 
@@ -158,7 +158,7 @@ See [docs/telegram-bot.md](docs/telegram-bot.md) for the full flow.
 
 ## Local Web Dashboard
 
-The web dashboard runs beside the Arma server and reuses the same backend modules as the CLI and TUI. Current branch capabilities include:
+The web dashboard runs beside the Arma server and reuses the same backend modules as the CLI and TUI. Current dashboard capabilities include:
 
 - authenticated dashboard with live status polling
 - safe config editing for selected non-secret fields
@@ -166,7 +166,7 @@ The web dashboard runs beside the Arma server and reuses the same backend module
 - restart schedule and game-service autostart controls
 - file browser with bounded preview, single-file download, and no-overwrite upload
 - logs and diagnostic report views
-- background jobs for install/repair and operator-visible job status
+- server maintenance jobs for install, repair, update checks, and updates, with operator-visible job status for `/updates`, `server:update-check`, and `server:update` flows
 - instance-scoped player registry foundation with reliable IDs and no IP storage by default
 - sessions, CSRF protection, permissions, and login throttling
 - action records plus pending operator work for saved config/admin/mod changes

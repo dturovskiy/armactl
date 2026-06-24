@@ -9,7 +9,7 @@
 - CLI and TUI management flows.
 - Config editing, mod management, schedules, logs, status, ports, and telemetry.
 - Optional Telegram bot controls.
-- Local browser dashboard on `feat/web-interface`.
+- Local browser dashboard.
 - Public release notes and operator-focused troubleshooting.
 
 ## Short-Term Work
