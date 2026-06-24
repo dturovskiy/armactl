@@ -8,7 +8,7 @@
     "port": 17777
   },
   "rcon": {
-    "address": "127.0.0.1",
+    "address": "0.0.0.0",
     "port": 19999,
     "password": "CHANGE_ME_RCON_PASSWORD",
     "permission": "admin",
@@ -16,20 +16,20 @@
     "whitelist": []
   },
   "game": {
-    "name": "Example Arma Reforger Server",
+    "name": "Example Large Modpack Server",
     "password": "",
     "passwordAdmin": "CHANGE_ME_ADMIN_PASSWORD",
     "admins": [
       "00000000-0000-0000-0000-000000000000"
     ],
-    "scenarioId": "{0000000000000000}Missions/Example.conf",
-    "maxPlayers": 64,
+    "scenarioId": "{0000000000000000}Missions/Example_Large_Modpack.conf",
+    "maxPlayers": 128,
     "visible": true,
     "gameProperties": {
       "serverMaxViewDistance": 2500,
       "serverMinGrassDistance": 100,
       "networkViewDistance": 1500,
-      "disableThirdPerson": true,
+      "disableThirdPerson": false,
       "fastValidation": true,
       "battlEye": true,
       "VONDisableUI": false,
@@ -39,12 +39,247 @@
     "mods": [
       {
         "modId": "0000000000000001",
-        "name": "Example Mod One"
+        "name": "Example Mod 001"
       },
       {
         "modId": "0000000000000002",
-        "name": "Example Mod Two"
+        "name": "Example Mod 002"
+      },
+      {
+        "modId": "0000000000000003",
+        "name": "Example Mod 003"
+      },
+      {
+        "modId": "0000000000000004",
+        "name": "Example Mod 004"
+      },
+      {
+        "modId": "0000000000000005",
+        "name": "Example Mod 005"
+      },
+      {
+        "modId": "0000000000000006",
+        "name": "Example Mod 006"
+      },
+      {
+        "modId": "0000000000000007",
+        "name": "Example Mod 007"
+      },
+      {
+        "modId": "0000000000000008",
+        "name": "Example Mod 008"
+      },
+      {
+        "modId": "0000000000000009",
+        "name": "Example Mod 009"
+      },
+      {
+        "modId": "000000000000000A",
+        "name": "Example Mod 010"
+      },
+      {
+        "modId": "000000000000000B",
+        "name": "Example Mod 011"
+      },
+      {
+        "modId": "000000000000000C",
+        "name": "Example Mod 012"
+      },
+      {
+        "modId": "000000000000000D",
+        "name": "Example Mod 013"
+      },
+      {
+        "modId": "000000000000000E",
+        "name": "Example Mod 014"
+      },
+      {
+        "modId": "000000000000000F",
+        "name": "Example Mod 015"
+      },
+      {
+        "modId": "0000000000000010",
+        "name": "Example Mod 016"
+      },
+      {
+        "modId": "0000000000000011",
+        "name": "Example Mod 017"
+      },
+      {
+        "modId": "0000000000000012",
+        "name": "Example Mod 018"
+      },
+      {
+        "modId": "0000000000000013",
+        "name": "Example Mod 019"
+      },
+      {
+        "modId": "0000000000000014",
+        "name": "Example Mod 020"
+      },
+      {
+        "modId": "0000000000000015",
+        "name": "Example Mod 021"
+      },
+      {
+        "modId": "0000000000000016",
+        "name": "Example Mod 022"
+      },
+      {
+        "modId": "0000000000000017",
+        "name": "Example Mod 023"
+      },
+      {
+        "modId": "0000000000000018",
+        "name": "Example Mod 024"
+      },
+      {
+        "modId": "0000000000000019",
+        "name": "Example Mod 025"
+      },
+      {
+        "modId": "000000000000001A",
+        "name": "Example Mod 026"
+      },
+      {
+        "modId": "000000000000001B",
+        "name": "Example Mod 027"
+      },
+      {
+        "modId": "000000000000001C",
+        "name": "Example Mod 028"
+      },
+      {
+        "modId": "000000000000001D",
+        "name": "Example Mod 029"
+      },
+      {
+        "modId": "000000000000001E",
+        "name": "Example Mod 030"
+      },
+      {
+        "modId": "000000000000001F",
+        "name": "Example Mod 031"
+      },
+      {
+        "modId": "0000000000000020",
+        "name": "Example Mod 032"
+      },
+      {
+        "modId": "0000000000000021",
+        "name": "Example Mod 033"
+      },
+      {
+        "modId": "0000000000000022",
+        "name": "Example Mod 034"
+      },
+      {
+        "modId": "0000000000000023",
+        "name": "Example Mod 035"
+      },
+      {
+        "modId": "0000000000000024",
+        "name": "Example Mod 036"
+      },
+      {
+        "modId": "0000000000000025",
+        "name": "Example Mod 037"
+      },
+      {
+        "modId": "0000000000000026",
+        "name": "Example Mod 038"
+      },
+      {
+        "modId": "0000000000000027",
+        "name": "Example Mod 039"
+      },
+      {
+        "modId": "0000000000000028",
+        "name": "Example Mod 040"
+      },
+      {
+        "modId": "0000000000000029",
+        "name": "Example Mod 041"
+      },
+      {
+        "modId": "000000000000002A",
+        "name": "Example Mod 042"
+      },
+      {
+        "modId": "000000000000002B",
+        "name": "Example Mod 043"
+      },
+      {
+        "modId": "000000000000002C",
+        "name": "Example Mod 044"
+      },
+      {
+        "modId": "000000000000002D",
+        "name": "Example Mod 045"
+      },
+      {
+        "modId": "000000000000002E",
+        "name": "Example Mod 046"
+      },
+      {
+        "modId": "000000000000002F",
+        "name": "Example Mod 047"
+      },
+      {
+        "modId": "0000000000000030",
+        "name": "Example Mod 048"
+      },
+      {
+        "modId": "0000000000000031",
+        "name": "Example Mod 049"
+      },
+      {
+        "modId": "0000000000000032",
+        "name": "Example Mod 050"
+      },
+      {
+        "modId": "0000000000000033",
+        "name": "Example Mod 051"
+      },
+      {
+        "modId": "0000000000000034",
+        "name": "Example Mod 052"
+      },
+      {
+        "modId": "0000000000000035",
+        "name": "Example Mod 053"
+      },
+      {
+        "modId": "0000000000000036",
+        "name": "Example Mod 054"
+      },
+      {
+        "modId": "0000000000000037",
+        "name": "Example Mod 055"
+      },
+      {
+        "modId": "0000000000000038",
+        "name": "Example Mod 056"
+      },
+      {
+        "modId": "0000000000000039",
+        "name": "Example Mod 057"
+      },
+      {
+        "modId": "000000000000003A",
+        "name": "Example Mod 058"
+      },
+      {
+        "modId": "000000000000003B",
+        "name": "Example Mod 059"
+      },
+      {
+        "modId": "000000000000003C",
+        "name": "Example Mod 060"
       }
     ]
+  },
+  "operating": {
+    "lobbyPlayerSynchronise": true
   }
 }
