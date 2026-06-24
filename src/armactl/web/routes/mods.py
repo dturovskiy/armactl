@@ -271,6 +271,51 @@ def dedupe_mods_page(
     return _render_action_result(request, current, result)
 
 
+@router.post("/mods/cleanup-check", response_class=HTMLResponse)
+def check_unused_addons_page(
+    request: Request,
+    csrf_token: str = Form(default=""),
+) -> Response:
+    """Dry-run cleanup for unused local Workshop addon files."""
+    current, error_response = _require_manage_post(request, csrf_token)
+    if error_response is not None:
+        return error_response
+    assert current is not None
+
+    result = mod_actions.check_unused_addons(instance=paths.DEFAULT_INSTANCE_NAME)
+    return _render_action_result(request, current, result)
+
+
+@router.post("/mods/cleanup", response_class=HTMLResponse)
+def cleanup_unused_addons_page(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    confirm: str = Form(default=""),
+) -> Response:
+    """Clean unused local Workshop addon files after explicit confirmation."""
+    current, error_response = _require_manage_post(request, csrf_token)
+    if error_response is not None:
+        return error_response
+    assert current is not None
+
+    if confirm != "cleanup":
+        return _render_mods_page(
+            request,
+            current,
+            result=mod_actions.cleanup_confirmation_failure(
+                instance=paths.DEFAULT_INSTANCE_NAME,
+            ),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    result = mod_actions.run_cleanup_unused_addons_and_audit(
+        instance=paths.DEFAULT_INSTANCE_NAME,
+        audit_log_path=current.config.audit_log_path,
+        username=current.user.username,
+    )
+    return _render_action_result(request, current, result)
+
+
 @router.post("/mods/disable", response_class=HTMLResponse)
 def disable_mod_page(
     request: Request,

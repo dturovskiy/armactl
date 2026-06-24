@@ -103,6 +103,19 @@ def _write_mod_config(tmp_path: Path, mods: list[dict[str, str]]) -> Path:
     return config_path
 
 
+def _write_instance_mod_config(tmp_path: Path, mods: list[dict[str, str]]) -> Path:
+    config_dir = tmp_path / "instance" / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    return _write_mod_config(config_dir, mods)
+
+
+def _create_addon_dir(addons_dir: Path, name: str, *, size: int = 512) -> Path:
+    addon_dir = addons_dir / name
+    addon_dir.mkdir(parents=True, exist_ok=True)
+    (addon_dir / "data.bin").write_bytes(b"x" * size)
+    return addon_dir
+
+
 def _patch_mods_page(monkeypatch, page: dict | None = None) -> None:
     from armactl.web.page_models import mods as mods_page_model
 
@@ -1000,6 +1013,8 @@ def test_mod_action_support_helper_includes_mod_pack_workflows():
     assert mod_actions.is_supported_action(mod_actions.ACTION_IMPORT) is True
     assert mod_actions.is_supported_action(mod_actions.ACTION_EXPORT) is True
     assert mod_actions.is_supported_action(mod_actions.ACTION_DEDUPE) is True
+    assert mod_actions.is_supported_action(mod_actions.ACTION_CLEANUP_CHECK) is True
+    assert mod_actions.is_supported_action(mod_actions.ACTION_CLEANUP) is True
 
 
 def test_bulk_add_helper_parses_multiple_ids_and_calls_add_mods_detailed(
@@ -1263,6 +1278,285 @@ def test_mods_dedupe_changed_creates_pending_restart(tmp_path: Path, monkeypatch
     assert item.details == "1 duplicate mod(s) removed"
 
 
+def test_mods_page_shows_cleanup_visibility(tmp_path: Path, monkeypatch):
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get("/mods", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Maintenance / Cleanup" in response.text
+    assert "Check unused addons" in response.text
+    assert "Cleanup unused addons" in response.text
+    assert "config.json" in response.text
+    assert "disabled-mods sidecar" in response.text
+    assert "general file deletion" in response.text
+
+
+def test_mods_cleanup_check_dry_run_does_not_delete(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions
+    from armactl.web.services.pending_work import list_pending_work
+
+    config_path = _write_instance_mod_config(
+        tmp_path,
+        [{"modId": "AAAAAAAAAAAAAAAA", "name": "Active Alpha", "version": "1"}],
+    )
+    addons = config_path.parent / "addons"
+    active = _create_addon_dir(addons, "Active_AAAAAAAAAAAAAAAA", size=1024)
+    stale = _create_addon_dir(addons, "Stale_BBBBBBBBBBBBBBBB", size=2048)
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/cleanup-check",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "Found 1 unused addon entry" in response.text
+    assert "cleanup would free 2.00 KB" in response.text
+    assert active.exists()
+    assert stale.exists()
+    assert "Restart the server to apply mod changes." not in response.text
+    assert list_pending_work(tmp_path / "web" / "web.db") == []
+    assert not (tmp_path / "logs" / "web" / "audit.log").exists()
+
+
+def test_mods_cleanup_confirmed_calls_cleanup_helper_and_audits(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions
+
+    config_path = _write_instance_mod_config(tmp_path, [])
+    calls: list[tuple[Path, bool]] = []
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def cleanup(path: Path, *, dry_run: bool = False) -> CleanupResult:
+        calls.append((path, dry_run))
+        return CleanupResult(
+            deleted=[Path("/home/deus/private/Stale_token=raw-route-secret_AAAAAAAAAAAAAAAA")],
+            skipped=[Path("/home/deus/private/UnknownFormat")],
+            bytes_deleted=2048,
+        )
+
+    monkeypatch.setattr(mod_actions, "cleanup_unconfigured_addons", cleanup)
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/cleanup",
+        data={"csrf_token": csrf_token, "confirm": "cleanup"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "Deleted 1 unused addon entry" in response.text
+    assert "cleanup deleted count" in response.text
+    assert "2.00 KB" in response.text
+    assert "Restart the server to apply mod changes." not in response.text
+    assert "/home/deus" not in response.text
+    assert "raw-route-secret" not in response.text
+    assert calls == [(config_path, False)]
+    event = _audit_events(tmp_path)[0]
+    assert event["action"] == "mod.cleanup"
+    assert event["target"] == "unused addons"
+    assert event["success"] is True
+    assert event["details"]["changed"] == "yes"
+    assert event["details"]["cleanup_deleted_count"] == "1"
+    assert event["details"]["cleanup_skipped_count"] == "1"
+    assert event["details"]["cleanup_freed"] == "2.00 KB"
+    audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(encoding="utf-8")
+    assert "/home/deus" not in audit_text
+    assert "raw-route-secret" not in audit_text
+
+
+def test_mods_cleanup_requires_confirmation(tmp_path: Path, monkeypatch):
+    from armactl.web.services import mod_actions
+
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(mod_actions, "run_cleanup_unused_addons_and_audit", AssertionError)
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/cleanup",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Confirmation is required to clean up unused addons." in response.text
+    assert "Restart the server to apply mod changes." not in response.text
+    assert not (tmp_path / "logs" / "web" / "audit.log").exists()
+
+
+def test_mods_cleanup_intent_audit_failure_aborts_mutation(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions
+    from armactl.web.services.audit import AuditLogError
+    from armactl.web.services.pending_work import list_pending_work
+
+    client = _authed_client(tmp_path, monkeypatch)
+
+    def fail_cleanup(*args, **kwargs):
+        raise AssertionError("cleanup should not run")
+
+    def fail_audit(*args, **kwargs):
+        raise AuditLogError("disk full token=raw-audit-secret")
+
+    monkeypatch.setattr(mod_actions, "cleanup_unconfigured_addons", fail_cleanup)
+    monkeypatch.setattr(mod_actions, "append_audit_event", fail_audit)
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/cleanup",
+        data={"csrf_token": csrf_token, "confirm": "cleanup"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Mod action was not run because audit logging failed." in response.text
+    assert "raw-audit-secret" not in response.text
+    assert list_pending_work(tmp_path / "web" / "web.db") == []
+
+
+def test_mods_cleanup_outcome_audit_failure_reports_controlled_problem(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions
+    from armactl.web.services.audit import AuditLogError
+    from armactl.web.services.pending_work import list_pending_work
+
+    config_path = _write_instance_mod_config(tmp_path, [])
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def cleanup(path: Path, *, dry_run: bool = False) -> CleanupResult:
+        return CleanupResult(
+            deleted=[Path("/private/Stale_AAAAAAAAAAAAAAAA")],
+            bytes_deleted=1024,
+        )
+
+    def fail_outcome(audit_log_path, *, details=None, **kwargs):
+        if (details or {}).get("phase") == "outcome":
+            raise AuditLogError("disk full token=raw-audit-secret")
+        return None
+
+    monkeypatch.setattr(mod_actions, "cleanup_unconfigured_addons", cleanup)
+    monkeypatch.setattr(mod_actions, "append_audit_event", fail_outcome)
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/cleanup",
+        data={"csrf_token": csrf_token, "confirm": "cleanup"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Mod action completed but audit logging failed." in response.text
+    assert "Deleted 1 unused addon entry" in response.text
+    assert "Restart the server to apply mod changes." not in response.text
+    assert "raw-audit-secret" not in response.text
+    assert list_pending_work(tmp_path / "web" / "web.db") == []
+
+
+def test_mods_cleanup_success_does_not_request_restart_or_pending_work(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions
+    from armactl.web.services.pending_work import list_pending_work
+
+    config_path = _write_instance_mod_config(tmp_path, [])
+    stale = _create_addon_dir(
+        config_path.parent / "addons",
+        "Stale_AAAAAAAAAAAAAAAA",
+        size=1024,
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/cleanup",
+        data={"csrf_token": csrf_token, "confirm": "cleanup"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "Deleted 1 unused addon entry" in response.text
+    assert not stale.exists()
+    assert "Restart the server to apply mod changes." not in response.text
+    assert list_pending_work(tmp_path / "web" / "web.db") == []
+
+
+def test_mods_cleanup_result_details_are_redacted_and_bounded(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions
+
+    config_path = _write_instance_mod_config(tmp_path, [])
+    entries = [
+        Path(f"/home/deus/private/Stale{i}_token=raw-secret_AAAAAAAAAAAAAAAA")
+        for i in range(12)
+    ]
+    skipped = [Path("/home/deus/private/Skipped_token=raw-skip-secret")]
+    cleanup = CleanupResult(
+        deleted=entries,
+        skipped=skipped,
+        errors=["Failed /home/deus/private token=raw-error-secret"],
+        bytes_deleted=4096,
+    )
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+    monkeypatch.setattr(
+        mod_actions,
+        "cleanup_unconfigured_addons",
+        lambda path, *, dry_run=False: cleanup,
+    )
+
+    result = mod_actions.check_unused_addons()
+
+    assert result.success is False
+    assert result.changed is False
+    assert result.restart_required is False
+    assert len(result.details["cleanup_candidate_summary"]) == 8
+    assert result.details["cleanup_candidate_summary_omitted_count"] == "4"
+    rendered = json.dumps(result.details)
+    assert "/home/deus" not in rendered
+    assert "raw-secret" not in rendered
+    assert "raw-skip-secret" not in rendered
+    assert "raw-error-secret" not in rendered
+    assert "cleanup_error_summary" in result.details
+
+
 def test_mods_bulk_intent_audit_failure_aborts_mutation(
     tmp_path: Path,
     monkeypatch,
@@ -1348,6 +1642,8 @@ def test_mods_bulk_outcome_audit_failure_reports_controlled_problem(
         ("/mods/import", {"mode": "append"}, {"upload": ("pack.json", "[]", "application/json")}),
         ("/mods/export", {}, None),
         ("/mods/dedupe", {}, None),
+        ("/mods/cleanup-check", {}, None),
+        ("/mods/cleanup", {"confirm": "cleanup"}, None),
     ],
 )
 def test_mod_pack_routes_require_valid_csrf(
@@ -1364,6 +1660,8 @@ def test_mod_pack_routes_require_valid_csrf(
     monkeypatch.setattr(mod_actions, "run_import_mod_pack_and_audit", AssertionError)
     monkeypatch.setattr(mod_actions, "export_mod_pack_and_audit", AssertionError)
     monkeypatch.setattr(mod_actions, "run_dedupe_and_audit", AssertionError)
+    monkeypatch.setattr(mod_actions, "check_unused_addons", AssertionError)
+    monkeypatch.setattr(mod_actions, "run_cleanup_unused_addons_and_audit", AssertionError)
 
     response = client.post(
         url,
@@ -1389,6 +1687,8 @@ def test_mod_pack_routes_require_manage_permission(
     app = create_app(data_root=tmp_path)
     _patch_mods_page(monkeypatch)
     monkeypatch.setattr(mod_actions, "run_bulk_add_and_audit", AssertionError)
+    monkeypatch.setattr(mod_actions, "check_unused_addons", AssertionError)
+    monkeypatch.setattr(mod_actions, "run_cleanup_unused_addons_and_audit", AssertionError)
     client = _client(app)
     _login(client, "owner", "owner mods password")
     csrf_token = _mods_csrf_token(client)
@@ -1398,6 +1698,20 @@ def test_mod_pack_routes_require_manage_permission(
         data={"csrf_token": csrf_token, "bulk_mods": "AAAAAAAAAAAAAAAA"},
         follow_redirects=False,
     )
+    check_response = client.post(
+        "/mods/cleanup-check",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    cleanup_response = client.post(
+        "/mods/cleanup",
+        data={"csrf_token": csrf_token, "confirm": "cleanup"},
+        follow_redirects=False,
+    )
 
     assert response.status_code == 403
     assert response.text == "Permission denied."
+    assert check_response.status_code == 403
+    assert check_response.text == "Permission denied."
+    assert cleanup_response.status_code == 403
+    assert cleanup_response.text == "Permission denied."

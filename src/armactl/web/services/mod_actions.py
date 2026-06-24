@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 from armactl import discovery, mods_manager, paths
-from armactl.addon_cleanup import CleanupResult
+from armactl.addon_cleanup import CleanupResult, cleanup_unconfigured_addons
 from armactl.config_manager import ConfigError
 from armactl.redaction import redact_sensitive_text
 from armactl.web.services import pending_work
@@ -24,6 +24,8 @@ ACTION_BULK_ADD = "mod.bulk-add"
 ACTION_IMPORT = "mod.import"
 ACTION_EXPORT = "mod.export"
 ACTION_DEDUPE = "mod.dedupe"
+ACTION_CLEANUP_CHECK = "mod.cleanup-check"
+ACTION_CLEANUP = "mod.cleanup"
 IMPORT_MODE_APPEND = "append"
 IMPORT_MODE_REPLACE = "replace"
 SINGLE_MOD_ACTIONS = frozenset(
@@ -41,11 +43,14 @@ SUPPORTED_ACTIONS = frozenset(
         ACTION_IMPORT,
         ACTION_EXPORT,
         ACTION_DEDUPE,
+        ACTION_CLEANUP_CHECK,
+        ACTION_CLEANUP,
     }
 )
 MAX_MOD_TEXT_LENGTH = 256
 MAX_IMPORT_BYTES = 1024 * 1024
 MAX_AUDIT_IDS = 10
+MAX_CLEANUP_SUMMARY_ENTRIES = 8
 
 
 class ModActionError(ValueError):
@@ -63,6 +68,7 @@ class ModActionResult:
     changed: bool
     message: str
     exit_code: int
+    restart_required: bool = True
     audit_written: bool = True
     intent_audited: bool = True
     backend_success: bool | None = None
@@ -109,6 +115,24 @@ def confirmation_failure(
         changed=False,
         message="Confirmation is required to remove this mod.",
         exit_code=1,
+        audit_written=False,
+    )
+
+
+def cleanup_confirmation_failure(
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> ModActionResult:
+    """Return a controlled failure for missing addon cleanup confirmation."""
+    return ModActionResult(
+        action=ACTION_CLEANUP,
+        instance=instance or paths.DEFAULT_INSTANCE_NAME,
+        target="unused addons",
+        success=False,
+        changed=False,
+        message="Confirmation is required to clean up unused addons.",
+        exit_code=1,
+        restart_required=False,
         audit_written=False,
     )
 
@@ -279,6 +303,29 @@ def _cleanup_result_details(cleanup: CleanupResult) -> dict[str, object]:
         "cleanup_error_count": str(len(cleanup.errors)),
         "cleanup_freed": cleanup.freed_display,
     }
+
+
+def _safe_cleanup_entry_name(path: Path) -> str:
+    safe_name = _safe_text(Path(path).name or "unknown", max_length=96)
+    lowered = safe_name.lower()
+    for marker in ("token=", "token:", "password=", "password:"):
+        marker_start = lowered.find(marker)
+        if marker_start >= 0:
+            marker_end = marker_start + len(marker)
+            return f"{safe_name[:marker_end]}***"
+    return safe_name
+
+
+def _bounded_cleanup_entry_names(entries: list[Path]) -> list[str]:
+    return [_safe_cleanup_entry_name(entry) for entry in entries[:MAX_CLEANUP_SUMMARY_ENTRIES]]
+
+
+def _cleanup_entry_word(count: int) -> str:
+    return "entry" if count == 1 else "entries"
+
+
+def _cleanup_omitted_count(entries: list[Path]) -> str:
+    return str(max(0, len(entries) - MAX_CLEANUP_SUMMARY_ENTRIES))
 
 
 def _summary_message(prefix: str, counts: dict[str, int]) -> str:
@@ -528,6 +575,124 @@ def dedupe_mods(
             "duplicate_removed_count": str(duplicate_count),
             "pending_details": f"{duplicate_count} duplicate mod(s) removed",
         },
+    )
+
+
+def _addon_cleanup_details(
+    cleanup: CleanupResult,
+    *,
+    dry_run: bool,
+) -> dict[str, object]:
+    details = {
+        "cleanup_skipped_count": str(len(cleanup.skipped)),
+        "cleanup_error_count": str(len(cleanup.errors)),
+        "cleanup_freed": cleanup.freed_display,
+    }
+    if dry_run:
+        details["cleanup_candidate_count"] = str(len(cleanup.deleted))
+        summary_key = "cleanup_candidate_summary"
+    else:
+        details["cleanup_deleted_count"] = str(len(cleanup.deleted))
+        summary_key = "cleanup_deleted_summary"
+
+    summary = _bounded_cleanup_entry_names(cleanup.deleted)
+    if summary:
+        details[summary_key] = summary
+        omitted = _cleanup_omitted_count(cleanup.deleted)
+        if omitted != "0":
+            details[f"{summary_key}_omitted_count"] = omitted
+
+    skipped_summary = _bounded_cleanup_entry_names(cleanup.skipped)
+    if skipped_summary:
+        details["cleanup_skipped_summary"] = skipped_summary
+        omitted = _cleanup_omitted_count(cleanup.skipped)
+        if omitted != "0":
+            details["cleanup_skipped_summary_omitted_count"] = omitted
+
+    if cleanup.errors:
+        details["cleanup_error_summary"] = (
+            "Path-specific cleanup errors were suppressed from web output."
+        )
+    return details
+
+
+def _addon_cleanup_message(cleanup: CleanupResult, *, dry_run: bool) -> tuple[bool, str]:
+    found = len(cleanup.deleted)
+    errors = len(cleanup.errors)
+    entry_word = _cleanup_entry_word(found)
+    if dry_run:
+        if errors:
+            return False, f"Cleanup check found {errors} warning(s); no files were deleted."
+        if found == 0:
+            return True, "No unused addon files found."
+        return (
+            True,
+            f"Found {found} unused addon {entry_word}; "
+            f"cleanup would free {cleanup.freed_display}.",
+        )
+
+    if errors and found:
+        return (
+            False,
+            f"Cleanup completed with {errors} error(s); deleted {found} addon {entry_word}, "
+            f"freed {cleanup.freed_display}.",
+        )
+    if errors:
+        return False, f"Cleanup failed with {errors} error(s); no addon files were deleted."
+    if found == 0:
+        return True, "No unused addon files found."
+    return True, f"Deleted {found} unused addon {entry_word}, freed {cleanup.freed_display}."
+
+
+def _run_unused_addon_cleanup(
+    *,
+    instance: str,
+    dry_run: bool,
+) -> ModActionResult:
+    normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
+    try:
+        config_path = _config_path(normalized_instance)
+        cleanup = cleanup_unconfigured_addons(config_path, dry_run=dry_run)
+    except (ModActionError, ConfigError, OSError, TypeError, ValueError):
+        return _failure(
+            action=ACTION_CLEANUP_CHECK if dry_run else ACTION_CLEANUP,
+            instance=normalized_instance,
+            target="unused addons",
+            message="Addon cleanup is unavailable.",
+        )
+
+    success, message = _addon_cleanup_message(cleanup, dry_run=dry_run)
+    return _result(
+        action=ACTION_CLEANUP_CHECK if dry_run else ACTION_CLEANUP,
+        instance=normalized_instance,
+        target="unused addons",
+        success=success,
+        changed=False if dry_run else bool(cleanup.deleted),
+        message=message,
+        exit_code=0 if success else 1,
+        details=_addon_cleanup_details(cleanup, dry_run=dry_run),
+    )
+
+
+def check_unused_addons(
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> ModActionResult:
+    """Dry-run unused addon cleanup without auditing or deleting files."""
+    return replace(
+        _run_unused_addon_cleanup(instance=instance, dry_run=True),
+        restart_required=False,
+    )
+
+
+def cleanup_unused_addons(
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> ModActionResult:
+    """Clean unused local addon files without changing config state."""
+    return replace(
+        _run_unused_addon_cleanup(instance=instance, dry_run=False),
+        restart_required=False,
     )
 
 
@@ -1040,6 +1205,25 @@ def run_dedupe_and_audit(
         username=username,
         db_path=db_path,
         workflow=lambda: dedupe_mods(instance=normalized_instance),
+    )
+
+
+def run_cleanup_unused_addons_and_audit(
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    audit_log_path: Path,
+    username: str,
+) -> ModActionResult:
+    """Audit and run cleanup for unused local Workshop addon files."""
+    normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
+    return _run_mod_workflow_and_audit(
+        ACTION_CLEANUP,
+        instance=normalized_instance,
+        target="unused addons",
+        audit_log_path=audit_log_path,
+        username=username,
+        mark_pending_restart=False,
+        workflow=lambda: cleanup_unused_addons(instance=normalized_instance),
     )
 
 

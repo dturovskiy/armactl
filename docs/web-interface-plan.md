@@ -43,7 +43,7 @@ Routes should stay thin. Services own validation, backend calls, backups, pendin
 
 - `/dashboard` - server overview and status polling.
 - `/config` - selected safe config fields.
-- `/mods` - mod list, single/bulk add, import/export, enable/disable/remove, and dedupe.
+- `/mods` - mod list, single/bulk add, import/export, enable/disable/remove, dedupe, and unused-addon cleanup.
 - `/admins` - game admin list and current-player quick-add.
 - `/schedule` - restart schedule and autostart controls.
 - `/files` - bounded browse, preview, download, and upload.
@@ -99,7 +99,7 @@ Near-term dashboard work focuses on:
 - production hardening;
 - server update flow polish;
 - safer config controls after behavior is verified;
-- mod cleanup visibility and edge-case recovery improvements;
+- mod cleanup edge-case recovery improvements;
 - player history/moderation improvements with reliable identity rules;
 - schedule timezone UX;
 - clearer logs and report download/export flows.

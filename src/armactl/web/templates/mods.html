@@ -42,7 +42,7 @@
     {% endif %}
   </dl>
 </section>
-{% if result.changed %}
+{% if result.changed and result.restart_required %}
 <section class="notice-panel full-width notice-restart">
   <h2>{{ t("Restart required") }}</h2>
   <p>{{ t("Restart the server to apply mod changes.") }}</p>
@@ -246,16 +246,51 @@
   </div>
 </section>
 
+{% endif %}
+
+{% if page.available %}
 <section class="panel full-width mod-edit-panel">
   <div class="section-heading-row">
-    <h2>{{ t("Maintenance: dedupe") }}</h2>
+    <h2>{{ t("Maintenance / Cleanup") }}</h2>
   </div>
-  <form method="post" action="/mods/dedupe" class="config-edit-form mod-edit-form">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <div class="form-actions">
-      <button type="submit" class="secondary">{{ t("Dedupe mods") }}</button>
+  <p class="muted">{{ t("Checks local addon/mod files under the managed config addons directory.") }}</p>
+  <ul class="muted">
+    <li>{{ t("Finds addon entries whose mod IDs are not listed in config.json or the disabled-mods sidecar.") }}</li>
+    <li>{{ t("Active and disabled mods from config stay protected.") }}</li>
+    <li>{{ t("This cleanup does not edit config or provide general file deletion.") }}</li>
+  </ul>
+  {% if can_manage_mods %}
+    <div class="mod-tool-stack">
+      <form method="post" action="/mods/cleanup-check" class="config-edit-form mod-edit-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-actions">
+          <button type="submit" class="secondary">{{ t("Check unused addons") }}</button>
+        </div>
+      </form>
+
+      <form method="post" action="/mods/cleanup" class="config-edit-form mod-edit-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="checkbox-grid">
+          <label class="inline-confirm">
+            <input type="checkbox" name="confirm" value="cleanup">
+            {{ t("Confirm cleanup") }}
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="danger">{{ t("Cleanup unused addons") }}</button>
+        </div>
+      </form>
+
+      <form method="post" action="/mods/dedupe" class="config-edit-form mod-edit-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-actions">
+          <button type="submit" class="secondary">{{ t("Dedupe mods") }}</button>
+        </div>
+      </form>
     </div>
-  </form>
+  {% else %}
+    <p class="muted">{{ t("Cleanup actions require mods:manage.") }}</p>
+  {% endif %}
 </section>
 {% endif %}
 {% endblock %}
