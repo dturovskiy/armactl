@@ -14,12 +14,12 @@ The armactl web dashboard is a local browser interface for managing the same Arm
 - Login/logout with sessions and CSRF protection.
 - Dashboard status with service, runtime, config, metrics, and recent job state.
 - Safe config editing for selected non-secret fields.
-- Mods management with add/remove, enable/disable, bulk paste, import/export, and dedupe.
+- Mods management with add/remove, enable/disable, bulk paste, import/export, dedupe, and unused-addon cleanup.
 - Game-admin management foundation.
 - Restart schedule and game-service autostart controls.
 - File browser with bounded preview, single-file download, and no-overwrite upload.
 - Logs and diagnostic report views.
-- Background jobs for install and repair.
+- Background jobs for install, repair, update checks, and updates.
 - Player registry foundation with reliable IDs and no IP storage by default.
 - Action records and pending operator work for changes that need follow-up.
 
@@ -103,3 +103,15 @@ Near-term dashboard work focuses on:
 - player history/moderation improvements with reliable identity rules;
 - schedule timezone UX;
 - clearer logs and report download/export flows.
+
+## Before Main Merge
+
+Before treating the web dashboard as the primary free/local operator UI, run one final review pass that covers:
+
+- VM smoke for login, dashboard, config, mods, admins, files, logs, jobs, updates, and service controls;
+- TUI/Web parity decisions for install, repair, update, config, mods, cleanup, logs, bot, and host-test workflows;
+- config-focused editor scope, including safe fields, advanced/raw JSON boundaries, backups, audit, pending restart, and recovery;
+- schedule timezone UX with browser-local display/input and UTC backend normalization;
+- player history, moderation, and banlist scope with reliable identity rules;
+- lightweight file-editing scope, if any, separated from broad destructive file management;
+- architecture, security, dead-code, source-of-truth, and public-docs drift checks.

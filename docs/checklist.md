@@ -24,7 +24,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Restart schedule and autostart controls.
 - [x] File browser with bounded preview, download, and no-overwrite upload.
 - [x] Logs and diagnostic report views.
-- [x] Background jobs for install and repair.
+- [x] Background jobs for install, repair, update checks, and updates.
 - [x] Player registry foundation with reliable IDs and no IP storage by default.
 - [ ] Continue production hardening for the local dashboard.
 - [ ] Polish server update checks and update job UX.
@@ -32,6 +32,10 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [ ] Improve mod cleanup edge-case recovery workflows.
 - [ ] Improve player history and moderation workflows with clear identity rules.
 - [ ] Improve schedule timezone UX.
+- [ ] Add config-focused editor phase 2 with validation, backups, audit, and recovery.
+- [ ] Decide and document safe scope for lightweight file editing beyond config.
+- [ ] Close remaining TUI/Web parity gaps that should be web-primary.
+- [ ] Run final VM smoke, architecture/security/dead-code/docs review before main merge.
 
 ## Public Documentation
 
