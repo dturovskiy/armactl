@@ -48,7 +48,9 @@ def _admins_page(*, admin_id: str = "76561198000000001") -> dict:
         "available": True,
         "error": "",
         "status": {"lifecycle": "running", "installed": True, "running": True},
-        "paths": {"config_path": "/srv/armactl-data/default/config/config.json"},
+        "paths": {
+            "config_display": "config.json",
+        },
         "official_admins": [
             {
                 "identity_id": admin_id,
@@ -65,7 +67,8 @@ def _admins_page(*, admin_id: str = "76561198000000001") -> dict:
             }
         ],
         "local_label_count": 1,
-        "local_labels_path": "/srv/armactl-data/default/config/admins-state.json",
+        "local_labels_path": "admins-state.json",
+        "local_labels_path_display": "admins-state.json",
         "local_labels_error": "",
     }
 

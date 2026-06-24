@@ -19,7 +19,7 @@
       <dt>{{ t("Token configured") }}</dt><dd>{{ t("yes") if page.bot.token_configured else t("no") }}</dd>
       <dt>{{ t("Admin chats") }}</dt><dd>{{ page.bot.admin_chat_count }}</dd>
       <dt>{{ t("Language") }}</dt><dd>{{ page.bot.language or t("unknown") }}</dd>
-      <dt>{{ t("Config path") }}</dt><dd>{{ page.bot.env_path or t("unknown") }}</dd>
+      <dt>{{ t("Config") }}</dt><dd>{{ t(page.bot.env_path_display|default(page.bot.env_path|default("unavailable"))) }}</dd>
       <dt>{{ t("Service") }}</dt><dd>{% if page.bot.service.available %}{{ page.bot.service.service_name or t("unknown") }}{% else %}{{ t(page.bot.service.error) }}{% endif %}</dd>
       <dt>{{ t("Service active") }}</dt><dd>{% if page.bot.service.available %}{{ t("yes") if page.bot.service.active else t("no") }}{% else %}{{ t("unknown") }}{% endif %}</dd>
       <dt>{{ t("Service enabled") }}</dt><dd>{% if page.bot.service.available %}{{ t("yes") if page.bot.service.enabled else t("no") }}{% else %}{{ t("unknown") }}{% endif %}</dd>

@@ -182,6 +182,26 @@ def test_authenticated_owner_can_view_management_pages(tmp_path: Path, monkeypat
     assert "Token configured" in bot_response.text
     assert "raw-bot-token-secret" not in bot_response.text
 
+    management_html = "\n".join(
+        response.text
+        for response in (config_response, mods_response, admins_response, bot_response)
+    )
+    for raw_path in (
+        "/srv/armactl-data/default",
+        "/srv/armactl-data/default/server",
+        "/srv/armactl-data/default/config/config.json",
+        "/srv/armactl-data/default/mods-state.json",
+        "/srv/armactl-data/default/config/admins-state.json",
+        "/srv/armactl-data/default/bot/.env",
+    ):
+        assert raw_path not in management_html
+    assert "config.json" in config_response.text
+    assert "instance config" in config_response.text
+    assert "server install" in config_response.text
+    assert "disabled mods state" in mods_response.text
+    assert "admins-state.json" in admins_response.text
+    assert "bot config" in bot_response.text
+
 
 def test_management_permission_denied_returns_controlled_403_and_skips_backend(
     tmp_path: Path,

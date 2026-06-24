@@ -50,7 +50,9 @@ def _mods_page() -> dict:
         "available": True,
         "error": "",
         "status": {"lifecycle": "running", "installed": True, "running": True},
-        "paths": {"config_path": "/srv/armactl-data/default/config/config.json"},
+        "paths": {
+            "config_display": "config.json",
+        },
         "count": 1,
         "mods": [
             {
@@ -67,7 +69,8 @@ def _mods_page() -> dict:
                 "version": "",
             }
         ],
-        "disabled_mods_path": "/srv/armactl-data/default/mods-state.json",
+        "disabled_mods_state": "disabled mods state",
+        "disabled_mods_state_display": "disabled mods state",
         "disabled_mods_error": "",
     }
 

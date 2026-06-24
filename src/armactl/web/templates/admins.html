@@ -53,10 +53,10 @@
     {% endif %}
     <dl>
       <dt>{{ t("Instance") }}</dt><dd>{{ page.instance }}</dd>
-      <dt>{{ t("Config path") }}</dt><dd>{{ page.paths.config_path or t("unknown") }}</dd>
+      <dt>{{ t("Config") }}</dt><dd>{{ t(page.paths.config_display|default("unavailable")) }}</dd>
       <dt>{{ t("Official admin count") }}</dt><dd>{{ page.official_count }}</dd>
       <dt>{{ t("Local label count") }}</dt><dd>{{ page.local_label_count }}</dd>
-      <dt>{{ t("Local labels path") }}</dt><dd>{{ page.local_labels_path or t("unknown") }}</dd>
+      <dt>{{ t("Local labels state") }}</dt><dd>{{ t(page.local_labels_path_display|default(page.local_labels_path|default("unavailable"))) }}</dd>
     </dl>
     {% if page.local_labels_error %}
       <p class="error">{{ t(page.local_labels_error) }}</p>

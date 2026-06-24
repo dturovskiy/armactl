@@ -6,6 +6,8 @@ from typing import Any
 
 from armactl import admins_manager, config_manager
 from armactl.web.page_models.common import (
+    UNAVAILABLE_LABEL,
+    _basename_display,
     _discover_management_state,
     _missing_config_page,
     _paths,
@@ -62,11 +64,11 @@ def load_admins_page(instance: str) -> dict[str, Any]:
     except Exception as error:
         return _missing_config_page(instance, state, _safe_error_message(error))
 
-    sidecar_path = ""
+    sidecar_path = UNAVAILABLE_LABEL
     local_labels: list[dict[str, str]] = []
     label_error = ""
     try:
-        sidecar_path = str(admins_manager.admins_state_path_for_config(state.config_path))
+        state_path = admins_manager.admins_state_path_for_config(state.config_path)
         local_labels = [
             {
                 "identity_id": str(item.get("identityId") or "").strip(),
@@ -75,6 +77,7 @@ def load_admins_page(instance: str) -> dict[str, Any]:
             }
             for item in admins_manager.load_admins(state.config_path)
         ]
+        sidecar_path = _basename_display(state_path, "admins-state.json")
     except Exception as error:
         label_error = _safe_error_message(error)
 
@@ -101,5 +104,6 @@ def load_admins_page(instance: str) -> dict[str, Any]:
         "local_labels": local_labels,
         "local_label_count": len(local_labels),
         "local_labels_path": sidecar_path,
+        "local_labels_path_display": sidecar_path,
         "local_labels_error": label_error,
     }

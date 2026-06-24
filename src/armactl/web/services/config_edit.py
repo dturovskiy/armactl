@@ -7,7 +7,7 @@ import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from armactl import config_manager, discovery, paths
@@ -66,6 +66,7 @@ class _PreparedConfigEdit:
 
 _STRING_LIMIT = 512
 CONFIG_SAVE_ACTION = "config.save"
+CONFIG_AUDIT_TARGET = "config.json"
 
 CONFIG_FIELD_DESCRIPTORS = web_config_field_descriptors()
 ALLOWLISTED_CONFIG_FORM_FIELDS = tuple(
@@ -273,6 +274,21 @@ def save_default_config(instance: str, form: Mapping[str, Any]) -> ConfigEditRes
     return save_basic_config_file(state.config_path, form)
 
 
+def _safe_basename(value: Path | str | None) -> str:
+    if not value:
+        return ""
+    text = str(value).strip()
+    names: list[str] = []
+    for candidate in (Path(text).name, PureWindowsPath(text).name):
+        if not candidate or "/" in candidate or "\\" in candidate:
+            continue
+        if candidate not in names:
+            names.append(candidate)
+    if names:
+        return min(names, key=len)
+    return ""
+
+
 def _audit_config_save(
     *,
     audit_log_path: Path,
@@ -285,6 +301,7 @@ def _audit_config_save(
     backup_path: Path | str | None = None,
     phase: str = "outcome",
 ) -> None:
+    backup_name = _safe_basename(backup_path)
     append_audit_event(
         audit_log_path,
         username=username,
@@ -297,7 +314,8 @@ def _audit_config_save(
         details={
             "phase": phase,
             "changed_fields": changed_fields,
-            "backup_path": str(backup_path) if backup_path else "",
+            "backup_created": bool(backup_path),
+            "backup_name": backup_name,
         },
     )
 
@@ -342,13 +360,12 @@ def _mark_restart_pending_for_config_result(
 
 def save_default_config_and_audit(instance, form, *, audit_log_path, username, db_path=None):
     normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
-    target = "config.json"
+    target = CONFIG_AUDIT_TARGET
     try:
         state = discovery.discover(instance=normalized_instance, save=False)
         if not state.config_path:
             raise ConfigEditError("Server config path is unavailable.")
         prepared = _prepare_basic_config_edit(state.config_path, form)
-        target = str(prepared.config_path)
     except ConfigEditError as error:
         try:
             _audit_config_save(
@@ -406,7 +423,7 @@ def save_default_config_and_audit(instance, form, *, audit_log_path, username, d
             audit_log_path=audit_log_path,
             username=username,
             instance=normalized_instance,
-            target=str(result.config_path),
+            target=CONFIG_AUDIT_TARGET,
             success=True,
             message="Config saved.",
             changed_fields=result.changed_fields,

@@ -6,7 +6,10 @@ from typing import Any
 
 from armactl import mods_manager, mods_state
 from armactl.web.page_models.common import (
+    DISABLED_MODS_STATE_DISPLAY,
+    UNAVAILABLE_LABEL,
     _discover_management_state,
+    _label_display,
     _missing_config_page,
     _paths,
     _safe_error_message,
@@ -33,7 +36,7 @@ def load_mods_page(instance: str) -> dict[str, Any]:
     if not state.config_path:
         return _missing_config_page(instance, state, "config path is not available")
 
-    disabled_mods_path = ""
+    disabled_mods_state = UNAVAILABLE_LABEL
     disabled_mods: list[dict[str, str]] = []
     disabled_mods_error = ""
     try:
@@ -45,8 +48,9 @@ def load_mods_page(instance: str) -> dict[str, Any]:
         return _missing_config_page(instance, state, _safe_error_message(error))
 
     try:
-        disabled_mods_path = str(mods_state.mods_state_path_for_config(state.config_path))
+        state_path = mods_state.mods_state_path_for_config(state.config_path)
         raw_disabled_mods = mods_state.load_disabled_mods(state.config_path)
+        disabled_mods_state = _label_display(state_path, DISABLED_MODS_STATE_DISPLAY)
         if not isinstance(raw_disabled_mods, list):
             raw_disabled_mods = []
         disabled_mods = [_mod_entry(raw) for raw in raw_disabled_mods]
@@ -63,6 +67,7 @@ def load_mods_page(instance: str) -> dict[str, Any]:
         "mods": mods,
         "disabled_count": len(disabled_mods),
         "disabled_mods": disabled_mods,
-        "disabled_mods_path": disabled_mods_path,
+        "disabled_mods_state": disabled_mods_state,
+        "disabled_mods_state_display": disabled_mods_state,
         "disabled_mods_error": disabled_mods_error,
     }

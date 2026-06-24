@@ -80,11 +80,11 @@
         </dl>
       </article>
       <article class="panel config-summary-card config-summary-card-wide">
-        <h3>{{ t("Paths") }}</h3>
+        <h3>{{ t("Files") }}</h3>
         <dl class="key-value-list config-summary-list config-path-list">
-          <dt>{{ t("Config path") }}</dt><dd class="wrap-value">{{ page.paths.config_path or t("unknown") }}</dd>
-          <dt>{{ t("Instance root") }}</dt><dd class="wrap-value">{{ page.paths.instance_root or t("unknown") }}</dd>
-          <dt>{{ t("Install dir") }}</dt><dd class="wrap-value">{{ page.paths.install_dir or t("unknown") }}</dd>
+          <dt>{{ t("Config") }}</dt><dd class="wrap-value">{{ t(page.paths.config_display|default("unavailable")) }}</dd>
+          <dt>{{ t("Instance") }}</dt><dd class="wrap-value">{{ t(page.paths.instance_display|default("unavailable")) }}</dd>
+          <dt>{{ t("Server") }}</dt><dd class="wrap-value">{{ t(page.paths.server_display|default("unavailable")) }}</dd>
         </dl>
       </article>
     </div>

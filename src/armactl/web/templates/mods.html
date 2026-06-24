@@ -67,10 +67,10 @@
   {% if page.available %}
     <dl>
       <dt>{{ t("Instance") }}</dt><dd>{{ page.instance }}</dd>
-      <dt>{{ t("Config path") }}</dt><dd>{{ page.paths.config_path or t("unknown") }}</dd>
+      <dt>{{ t("Config") }}</dt><dd>{{ t(page.paths.config_display|default("unavailable")) }}</dd>
       <dt>{{ t("Active mod count") }}</dt><dd>{{ page.count }}</dd>
       <dt>{{ t("Disabled mod count") }}</dt><dd>{{ page.disabled_count|default(0) }}</dd>
-      <dt>{{ t("Disabled mods path") }}</dt><dd class="wrap-value">{{ page.disabled_mods_path|default("") or t("unknown") }}</dd>
+      <dt>{{ t("Disabled mods state") }}</dt><dd class="wrap-value">{{ t(page.disabled_mods_state_display|default("unavailable")) }}</dd>
     </dl>
     {% if page.disabled_mods_error|default("") %}
       <p class="error">{{ t(page.disabled_mods_error) }}</p>

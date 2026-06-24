@@ -265,7 +265,8 @@ def test_dashboard_snapshot_for_stopped_server(monkeypatch):
     assert snapshot["installed"] is True
     assert snapshot["running"] is False
     assert snapshot["overview"]["empty_state"] is False
-    assert snapshot["paths"]["install_dir"] == "/srv/armactl-data/default/server"
+    assert snapshot["paths"]["install_dir"] == "server install"
+    assert snapshot["paths"]["config_path"] == "config.json"
     assert snapshot["service"]["available"] is True
     assert snapshot["service"]["active"] is False
     assert snapshot["service_runtime"]["available"] is False
@@ -729,9 +730,15 @@ def _view_snapshot(lifecycle: str) -> dict[str, Any]:
         "mods": {"count": 2, "preview_labels": ["Core Mod"]},
         "sat": {"available": True, "warning": ""},
         "paths": {
-            "instance_root": "/srv/default",
-            "install_dir": "/srv/default/server",
-            "config_path": "/srv/default/config/config.json",
+            "instance_root": "instance config",
+            "install_dir": "server install",
+            "config_path": "config.json",
+            "instance_display": "instance config",
+            "server_display": "server install",
+            "config_display": "config.json",
+            "instance_root_display": "instance config",
+            "install_dir_display": "server install",
+            "config_path_display": "config.json",
         },
         "errors": [],
     }

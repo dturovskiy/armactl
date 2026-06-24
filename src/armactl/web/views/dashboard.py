@@ -607,9 +607,27 @@ def _diagnostics(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str, 
                 "title": "Repair diagnostics",
                 "message": "Repair is available as a background job.",
                 "items": [
-                    _item("Instance root", paths.get("instance_root", "unknown")),
-                    _item("Install dir", paths.get("install_dir", "unknown")),
-                    _item("Config path", paths.get("config_path", "unknown")),
+                    _item(
+                        "Instance",
+                        paths.get("instance_display")
+                        or paths.get("instance_root_display")
+                        or paths.get("instance_root", "unavailable"),
+                        translate_value=True,
+                    ),
+                    _item(
+                        "Server",
+                        paths.get("server_display")
+                        or paths.get("install_dir_display")
+                        or paths.get("install_dir", "unavailable"),
+                        translate_value=True,
+                    ),
+                    _item(
+                        "Config",
+                        paths.get("config_display")
+                        or paths.get("config_path_display")
+                        or paths.get("config_path", "unavailable"),
+                        translate_value=True,
+                    ),
                 ],
             }
         )

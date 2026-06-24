@@ -53,6 +53,9 @@ def _safe_details(details: Mapping[str, object] | None) -> dict[str, Any] | None
     safe: dict[str, Any] = {}
     for key, value in details.items():
         safe_key = _safe_text(key, max_length=120)
+        if isinstance(value, bool):
+            safe[safe_key] = value
+            continue
         if isinstance(value, str) or not isinstance(value, Sequence):
             safe[safe_key] = _safe_text(value, max_length=500)
             continue

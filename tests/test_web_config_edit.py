@@ -225,7 +225,7 @@ def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
     assert "data-config-dirty-note hidden" in response.text
     assert "status-pill status-pill-stopped" in response.text
     assert "notice-inline notice-restart" in response.text
-    for heading in ("Status", "Server", "Network", "Paths", "Basic server settings"):
+    for heading in ("Status", "Server", "Network", "Files", "Basic server settings"):
         assert f">{heading}<" in response.text
     assert 'method="post" action="/config"' in response.text
     assert 'name="name"' in response.text
@@ -299,7 +299,12 @@ def test_config_page_groups_summary_and_escapes_long_values(tmp_path: Path, monk
     assert "config-summary-card" in response.text
     assert "key-value-list config-summary-list" in response.text
     assert "config-path-list" in response.text
-    assert str(config_path) in response.text
+    assert str(config_path) not in response.text
+    assert str(config_path.parents[1]) not in response.text
+    assert str(config_path.parents[1] / "server") not in response.text
+    assert "config.json" in response.text
+    assert "instance config" in response.text
+    assert "server install" in response.text
     assert "Scenarios/VeryLongScenario&lt;&amp;&gt;.conf" in response.text
     assert "Very long &lt;script&gt;alert(1)&lt;/script&gt; server name" in response.text
     assert "<script>alert(1)</script>" not in response.text
@@ -420,7 +425,7 @@ def test_config_edit_updates_allowlisted_fields_creates_backup_and_preserves_res
     assert event["username"] == "owner"
     assert event["action"] == "config.save"
     assert event["instance"] == "default"
-    assert event["target"] == str(config_path)
+    assert event["target"] == "config.json"
     assert event["success"] is True
     assert event["exit_code"] == 0
     assert event["message"] == "Config saved."
@@ -433,11 +438,15 @@ def test_config_edit_updates_allowlisted_fields_creates_backup_and_preserves_res
         "server_max_view_distance",
         "server_min_grass_distance",
     ]
-    assert event["details"]["backup_path"] == str(backups[0])
+    assert event["details"]["backup_created"] is True
+    assert event["details"]["backup_name"] == backups[0].name
+    assert "backup_path" not in event["details"]
     assert "password" not in event["details"]["changed_fields"]
     assert "disable_third_person" not in event["details"]["changed_fields"]
     assert "fast_validation" not in event["details"]["changed_fields"]
     audit_text = _audit_log_text(tmp_path)
+    assert str(config_path) not in audit_text
+    assert str(backups[0]) not in audit_text
     for secret in ("admin-password-secret", "raw-rcon-secret"):
         assert secret not in audit_text
 
@@ -569,7 +578,9 @@ def test_config_edit_rejects_invalid_values_without_backup(
     assert event["success"] is False
     assert event["exit_code"] == 1
     assert event["message"] == message
-    assert event["details"]["backup_path"] == ""
+    assert event["details"]["backup_created"] is False
+    assert event["details"]["backup_name"] == ""
+    assert "backup_path" not in event["details"]
     assert set(event["details"]["changed_fields"]) == {
         "name",
         "scenario_id",

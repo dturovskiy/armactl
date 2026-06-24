@@ -6,7 +6,12 @@ from typing import Any
 
 from armactl import bot_config, paths
 from armactl.redaction import redact_sensitive_text
-from armactl.web.page_models.common import DashboardError, _unavailable
+from armactl.web.page_models.common import (
+    BOT_CONFIG_DISPLAY,
+    DashboardError,
+    _label_display,
+    _unavailable,
+)
 
 
 def load_bot_summary(instance: str, errors: list[DashboardError]) -> dict[str, Any]:
@@ -23,7 +28,8 @@ def load_bot_summary(instance: str, errors: list[DashboardError]) -> dict[str, A
         "token_configured": bool(config.token.strip()),
         "admin_chat_count": len(config.admin_chat_ids),
         "language": config.language,
-        "env_path": str(config.env_path) if config.env_path else "",
+        "env_path": _label_display(config.env_path, BOT_CONFIG_DISPLAY),
+        "env_path_display": _label_display(config.env_path, BOT_CONFIG_DISPLAY),
         "service": _unavailable("Telegram bot service is not installed"),
     }
 

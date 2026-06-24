@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, is_dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from armactl import discovery
@@ -15,6 +15,16 @@ from armactl.state import ServerState
 class DashboardError:
     section: str
     message: str
+
+
+AVAILABLE_LABEL = "available"
+UNAVAILABLE_LABEL = "unavailable"
+CONFIG_FILE_DISPLAY = "config.json"
+INSTANCE_CONFIG_DISPLAY = "instance config"
+SERVER_INSTALL_DISPLAY = "server install"
+DISABLED_MODS_STATE_DISPLAY = "disabled mods state"
+BOT_CONFIG_DISPLAY = "bot config"
+
 
 def _to_plain(value: Any) -> Any:
     if is_dataclass(value):
@@ -72,15 +82,55 @@ def _bool_text(value: Any) -> str:
         return "no"
     return "unknown"
 
+
+def _has_display_value(value: Any) -> bool:
+    return bool(str(value or "").strip())
+
+
+def _label_display(value: Any, label: str) -> str:
+    if _has_display_value(value):
+        return label
+    return UNAVAILABLE_LABEL
+
+
+def _basename_display(value: Any, fallback: str) -> str:
+    if not _has_display_value(value):
+        return UNAVAILABLE_LABEL
+
+    text = str(value).strip()
+    names: list[str] = []
+    for candidate in (Path(text).name, PureWindowsPath(text).name):
+        if not candidate or "/" in candidate or "\\" in candidate:
+            continue
+        if candidate not in names:
+            names.append(candidate)
+    if names:
+        return min(names, key=len)
+    return fallback
+
+
 def _paths(state: ServerState) -> dict[str, Any]:
     config_dir = _config_dir_from_state(state)
+    config_display = _basename_display(state.config_path, CONFIG_FILE_DISPLAY)
+    instance_display = _label_display(state.instance_root, INSTANCE_CONFIG_DISPLAY)
+    install_display = _label_display(state.install_dir, SERVER_INSTALL_DISPLAY)
+    config_dir_display = _label_display(config_dir, INSTANCE_CONFIG_DISPLAY)
+    logs_display = _label_display(config_dir, AVAILABLE_LABEL)
     return {
         "available": bool(state.instance_root or state.install_dir or state.config_path),
-        "instance_root": state.instance_root,
-        "install_dir": state.install_dir,
-        "config_path": state.config_path,
-        "config_dir": str(config_dir) if config_dir is not None else "",
-        "logs_dir": str(config_dir / "logs") if config_dir is not None else "",
+        "instance_root": instance_display,
+        "install_dir": install_display,
+        "config_path": config_display,
+        "config_dir": config_dir_display,
+        "logs_dir": logs_display,
+        "instance_display": instance_display,
+        "server_display": install_display,
+        "config_display": config_display,
+        "instance_root_display": instance_display,
+        "install_dir_display": install_display,
+        "config_path_display": config_display,
+        "config_dir_display": config_dir_display,
+        "logs_dir_display": logs_display,
         "service_name": state.service_name,
         "timer_name": state.timer_name,
     }
