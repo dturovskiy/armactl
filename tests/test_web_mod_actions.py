@@ -7,12 +7,13 @@ import re
 import warnings
 from pathlib import Path
 
+import pytest
 from starlette.exceptions import StarletteDeprecationWarning
 from web_route_helpers import _session_cookie_name
 
 from armactl.addon_cleanup import CleanupResult
 from armactl.config_manager import ConfigError
-from armactl.mods_manager import ModAddResult, ModUpdateResult
+from armactl.mods_manager import BulkModAddResult, ModAddResult, ModUpdateResult
 from armactl.state import ServerState
 from armactl.web.auth.permissions import MODS_VIEW
 from armactl.web.auth.setup import setup_owner_user
@@ -989,3 +990,414 @@ def test_mods_html_and_audit_do_not_expose_auth_secrets(tmp_path: Path, monkeypa
     assert user.password_hash not in audit_text
     assert session_token not in audit_text
     assert "render-secret" not in audit_text
+
+
+def test_mod_action_support_helper_includes_mod_pack_workflows():
+    from armactl.web.services import mod_actions
+
+    assert mod_actions.is_supported_action(mod_actions.ACTION_ADD) is True
+    assert mod_actions.is_supported_action(mod_actions.ACTION_BULK_ADD) is True
+    assert mod_actions.is_supported_action(mod_actions.ACTION_IMPORT) is True
+    assert mod_actions.is_supported_action(mod_actions.ACTION_EXPORT) is True
+    assert mod_actions.is_supported_action(mod_actions.ACTION_DEDUPE) is True
+
+
+def test_bulk_add_helper_parses_multiple_ids_and_calls_add_mods_detailed(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions
+
+    config_path = tmp_path / "config.json"
+    calls: list[tuple[Path, list[str], str, str]] = []
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def add_mods(path, mod_ids, *, name="", version="") -> BulkModAddResult:
+        ids = list(mod_ids)
+        calls.append((path, ids, name, version))
+        return BulkModAddResult(
+            [
+                ModAddResult(ids[0], "added"),
+                ModAddResult(ids[1], "unchanged"),
+            ],
+            active_count=2,
+        )
+
+    monkeypatch.setattr(mod_actions.mods_manager, "add_mods_detailed", add_mods)
+
+    result = mod_actions.bulk_add_mods(
+        text=(
+            "https://reforger.armaplatform.com/workshop/aaaaaaaaaaaaaaaa "
+            "and BBBBBBBBBBBBBBBB"
+        )
+    )
+
+    assert result.success is True
+    assert result.changed is True
+    assert result.action == "mod.bulk-add"
+    assert result.message == (
+        "Bulk add complete: added 1, updated 0, reactivated 0, "
+        "unchanged 1, duplicate input 0."
+    )
+    assert calls == [
+        (
+            config_path,
+            ["AAAAAAAAAAAAAAAA", "BBBBBBBBBBBBBBBB"],
+            "",
+            "",
+        )
+    ]
+
+
+def test_bulk_add_duplicate_input_reports_summary_without_crash(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions
+
+    config_path = _write_mod_config(tmp_path, [])
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    result = mod_actions.bulk_add_mods(
+        text="AAAAAAAAAAAAAAAA\nhttps://example.invalid/AAAAAAAAAAAAAAAA",
+    )
+
+    assert result.success is True
+    assert result.changed is True
+    assert "duplicate input 1" in result.message
+    assert result.details["added"] == "1"
+    assert result.details["duplicate_input"] == "1"
+    assert json.loads(config_path.read_text(encoding="utf-8"))["game"]["mods"] == [
+        {"modId": "AAAAAAAAAAAAAAAA", "name": "", "version": ""}
+    ]
+
+
+def test_mods_import_append_uses_mods_manager_import_detailed(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions
+
+    config_path = _write_mod_config(tmp_path, [])
+    calls: list[tuple[Path, bool, list[dict[str, str]], bool]] = []
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def import_mods(path, import_file, append=False):
+        import_path = Path(import_file)
+        calls.append(
+            (
+                Path(path),
+                append,
+                json.loads(import_path.read_text(encoding="utf-8")),
+                import_path.is_file(),
+            )
+        )
+        return 2, 1, ModUpdateResult(config_changed=True)
+
+    monkeypatch.setattr(mod_actions.mods_manager, "import_mods_detailed", import_mods)
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/import",
+        data={"csrf_token": csrf_token, "mode": "append"},
+        files={
+            "upload": (
+                "pack.json",
+                json.dumps([
+                    {"modId": "AAAAAAAAAAAAAAAA", "name": "Alpha", "version": "1"}
+                ]),
+                "application/json",
+            )
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "Import append complete: added 2, skipped 1." in response.text
+    assert "Restart the server to apply mod changes." in response.text
+    assert calls == [
+        (
+            config_path,
+            True,
+            [{"modId": "AAAAAAAAAAAAAAAA", "name": "Alpha", "version": "1"}],
+            True,
+        )
+    ]
+    event = _audit_events(tmp_path)[0]
+    assert event["action"] == "mod.import"
+    assert event["details"]["mode"] == "append"
+    assert event["details"]["changed"] == "yes"
+
+
+def test_mods_import_replace_requires_confirmation(tmp_path: Path, monkeypatch):
+    from armactl.web.services import mod_actions
+
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(mod_actions, "run_import_mod_pack_and_audit", AssertionError)
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/import",
+        data={"csrf_token": csrf_token, "mode": "replace"},
+        files={"upload": ("pack.json", "[]", "application/json")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Confirmation is required to replace the current mod list." in response.text
+    assert "Restart the server to apply mod changes." not in response.text
+    assert not (tmp_path / "logs" / "web" / "audit.log").exists()
+
+
+def test_mods_export_returns_active_mods_json(tmp_path: Path, monkeypatch):
+    from armactl.web.services import mod_actions
+
+    config_path = _write_mod_config(
+        tmp_path,
+        [{"modId": "AAAAAAAAAAAAAAAA", "name": "Alpha", "version": "1"}],
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/export",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert "attachment" in response.headers["content-disposition"].lower()
+    assert json.loads(response.content) == [
+        {"modId": "AAAAAAAAAAAAAAAA", "name": "Alpha", "version": "1"}
+    ]
+    event = _audit_events(tmp_path)[0]
+    assert event["action"] == "mod.export"
+    assert event["details"]["exported_count"] == "1"
+
+
+def test_mods_dedupe_noop_reports_controlled_noop(tmp_path: Path, monkeypatch):
+    from armactl.web.services import mod_actions
+    from armactl.web.services.pending_work import list_pending_work
+
+    config_path = _write_mod_config(
+        tmp_path,
+        [{"modId": "AAAAAAAAAAAAAAAA", "name": "Alpha", "version": "1"}],
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/dedupe",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "No duplicate mods found." in response.text
+    assert "Restart the server to apply mod changes." not in response.text
+    assert list_pending_work(tmp_path / "web" / "web.db") == []
+    event = _audit_events(tmp_path)[0]
+    assert event["action"] == "mod.dedupe"
+    assert event["details"]["changed"] == "no"
+    assert event["details"]["duplicate_removed_count"] == "0"
+
+
+def test_mods_dedupe_changed_creates_pending_restart(tmp_path: Path, monkeypatch):
+    from armactl.web.services import mod_actions
+    from armactl.web.services.pending_work import KIND_MODS, get_pending_work
+
+    config_path = _write_mod_config(
+        tmp_path,
+        [
+            {"modId": "AAAAAAAAAAAAAAAA", "name": "Alpha", "version": "1"},
+            {"modId": "aaaaaaaaaaaaaaaa", "name": "Alpha duplicate", "version": "2"},
+        ],
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/dedupe",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "Removed 1 duplicate mod(s)." in response.text
+    assert "Restart the server to apply mod changes." in response.text
+    assert json.loads(config_path.read_text(encoding="utf-8"))["game"]["mods"] == [
+        {"modId": "AAAAAAAAAAAAAAAA", "name": "Alpha", "version": "1"}
+    ]
+    item = get_pending_work(tmp_path / "web" / "web.db", kind=KIND_MODS)
+    assert item is not None
+    assert item.source_action == "mod.dedupe"
+    assert item.details == "1 duplicate mod(s) removed"
+
+
+def test_mods_bulk_intent_audit_failure_aborts_mutation(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions
+    from armactl.web.services.audit import AuditLogError
+    from armactl.web.services.pending_work import list_pending_work
+
+    config_path = _write_mod_config(tmp_path, [])
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def fail_audit(*args, **kwargs):
+        raise AuditLogError("disk full token=raw-audit-secret")
+
+    monkeypatch.setattr(mod_actions, "append_audit_event", fail_audit)
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/bulk-add",
+        data={"csrf_token": csrf_token, "bulk_mods": "AAAAAAAAAAAAAAAA"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Mod action was not run because audit logging failed." in response.text
+    assert json.loads(config_path.read_text(encoding="utf-8"))["game"]["mods"] == []
+    assert list_pending_work(tmp_path / "web" / "web.db") == []
+    assert "raw-audit-secret" not in response.text
+
+
+def test_mods_bulk_outcome_audit_failure_reports_controlled_problem(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions
+    from armactl.web.services.audit import AuditLogError
+    from armactl.web.services.pending_work import KIND_MODS, get_pending_work
+
+    config_path = _write_mod_config(tmp_path, [])
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def fail_outcome(audit_log_path, *, details=None, **kwargs):
+        if (details or {}).get("phase") == "outcome":
+            raise AuditLogError("disk full token=raw-audit-secret")
+        return None
+
+    monkeypatch.setattr(mod_actions, "append_audit_event", fail_outcome)
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/bulk-add",
+        data={"csrf_token": csrf_token, "bulk_mods": "AAAAAAAAAAAAAAAA"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Mod action completed but audit logging failed." in response.text
+    assert "Bulk add complete: added 1" in response.text
+    assert "Restart the server to apply mod changes." in response.text
+    assert json.loads(config_path.read_text(encoding="utf-8"))["game"]["mods"] == [
+        {"modId": "AAAAAAAAAAAAAAAA", "name": "", "version": ""}
+    ]
+    item = get_pending_work(tmp_path / "web" / "web.db", kind=KIND_MODS)
+    assert item is not None
+    assert item.source_action == "mod.bulk-add"
+    assert "raw-audit-secret" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("url", "data", "files"),
+    [
+        ("/mods/bulk-add", {"bulk_mods": "AAAAAAAAAAAAAAAA"}, None),
+        ("/mods/import", {"mode": "append"}, {"upload": ("pack.json", "[]", "application/json")}),
+        ("/mods/export", {}, None),
+        ("/mods/dedupe", {}, None),
+    ],
+)
+def test_mod_pack_routes_require_valid_csrf(
+    tmp_path: Path,
+    monkeypatch,
+    url: str,
+    data: dict[str, str],
+    files,
+):
+    from armactl.web.services import mod_actions
+
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(mod_actions, "run_bulk_add_and_audit", AssertionError)
+    monkeypatch.setattr(mod_actions, "run_import_mod_pack_and_audit", AssertionError)
+    monkeypatch.setattr(mod_actions, "export_mod_pack_and_audit", AssertionError)
+    monkeypatch.setattr(mod_actions, "run_dedupe_and_audit", AssertionError)
+
+    response = client.post(
+        url,
+        data={"csrf_token": "wrong-token", **data},
+        files=files,
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Invalid CSRF token."
+
+
+def test_mod_pack_routes_require_manage_permission(
+    tmp_path: Path,
+    monkeypatch,
+    set_web_owner_permissions,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services import mod_actions
+
+    setup_owner_user(tmp_path, "owner", "owner mods password")
+    set_web_owner_permissions({MODS_VIEW})
+    app = create_app(data_root=tmp_path)
+    _patch_mods_page(monkeypatch)
+    monkeypatch.setattr(mod_actions, "run_bulk_add_and_audit", AssertionError)
+    client = _client(app)
+    _login(client, "owner", "owner mods password")
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/bulk-add",
+        data={"csrf_token": csrf_token, "bulk_mods": "AAAAAAAAAAAAAAAA"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Permission denied."

@@ -19,7 +19,8 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Local web setup through `./armactl web`.
 - [x] Authenticated dashboard and live status polling.
 - [x] Safe config editing for selected non-secret fields.
-- [x] Mods and game-admin management foundations.
+- [x] Mods management with add/remove, enable/disable, bulk paste, import/export, and dedupe.
+- [x] Game-admin management foundation.
 - [x] Restart schedule and autostart controls.
 - [x] File browser with bounded preview, download, and no-overwrite upload.
 - [x] Logs and diagnostic report views.
@@ -28,7 +29,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [ ] Continue production hardening for the local dashboard.
 - [ ] Polish server update checks and update job UX.
 - [ ] Expand safe config controls after field behavior is verified.
-- [ ] Improve mod add-by-link and cleanup workflows.
+- [ ] Improve mod cleanup visibility and edge-case recovery workflows.
 - [ ] Improve player history and moderation workflows with clear identity rules.
 - [ ] Improve schedule timezone UX.
 

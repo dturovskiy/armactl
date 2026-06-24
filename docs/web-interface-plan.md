@@ -14,7 +14,7 @@ The armactl web dashboard is a local browser interface for managing the same Arm
 - Login/logout with sessions and CSRF protection.
 - Dashboard status with service, runtime, config, metrics, and recent job state.
 - Safe config editing for selected non-secret fields.
-- Mods management foundation.
+- Mods management with add/remove, enable/disable, bulk paste, import/export, and dedupe.
 - Game-admin management foundation.
 - Restart schedule and game-service autostart controls.
 - File browser with bounded preview, single-file download, and no-overwrite upload.
@@ -43,7 +43,7 @@ Routes should stay thin. Services own validation, backend calls, backups, pendin
 
 - `/dashboard` - server overview and status polling.
 - `/config` - selected safe config fields.
-- `/mods` - mod list and basic mod actions.
+- `/mods` - mod list, single/bulk add, import/export, enable/disable/remove, and dedupe.
 - `/admins` - game admin list and current-player quick-add.
 - `/schedule` - restart schedule and autostart controls.
 - `/files` - bounded browse, preview, download, and upload.
@@ -99,7 +99,7 @@ Near-term dashboard work focuses on:
 - production hardening;
 - server update flow polish;
 - safer config controls after behavior is verified;
-- mod add-by-link and cleanup improvements;
+- mod cleanup visibility and edge-case recovery improvements;
 - player history/moderation improvements with reliable identity rules;
 - schedule timezone UX;
 - clearer logs and report download/export flows.

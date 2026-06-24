@@ -992,6 +992,16 @@ button.danger {
   margin-top: 18px;
 }
 
+.mod-tool-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.mod-result-details {
+  display: grid;
+  gap: 4px;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -1045,7 +1055,8 @@ button.danger {
   overflow-wrap: anywhere;
 }
 
-.form-grid input {
+.form-grid input,
+.form-grid textarea {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -1056,6 +1067,10 @@ button.danger {
   background: var(--input-bg);
   color: var(--text);
   font: inherit;
+}
+
+.form-grid textarea {
+  resize: vertical;
 }
 
 @media (max-width: 760px) {

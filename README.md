@@ -162,7 +162,8 @@ The web dashboard runs beside the Arma server and reuses the same backend module
 
 - authenticated dashboard with live status polling
 - safe config editing for selected non-secret fields
-- mods and game-admin management foundations
+- mods management with add/remove, enable/disable, bulk paste, import/export, and dedupe
+- game-admin management foundations
 - restart schedule and game-service autostart controls
 - file browser with bounded preview, single-file download, and no-overwrite upload
 - logs and diagnostic report views
