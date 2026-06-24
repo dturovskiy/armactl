@@ -1,9 +1,8 @@
 # Troubleshooting
 
-This page collects the most common operational problems seen during bootstrap,
-install, repair, and day-to-day server management.
+This page covers common operational problems during bootstrap, install, repair, and day-to-day server management.
 
-## Bootstrap or first launch fails
+## Bootstrap Or First Launch Fails
 
 Symptoms:
 
@@ -11,39 +10,36 @@ Symptoms:
 - repo-local `.venv` is missing or incomplete
 - dependency installation fails
 
-What to check:
+Try:
 
 ```bash
 ./armactl
 ./scripts/run-host-tests
 ```
 
-If the host blocks package downloads or Python package installation, fix the
-underlying host/network issue first and then rerun the launcher.
+If package downloads or Python package installation fail, fix the host/network issue first and rerun the launcher.
 
-## SteamCMD install or download fails
+## SteamCMD Install Or Download Fails
 
 Symptoms:
 
 - install fails during the SteamCMD step
-- the log shows SteamCMD errors or timeouts
+- logs show SteamCMD errors or timeouts
 
-What to check:
+Check:
 
 - SteamCMD is installed and reachable
 - the host has outbound network access
 - enough disk space is available under `~/armactl-data/<instance>/server`
 
-`armactl` now streams SteamCMD output into the TUI log, so long downloads should
-show live lines rather than a silent hang.
+`armactl` streams SteamCMD output into the TUI log so long downloads should show live lines instead of a silent hang.
 
-## Telegram bot cannot reach Telegram API
+## Telegram Bot Cannot Reach Telegram API
 
 Symptoms:
 
-- Telegram buttons stop responding or respond only intermittently
+- Telegram buttons stop responding or respond intermittently
 - bot logs show `NetworkError`, `TimedOut`, `ReadError`, or `ConnectError`
-- `/start` or inline button callbacks work after retries but fail after idle periods
 
 Check bot logs:
 
@@ -51,15 +47,7 @@ Check bot logs:
 sudo journalctl -u armactl-bot.service -n 200 --no-pager
 ```
 
-Check recent Telegram/network failures:
-
-```bash
-sudo journalctl -u armactl-bot.service --since "10 minutes ago" --no-pager \
-  | grep -Ei 'ERROR|WARNING|NetworkError|TimedOut|ReadError|ConnectError|BadRequest|callback answer failed|message edit failed' \
-  || echo "OK: no bot errors"
-```
-
-Check outbound HTTPS connectivity to Telegram:
+Check outbound HTTPS connectivity:
 
 ```bash
 curl -4 -sS -o /dev/null \
@@ -69,37 +57,25 @@ curl -4 -sS -o /dev/null \
   https://api.telegram.org/
 ```
 
-A healthy outbound IPv4 path usually returns quickly with an HTTP status and a
-Telegram IP address. If this fails, fix the host, provider firewall, DNS, proxy,
-or outbound network path before debugging bot code.
+If this fails, fix the host, provider firewall, DNS, proxy, or outbound network path before debugging bot code.
 
-## IPv6 vs IPv4 outbound diagnostics
+## IPv6 Vs IPv4 Outbound Diagnostics
 
-Some hosts have broken IPv6 routing: DNS resolves an IPv6 address, but outbound
-IPv6 connections fail or hang. Compare IPv4 and IPv6 explicitly:
+Some hosts have broken IPv6 routing. Compare IPv4 and IPv6 explicitly:
 
 ```bash
 curl -4 https://api.telegram.org
 curl -6 https://api.telegram.org
 ```
 
-Interpretation:
+If IPv4 works and IPv6 fails, prefer a host/network fix. Avoid changing server config blindly.
 
-- `curl -4` works and `curl -6` fails quickly: IPv4 is usable, IPv6 is broken or
-  unavailable on the host.
-- both fail: this is a general outbound HTTPS/DNS/firewall problem.
-- both work: Telegram outbound transport is probably not the bottleneck.
-
-If IPv6 is broken and the bot still tries IPv6 first on that host, prefer a
-host/network fix. As a temporary operator workaround, disable or deprioritize
-broken IPv6 at the OS/network layer rather than changing server config blindly.
-
-## Server heartbeat or registration is intermittent
+## Server Heartbeat Or Registration Is Intermittent
 
 Symptoms:
 
-- server is running locally, but appears/disappears from the in-game browser
-- local status and ports look correct, but public registration is inconsistent
+- server is running locally but appears/disappears from the in-game browser
+- local status and ports look correct but public registration is inconsistent
 - logs mention backend, heartbeat, registration, or connectivity warnings
 
 Check the game service:
@@ -109,7 +85,7 @@ systemctl status armareforger.service --no-pager
 sudo journalctl -u armareforger.service -n 200 --no-pager
 ```
 
-Check that expected UDP ports are listening:
+Check expected UDP ports:
 
 ```bash
 sudo ss -lunp | grep -E '(:2001|:17777|:19999)\b'
@@ -123,24 +99,16 @@ Confirm `config.json` networking values:
 - A2S/query port
 - RCON port, if enabled
 
-Also check external firewalls:
+Also check external firewall rules:
 
 ```bash
 sudo ufw status verbose
 sudo nft list ruleset
 ```
 
-Provider firewalls or cloud security groups can block traffic even when UFW is
-open. Confirm the hosting-provider panel allows the same UDP ports.
+## Server Is Visible In Game But Unreachable
 
-If local service state, config, and firewall rules are correct but registration
-is still intermittent, treat it as an upstream or network-path symptom first.
-Keep service logs and exact timestamps before changing unrelated armactl code.
-
-## Server is visible in game but unreachable
-
-This usually means the server started and registered, but clients cannot reach
-the actual game port.
+The server may have registered, but clients cannot reach the game port.
 
 Check:
 
@@ -149,14 +117,9 @@ sudo ss -lunp | grep -E '(:2001|:17777|:19999)\b'
 sudo ufw status verbose
 ```
 
-Then verify:
+Then verify `bindPort`, `publicPort`, `publicAddress`, and any provider firewall rules.
 
-- `bindPort` is correct
-- `publicPort` matches the externally reachable UDP port
-- `publicAddress` is correct if the host sits behind NAT or unusual networking
-- external firewall or cloud security-group rules allow the required UDP ports
-
-## Ports are not listening
+## Ports Are Not Listening
 
 Use:
 
@@ -170,25 +133,20 @@ Or in TUI:
 - `Manage Existing Server`
 - `Check Ports`
 
-If the service is running but the game port is still missing, inspect the server
-log and `config.json`.
+If the service is running but the game port is missing, inspect server logs and `config.json`.
 
-## Secure privileged control is not configured
+## Secure Privileged Control Is Not Configured
 
-If TUI or the Telegram bot reports that the secure privileged channel is not
-installed, rerun:
+If TUI or the Telegram bot reports that the secure privileged channel is not installed, rerun:
 
 - `Install / Update Bot Service` in TUI, or
 - `Repair Installation`
 
-This reinstalls the narrow helper and sudoers drop-in used for non-interactive
-service actions.
+This reinstalls the narrow helper and sudoers drop-in used for non-interactive service actions.
 
-If the problem started after running install/repair from a root shell, rerun it
-from the regular Linux account that owns the instance so the sudoers rule is
-generated for the correct user.
+If the problem started after running install/repair from a root shell, rerun it from the regular Linux account that owns the instance.
 
-## Metrics show as Unknown
+## Metrics Show As Unknown
 
 Runtime metrics can be unavailable when:
 
@@ -202,13 +160,7 @@ Check:
 systemctl show armareforger.service --property=MainPID,MemoryCurrent,CPUUsageNSec
 ```
 
-## Server FPS telemetry is unavailable or stale
-
-Symptoms:
-
-- `armactl status` shows Server FPS as unavailable
-- TUI or Telegram metrics do not show FPS/frame-time
-- telemetry age is stale
+## Server FPS Telemetry Is Unavailable Or Stale
 
 Check that the running server process includes `-logStats 10000`:
 
@@ -216,26 +168,13 @@ Check that the running server process includes `-logStats 10000`:
 pgrep -af ArmaReforgerServer
 ```
 
-Expected fragment:
-
-```text
--logStats 10000 -maxFPS
-```
-
-Check that the server is writing FPS telemetry:
+Check telemetry lines:
 
 ```bash
 grep -RiaE 'FPS:|frame time' ~/armactl-data/default/config/logs | tail -20
 ```
 
-Check service logs:
-
-```bash
-sudo journalctl -u armareforger.service -n 200 --no-pager
-```
-
-If `-logStats 10000` is missing, regenerate the service/start script through
-repair or service generation, then restart the server:
+If `-logStats 10000` is missing, regenerate service/start files and restart the server:
 
 ```bash
 ./armactl repair
@@ -243,41 +182,32 @@ sudo systemctl restart armareforger.service
 ./armactl status
 ```
 
-If `-logStats 10000` is present but no `FPS:` lines appear, wait for the next
-telemetry interval and re-check the runtime logs.
-
-## Existing service is found but config or binary is wrong
+## Existing Service Is Found But Config Or Binary Is Wrong
 
 Use:
 
 - `Detect Existing Server`
 - `Repair Installation`
 
-## Web panel notes
+## Web Dashboard Notes
 
-The browser management panel foundation is implemented on `feat/web-interface`,
-with stable release and production-hardening work still pending. CLI, TUI, and
-the optional Telegram bot remain the released fallback management paths.
+The local browser dashboard is implemented on `feat/web-interface`; CLI, TUI, and Telegram remain reliable fallback management paths.
 
-When debugging web-panel deployments, keep these layers separate:
+Keep these layers separate when troubleshooting:
 
-- Arma game/A2S/RCON ports belong to the game VM and are configured in
-  `config.json`.
-- `armactl-web` should use a stable local TCP port inside the same VM.
-- Public HTTP/HTTPS should belong to the reverse proxy, not the game service.
-- The public marketing website lives in `dturovskiy/armactl-website`; it is not
-  the authenticated management panel.
+- Arma game/A2S/RCON ports are configured in `config.json`.
+- `armactl-web` uses its own local TCP port.
+- Public HTTP/HTTPS should be handled by a reverse proxy, not by the game service.
+- The public marketing website is separate from the authenticated dashboard.
 
-Current branch web surfaces include dashboard, safe config editing, mods,
-admins, restart schedule, files browse/upload/download/preview, logs/report,
-jobs, player registry foundation, auth/session/CSRF, audit logging, and pending
-operator work.
+Current dashboard surfaces include dashboard status, safe config editing, mods, admins, schedule, files, logs/report, jobs, player registry foundation, auth/session/CSRF, action records, and pending operator work.
 
-Future web troubleshooting docs should stay scoped to future-only work:
-versioned migrations for `web.db` and `players.db`, settings registry,
-feature policy/roles/tiers, broader platform adapters, banlist, destructive
-file workflows, and SAT/mod runtime settings.
+Useful checks:
 
-See [web-deployment.md](web-deployment.md) for smoke/deployment checks and
-[web-interface-plan.md](web-interface-plan.md) for the architecture and port
-model.
+```bash
+./armactl web service status
+curl http://127.0.0.1:8765/healthz
+sudo journalctl -u armactl-web.service -n 200 --no-pager
+```
+
+See [web-deployment.md](web-deployment.md) for setup and reverse-proxy guidance, and [web-interface-plan.md](web-interface-plan.md) for the public dashboard overview.

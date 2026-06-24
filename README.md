@@ -6,31 +6,22 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 [![Ubuntu 24.04](https://img.shields.io/badge/ubuntu-24.04-E95420.svg)](README.md)
 
-Installer, manager, TUI, and branch web foundation for **Arma Reforger Dedicated
-Server** on Ubuntu. The browser management panel is implemented on
-`feat/web-interface`; stable release and production-hardening work are still
-pending, so the released management paths remain CLI, TUI, and the optional
-Telegram bot.
+`armactl` is a free, local-first manager for **Arma Reforger Dedicated Server** on Ubuntu. It installs and repairs a server, manages `systemd`, edits `config.json`, works with mods and schedules, exposes optional Telegram controls, and includes a local browser dashboard on the `feat/web-interface` branch.
 
-`armactl` is built for operators who want one tool that can install a server
-from scratch, detect an existing installation, repair broken state, manage
-`systemd`, edit `config.json`, work with mods, and optionally expose a Telegram
-admin bot.
+The released management paths remain CLI, TUI, and the optional Telegram bot. The local web dashboard is implemented on this branch and is being hardened for production use.
 
 ## Screenshot
 
 ![armactl TUI main menu](assets/tui-main-menu.png)
 
-## Who this is for
+## Who This Is For
 
 - Ubuntu 24.04 hosts
-- single dedicated server instance
-- single Linux user
-- operators who prefer a repo-local launcher over global package setup
-- remote operators who manage a VM over SSH today and want browser management
-  after the web service is deployed
+- one dedicated server instance per Linux user
+- operators who want a repo-local launcher instead of global package setup
+- operators who manage the server over SSH and want an optional local web dashboard
 
-## Quick start
+## Quick Start
 
 ```bash
 git clone https://github.com/dturovskiy/armactl.git
@@ -38,43 +29,33 @@ cd armactl
 ./armactl
 ```
 
-On first run, `./armactl` bootstraps the repo-local environment automatically
-and then opens the TUI. After that, keep using the same launcher: no PATH
-changes, no manual venv activation.
+On first run, `./armactl` bootstraps the repo-local environment and opens the TUI. After that, keep using the same launcher: no PATH changes and no manual virtualenv activation are required.
 
-To set up the browser panel on a server, use the same repo-local launcher:
+To set up the browser dashboard on a server host:
 
 ```bash
 ./armactl web
 ```
 
-The web setup flow installs the web dependencies, asks for the first owner only
-when needed, writes the runtime config, installs/enables `armactl-web.service`,
-starts it, and prints the URL/status summary. The safe default bind is local;
-choose `lan` or pass `--access lan` only when the VM/network exposure is ready.
+The web setup flow installs web dependencies, creates the first owner when needed, writes runtime config, installs and starts `armactl-web.service`, and prints the URL/status summary. The safe default bind is local. Use LAN access only when the network and firewall setup are ready.
 
-If you want the development toolchain from the first launch too, use:
+For the development toolchain from first launch:
 
 ```bash
 ARMACTL_BOOTSTRAP_MODE=--dev ./armactl
 ```
 
-## Core scenarios
+## Core Scenarios
 
-### Fresh host
+### Fresh Host
 
-Use `./armactl` on a clean Ubuntu host and choose `Install New Server`.
-`armactl` will bootstrap the environment, install SteamCMD if needed, download
-the server, create config and runtime directories, generate `systemd` units,
-and start the service.
+Use `./armactl` on a clean Ubuntu host and choose `Install New Server`. `armactl` installs SteamCMD if needed, downloads the server, creates config and runtime directories, generates `systemd` units, and starts the service.
 
-### Existing server
+### Existing Server
 
-Use `Detect Existing Server` or `Manage Existing Server`. `armactl` will look
-for the runtime root, `config.json`, `systemd` service, timer, and current
-ports, then switch into management mode without reinstalling the server.
+Use `Detect Existing Server` or `Manage Existing Server`. `armactl` checks the runtime root, `config.json`, service files, timer, and ports, then switches into management mode without reinstalling the server.
 
-### Broken install / repair
+### Broken Install / Repair
 
 Use `Repair Installation` in the TUI or:
 
@@ -82,26 +63,24 @@ Use `Repair Installation` in the TUI or:
 armactl repair
 ```
 
-Repair re-checks the installation, validates or regenerates missing pieces,
-rebuilds service and timer files, reinstalls the secure helper when needed, and
-refreshes `state.json`.
+Repair validates and regenerates missing pieces, refreshes service/timer files, reinstalls the secure helper when needed, and updates `state.json`.
 
-## What armactl does
+## What armactl Does
 
-- install a server from scratch via SteamCMD
-- detect and manage an existing installation
-- start, stop, restart, and inspect the server
-- safely edit `config.json`, with an optional raw JSON screen
-- manage mods: add, remove, dedupe, import, export
-- manage scheduled restarts through `systemd`
-- expose optional Telegram bot controls
-- run the branch web foundation for browser-based server management
-- show real Arma Reforger server FPS/frame-time telemetry when `-logStats` data is available
-- keep runtime data separated from repo code
+- installs a server from scratch with SteamCMD
+- detects and manages an existing installation
+- starts, stops, restarts, and inspects the server
+- edits `config.json` through TUI flows
+- manages mods: add, remove, dedupe, import, export
+- manages scheduled restarts through `systemd`
+- exposes optional Telegram bot controls
+- runs a local browser dashboard for server management
+- shows real Arma Reforger server FPS/frame-time telemetry when `-logStats` data is available
+- keeps runtime data separated from repo code
 
-## Scheduled restarts
+## Scheduled Restarts
 
-In TUI, `Restart Schedule` accepts exact times instead of raw `systemd` syntax:
+In the TUI, `Restart Schedule` accepts exact times instead of raw `systemd` syntax:
 
 ```text
 08:00
@@ -109,22 +88,17 @@ In TUI, `Restart Schedule` accepts exact times instead of raw `systemd` syntax:
 08:00 20:00
 ```
 
-`armactl` converts those values into the correct `OnCalendar=` entries in the
-timer unit automatically.
+`armactl` converts those values into the correct `OnCalendar=` entries.
 
-## Server FPS telemetry
+## Server FPS Telemetry
 
-`armactl` can show real Arma Reforger Dedicated Server FPS and frame-time
-telemetry.
-
-For generated services, `start-armareforger.sh` starts the server with:
+Generated services start the server with:
 
 ```text
 -logStats 10000
 ```
 
-The server writes periodic engine telemetry into the runtime console log, and
-`armactl` reads the latest valid `FPS:` line from:
+The server writes periodic engine telemetry into the runtime console log, and `armactl` reads the latest valid `FPS:` line from:
 
 ```text
 ~/armactl-data/<instance>/config/logs/*/console.log
@@ -138,24 +112,19 @@ Frame time:  16.7 ms avg / 18.5 ms max
 Telemetry:   4s old
 ```
 
-This value is the server engine's own FPS telemetry. It is not estimated from
-CPU usage.
+This value is the server engine's own FPS telemetry. It is not estimated from CPU usage.
 
-For existing installations, regenerate the service/start script and restart the
-server after updating `armactl` so the process starts with `-logStats 10000`.
+## Runtime Layout
 
-## Runtime layout
-
-`armactl` separates source code, game runtime data, web-runtime data, and log
-storage:
+`armactl` separates source code, game runtime data, web runtime data, and logs:
 
 | Layer | Location | Purpose |
 |-------|----------|---------|
 | Source code | this repository | CLI, TUI, web package, and backend modules |
 | Runtime data | `~/armactl-data/default/` | server files, config, backups, state |
-| Web runtime | `~/armactl-data/web/` | web panel settings, users, sessions, jobs, and pending-work DB |
+| Web runtime | `~/armactl-data/web/` | dashboard settings, users, sessions, jobs, and pending-work DB |
 | Player registry | `~/armactl-data/<instance>/players.db` | instance-scoped player registry foundation |
-| armactl logs | `~/armactl-data/logs/` | centralized armactl-owned logs and audit files |
+| armactl logs | `~/armactl-data/logs/` | armactl-owned logs and web action records |
 | System services | `/etc/systemd/system/` | auto-start and scheduled restarts |
 
 Typical runtime structure:
@@ -169,7 +138,7 @@ Typical runtime structure:
 └── start-armareforger.sh
 ```
 
-## Telegram bot
+## Telegram Bot
 
 Telegram bot management is optional and runs as a separate `systemd` unit:
 
@@ -183,76 +152,41 @@ Runtime config path:
 ~/armactl-data/<instance>/bot/.env
 ```
 
-The repository ships [.env.example](.env.example) as a template, while real
-runtime `.env` files stay out of git.
-
-Current bot capabilities include:
-
-- status
-- metrics
-- details
-- start / stop / restart
-- scheduled restart management
-- player visibility through A2S and local RCON
-- real Server FPS/frame-time metrics when server telemetry is available
+The repository ships [.env.example](.env.example) as a template. Real runtime `.env` files stay out of git.
 
 See [docs/telegram-bot.md](docs/telegram-bot.md) for the full flow.
 
-## Web interface on `feat/web-interface`
+## Local Web Dashboard
 
-The web management panel foundation is implemented on the `feat/web-interface`
-branch. It runs inside the same VM as the Arma server and reuses the existing
-backend modules instead of reimplementing install, service, config, mods, logs,
-or filesystem logic. Stable release and production-hardening work are still
-pending.
-
-Current branch capabilities:
+The web dashboard runs beside the Arma server and reuses the same backend modules as the CLI and TUI. Current branch capabilities include:
 
 - authenticated dashboard with live status polling
-- safe config editor for allowlisted non-secret fields
-- mods management foundation
-- game-admin management and current-player quick-add
+- safe config editing for selected non-secret fields
+- mods and game-admin management foundations
 - restart schedule and game-service autostart controls
 - file browser with bounded preview, single-file download, and no-overwrite upload
 - logs and diagnostic report views
 - background jobs for install/repair and operator-visible job status
 - instance-scoped player registry foundation with reliable IDs and no IP storage by default
-- auth, sessions, CSRF protection, code-level permissions, and login throttling
-- JSONL audit logging plus pending operator work for saved config/admin/mod changes
+- sessions, CSRF protection, permissions, and login throttling
+- action records plus pending operator work for saved config/admin/mod changes
 
-Future web work remains scoped to items such as the system admin panel for web
-users, central policy/feature gates for roles/permissions/tiers, official local
-break-glass recovery, IP allowlist/trusted-proxy handling, future mobile/device
-trust, a settings registry, broader platform adapters, banlist management,
-destructive file workflows, server update/version flows, and SAT/mod runtime
-settings.
-
-The public marketing website lives in the separate
-[`dturovskiy/armactl-website`](https://github.com/dturovskiy/armactl-website)
-repository. It is not the management panel and should stay separate from the
-authenticated web UI.
-
-Paid or premium features are not implemented. Any product tiers need a separate
-policy/feature-gate layer and business/legal review: existing public MIT history
-cannot be made private retroactively, and proprietary premium implementation
-should not be committed to the public MIT repo without an explicit repo/license
-decision.
+The public marketing website lives in the separate [`dturovskiy/armactl-website`](https://github.com/dturovskiy/armactl-website) repository. It is not the authenticated management dashboard.
 
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [Development](docs/development.md)
 - [Localization](docs/localization.md)
 - [Telegram Bot](docs/telegram-bot.md)
-- [Web smoke checks and deployment](docs/web-deployment.md)
-- [Web Interface Plan](docs/web-interface-plan.md)
-- [Web Interface Handoff](docs/web-interface-handoff.md)
 - [Troubleshooting](docs/troubleshooting.md)
-- [Development](docs/development.md)
+- [Web Dashboard](docs/web-interface-plan.md)
+- [Web Deployment](docs/web-deployment.md)
 - [Release Process](docs/release-process.md)
 - [Roadmap](docs/roadmap.md)
 - [Checklist](docs/checklist.md)
 
-## CLI commands
+## CLI Commands
 
 ```text
 armactl detect
@@ -290,11 +224,9 @@ armactl schedule disable
 .venv/bin/ruff check src tests
 ```
 
-If the repo was only bootstrapped in prod mode before, both `./armactl` and
-`./scripts/run-host-tests` will refresh the repo-local `.venv` automatically
-after `pyproject.toml` dependency changes.
+If the repo was only bootstrapped in prod mode before, both `./armactl` and `./scripts/run-host-tests` refresh the repo-local `.venv` automatically after dependency changes.
 
-## Project health
+## Project Health
 
 - [Contributing](CONTRIBUTING.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
