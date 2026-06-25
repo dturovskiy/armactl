@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Form, Request, status
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from armactl import paths
 from armactl.web.auth.cookies import clear_csrf_cookie, clear_session_cookie, set_csrf_cookie
@@ -35,6 +35,8 @@ def _backend_success(result: service_actions.ServiceActionResult) -> bool:
 
 
 def _operator_result_title(result: service_actions.ServiceActionResult) -> str:
+    if not result.performed and not result.intent_audited:
+        return "Service action rejected."
     if result.action == "restart":
         return "Server restart completed." if _backend_success(result) else "Server restart failed."
     if result.action == "start":
@@ -78,6 +80,23 @@ def _service_result_view(
     }
 
 
+
+def _rejected_result(action: str, message: str) -> service_actions.ServiceActionResult:
+    normalized = service_actions.normalize_service_action(action)
+    safe_action = normalized if service_actions.is_supported_action(normalized) else ""
+    return service_actions.ServiceActionResult(
+        action=safe_action,
+        instance=paths.DEFAULT_INSTANCE_NAME,
+        service_name="",
+        success=False,
+        message=message,
+        exit_code=1,
+        performed=False,
+        audit_written=False,
+        intent_audited=False,
+        backend_success=False,
+    )
+
 def _render_result(
     request: Request,
     current: CurrentSession,
@@ -102,6 +121,27 @@ def _render_result(
     return response
 
 
+@router.get("/service/{action}", response_class=HTMLResponse)
+def service_action_get(request: Request, action: str) -> Response:
+    """Reject direct browser navigation to a service mutation endpoint."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+
+    if not require_permission(current, ACTIONS_RUN):
+        return permission_denied_response()
+
+    return _render_result(
+        request,
+        current,
+        _rejected_result(
+            action,
+            "Service actions must be submitted from the dashboard.",
+        ),
+        status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+    )
+
+
 @router.post("/service/{action}", response_class=HTMLResponse)
 def service_action(
     request: Request,
@@ -118,15 +158,19 @@ def service_action(
         return permission_denied_response()
 
     if not validate_csrf_token(current.config.db_path, current.session.id, csrf_token):
-        return PlainTextResponse(
-            "Invalid CSRF token.",
+        return _render_result(
+            request,
+            current,
+            _rejected_result(action, "Invalid CSRF token."),
             status_code=status.HTTP_403_FORBIDDEN,
         )
 
     normalized = service_actions.normalize_service_action(action)
     if not service_actions.is_supported_action(normalized):
-        return PlainTextResponse(
-            "Unknown service action.",
+        return _render_result(
+            request,
+            current,
+            _rejected_result(action, "Unknown service action."),
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -147,8 +191,10 @@ def service_action(
             db_path=current.config.db_path,
         )
     except service_actions.ServiceActionError:
-        return PlainTextResponse(
-            "Unknown service action.",
+        return _render_result(
+            request,
+            current,
+            _rejected_result(action, "Unknown service action."),
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 

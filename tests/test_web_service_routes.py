@@ -301,6 +301,33 @@ def test_service_action_permission_denied_returns_controlled_403(
     assert "Traceback" not in response.text
 
 
+def test_direct_service_action_get_returns_controlled_page(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services import service_actions
+
+    password = "owner action password"
+    setup_owner_user(tmp_path, "owner", password)
+
+    def fail_action(*args, **kwargs):
+        raise AssertionError("backend action should not be called")
+
+    monkeypatch.setattr(service_actions, "run_service_action_and_audit", fail_action)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/service/restart", follow_redirects=False)
+
+    assert response.status_code == 405
+    assert "Service action rejected." in response.text
+    assert "Service actions must be submitted from the dashboard." in response.text
+    assert "Back to dashboard" in response.text
+    assert "Traceback" not in response.text
+    assert not (tmp_path / "logs" / "web" / "audit.log").exists()
+
+
 def test_service_action_invalid_csrf_does_not_call_backend(
     tmp_path: Path,
     monkeypatch,
@@ -325,7 +352,9 @@ def test_service_action_invalid_csrf_does_not_call_backend(
     )
 
     assert response.status_code == 403
-    assert response.text == "Invalid CSRF token."
+    assert "Service action rejected." in response.text
+    assert "Invalid CSRF token." in response.text
+    assert "Back to dashboard" in response.text
     assert "Traceback" not in response.text
 
 
