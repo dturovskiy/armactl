@@ -10,7 +10,7 @@ from armactl import discovery, paths
 from armactl.platform.service_adapter import ServiceAdapter, ServiceResult, get_service_adapter
 from armactl.redaction import redact_sensitive_text
 from armactl.state import ServerState
-from armactl.web.services import pending_work
+from armactl.web.services import pending_work, schedule_timezones
 from armactl.web.services.audit import AuditLogError, append_audit_event
 
 ACTION_SET_SCHEDULE = "schedule.set"
@@ -56,6 +56,9 @@ class ScheduleActionResult:
     performed: bool
     schedule: str
     schedule_entries: list[str]
+    schedule_timezone: str = ""
+    schedule_local: str = ""
+    schedule_utc: str = ""
     audit_written: bool = True
     intent_audited: bool = True
     backend_success: bool | None = None
@@ -176,6 +179,9 @@ def _result(
     performed: bool,
     schedule: str = "",
     schedule_entries: list[str] | None = None,
+    schedule_timezone: str = "",
+    schedule_local: str = "",
+    schedule_utc: str = "",
 ) -> ScheduleActionResult:
     return ScheduleActionResult(
         action=action,
@@ -187,6 +193,9 @@ def _result(
         performed=performed,
         schedule=_safe_schedule_string(schedule),
         schedule_entries=[_safe_schedule_string(entry) for entry in schedule_entries or []],
+        schedule_timezone=_safe_schedule_string(schedule_timezone),
+        schedule_local=_safe_schedule_string(schedule_local),
+        schedule_utc=_safe_schedule_string(schedule_utc),
     )
 
 
@@ -277,6 +286,9 @@ def _result_from_service_result(
     performed: bool = True,
     schedule: str = "",
     schedule_entries: list[str] | None = None,
+    schedule_timezone: str = "",
+    schedule_local: str = "",
+    schedule_utc: str = "",
 ) -> ScheduleActionResult:
     return _result(
         action=action,
@@ -288,6 +300,9 @@ def _result_from_service_result(
         performed=performed,
         schedule=schedule,
         schedule_entries=schedule_entries,
+        schedule_timezone=schedule_timezone,
+        schedule_local=schedule_local,
+        schedule_utc=schedule_utc,
     )
 
 
@@ -300,6 +315,9 @@ def _result_from_many(
     success_message: str,
     schedule: str,
     schedule_entries: list[str],
+    schedule_timezone: str = "",
+    schedule_local: str = "",
+    schedule_utc: str = "",
 ) -> ScheduleActionResult:
     if not results:
         return _result(
@@ -312,6 +330,9 @@ def _result_from_many(
             performed=False,
             schedule=schedule,
             schedule_entries=schedule_entries,
+            schedule_timezone=schedule_timezone,
+            schedule_local=schedule_local,
+            schedule_utc=schedule_utc,
         )
 
     failure = next((item for item in results if not item.success), None)
@@ -323,6 +344,9 @@ def _result_from_many(
             failure,
             schedule=schedule,
             schedule_entries=schedule_entries,
+            schedule_timezone=schedule_timezone,
+            schedule_local=schedule_local,
+            schedule_utc=schedule_utc,
         )
 
     return _result(
@@ -335,6 +359,9 @@ def _result_from_many(
         performed=True,
         schedule=schedule,
         schedule_entries=schedule_entries,
+        schedule_timezone=schedule_timezone,
+        schedule_local=schedule_local,
+        schedule_utc=schedule_utc,
     )
 
 
@@ -342,6 +369,8 @@ def run_schedule_action(
     action: str,
     *,
     schedule_value: str = "",
+    schedule_timezone: str = "UTC",
+    schedule_reference_date: object = None,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
     adapter: ServiceAdapter | None = None,
 ) -> ScheduleActionResult:
@@ -359,19 +388,24 @@ def run_schedule_action(
 
     timer_name = _timer_name(instance, state, service_adapter)
     if normalized == ACTION_SET_SCHEDULE:
-        schedule_entries = _normalize_web_schedule_entries(schedule_value)
-        schedule = service_adapter.format_schedule_for_input(schedule_entries)
-        if not schedule_entries:
+        try:
+            schedule_dto = schedule_timezones.normalize_local_schedule(
+                schedule_value,
+                schedule_timezone,
+                reference_date=schedule_reference_date,
+            )
+        except schedule_timezones.ScheduleTimezoneError as error:
             return _result(
                 action=normalized,
                 instance=instance,
                 target=timer_name,
                 success=False,
-                message="Use one to three restart times such as 05:00, 13:30.",
+                message=str(error),
                 exit_code=1,
                 performed=False,
                 schedule=schedule_value,
             )
+        schedule_entries = list(schedule_dto.on_calendar_entries)
         results = service_adapter.update_restart_timer_schedule(
             instance=instance,
             on_calendar=schedule_entries,
@@ -382,8 +416,11 @@ def run_schedule_action(
             timer_name,
             results,
             success_message="Restart schedule updated.",
-            schedule=schedule,
+            schedule=schedule_dto.summary,
             schedule_entries=schedule_entries,
+            schedule_timezone=schedule_dto.timezone,
+            schedule_local=schedule_dto.local_display,
+            schedule_utc=schedule_dto.utc_display,
         )
 
     if normalized == ACTION_ENABLE_TIMER:
@@ -479,6 +516,9 @@ def audit_schedule_action_result(
                 "phase": "outcome",
                 "schedule": result.schedule,
                 "schedule_entries": result.schedule_entries,
+                "schedule_timezone": result.schedule_timezone,
+                "schedule_local": result.schedule_local,
+                "schedule_utc": result.schedule_utc,
                 "performed": "yes" if result.performed else "no",
             },
         )
@@ -522,6 +562,8 @@ def run_schedule_action_and_audit(
     action: str,
     *,
     schedule_value: str = "",
+    schedule_timezone: str = "UTC",
+    schedule_reference_date: object = None,
     audit_log_path: Path,
     username: str,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
@@ -559,6 +601,8 @@ def run_schedule_action_and_audit(
     result = run_schedule_action(
         normalized,
         schedule_value=schedule_value,
+        schedule_timezone=schedule_timezone,
+        schedule_reference_date=schedule_reference_date,
         instance=normalized_instance,
         adapter=service_adapter,
     )

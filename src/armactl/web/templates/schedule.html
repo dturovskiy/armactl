@@ -30,6 +30,12 @@
     {% if result.schedule %}
       <dt>{{ t("Schedule") }}</dt><dd class="wrap-value">{{ result.schedule }}</dd>
     {% endif %}
+    {% if result.schedule_local %}
+      <dt>{{ t("Local time") }}</dt><dd class="wrap-value">{{ result.schedule_local }}</dd>
+    {% endif %}
+    {% if result.schedule_utc %}
+      <dt>{{ t("UTC") }}</dt><dd class="wrap-value">{{ result.schedule_utc }}</dd>
+    {% endif %}
     <dt>{{ t("Message") }}</dt><dd class="wrap-value">{{ t(result.message) }}</dd>
     {% if result.backend_message %}
       <dt>{{ t("Backend message") }}</dt><dd class="wrap-value">{{ t(result.backend_message) }}</dd>
@@ -63,7 +69,9 @@
       <article class="panel schedule-summary-card schedule-summary-card-wide">
         <h3>{{ t("Current Schedule") }}</h3>
         <dl class="key-value-list config-summary-list">
-          <dt>{{ t("Schedule") }}</dt><dd class="wrap-value">{{ timer.schedule_display or t("unknown") }}</dd>
+          <dt>{{ t("Local time") }}</dt>
+          <dd class="wrap-value" data-schedule-local-display data-utc-times="{{ timer.schedule_utc_input|default(timer.schedule|default('')) }}" data-schedule-timezone="{{ timer.schedule_timezone|default('UTC') }}" data-schedule-reference-date="{{ timer.schedule_reference_date|default('') }}">{{ timer.schedule_local_display|default(timer.schedule_display|default(t("unknown"))) }}</dd>
+          <dt>{{ t("UTC") }}</dt><dd class="wrap-value" data-schedule-utc-display>{{ timer.schedule_utc_display|default(timer.schedule_display|default(t("unknown"))) }}</dd>
           <dt>{{ t("OnCalendar") }}</dt>
           <dd class="wrap-value">
             {% if timer.schedule_entries %}
@@ -106,28 +114,43 @@
 <section class="dashboard-section">
   <h2>{{ t("Schedule Controls") }}</h2>
   <div class="schedule-actions-grid">
+    {% set schedule_rows = timer.schedule_time_rows if timer.schedule_time_rows is defined else [] %}
     {% set schedule_times = timer.schedule.split(",") if timer.schedule else [] %}
-    <form method="post" action="/schedule/set" class="panel schedule-action-form schedule-time-form" data-schedule-time-form>
+    <form method="post" action="/schedule/set" class="panel schedule-action-form schedule-time-form" data-schedule-time-form data-schedule-reference-date="{{ timer.schedule_reference_date|default('') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="schedule_timezone" value="{{ timer.schedule_timezone|default('UTC') }}" data-schedule-timezone-input>
+      <input type="hidden" name="schedule_reference_date" value="{{ timer.schedule_reference_date|default('') }}" data-schedule-reference-date-input>
       <div class="schedule-form-heading">
         <span>{{ t("Restart Time(s)") }}</span>
-        <span class="muted">{{ t("Server time") }}</span>
+        <span class="muted" data-schedule-timezone-label>{{ timer.schedule_timezone|default("UTC") }}</span>
       </div>
       <div class="schedule-time-list" data-schedule-time-list data-max-times="3">
-        {% for raw_time in schedule_times[:3] %}
-          {% set time_value = raw_time.strip() %}
-          {% if time_value %}
+        {% if schedule_rows %}
+          {% for row in schedule_rows[:3] %}
             <div class="schedule-time-row" data-schedule-time-row>
               <label>
                 <span class="sr-only">{{ t("Restart time") }}</span>
-                <input type="time" name="schedule_time" value="{{ time_value }}" step="60" required>
+                <input type="time" name="schedule_time" value="{{ row.local_time }}" data-utc-time="{{ row.utc_time }}" step="60" required>
               </label>
               <button class="secondary schedule-time-remove" type="button" data-remove-schedule-time aria-label="{{ t('Remove time') }}">&times;</button>
             </div>
-          {% endif %}
-        {% endfor %}
+          {% endfor %}
+        {% else %}
+          {% for raw_time in schedule_times[:3] %}
+            {% set time_value = raw_time.strip() %}
+            {% if time_value %}
+              <div class="schedule-time-row" data-schedule-time-row>
+                <label>
+                  <span class="sr-only">{{ t("Restart time") }}</span>
+                  <input type="time" name="schedule_time" value="{{ time_value }}" step="60" required>
+                </label>
+                <button class="secondary schedule-time-remove" type="button" data-remove-schedule-time aria-label="{{ t('Remove time') }}">&times;</button>
+              </div>
+            {% endif %}
+          {% endfor %}
+        {% endif %}
       </div>
-      <p class="muted schedule-empty-note" data-empty-schedule-time{% if schedule_times %} hidden{% endif %}>{{ t("No restart times configured.") }}</p>
+      <p class="muted schedule-empty-note" data-empty-schedule-time{% if schedule_rows or schedule_times %} hidden{% endif %}>{{ t("No restart times configured.") }}</p>
       <template data-schedule-time-template>
         <div class="schedule-time-row" data-schedule-time-row>
           <label>
@@ -139,8 +162,8 @@
       </template>
       <noscript>
         <label>
-          <span>{{ t("Restart Time(s)") }}</span>
-          <input type="text" name="schedule" value="{{ timer.schedule or '' }}" placeholder="{{ t('05:00, 13:30, 22:00') }}" maxlength="500">
+          <span>{{ t("Restart Time(s) UTC") }}</span>
+          <input type="text" name="schedule" value="{{ timer.schedule_utc_input|default(timer.schedule or '') }}" placeholder="{{ t('05:00, 13:30, 22:00') }}" maxlength="500">
         </label>
       </noscript>
       <button class="secondary" type="button" data-add-schedule-time>{{ t("+ Add time") }}</button>

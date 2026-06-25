@@ -68,6 +68,8 @@ def _run_schedule_action(
     action: str,
     csrf_token: str,
     schedule_value: str = "",
+    schedule_timezone: str = "UTC",
+    schedule_reference_date: str = "",
     confirm: str = "",
 ) -> Response:
     current = get_current_session(request)
@@ -100,6 +102,8 @@ def _run_schedule_action(
         result = schedule_actions.run_schedule_action_and_audit(
             normalized,
             schedule_value=schedule_value,
+            schedule_timezone=schedule_timezone,
+            schedule_reference_date=schedule_reference_date,
             audit_log_path=current.config.audit_log_path,
             username=current.user.username,
             instance=paths.DEFAULT_INSTANCE_NAME,
@@ -141,11 +145,15 @@ async def set_schedule(request: Request) -> Response:
         if str(value).strip()
     ]
     schedule = ", ".join(schedule_times) if schedule_times else str(form.get("schedule") or "")
+    schedule_timezone = str(form.get("schedule_timezone") or "UTC")
+    schedule_reference_date = str(form.get("schedule_reference_date") or "")
     return _run_schedule_action(
         request,
         action=schedule_actions.ACTION_SET_SCHEDULE,
         csrf_token=csrf_token,
         schedule_value=schedule,
+        schedule_timezone=schedule_timezone,
+        schedule_reference_date=schedule_reference_date,
     )
 
 

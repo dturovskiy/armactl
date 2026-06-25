@@ -258,7 +258,7 @@ def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
     assert "bind_port" not in editable_names
     assert "rcon_port" not in editable_names
     assert "password" not in editable_names
-    assert "disableThirdPerson" not in response.text
+    assert "disableThirdPerson" not in form_match.group(1)
     assert "Show server in server browser" in response.text
     assert (
         "When disabled, the server can run but is hidden from the public server list."
@@ -863,4 +863,257 @@ def test_config_edit_intent_audit_failure_aborts_save(
     assert "Config was not saved because audit logging failed." in response.text
     assert json.loads(config_path.read_text()) == original_config
     assert not list(config_path.parent.glob("config.json.before-web-config-save-*.bak"))
+    assert list_pending_work(tmp_path / "web" / "web.db") == []
+
+
+def test_config_page_shows_redacted_advanced_json_editor(tmp_path: Path, monkeypatch):
+    config_path = _write_config(tmp_path)
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+
+    response = client.get("/config", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert 'method="post" action="/config/raw"' in response.text
+    assert "Advanced config JSON" in response.text
+    assert "&lt;redacted: unchanged&gt;" in response.text
+    assert "raw-rcon-secret" not in response.text
+    assert "admin-password-secret" not in response.text
+    assert 'name="confirm" value="raw-config-save" required' in response.text
+
+
+def test_raw_config_edit_requires_confirmation(tmp_path: Path, monkeypatch):
+    original_config = _sample_config()
+    config_path = _write_config(tmp_path, deepcopy(original_config))
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+    csrf_token = _form_token(client.get("/config").text)
+
+    response = client.post(
+        "/config/raw",
+        data={"csrf_token": csrf_token, "raw_config": json.dumps(original_config)},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Confirmation is required to save raw config JSON." in response.text
+    assert json.loads(config_path.read_text()) == original_config
+    assert list(config_path.parent.glob("config.json.before-web-config-save-*.bak")) == []
+
+
+def test_raw_config_edit_rejects_invalid_json_without_backup(tmp_path: Path, monkeypatch):
+    original_config = _sample_config()
+    config_path = _write_config(tmp_path, deepcopy(original_config))
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+    csrf_token = _form_token(client.get("/config").text)
+
+    response = client.post(
+        "/config/raw",
+        data={
+            "csrf_token": csrf_token,
+            "confirm": "raw-config-save",
+            "raw_config": "{not json",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Invalid JSON at line" in response.text
+    assert json.loads(config_path.read_text()) == original_config
+    assert list(config_path.parent.glob("config.json.before-web-config-save-*.bak")) == []
+    audit_text = _audit_log_text(tmp_path)
+    assert "raw-rcon-secret" not in audit_text
+    assert "admin-password-secret" not in audit_text
+
+
+def test_raw_config_edit_rejects_secret_changes(tmp_path: Path, monkeypatch):
+    from armactl.web.services import config_edit
+
+    original_config = _sample_config()
+    config_path = _write_config(tmp_path, deepcopy(original_config))
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+    csrf_token = _form_token(client.get("/config").text)
+    submitted = json.loads(config_edit.build_raw_config_editor_text(original_config))
+    submitted["rcon"]["password"] = "changed-secret"
+
+    response = client.post(
+        "/config/raw",
+        data={
+            "csrf_token": csrf_token,
+            "confirm": "raw-config-save",
+            "raw_config": json.dumps(submitted),
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Secret fields cannot be changed in the web config editor." in response.text
+    assert json.loads(config_path.read_text()) == original_config
+    assert list(config_path.parent.glob("config.json.before-web-config-save-*.bak")) == []
+    audit_text = _audit_log_text(tmp_path)
+    assert "changed-secret" not in audit_text
+    assert "raw-rcon-secret" not in audit_text
+    assert "admin-password-secret" not in audit_text
+
+
+def test_raw_config_edit_updates_advanced_field_preserves_secrets_and_tracks_pending(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import config_edit
+    from armactl.web.services.pending_work import KIND_CONFIG, get_pending_work
+
+    original_config = _sample_config()
+    config_path = _write_config(tmp_path, deepcopy(original_config))
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+    csrf_token = _form_token(client.get("/config").text)
+    submitted = json.loads(config_edit.build_raw_config_editor_text(original_config))
+    submitted["game"]["gameProperties"]["networkViewDistance"] = 1800
+    submitted["game"]["gameProperties"]["fastValidation"] = False
+
+    response = client.post(
+        "/config/raw",
+        data={
+            "csrf_token": csrf_token,
+            "confirm": "raw-config-save",
+            "raw_config": json.dumps(submitted, indent=2),
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/config?saved=1"
+    backups = sorted(config_path.parent.glob("config.json.before-web-config-save-*.bak"))
+    assert len(backups) == 1
+    assert json.loads(backups[0].read_text()) == original_config
+    updated = json.loads(config_path.read_text())
+    assert updated["game"]["gameProperties"]["networkViewDistance"] == 1800
+    assert updated["game"]["gameProperties"]["fastValidation"] is False
+    assert updated["rcon"]["password"] == "raw-rcon-secret"
+    assert updated["game"]["passwordAdmin"] == "admin-password-secret"
+
+    item = get_pending_work(tmp_path / "web" / "web.db", kind=KIND_CONFIG)
+    assert item is not None
+    assert item.source_action == "config.save"
+    assert "game.gameProperties.networkViewDistance" in item.details
+    assert "game.gameProperties.fastValidation" in item.details
+
+    events = _audit_events(tmp_path)
+    assert len(events) == 1
+    event = events[0]
+    assert event["action"] == "config.save"
+    assert event["target"] == "config.json"
+    assert event["message"] == "Raw config saved."
+    assert event["details"]["backup_created"] is True
+    assert event["details"]["backup_name"] == backups[0].name
+    assert event["details"]["changed_fields"] == [
+        "game.gameProperties.fastValidation",
+        "game.gameProperties.networkViewDistance",
+    ]
+    audit_text = _audit_log_text(tmp_path)
+    assert str(config_path) not in audit_text
+    assert str(backups[0]) not in audit_text
+    assert "raw-rcon-secret" not in audit_text
+    assert "admin-password-secret" not in audit_text
+
+
+def test_raw_config_edit_rejects_secret_field_removal_without_backup(
+    tmp_path: Path, monkeypatch
+):
+    from armactl.web.services import config_edit
+
+    original_config = _sample_config()
+    assert original_config["game"]["password"] == ""
+    config_path = _write_config(tmp_path, deepcopy(original_config))
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+    csrf_token = _form_token(client.get("/config").text)
+    submitted = json.loads(config_edit.build_raw_config_editor_text(original_config))
+    del submitted["game"]["password"]
+
+    response = client.post(
+        "/config/raw",
+        data={
+            "csrf_token": csrf_token,
+            "confirm": "raw-config-save",
+            "raw_config": json.dumps(submitted),
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Secret fields cannot be removed in the web config editor." in response.text
+    assert json.loads(config_path.read_text()) == original_config
+    assert list(config_path.parent.glob("config.json.before-web-config-save-*.bak")) == []
+    audit_text = _audit_log_text(tmp_path)
+    assert "raw-rcon-secret" not in audit_text
+    assert "admin-password-secret" not in audit_text
+
+
+def test_raw_config_edit_return_to_baseline_clears_pending_restart(
+    tmp_path: Path, monkeypatch
+):
+    from armactl.web.services import config_edit
+    from armactl.web.services.pending_work import KIND_CONFIG, get_pending_work
+
+    original_config = _sample_config()
+    config_path = _write_config(tmp_path, deepcopy(original_config))
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+    csrf_token = _form_token(client.get("/config").text)
+    changed = json.loads(config_edit.build_raw_config_editor_text(original_config))
+    changed["game"]["gameProperties"]["networkViewDistance"] = 1800
+
+    first_response = client.post(
+        "/config/raw",
+        data={
+            "csrf_token": csrf_token,
+            "confirm": "raw-config-save",
+            "raw_config": json.dumps(changed),
+        },
+        follow_redirects=False,
+    )
+
+    assert first_response.status_code == 303
+    assert get_pending_work(tmp_path / "web" / "web.db", kind=KIND_CONFIG) is not None
+
+    csrf_token = _form_token(client.get("/config").text)
+    baseline = json.loads(config_edit.build_raw_config_editor_text(original_config))
+    second_response = client.post(
+        "/config/raw",
+        data={
+            "csrf_token": csrf_token,
+            "confirm": "raw-config-save",
+            "raw_config": json.dumps(baseline),
+        },
+        follow_redirects=False,
+    )
+
+    assert second_response.status_code == 303
+    assert second_response.headers["location"] == "/config?saved=1"
+    assert json.loads(config_path.read_text()) == original_config
+    assert get_pending_work(tmp_path / "web" / "web.db", kind=KIND_CONFIG) is None
+    assert len(list(config_path.parent.glob("config.json.before-web-config-save-*.bak"))) == 2
+
+
+def test_raw_config_edit_noop_does_not_backup_or_request_restart(tmp_path: Path, monkeypatch):
+    from armactl.web.services import config_edit
+    from armactl.web.services.pending_work import list_pending_work
+
+    original_config = _sample_config()
+    config_path = _write_config(tmp_path, deepcopy(original_config))
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+    csrf_token = _form_token(client.get("/config").text)
+    raw_config = config_edit.build_raw_config_editor_text(original_config)
+
+    response = client.post(
+        "/config/raw",
+        data={
+            "csrf_token": csrf_token,
+            "confirm": "raw-config-save",
+            "raw_config": raw_config,
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/config?unchanged=1"
+    assert json.loads(config_path.read_text()) == original_config
+    assert list(config_path.parent.glob("config.json.before-web-config-save-*.bak")) == []
     assert list_pending_work(tmp_path / "web" / "web.db") == []

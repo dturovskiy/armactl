@@ -161,10 +161,10 @@ See [docs/telegram-bot.md](docs/telegram-bot.md) for the full flow.
 The web dashboard runs beside the Arma server and reuses the same backend modules as the CLI and TUI. Current dashboard capabilities include:
 
 - authenticated dashboard with live status polling
-- safe config editing for selected non-secret fields
+- safe config editing for selected non-secret fields plus a guarded redacted `config.json` editor
 - mods management with add/remove, enable/disable, bulk paste, import/export, dedupe, and unused-addon cleanup checks
 - game-admin management foundations
-- restart schedule and game-service autostart controls
+- restart schedule and game-service autostart controls with browser-local input plus UTC display
 - file browser with bounded preview, single-file download, and no-overwrite upload
 - logs and diagnostic report views
 - server maintenance jobs for install, repair, update checks, and updates, with operator-visible job status for `/updates`, `server:update-check`, and `server:update` flows

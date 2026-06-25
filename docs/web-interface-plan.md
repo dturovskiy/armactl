@@ -16,7 +16,7 @@ The armactl web dashboard is a local browser interface for managing the same Arm
 - Safe config editing for selected non-secret fields.
 - Mods management with add/remove, enable/disable, bulk paste, import/export, dedupe, and unused-addon cleanup.
 - Game-admin management foundation.
-- Restart schedule and game-service autostart controls.
+- Restart schedule and game-service autostart controls with browser-local input/display and UTC backend normalization.
 - File browser with bounded preview, single-file download, and no-overwrite upload.
 - Logs and diagnostic report views.
 - Background jobs for install, repair, update checks, and updates.
@@ -68,9 +68,13 @@ Operators should keep CLI/TUI access available for recovery and maintenance.
 
 ## Config Editing
 
-The normal web config page edits only selected non-secret fields. These fields are backed by shared config metadata so validation, labels, restart behavior, and pending work stay consistent.
+The normal web config page edits selected non-secret fields backed by shared config metadata so validation, labels, restart behavior, and pending work stay consistent.
 
-Sensitive or broad config changes should use CLI/TUI workflows or a dedicated future public design with validation, backup, and recovery behavior.
+The config page also includes a guarded advanced JSON editor for `config.json`. It validates JSON and server-facing config shape, creates a backup before saving, writes audit intent/outcome events, redacts existing secret values in the browser, rejects secret changes from the web editor, and updates restart-pending tracking. Broad arbitrary file editing remains separate future work.
+
+## Schedule Timezones
+
+The schedule page keeps the backend timer source of truth in UTC `OnCalendar` entries. The browser UI projects those UTC values into the operator's local timezone, posts the browser timezone with schedule changes, and shows local time alongside UTC so saved values do not look like silent time shifts. Schedule routes remain auth/permission/CSRF glue while the schedule service and page model own validation, timezone conversion, display DTOs, backend calls, and audit summaries.
 
 ## Files And Logs
 
@@ -101,7 +105,7 @@ Near-term dashboard work focuses on:
 - safer config controls after behavior is verified;
 - mod cleanup edge-case recovery improvements;
 - player history/moderation improvements with reliable identity rules;
-- schedule timezone UX;
+- schedule timezone edge-case smoke after browser/timezone changes;
 - clearer logs and report download/export flows.
 
 ## Before Main Merge

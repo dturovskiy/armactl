@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -68,6 +69,14 @@ _STRING_LIMIT = 512
 CONFIG_SAVE_ACTION = "config.save"
 CONFIG_AUDIT_TARGET = "config.json"
 
+RAW_CONFIG_SECRET_PLACEHOLDER = "<redacted: unchanged>"
+RAW_CONFIG_MAX_BYTES = 512 * 1024
+SECRET_CONFIG_PATHS = (
+    ("game", "password"),
+    ("game", "passwordAdmin"),
+    ("rcon", "password"),
+)
+
 CONFIG_FIELD_DESCRIPTORS = web_config_field_descriptors()
 ALLOWLISTED_CONFIG_FORM_FIELDS = tuple(
     descriptor.form_name for descriptor in CONFIG_FIELD_DESCRIPTORS
@@ -83,6 +92,77 @@ def _safe_text(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _path_exists(data: Mapping[str, Any], path: tuple[str, ...]) -> bool:
+    current: Any = data
+    for part in path:
+        if not isinstance(current, Mapping) or part not in current:
+            return False
+        current = current[part]
+    return True
+
+
+def _set_secret_placeholder(data: dict[str, Any], path: tuple[str, ...]) -> None:
+    try:
+        schema_set_nested_value(data, path, RAW_CONFIG_SECRET_PLACEHOLDER)
+    except ServerConfigSchemaError:
+        return
+
+
+def _is_secret_path(path: tuple[str, ...]) -> bool:
+    return path in SECRET_CONFIG_PATHS
+
+
+def _redacted_config_copy(config: Mapping[str, Any]) -> dict[str, Any]:
+    redacted = copy.deepcopy(dict(config))
+    for path in SECRET_CONFIG_PATHS:
+        if not _path_exists(redacted, path):
+            continue
+        value = _nested_value(redacted, path)
+        if value not in (None, ""):
+            _set_secret_placeholder(redacted, path)
+    return redacted
+
+
+def _config_state_for_fingerprint(config: Mapping[str, Any]) -> dict[str, Any]:
+    redacted = copy.deepcopy(dict(config))
+    for path in SECRET_CONFIG_PATHS:
+        if _path_exists(redacted, path):
+            _set_secret_placeholder(redacted, path)
+    return redacted
+
+
+def _iter_leaf_paths(value: Any, prefix: tuple[str, ...] = ()) -> set[tuple[str, ...]]:
+    if isinstance(value, Mapping):
+        paths: set[tuple[str, ...]] = set()
+        for key, child in value.items():
+            paths.update(_iter_leaf_paths(child, (*prefix, str(key))))
+        return paths or {prefix}
+    if isinstance(value, list):
+        return {prefix}
+    return {prefix}
+
+
+def _changed_raw_config_fields(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+) -> tuple[str, ...]:
+    paths = sorted(
+        _iter_leaf_paths(before) | _iter_leaf_paths(after),
+        key=lambda item: ".".join(item),
+    )
+    changed = []
+    for path in paths:
+        if not path or _is_secret_path(path):
+            continue
+        before_value = _nested_value(before, path) if _path_exists(before, path) else None
+        after_value = _nested_value(after, path) if _path_exists(after, path) else None
+        if before_value != after_value:
+            changed.append(".".join(path))
+    if len(changed) > 30:
+        return (*changed[:30], f"and {len(changed) - 30} more")
+    return tuple(changed)
 
 
 def _nested_value(data: Mapping[str, Any], path: tuple[str, ...]) -> Any:
@@ -106,10 +186,35 @@ def _submitted_fields(form: Mapping[str, Any]) -> tuple[str, ...]:
 
 
 def _config_restart_fingerprint(config: Mapping[str, Any]) -> str:
-    payload = {
-        field: _nested_value(config, field_path) for field, field_path in _FIELD_PATHS.items()
-    }
-    return pending_work.safe_state_fingerprint(payload)
+    return pending_work.safe_state_fingerprint(_config_state_for_fingerprint(config))
+
+
+def build_raw_config_editor_text(config: Mapping[str, Any]) -> str:
+    """Return formatted config JSON with secret values replaced by placeholders."""
+    return json.dumps(_redacted_config_copy(config), ensure_ascii=False, indent=2)
+
+
+def _parse_raw_config_text(raw_config: str) -> dict[str, Any]:
+    text = _safe_text(raw_config)
+    if not text:
+        raise ConfigEditError("Config JSON is required.")
+    if len(text.encode("utf-8")) > RAW_CONFIG_MAX_BYTES:
+        raise ConfigEditError("Config JSON is too large for the web editor.")
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ConfigEditError(
+            f"Invalid JSON at line {exc.lineno}, column {exc.colno}: {exc.msg}"
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise ConfigEditError("Config root must be an object.")
+    return parsed
+
+
+def _validate_server_config(data: dict[str, Any]) -> None:
+    errors = config_manager.validate_config(data=data)
+    if errors:
+        raise ConfigEditError("Invalid config: " + "; ".join(errors))
 
 
 def editable_config_field_descriptors() -> tuple[ServerConfigField, ...]:
@@ -243,6 +348,68 @@ def _prepare_basic_config_edit(config_path, form):
     )
 
 
+def _restore_secret_placeholders(
+    submitted_config: dict[str, Any],
+    current_config: Mapping[str, Any],
+) -> dict[str, Any]:
+    restored = copy.deepcopy(submitted_config)
+    for path in SECRET_CONFIG_PATHS:
+        current_exists = _path_exists(current_config, path)
+        current_value = _nested_value(current_config, path) if current_exists else None
+        submitted_exists = _path_exists(restored, path)
+        submitted_value = _nested_value(restored, path) if submitted_exists else None
+
+        if current_exists:
+            if not submitted_exists:
+                raise ConfigEditError(
+                    "Secret fields cannot be removed in the web config editor."
+                )
+            if (
+                current_value not in (None, "")
+                and submitted_value == RAW_CONFIG_SECRET_PLACEHOLDER
+            ):
+                _set_nested_value(restored, path, current_value)
+                continue
+            if submitted_value != current_value:
+                raise ConfigEditError(
+                    "Secret fields cannot be changed in the web config editor."
+                )
+            continue
+
+        if submitted_exists:
+            raise ConfigEditError(
+                "Secret fields cannot be changed in the web config editor."
+            )
+    return restored
+
+
+def _prepare_raw_config_edit(config_path, raw_config):
+    path = Path(config_path)
+    if not path.is_file():
+        raise ConfigEditError("Config file was not found.")
+    try:
+        data = config_manager.load_config(path)
+    except config_manager.ConfigError as exc:
+        raise ConfigEditError(redact_sensitive_text(exc)) from exc
+    if not isinstance(data, dict):
+        raise ConfigEditError("Config root must be an object.")
+
+    submitted = _parse_raw_config_text(raw_config)
+    updated = _restore_secret_placeholders(submitted, data)
+    _validate_server_config(updated)
+    changed_fields = _changed_raw_config_fields(
+        _config_state_for_fingerprint(data),
+        _config_state_for_fingerprint(updated),
+    )
+    return _PreparedConfigEdit(
+        config_path=path,
+        updated_config=updated,
+        changed_fields=changed_fields,
+        baseline_fingerprint=_config_restart_fingerprint(data),
+        current_fingerprint=_config_restart_fingerprint(updated),
+    )
+
+
 def _apply_prepared_config_edit(prepared):
     if not prepared.changed_fields:
         return ConfigEditResult(
@@ -331,6 +498,9 @@ def _mark_restart_pending_for_config_result(
 ) -> ConfigEditResult:
     if db_path is None or not result.changed_fields:
         return result
+    details = ", ".join(result.changed_fields)
+    if len(details) > 500:
+        details = details[:497].rstrip() + "..."
     if baseline_fingerprint and current_fingerprint:
         write_result = pending_work.mark_restart_pending_for_state(
             db_path,
@@ -338,7 +508,7 @@ def _mark_restart_pending_for_config_result(
             kind=pending_work.KIND_CONFIG,
             source_action=CONFIG_SAVE_ACTION,
             username=username,
-            details=", ".join(result.changed_fields),
+            details=details,
             baseline_fingerprint=baseline_fingerprint,
             current_fingerprint=current_fingerprint,
         )
@@ -349,7 +519,7 @@ def _mark_restart_pending_for_config_result(
             kind=pending_work.KIND_CONFIG,
             source_action=CONFIG_SAVE_ACTION,
             username=username,
-            details=", ".join(result.changed_fields),
+            details=details,
         )
     return replace(
         result,
@@ -442,6 +612,105 @@ def save_default_config_and_audit(instance, form, *, audit_log_path, username, d
             "Config saved but audit logging failed.",
             result=result,
         ) from exc
+    return _mark_restart_pending_for_config_result(
+        result,
+        db_path=db_path,
+        username=username,
+        instance=normalized_instance,
+        baseline_fingerprint=prepared.baseline_fingerprint,
+        current_fingerprint=prepared.current_fingerprint,
+    )
+
+
+def save_default_raw_config_and_audit(
+    instance,
+    raw_config: str,
+    *,
+    audit_log_path,
+    username,
+    db_path=None,
+):
+    """Save full config JSON through the guarded web config editor."""
+    normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
+    target = CONFIG_AUDIT_TARGET
+    try:
+        state = discovery.discover(instance=normalized_instance, save=False)
+        if not state.config_path:
+            raise ConfigEditError("Server config path is unavailable.")
+        prepared = _prepare_raw_config_edit(state.config_path, raw_config)
+    except ConfigEditError as error:
+        try:
+            _audit_config_save(
+                audit_log_path=audit_log_path,
+                username=username,
+                instance=normalized_instance,
+                target=target,
+                success=False,
+                message=str(error),
+                changed_fields=("raw_config",),
+            )
+        except AuditLogError:
+            pass
+        raise
+    if not prepared.changed_fields:
+        return ConfigEditResult(
+            config_path=prepared.config_path,
+            backup_path=None,
+            changed_fields=prepared.changed_fields,
+        )
+
+    try:
+        _audit_config_save(
+            audit_log_path=audit_log_path,
+            username=username,
+            instance=normalized_instance,
+            target=target,
+            success=True,
+            message="Raw config save requested.",
+            changed_fields=prepared.changed_fields,
+            phase="intent",
+        )
+    except AuditLogError as exc:
+        raise ConfigEditError("Config was not saved because audit logging failed.") from exc
+
+    try:
+        result = _apply_prepared_config_edit(prepared)
+    except ConfigEditError as error:
+        try:
+            _audit_config_save(
+                audit_log_path=audit_log_path,
+                username=username,
+                instance=normalized_instance,
+                target=target,
+                success=False,
+                message=str(error),
+                changed_fields=prepared.changed_fields,
+            )
+        except AuditLogError:
+            pass
+        raise
+
+    try:
+        _audit_config_save(
+            audit_log_path=audit_log_path,
+            username=username,
+            instance=normalized_instance,
+            target=CONFIG_AUDIT_TARGET,
+            success=True,
+            message="Raw config saved.",
+            changed_fields=result.changed_fields,
+            backup_path=result.backup_path,
+        )
+    except AuditLogError as exc:
+        result = _mark_restart_pending_for_config_result(
+            replace(result, audit_written=False),
+            db_path=db_path,
+            username=username,
+            instance=normalized_instance,
+            baseline_fingerprint=prepared.baseline_fingerprint,
+            current_fingerprint=prepared.current_fingerprint,
+        )
+        raise ConfigAuditError("Config saved but audit logging failed.", result=result) from exc
     return _mark_restart_pending_for_config_result(
         result,
         db_path=db_path,

@@ -140,3 +140,76 @@ async def save_config_page(request: Request) -> Response:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
     return RedirectResponse("/config?saved=1", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/config/raw", response_class=HTMLResponse)
+async def save_raw_config_page(request: Request) -> Response:
+    """Save validated raw config JSON through the guarded config editor."""
+    current = get_current_session(request)
+    if current is None:
+        return redirect_to_login(request)
+    if not require_permission(current, SETTINGS_MANAGE):
+        return permission_denied_response()
+
+    submitted_form = await request.form()
+    csrf_token = str(submitted_form.get("csrf_token") or "")
+    if not validate_csrf_token(current.config.db_path, current.session.id, csrf_token):
+        return PlainTextResponse(
+            "Invalid CSRF token.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+    if str(submitted_form.get("confirm") or "") != "raw-config-save":
+        return _render_config_page(
+            request,
+            current,
+            save_error="Confirmation is required to save raw config JSON.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    raw_config = str(submitted_form.get("raw_config") or "")
+    try:
+        result = config_edit.save_default_raw_config_and_audit(
+            paths.DEFAULT_INSTANCE_NAME,
+            raw_config,
+            audit_log_path=current.config.audit_log_path,
+            username=current.user.username,
+            db_path=current.config.db_path,
+        )
+    except config_edit.ConfigEditError as error:
+        return _render_config_page(
+            request,
+            current,
+            save_error=str(error),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    except config_edit.ConfigAuditError as error:
+        result = error.result
+        return _render_config_page(
+            request,
+            current,
+            saved=True,
+            audit_error=str(error),
+            pending_work_warning=result.pending_work_warning,
+            pending_work_error=result.pending_work_error,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    if not result.changed_fields:
+        return RedirectResponse("/config?unchanged=1", status_code=status.HTTP_303_SEE_OTHER)
+    if result.pending_work_error:
+        return _render_config_page(
+            request,
+            current,
+            saved=True,
+            pending_work_error=result.pending_work_error,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    if result.pending_work_warning:
+        return _render_config_page(
+            request,
+            current,
+            saved=True,
+            pending_work_warning=result.pending_work_warning,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    return RedirectResponse("/config?saved=1", status_code=status.HTTP_303_SEE_OTHER)

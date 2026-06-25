@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import warnings
+from datetime import date
 from pathlib import Path
 
 from starlette.exceptions import StarletteDeprecationWarning
@@ -122,6 +123,33 @@ class _FakeScheduleAdapter:
         self.start_service_result = ServiceResult(True, "restart helper started", 0)
         self.enable_service_result = ServiceResult(True, "enabled", 0)
         self.disable_service_result = ServiceResult(True, "disabled", 0)
+        self.timer_status = {
+            "available": True,
+            "timer_name": "armareforger-restart.timer",
+            "exists": True,
+            "active": True,
+            "enabled": True,
+            "active_state": "active",
+            "sub_state": "waiting",
+            "unit_file_state": "enabled",
+            "description": "Restart timer",
+            "schedule": "15:00 UTC",
+            "schedule_entries": ["*-*-* 15:00:00 UTC"],
+            "next_run": "Mon 2026-06-15 15:00:00 UTC",
+            "last_trigger": "Mon 2026-06-15 15:00:00 UTC",
+            "error": "",
+        }
+        self.service_status = {
+            "available": True,
+            "service_name": "armareforger.service",
+            "exists": True,
+            "active": True,
+            "enabled": True,
+            "active_state": "active",
+            "sub_state": "running",
+            "description": "Arma server",
+            "error": "",
+        }
 
     def service_unit_name(self, instance: str = "default") -> str:
         if instance == "default":
@@ -146,6 +174,12 @@ class _FakeScheduleAdapter:
             else:
                 return "; ".join(schedule_entries)
         return ", ".join(display_times)
+
+    def get_timer_status(self, timer_name: str) -> dict:
+        return {**self.timer_status, "timer_name": timer_name}
+
+    def get_service_status(self, service_name: str) -> dict:
+        return {**self.service_status, "service_name": service_name}
 
     def update_restart_timer_schedule(
         self,
@@ -202,6 +236,95 @@ def _audit_events(data_root: Path) -> list[dict]:
     audit_path = data_root / "logs" / "web" / "audit.log"
     events = [json.loads(line) for line in audit_path.read_text(encoding='utf-8').splitlines()]
     return [event for event in events if (event.get('details') or {}).get('phase') != 'intent']
+
+
+def test_schedule_timezone_dto_converts_local_times_to_utc():
+    from armactl.web.services import schedule_timezones
+
+    dto = schedule_timezones.normalize_local_schedule(
+        "18:00, 21:30",
+        "Europe/Kyiv",
+        reference_date=date(2026, 6, 15),
+    )
+
+    assert dto.timezone == "Europe/Kyiv"
+    assert dto.local_times == ("18:00", "21:30")
+    assert dto.utc_times == ("15:00", "18:30")
+    assert dto.on_calendar_entries == (
+        "*-*-* 15:00:00 UTC",
+        "*-*-* 18:30:00 UTC",
+    )
+    assert dto.local_display == "18:00, 21:30 Europe/Kyiv"
+    assert dto.utc_display == "15:00, 18:30 UTC"
+
+
+def test_schedule_timezone_dto_handles_dst_obvious_dates():
+    from armactl.web.services import schedule_timezones
+
+    summer = schedule_timezones.normalize_local_schedule(
+        "18:00",
+        "Europe/Kyiv",
+        reference_date=date(2026, 6, 15),
+    )
+    winter = schedule_timezones.normalize_local_schedule(
+        "18:00",
+        "Europe/Kyiv",
+        reference_date=date(2026, 1, 15),
+    )
+    projected = schedule_timezones.display_utc_schedule(
+        ["*-*-* 15:00:00 UTC"],
+        "Europe/Kyiv",
+        reference_date=date(2026, 6, 15),
+    )
+
+    assert summer.utc_times == ("15:00",)
+    assert winter.utc_times == ("16:00",)
+    assert projected.local_times == ("18:00",)
+    assert projected.utc_display == "15:00 UTC"
+
+
+def test_schedule_timezone_dto_rejects_invalid_timezone():
+    from armactl.web.services import schedule_timezones
+
+    try:
+        schedule_timezones.normalize_local_schedule(
+            "18:00",
+            "../../raw-schedule-secret",
+            reference_date=date(2026, 6, 15),
+        )
+    except schedule_timezones.ScheduleTimezoneError as error:
+        assert str(error) == schedule_timezones.INVALID_TIMEZONE_MESSAGE
+    else:
+        raise AssertionError("invalid timezone should fail")
+
+
+def test_schedule_page_model_renders_utc_and_local_schedule_fields(
+    tmp_path: Path, monkeypatch
+):
+    from armactl.web.app import create_app
+    from armactl.web.page_models import schedule as schedule_page_model
+
+    adapter = _FakeScheduleAdapter()
+    setup_owner_user(tmp_path, "owner", "owner schedule password")
+    monkeypatch.setattr(
+        schedule_page_model,
+        "_discover_management_state",
+        lambda instance: (_state(), None),
+    )
+    monkeypatch.setattr(schedule_page_model, "get_service_adapter", lambda: adapter)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", "owner schedule password")
+
+    response = client.get("/schedule", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Local time" in response.text
+    assert "UTC" in response.text
+    assert "15:00 UTC" in response.text
+    assert "*-*-* 15:00:00 UTC" in response.text
+    assert 'data-utc-time="15:00"' in response.text
+    assert 'name="schedule_timezone" value="UTC"' in response.text
+    assert 'name="schedule_reference_date"' in response.text
 
 
 def test_schedule_js_asset_is_served(tmp_path: Path):
@@ -368,7 +491,11 @@ def test_schedule_set_success_writes_safe_audit(tmp_path: Path, monkeypatch):
     assert calls == [
         (
             "default",
-            ["*-*-* 05:00:00", "*-*-* 13:30:00", "*-*-* 22:00:00"],
+            [
+                "*-*-* 05:00:00 UTC",
+                "*-*-* 13:30:00 UTC",
+                "*-*-* 22:00:00 UTC",
+            ],
         )
     ]
     event = _audit_events(tmp_path)[0]
@@ -378,13 +505,60 @@ def test_schedule_set_success_writes_safe_audit(tmp_path: Path, monkeypatch):
     assert event["target"] == "armareforger-restart.timer"
     assert event["success"] is True
     assert event["details"]["schedule_entries"] == [
-        "*-*-* 05:00:00",
-        "*-*-* 13:30:00",
-        "*-*-* 22:00:00",
+        "*-*-* 05:00:00 UTC",
+        "*-*-* 13:30:00 UTC",
+        "*-*-* 22:00:00 UTC",
     ]
+    assert event["details"]["schedule_timezone"] == "UTC"
+    assert event["details"]["schedule_local"] == "05:00, 13:30, 22:00 UTC"
+    assert event["details"]["schedule_utc"] == "05:00, 13:30, 22:00 UTC"
     audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(encoding="utf-8")
     assert "raw-schedule-secret" not in audit_text
     assert "backend-secret" not in audit_text
+
+
+def test_schedule_set_converts_browser_timezone_to_utc_and_audits_summary(
+    tmp_path: Path, monkeypatch
+):
+    from armactl.web.services import schedule_actions
+
+    adapter = _FakeScheduleAdapter()
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        schedule_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(),
+    )
+    _patch_schedule_adapter(monkeypatch, schedule_actions, adapter)
+    csrf_token = _schedule_csrf_token(client)
+
+    response = client.post(
+        "/schedule/set",
+        data={
+            "csrf_token": csrf_token,
+            "schedule_time": ["18:00"],
+            "schedule_timezone": "Europe/Kyiv",
+            "schedule_reference_date": "2026-06-15",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "18:00 Europe/Kyiv" in response.text
+    assert "15:00 UTC" in response.text
+    assert adapter.calls == [
+        ("update_restart_timer_schedule", ("default", ["*-*-* 15:00:00 UTC"]))
+    ]
+    event = _audit_events(tmp_path)[0]
+    assert event["action"] == "schedule.set"
+    assert event["success"] is True
+    assert event["details"]["schedule_timezone"] == "Europe/Kyiv"
+    assert event["details"]["schedule_local"] == "18:00 Europe/Kyiv"
+    assert event["details"]["schedule_utc"] == "15:00 UTC"
+    assert event["details"]["schedule_entries"] == ["*-*-* 15:00:00 UTC"]
+    audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(encoding="utf-8")
+    assert "raw-schedule-secret" not in audit_text
+    assert "/home/" not in audit_text
 
 
 def test_schedule_set_rejects_non_time_web_input(tmp_path: Path, monkeypatch):
@@ -420,6 +594,46 @@ def test_schedule_set_rejects_non_time_web_input(tmp_path: Path, monkeypatch):
     assert "raw-schedule-secret" not in (
         tmp_path / "logs" / "web" / "audit.log"
     ).read_text(encoding="utf-8")
+
+
+def test_schedule_set_rejects_invalid_timezone_without_backend_call(
+    tmp_path: Path, monkeypatch
+):
+    from armactl.web.services import schedule_actions, schedule_timezones
+
+    adapter = _FakeScheduleAdapter()
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        schedule_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(),
+    )
+    _patch_schedule_adapter(monkeypatch, schedule_actions, adapter)
+    csrf_token = _schedule_csrf_token(client)
+
+    response = client.post(
+        "/schedule/set",
+        data={
+            "csrf_token": csrf_token,
+            "schedule_time": ["18:00"],
+            "schedule_timezone": "Europe/Kyiv/../../raw-schedule-secret",
+            "schedule_reference_date": "2026-06-15",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert schedule_timezones.INVALID_TIMEZONE_MESSAGE in response.text
+    assert "raw-schedule-secret" not in response.text
+    assert adapter.calls == []
+    event = _audit_events(tmp_path)[0]
+    assert event["action"] == "schedule.set"
+    assert event["success"] is False
+    assert event["details"]["schedule_entries"] == []
+    assert event["details"]["schedule_timezone"] == ""
+    audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(encoding="utf-8")
+    assert "raw-schedule-secret" not in audit_text
+    assert "/home/" not in audit_text
 
 
 def test_schedule_set_rejects_more_than_three_web_times(tmp_path: Path, monkeypatch):

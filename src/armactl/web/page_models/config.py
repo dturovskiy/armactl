@@ -14,7 +14,11 @@ from armactl.web.page_models.common import (
     _safe_error_message,
     _state_status,
 )
-from armactl.web.services.config_edit import build_config_edit_fields, build_config_edit_form
+from armactl.web.services.config_edit import (
+    build_config_edit_fields,
+    build_config_edit_form,
+    build_raw_config_editor_text,
+)
 
 
 def load_config_page(instance: str) -> dict[str, Any]:
@@ -31,6 +35,7 @@ def load_config_page(instance: str) -> dict[str, Any]:
         summary = _decorate_config(_plain_dict(status_summary.summarize_config(config)))
         edit_form = build_config_edit_form(config)
         edit_fields = build_config_edit_fields(config)
+        raw_config_text = build_raw_config_editor_text(config)
     except Exception as error:
         return _missing_config_page(instance, state, _safe_error_message(error))
 
@@ -43,4 +48,5 @@ def load_config_page(instance: str) -> dict[str, Any]:
         "config": summary,
         "edit": edit_form,
         "edit_fields": edit_fields,
+        "raw_config_text": raw_config_text,
     }

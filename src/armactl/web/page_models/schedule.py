@@ -14,6 +14,7 @@ from armactl.web.page_models.common import (
     _state_status,
     _unavailable,
 )
+from armactl.web.services import schedule_timezones
 
 
 def _resolve_service_adapter(adapter: ServiceAdapter | None) -> ServiceAdapter:
@@ -43,7 +44,17 @@ def _timer_status_for_page(state: ServerState, adapter: ServiceAdapter) -> dict[
         "last_trigger": str(timer.get("last_trigger") or ""),
         "error": str(timer.get("error") or ""),
     }
-    timer["schedule_display"] = timer["schedule"] or "unknown"
+    schedule_dto = schedule_timezones.display_utc_schedule(
+        timer["schedule_entries"],
+        "UTC",
+    )
+    timer["schedule_display"] = schedule_dto.summary or timer["schedule"] or "unknown"
+    timer["schedule_timezone"] = schedule_dto.timezone
+    timer["schedule_reference_date"] = schedule_dto.reference_date.isoformat()
+    timer["schedule_local_display"] = schedule_dto.local_display or "unknown"
+    timer["schedule_utc_display"] = schedule_dto.utc_display or "unknown"
+    timer["schedule_utc_input"] = ", ".join(schedule_dto.utc_times) or timer["schedule"]
+    timer["schedule_time_rows"] = schedule_dto.rows
     return timer
 
 

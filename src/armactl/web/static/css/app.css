@@ -1142,6 +1142,36 @@ button.danger {
   margin-bottom: 6px;
 }
 
+
+.config-raw-panel {
+  border-left: 4px solid var(--warning);
+}
+
+.config-raw-editor-label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.config-json-editor {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 420px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  resize: vertical;
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+}
+
 .service-result {
   border-left: 4px solid var(--border);
 }

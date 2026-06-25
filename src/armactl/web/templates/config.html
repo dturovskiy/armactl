@@ -135,5 +135,27 @@
     </div>
   </form>
 </section>
+
+<section class="panel full-width config-raw-panel">
+  <div class="section-heading-row">
+    <h2>{{ t("Advanced config JSON") }}</h2>
+  </div>
+  <p class="notice-inline notice-warning muted">{{ t("Use this only when the basic fields are not enough. JSON is validated, a backup is created, and restart tracking is updated.") }}</p>
+  <p class="muted">{{ t("Secret values are redacted here and cannot be changed from the web editor.") }}</p>
+  <form method="post" action="/config/raw" class="config-edit-form config-raw-edit-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label class="config-raw-editor-label">
+      <span>{{ t("config.json") }}</span>
+      <textarea class="config-json-editor" name="raw_config" rows="24" spellcheck="false" required>{{ page.raw_config_text|default("") }}</textarea>
+    </label>
+    <label class="inline-confirm config-checkbox-field">
+      <input type="checkbox" name="confirm" value="raw-config-save" required>
+      <span>{{ t("I understand this saves the full config JSON") }}</span>
+    </label>
+    <div class="form-actions">
+      <button type="submit" class="danger">{{ t("Save advanced config") }}</button>
+    </div>
+  </form>
+</section>
 {% endif %}
 {% endblock %}
