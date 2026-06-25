@@ -885,6 +885,17 @@ def test_config_page_shows_redacted_advanced_json_editor(tmp_path: Path, monkeyp
     assert "Reload config from disk" in response.text
 
 
+def test_raw_config_page_reload_route_renders_editor(tmp_path: Path, monkeypatch):
+    config_path = _write_config(tmp_path)
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+
+    response = client.get("/config/raw", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Advanced config JSON" in response.text
+    assert "Reload config from disk" in response.text
+
+
 def test_raw_config_edit_requires_confirmation(tmp_path: Path, monkeypatch):
     original_config = _sample_config()
     config_path = _write_config(tmp_path, deepcopy(original_config))

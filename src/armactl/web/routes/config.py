@@ -142,6 +142,15 @@ async def save_config_page(request: Request) -> Response:
     return RedirectResponse("/config?saved=1", status_code=status.HTTP_303_SEE_OTHER)
 
 
+@router.get("/config/raw", response_class=HTMLResponse)
+def raw_config_page(request: Request) -> Response:
+    """Render the guarded raw config editor from the current disk config."""
+    current = get_current_session(request)
+    if current is None:
+        return redirect_to_login(request)
+    return _render_config_page(request, current)
+
+
 @router.post("/config/raw", response_class=HTMLResponse)
 async def save_raw_config_page(request: Request) -> Response:
     """Save validated raw config JSON through the guarded config editor."""
