@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
 {% macro value_item(item) -%}
-  <dt>{{ t(item.label) }}</dt><dd{% if item.field %} data-dashboard-field="{{ item.field }}"{% endif %}>{% if item.translate_value %}{{ t(item.value) }}{% else %}{{ item.value }}{% endif %}</dd>
+  <dt>{{ t(item.label) }}</dt><dd{% if item.field %} data-dashboard-field="{{ item.field }}" data-dashboard-loading="{{ 'true' if item.loading else 'false' }}"{% endif %}>{% if item.translate_value %}{{ t(item.value) }}{% else %}{{ t(item.value) if item.loading else item.value }}{% endif %}</dd>
 {%- endmacro %}
 {% macro item_list(items) -%}
   <dl class="key-value-list">
@@ -11,10 +11,10 @@
 {%- endmacro %}
 {% macro metric_meter(meter) -%}
   {% set meter_percent = meter.percent if meter.percent is not none else 0 %}
-  <div class="metric-meter metric-meter-{{ meter.kind|default('bar') }}" data-dashboard-meter="{{ meter.id }}" data-metric-unavailable="{{ 'false' if meter.available else 'true' }}">
+  <div class="metric-meter metric-meter-{{ meter.kind|default('bar') }}" data-dashboard-meter="{{ meter.id }}" data-metric-unavailable="{{ 'false' if meter.available or meter.loading else 'true' }}" data-metric-loading="{{ 'true' if meter.loading else 'false' }}">
     <div class="metric-meter-head">
       <span>{{ t(meter.label) }}</span>
-      <strong data-dashboard-metric-value="{{ meter.id }}">{{ meter.text }}</strong>
+      <strong data-dashboard-metric-value="{{ meter.id }}" data-dashboard-loading="{{ 'true' if meter.loading else 'false' }}">{{ t(meter.text) if meter.loading else meter.text }}</strong>
     </div>
     <div class="metric-bar" role="meter" aria-label="{{ t(meter.label) }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ meter_percent }}">
       <span class="metric-fill" data-dashboard-metric-fill="{{ meter.id }}" style="width: {{ meter_percent }}%"></span>
@@ -51,7 +51,7 @@
     {% for item in dashboard.overview_items %}
       <div class="value-block">
         <span class="label">{{ t(item.label) }}</span>
-        <strong{% if item.field %} data-dashboard-field="{{ item.field }}"{% endif %}{% if item.label == "Lifecycle" %} class="status-pill status-pill-{{ dashboard.lifecycle }} state state-{{ dashboard.lifecycle }}" data-dashboard-lifecycle-class{% endif %}>{% if item.translate_value %}{{ t(item.value) }}{% else %}{{ item.value }}{% endif %}</strong>
+        <strong{% if item.field %} data-dashboard-field="{{ item.field }}" data-dashboard-loading="{{ 'true' if item.loading else 'false' }}"{% endif %}{% if item.label == "Lifecycle" %} class="status-pill status-pill-{{ dashboard.lifecycle }} state state-{{ dashboard.lifecycle }}" data-dashboard-lifecycle-class{% endif %}>{% if item.translate_value or item.loading %}{{ t(item.value) }}{% else %}{{ item.value }}{% endif %}</strong>
       </div>
     {% endfor %}
   </div>

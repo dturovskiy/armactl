@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 ACTIVE_LIFECYCLES = frozenset({"stopped", "starting", "running", "updating"})
+TELEMETRY_LOADING_TEXT = "Waiting for telemetry..."
 
 
 def _section(value: Mapping[str, Any], name: str) -> Mapping[str, Any]:
@@ -74,13 +75,48 @@ def _item(
     *,
     translate_value: bool = False,
     field: str = "",
+    loading: bool = False,
 ) -> dict[str, Any]:
     return {
         "label": label,
         "value": _text(value),
         "translate_value": translate_value,
         "field": field,
+        "loading": loading,
     }
+
+
+def _has_meaningful_telemetry_text(value: Any) -> bool:
+    text = _text(value, "").strip().lower()
+    return text not in {"", "unknown", "unavailable", "none"}
+
+
+def _telemetry_loading(
+    lifecycle: str,
+    section: Mapping[str, Any],
+    display_field: str,
+) -> bool:
+    if lifecycle != "running" or section.get("available") is True:
+        return False
+    return not _has_meaningful_telemetry_text(section.get(display_field))
+
+
+def _players_text(players: Mapping[str, Any], lifecycle: str) -> str:
+    if _telemetry_loading(lifecycle, players, "count_text"):
+        return TELEMETRY_LOADING_TEXT
+    return _text(players.get("count_text"), "unavailable")
+
+
+def _fps_text(fps: Mapping[str, Any], lifecycle: str) -> str:
+    if _telemetry_loading(lifecycle, fps, "fps_text"):
+        return TELEMETRY_LOADING_TEXT
+    return _text(fps.get("fps_text"), "unavailable")
+
+
+def _telemetry_age_text(fps: Mapping[str, Any], lifecycle: str) -> str:
+    if _telemetry_loading(lifecycle, fps, "fps_text"):
+        return TELEMETRY_LOADING_TEXT
+    return _text(fps.get("age_text"), "unknown")
 
 
 def _summary_items(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str, Any]]:
@@ -108,10 +144,16 @@ def _summary_items(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str
                 _item("Service", service_value, translate_value=True, field="overview.service"),
                 _item(
                     "Players",
-                    players.get("count_text", "unavailable"),
+                    _players_text(players, lifecycle),
                     field="overview.players",
+                    loading=_telemetry_loading(lifecycle, players, "count_text"),
                 ),
-                _item("FPS", fps.get("fps_text", "unavailable"), field="overview.fps"),
+                _item(
+                    "FPS",
+                    _fps_text(fps, lifecycle),
+                    field="overview.fps",
+                    loading=_telemetry_loading(lifecycle, fps, "fps_text"),
+                ),
             ]
         )
     elif lifecycle in {"stopped", "starting", "updating"}:
@@ -336,12 +378,16 @@ def _management_links(
     return links, "" if links else "No management pages available."
 
 
-def _metric_payload(snapshot: Mapping[str, Any]) -> dict[str, Any]:
+def _metric_payload(
+    snapshot: Mapping[str, Any],
+    lifecycle: str = "",
+) -> dict[str, Any]:
     fps = _section(snapshot, "fps_metrics")
     host = _section(snapshot, "host_metrics")
 
     fps_value = _number(fps.get("fps"))
     fps_available = fps.get("available") is not False and fps_value is not None
+    fps_loading = _telemetry_loading(lifecycle, fps, "fps_text")
 
     host_available = host.get("available") is not False
     cpu_percent = _safe_percent(host.get("cpu_percent"))
@@ -357,9 +403,10 @@ def _metric_payload(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "fps": {
             "available": fps_available,
+            "loading": fps_loading,
             "value": round(fps_value, 2) if fps_available else None,
             "percent": _fps_percent(fps_value) if fps_available else None,
-            "text": _text(fps.get("fps_text"), "unavailable"),
+            "text": _fps_text(fps, lifecycle),
         },
         "cpu": {
             "available": host_available and cpu_percent is not None,
@@ -397,6 +444,7 @@ def _metric_meter(
         "text": _text(metric.get("text"), "unknown"),
         "percent": percent if percent is not None else 0.0,
         "available": bool(metric.get("available")),
+        "loading": bool(metric.get("loading")),
         "kind": kind,
     }
 
@@ -410,8 +458,8 @@ def _host_meters(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _fps_meter(snapshot: Mapping[str, Any]) -> dict[str, Any]:
-    metrics = _metric_payload(snapshot)
+def _fps_meter(snapshot: Mapping[str, Any], lifecycle: str) -> dict[str, Any]:
+    metrics = _metric_payload(snapshot, lifecycle)
     return _metric_meter("fps", "Server FPS", metrics["fps"])
 
 
@@ -545,17 +593,24 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
                 "items": [
                     _item(
                         "Players",
-                        players.get("count_text", "unavailable"),
+                        _players_text(players, lifecycle),
                         field="live.players",
+                        loading=_telemetry_loading(lifecycle, players, "count_text"),
                     ),
-                    _item("Server FPS", fps.get("fps_text", "unavailable"), field="live.fps"),
+                    _item(
+                        "Server FPS",
+                        _fps_text(fps, lifecycle),
+                        field="live.fps",
+                        loading=_telemetry_loading(lifecycle, fps, "fps_text"),
+                    ),
                     _item(
                         "Telemetry age",
-                        fps.get("age_text", "unknown"),
+                        _telemetry_age_text(fps, lifecycle),
                         field="live.telemetry_age",
+                        loading=_telemetry_loading(lifecycle, fps, "fps_text"),
                     ),
                 ],
-                "meters": [_fps_meter(snapshot)],
+                "meters": [_fps_meter(snapshot, lifecycle)],
             },
         )
 
@@ -754,9 +809,30 @@ def build_dashboard_view(
 
 def _display_value(item: Mapping[str, Any], translate: Any) -> str:
     value = _text(item.get("value"))
-    if item.get("translate_value"):
+    if item.get("translate_value") or item.get("loading"):
         return str(translate(value))
     return value
+
+
+def _collect_field_states(dashboard: Mapping[str, Any]) -> dict[str, dict[str, bool]]:
+    states: dict[str, dict[str, bool]] = {}
+
+    def collect(items: Any) -> None:
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if not isinstance(item, Mapping):
+                continue
+            field = str(item.get("field") or "").strip()
+            if field:
+                states[field] = {"loading": bool(item.get("loading"))}
+
+    collect(dashboard.get("overview_items"))
+    collect(dashboard.get("host_items"))
+    for card in dashboard.get("server_cards") or []:
+        if isinstance(card, Mapping):
+            collect(card.get("items"))
+    return states
 
 
 def _collect_display_fields(dashboard: Mapping[str, Any], translate: Any) -> dict[str, str]:
@@ -811,6 +887,7 @@ def build_dashboard_status_payload(
         "lifecycle": lifecycle,
         "heading": heading,
         "fields": fields,
+        "field_states": _collect_field_states(dashboard),
         "service": {
             "state": _text(service.get("active_state")),
             "substate": _text(service.get("sub_state")),
@@ -828,7 +905,7 @@ def build_dashboard_status_payload(
             "uptime": _text(host.get("uptime_text"), "unknown"),
         },
         "mods": {"count": mods.get("count", 0)},
-        "metrics": _metric_payload(snapshot),
+        "metrics": _metric_payload(snapshot, lifecycle),
         "actions": [
             {
                 "name": str(action.get("name", "")),

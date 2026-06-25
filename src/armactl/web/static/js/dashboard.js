@@ -32,6 +32,20 @@
       });
   }
 
+  function setFieldStates(fieldStates) {
+    if (!fieldStates || typeof fieldStates !== "object") {
+      return;
+    }
+    Object.entries(fieldStates).forEach(([field, state]) => {
+      const loading = state && state.loading === true;
+      document
+        .querySelectorAll(`[data-dashboard-field="${field}"]`)
+        .forEach((node) => {
+          node.dataset.dashboardLoading = loading ? "true" : "false";
+        });
+    });
+  }
+
   function updateLifecycleClass(lifecycle) {
     document.querySelectorAll("[data-dashboard-lifecycle-class]").forEach((node) => {
       node.classList.forEach((className) => {
@@ -61,9 +75,11 @@
   }
 
   function updateMetricText(metricId, metric) {
+    const loading = metric && metric.loading === true;
     document.querySelectorAll("[data-dashboard-metric-value]").forEach((node) => {
       if (node.dataset.dashboardMetricValue === metricId) {
         node.textContent = metricText(metric);
+        node.dataset.dashboardLoading = loading ? "true" : "false";
       }
     });
   }
@@ -78,12 +94,14 @@
   }
 
   function updateMetricContainers(metricId, metric, percent) {
-    const unavailable = !metric || metric.available !== true || percent === null;
+    const loading = metric && metric.loading === true;
+    const unavailable = !loading && (!metric || metric.available !== true || percent === null);
     document.querySelectorAll("[data-dashboard-meter]").forEach((node) => {
       if (node.dataset.dashboardMeter !== metricId) {
         return;
       }
       node.dataset.metricUnavailable = unavailable ? "true" : "false";
+      node.dataset.metricLoading = loading ? "true" : "false";
       const bar = node.querySelector(".metric-bar");
       if (bar) {
         bar.setAttribute("aria-valuenow", String(percent === null ? 0 : percent));
@@ -108,6 +126,7 @@
       throw new Error("Dashboard status payload is invalid.");
     }
     Object.entries(data.fields).forEach(([field, value]) => setFieldValue(field, value));
+    setFieldStates(data.field_states);
     updateLifecycleClass(data.lifecycle);
     root.dataset.dashboardLifecycle = data.lifecycle || "unknown";
     updateMeters(data.metrics);

@@ -1159,6 +1159,7 @@
     "Boolean field value is invalid.": "Значення boolean-поля некоректне.",
     "Failed to create config backup.": "Не вдалося створити backup конфігу.",
     "Live refresh active": "Оновлення наживо активне",
+    "Waiting for telemetry...": "Очікуємо телеметрію...",
     "Dashboard data may be stale.": "Дані dashboard можуть бути застарілими.",
     "Pending restart": "Очікується перезапуск",
     "Server changes were saved but are not applied yet.": "Зміни сервера збережені, але ще не застосовані.",

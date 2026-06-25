@@ -98,6 +98,8 @@ def _install_dashboard_model_fakes(
     *,
     lifecycle: str = "running",
     host_metrics_error: bool = False,
+    fps_available: bool = True,
+    players_available: bool = True,
 ) -> list[str]:
     from armactl.web.page_models import bot as bot_model
     from armactl.web.page_models import dashboard as dashboard_model
@@ -129,6 +131,8 @@ def _install_dashboard_model_fakes(
     def fps_metrics(config_dir: Path) -> ServerFpsMetrics:
         if lifecycle != "running":
             return ServerFpsMetrics(False, error="server is not running")
+        if not fps_available:
+            return ServerFpsMetrics(False, error="waiting for telemetry")
         return ServerFpsMetrics(
             True,
             fps=59.8,
@@ -222,7 +226,11 @@ def _install_dashboard_model_fakes(
     monkeypatch.setattr(
         dashboard_model.player_view,
         "query_player_view",
-        lambda instance, **kwargs: PlayerView(True, current=3, max_players=64),
+        lambda instance, **kwargs: PlayerView(
+            players_available,
+            current=3 if players_available else None,
+            max_players=64 if players_available else None,
+        ),
     )
     monkeypatch.setattr(
         dashboard_model.ports,
@@ -330,11 +338,13 @@ def test_authenticated_owner_can_fetch_dashboard_status_json(
     assert payload["running"] is True
     assert payload["fields"]["heading"] == "Mock Server"
     assert payload["fields"]["overview.players"] == "3 / 64"
+    assert payload["field_states"]["overview.players"] == {"loading": False}
     assert payload["fields"]["live.fps"] == "59.8"
     assert payload["host"]["cpu"] == "12.0%"
     assert payload["mods"]["count"] == 2
     assert payload["metrics"]["fps"] == {
         "available": True,
+        "loading": False,
         "value": 59.8,
         "percent": 99.67,
         "text": "59.8",
@@ -561,6 +571,8 @@ def test_dashboard_js_static_asset_is_served(tmp_path: Path):
     assert "dashboard/status.json" in response.text
     assert "data-dashboard-root" in response.text
     assert "data-dashboard-meter" in response.text
+    assert "dashboardLoading" in response.text
+    assert "field_states" in response.text
     assert "data-dashboard-sparkline" not in response.text
     assert "metricHistory" not in response.text
     assert "ARMACTL_WEB_SESSION_SECRET" not in response.text
@@ -611,6 +623,39 @@ def test_dashboard_starting_server_hides_service_actions(tmp_path: Path, monkeyp
     assert "data-service-action-form" not in response.text
     assert "/static/js/service_actions.js" in response.text
     assert "Live server" not in response.text
+
+
+def test_dashboard_running_server_marks_live_telemetry_loading(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(
+        monkeypatch,
+        lifecycle="running",
+        fps_available=False,
+        players_available=False,
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+    payload = client.get("/dashboard/status.json", follow_redirects=False).json()
+
+    assert response.status_code == 200
+    assert "Waiting for telemetry..." in response.text
+    assert 'data-dashboard-field="overview.players" data-dashboard-loading="true"' in response.text
+    assert 'data-dashboard-field="overview.fps" data-dashboard-loading="true"' in response.text
+    assert 'data-metric-loading="true"' in response.text
+    assert payload["fields"]["overview.players"] == "Waiting for telemetry..."
+    assert payload["fields"]["overview.fps"] == "Waiting for telemetry..."
+    assert payload["field_states"]["overview.players"] == {"loading": True}
+    assert payload["field_states"]["overview.fps"] == {"loading": True}
+    assert payload["metrics"]["fps"]["loading"] is True
+    assert payload["metrics"]["fps"]["text"] == "Waiting for telemetry..."
 
 
 def test_dashboard_running_server_shows_stop_restart_only(tmp_path: Path, monkeypatch):

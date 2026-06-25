@@ -871,9 +871,10 @@ def test_dashboard_status_payload_handles_unavailable_numeric_metrics():
 
     assert payload["metrics"]["fps"] == {
         "available": False,
+        "loading": True,
         "value": None,
         "percent": None,
-        "text": "unavailable",
+        "text": "Waiting for telemetry...",
     }
     assert payload["metrics"]["cpu"]["available"] is False
     assert payload["metrics"]["memory"]["used_bytes"] is None
