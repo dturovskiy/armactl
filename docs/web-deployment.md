@@ -129,6 +129,8 @@ When serving through HTTPS, configure secure cookies:
 
 Do not leave direct unauthenticated network exposure to `armactl-web`. Keep CLI/TUI access available as the fallback management path.
 
+For dashboard exposure cleanup, gateway hardening, and incident response guidance, see [network-hardening-runbook.md](network-hardening-runbook.md).
+
 ## Ports
 
 Default web port: `8765/TCP`.
