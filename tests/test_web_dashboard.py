@@ -730,6 +730,42 @@ def test_dashboard_incomplete_server_shows_repair_job_action(
     assert "Installation incomplete" in response.text
 
 
+def test_dashboard_active_update_job_overrides_incomplete_repair_state(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import SERVER_UPDATE_JOB_KIND, create_job, mark_job_running
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch, lifecycle="incomplete")
+    db_path = tmp_path / "web" / "web.db"
+    job = create_job(db_path, kind=SERVER_UPDATE_JOB_KIND, requested_by_username="owner")
+    mark_job_running(db_path, job.id, current_step="Running")
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+    payload = client.get("/dashboard/status.json", follow_redirects=False).json()
+
+    update_running_note = (
+        "Server update is running; server actions are unavailable until it finishes."
+    )
+
+    assert response.status_code == 200
+    assert "Update job running" in response.text
+    assert update_running_note in response.text
+    assert "Installation incomplete" not in response.text
+    assert "Repair diagnostics" not in response.text
+    assert 'action="/jobs/server/repair"' not in response.text
+    assert 'href="/updates"' in response.text
+    assert payload["lifecycle"] == "updating"
+    assert payload["fields"]["overview.lifecycle"] == "updating"
+    assert payload["fields"]["quick_actions.note"] == update_running_note
+    assert payload["actions"] == []
+
+
 def test_dashboard_no_server_empty_state_renders_controlled_html(
     tmp_path: Path,
     monkeypatch,

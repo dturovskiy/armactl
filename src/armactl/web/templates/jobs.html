@@ -140,7 +140,7 @@
               {% if job.error_message %}<strong>{{ t("Error") }}:</strong> {% if job.error_class %}{{ job.error_class }}: {% endif %}{{ job.error_message }}{% endif %}
             </div>
           {% endif %}
-          <details class="job-details">
+          <details class="job-details" data-job-details-id="{{ job.id }}">
             <summary>{{ t("Job details") }}</summary>
             <dl class="job-details-grid">
               <div><dt>{{ t("Created") }}</dt><dd>{{ job.created_at }}</dd></div>

@@ -139,6 +139,7 @@ h2 {
 }
 
 .status-pill-starting,
+.status-pill-updating,
 .status-pill-incomplete,
 .status-pill-warning,
 .status-pill-disabled {

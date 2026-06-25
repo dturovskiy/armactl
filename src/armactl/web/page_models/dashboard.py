@@ -451,6 +451,16 @@ def load_dashboard_snapshot(
     operational_status = _load_operational_status(state, errors)
     lifecycle = _dashboard_lifecycle(state, service)
     dashboard_running = lifecycle == "running"
+    server_version = _load_server_version(
+        instance,
+        state,
+        web_config,
+        errors,
+        server_running=dashboard_running,
+    )
+    if server_version.get("check_state") == server_versions.SERVER_VERSION_CHECK_UPDATING:
+        lifecycle = "updating"
+        dashboard_running = False
 
     if dashboard_running:
         players = _decorate_players(
@@ -483,13 +493,7 @@ def load_dashboard_snapshot(
         operational_status=operational_status,
         config=config_summary,
         mods=mods_summary,
-        server_version=_load_server_version(
-            instance,
-            state,
-            web_config,
-            errors,
-            server_running=dashboard_running,
-        ),
+        server_version=server_version,
         host_metrics=host_metrics,
         fps_metrics=fps_metrics,
         players=players,

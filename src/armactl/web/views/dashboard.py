@@ -6,7 +6,7 @@ import math
 from collections.abc import Mapping
 from typing import Any
 
-ACTIVE_LIFECYCLES = frozenset({"stopped", "starting", "running"})
+ACTIVE_LIFECYCLES = frozenset({"stopped", "starting", "running", "updating"})
 
 
 def _section(value: Mapping[str, Any], name: str) -> Mapping[str, Any]:
@@ -114,8 +114,11 @@ def _summary_items(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str
                 _item("FPS", fps.get("fps_text", "unavailable"), field="overview.fps"),
             ]
         )
-    elif lifecycle in {"stopped", "starting"}:
-        service_value = "starting" if lifecycle == "starting" else "stopped"
+    elif lifecycle in {"stopped", "starting", "updating"}:
+        if lifecycle == "updating":
+            service_value = "updating"
+        else:
+            service_value = "starting" if lifecycle == "starting" else "stopped"
         items.extend(
             [
                 _item(
@@ -255,6 +258,8 @@ def _quick_action_note(lifecycle: str, actions: list[dict[str, Any]]) -> str:
         return "Repair is available as a background job."
     if lifecycle == "starting":
         return "Server is starting; actions are unavailable until telemetry is ready."
+    if lifecycle == "updating":
+        return "Server update is running; server actions are unavailable until it finishes."
     return "No server actions available."
 
 
@@ -493,7 +498,9 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
             "items": [
                 _item(
                     "State",
-                    "starting"
+                    "updating"
+                    if lifecycle == "updating"
+                    else "starting"
                     if lifecycle == "starting"
                     else service.get("active_state")
                     or ("running" if lifecycle == "running" else "stopped"),

@@ -138,6 +138,7 @@ def test_authenticated_owner_sees_jobs_page(tmp_path: Path):
     assert "Other jobs" in response.text
     assert "job-row-summary" in response.text
     assert "Job details" in response.text
+    assert f'data-job-details-id="{job.id}"' in response.text
     assert "succeeded" in response.text
     assert "Job completed." in response.text
     assert "Last stdout lines" in response.text or "Останні рядки stdout" in response.text
@@ -157,6 +158,9 @@ def test_jobs_js_static_asset_is_served(tmp_path: Path):
     assert "data-jobs-refresh-root" in response.text
     assert "job-card-running" in response.text
     assert "background-jobs" in response.text
+    assert "collectOpenJobDetails" in response.text
+    assert "restoreOpenJobDetails" in response.text
+    assert "data-job-details-id" in response.text
 
 def test_jobs_permission_denied_returns_controlled_403(
     tmp_path: Path,

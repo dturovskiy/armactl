@@ -17,6 +17,28 @@
     );
   }
 
+  function collectOpenJobDetails() {
+    const openJobIds = new Set();
+    document.querySelectorAll("details[data-job-details-id][open]").forEach((details) => {
+      const jobId = details.dataset.jobDetailsId;
+      if (jobId) {
+        openJobIds.add(jobId);
+      }
+    });
+    return openJobIds;
+  }
+
+  function restoreOpenJobDetails(openJobIds) {
+    if (!openJobIds || openJobIds.size === 0) {
+      return;
+    }
+    document.querySelectorAll("details[data-job-details-id]").forEach((details) => {
+      if (openJobIds.has(details.dataset.jobDetailsId)) {
+        details.open = true;
+      }
+    });
+  }
+
   function replaceSection(documentFragment, id) {
     const current = document.getElementById(id);
     const next = documentFragment.getElementById(id);
@@ -55,10 +77,12 @@
         throw new Error("jobs refresh failed");
       }
       const html = await response.text();
+      const openJobIds = collectOpenJobDetails();
       const documentFragment = new DOMParser().parseFromString(html, "text/html");
       replaceSection(documentFragment, "job-store-integrity");
       replaceSection(documentFragment, "pending-work");
       replaceSection(documentFragment, "background-jobs");
+      restoreOpenJobDetails(openJobIds);
       if (!hasActiveJobs(document)) {
         stopRefresh();
       }
