@@ -879,6 +879,10 @@ def test_config_page_shows_redacted_advanced_json_editor(tmp_path: Path, monkeyp
     assert "raw-rcon-secret" not in response.text
     assert "admin-password-secret" not in response.text
     assert 'name="confirm" value="raw-config-save" required' in response.text
+    assert 'type="reset" class="secondary"' in response.text
+    assert "Reset editor changes" in response.text
+    assert 'href="/config/raw"' in response.text
+    assert "Reload config from disk" in response.text
 
 
 def test_raw_config_edit_requires_confirmation(tmp_path: Path, monkeypatch):
