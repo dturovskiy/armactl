@@ -282,14 +282,14 @@ def _backend_success(result: ServiceActionResult) -> bool:
     return result.success if result.backend_success is None else result.backend_success
 
 
-def _clear_restart_pending_work_for_result(
+def _clear_resolved_restart_pending_work_for_result(
     result: ServiceActionResult,
     *,
     db_path: Path | None,
 ) -> ServiceActionResult:
     if (
         db_path is None
-        or result.action != ACTION_RESTART
+        or result.action not in {ACTION_START, ACTION_RESTART}
         or not _backend_success(result)
         or not result.performed
     ):
@@ -345,4 +345,4 @@ def run_service_action_and_audit(
         audit_log_path=audit_log_path,
         username=username,
     )
-    return _clear_restart_pending_work_for_result(result, db_path=db_path)
+    return _clear_resolved_restart_pending_work_for_result(result, db_path=db_path)

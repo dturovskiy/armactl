@@ -15,7 +15,7 @@
     <span class="status-pill status-pill-{{ result.status_label }}">{{ t(result.status_label) }}</span>
   </div>
   <p class="service-result-message">{{ t(result_view.message) }}</p>
-  {% if result.action == "restart" and result_view.backend_success and result_view.pending_restart_work_cleared %}
+  {% if result_view.backend_success and result_view.pending_restart_work_cleared %}
     <p class="notice-inline notice-success">{{ t("All saved changes that required restart have been applied.") }}</p>
   {% endif %}
   {% if result_view.pending_restart_work_warning %}

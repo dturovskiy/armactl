@@ -48,12 +48,13 @@ def _operator_result_message(
     result: service_actions.ServiceActionResult,
 ) -> str:
     backend_success = _backend_success(result)
-    if result.action == "restart" and backend_success:
+    if result.action in {"start", "restart"} and backend_success:
         if not result.audit_written:
             return result.message
         if result.pending_restart_work_cleared:
             return "Pending restart work cleared."
-        return "No pending restart work was waiting."
+        if result.action == "restart":
+            return "No pending restart work was waiting."
     if result.action == "restart" and result.performed:
         return "Pending restart work was not cleared."
     if result.success:
@@ -66,7 +67,7 @@ def _operator_result_message(
 def _service_result_view(
     result: service_actions.ServiceActionResult,
 ) -> dict[str, object]:
-    show_backend_message = not (result.action == "restart" and result.success)
+    show_backend_message = not (result.action in {"start", "restart"} and result.success)
     return {
         "title": _operator_result_title(result),
         "message": _operator_result_message(result),
