@@ -410,3 +410,78 @@ def test_bot_discord_settings_requires_manage_permission(
 
     assert response.status_code == 403
     assert response.text == "Permission denied."
+
+def test_bot_discord_action_post_runs_controlled_action(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.routes import bot as bot_route
+    from armactl.web.services.discord_stats_actions import DiscordStatsActionResult
+
+    password = "owner management password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_management_page_fakes(monkeypatch)
+    captured: dict[str, object] = {}
+
+    def fake_run_discord_action(**kwargs):
+        captured.update(kwargs)
+        return DiscordStatsActionResult(
+            success=True,
+            message="Discord statistics message published.",
+            action=str(kwargs["action"]),
+        )
+
+    monkeypatch.setattr(
+        bot_route.discord_stats_actions,
+        "run_discord_stats_action_and_audit",
+        fake_run_discord_action,
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    form_response = client.get("/bot", follow_redirects=False)
+    csrf_token = _form_token(form_response.text)
+
+    response = client.post(
+        "/bot/discord/action",
+        data={"csrf_token": csrf_token, "discord_action": "publish"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert captured["action"] == "publish"
+    assert captured["username"] == "owner"
+    assert "Discord statistics message published." in response.text
+    assert "Publish now" in response.text
+    assert "Install service" in response.text
+    assert "Restart publisher" in response.text
+
+
+def test_bot_discord_action_requires_manage_permission(
+    tmp_path: Path,
+    monkeypatch,
+    set_web_owner_permissions,
+):
+    from armactl.web.app import create_app
+    from armactl.web.auth.permissions import BOT_VIEW
+    from armactl.web.routes import bot as bot_route
+
+    password = "owner management password"
+    setup_owner_user(tmp_path, "owner", password)
+    set_web_owner_permissions({BOT_VIEW})
+    _install_management_page_fakes(monkeypatch)
+    monkeypatch.setattr(
+        bot_route.discord_stats_actions,
+        "run_discord_stats_action_and_audit",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("should not run")),
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    form_response = client.get("/bot", follow_redirects=False)
+    csrf_token = _form_token(form_response.text)
+
+    response = client.post(
+        "/bot/discord/action",
+        data={"csrf_token": csrf_token, "discord_action": "publish"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Permission denied."

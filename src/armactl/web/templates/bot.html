@@ -77,6 +77,15 @@
         </label>
         <button type="submit">{{ t("Save Discord settings") }}</button>
       </form>
+      <form method="post" action="/bot/discord/action" class="button-row">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" name="discord_action" value="publish">{{ t("Publish now") }}</button>
+        <button type="submit" name="discord_action" value="install">{{ t("Install service") }}</button>
+        <button type="submit" name="discord_action" value="start">{{ t("Start publisher") }}</button>
+        <button type="submit" name="discord_action" value="restart">{{ t("Restart publisher") }}</button>
+        <button type="submit" name="discord_action" value="stop" class="secondary-link">{{ t("Stop publisher") }}</button>
+        <button type="submit" name="discord_action" value="disable" class="secondary-link">{{ t("Disable publisher") }}</button>
+      </form>
     {% else %}
       <p class="muted">{{ t("You do not have permission to change Discord statistics settings.") }}</p>
     {% endif %}

@@ -110,6 +110,14 @@ def _clean_map_label(value: str) -> str:
         if cleaned.startswith(prefix):
             cleaned = cleaned[len(prefix) :]
 
+    while cleaned.startswith("[") and "]" in cleaned:
+        cleaned = cleaned.split("]", 1)[1].strip()
+
+    for suffix in (" - Conflict", " – Conflict", " — Conflict"):
+        if cleaned.lower().endswith(suffix.lower()):
+            cleaned = cleaned[: -len(suffix)].strip()
+            break
+
     return _safe_text(cleaned.replace("_", " "), "unknown", max_length=80)
 
 

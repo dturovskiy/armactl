@@ -187,6 +187,38 @@ def test_discord_stats_message_uses_singular_mod_label() -> None:
     assert "1 mods" not in text
 
 
+def test_discord_stats_message_uses_compact_chervonopilia_map_label() -> None:
+    snapshot = public_stats.PublicStatsSnapshot(
+        instance="default",
+        generated_at="2026-06-26T10:00:00+00:00",
+        lifecycle="running",
+        running=True,
+        service_state="active",
+        server_name="Public Server",
+        scenario_id="{A72E000B7728A414}Missions/DOE_Chervonopilia.conf",
+        map_name="[S.G.L.] Chervonopilia - Conflict",
+        players_available=True,
+        player_count=3,
+        max_players=128,
+        player_names=("SGL_Taran",),
+        roster_available=True,
+        fps_available=True,
+        fps_stale=False,
+        fps_text="60.0",
+        telemetry_age_text="0s",
+        mods_available=True,
+        mod_count=112,
+        mod_preview=("Where Am I",),
+        remaining_mod_count=111,
+    )
+
+    text = public_stats.render_discord_stats_message(snapshot)
+
+    assert "🗺️ Map: Chervonopilia" in text
+    assert "[S.G.L.]" not in text
+    assert "Chervonopilia - Conflict" not in text
+
+
 def test_stats_public_cli_honors_global_json_output(monkeypatch) -> None:
     snapshot = public_stats.PublicStatsSnapshot(
         instance="default",
@@ -475,3 +507,69 @@ def test_stats_discord_service_status_cli(monkeypatch) -> None:
     assert "Discord statistics service status." in result.output
     assert "armactl-discord-stats.service" in result.output
     assert "Active:         yes" in result.output
+
+def test_web_discord_stats_publish_action_audits_intent_and_outcome(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from armactl.discord_stats import DiscordStatsPublishResult
+    from armactl.web.services import discord_stats_actions
+
+    events: list[dict[str, object]] = []
+
+    def fake_audit(audit_log_path, **kwargs):
+        events.append(kwargs)
+
+    monkeypatch.setattr(discord_stats_actions, "append_audit_event", fake_audit)
+    monkeypatch.setattr(
+        discord_stats_actions,
+        "publish_discord_stats",
+        lambda instance: DiscordStatsPublishResult(
+            True,
+            "Discord statistics message updated.",
+            message_id="message-id",
+            updated=True,
+        ),
+    )
+
+    result = discord_stats_actions.run_discord_stats_action_and_audit(
+        action="publish",
+        audit_log_path=tmp_path / "audit.log",
+        username="owner",
+    )
+
+    assert result.success is True
+    assert result.message == "Discord statistics message updated."
+    assert [event["details"]["phase"] for event in events] == ["intent", "outcome"]
+    assert [event["action"] for event in events] == [
+        "discord_stats.publish",
+        "discord_stats.publish",
+    ]
+
+
+def test_web_discord_stats_action_blocks_when_intent_audit_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from armactl.web.services import discord_stats_actions
+    from armactl.web.services.audit import AuditLogError
+
+    def fail_audit(*args, **kwargs):
+        raise AuditLogError("disk full")
+
+    monkeypatch.setattr(discord_stats_actions, "append_audit_event", fail_audit)
+    monkeypatch.setattr(
+        discord_stats_actions,
+        "publish_discord_stats",
+        lambda instance: (_ for _ in ()).throw(AssertionError("should not publish")),
+    )
+
+    result = discord_stats_actions.run_discord_stats_action_and_audit(
+        action="publish",
+        audit_log_path=tmp_path / "audit.log",
+        username="owner",
+    )
+
+    assert result.success is False
+    assert result.intent_audited is False
+    assert "audit logging failed" in result.message

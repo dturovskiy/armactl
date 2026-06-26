@@ -27,7 +27,9 @@ def _render_bot_page(
     request: Request,
     current: CurrentSession,
     *,
-    discord_stats_result: discord_stats_actions.DiscordStatsSettingsResult | None = None,
+    discord_stats_result: discord_stats_actions.DiscordStatsSettingsResult
+    | discord_stats_actions.DiscordStatsActionResult
+    | None = None,
     status_code: int = status.HTTP_200_OK,
 ) -> Response:
     if not require_permission(current, BOT_VIEW):
@@ -87,6 +89,37 @@ async def save_discord_stats_settings(request: Request) -> Response:
         enabled=str(submitted_form.get("discord_enabled") or "") == "1",
         webhook_url=str(submitted_form.get("discord_webhook_url") or ""),
         interval_seconds=interval_seconds,
+        audit_log_path=current.config.audit_log_path,
+        username=current.user.username,
+        instance=paths.DEFAULT_INSTANCE_NAME,
+    )
+    return _render_bot_page(
+        request,
+        current,
+        discord_stats_result=result,
+        status_code=status.HTTP_200_OK if result.success else status.HTTP_400_BAD_REQUEST,
+    )
+
+
+@router.post("/bot/discord/action", response_class=HTMLResponse)
+async def run_discord_stats_action(request: Request) -> Response:
+    """Run a controlled Discord statistics publish/service action."""
+    current = get_current_session(request)
+    if current is None:
+        return redirect_to_login(request)
+    if not require_permission(current, BOT_MANAGE):
+        return permission_denied_response()
+
+    submitted_form = await request.form()
+    csrf_token = str(submitted_form.get("csrf_token") or "")
+    if not validate_csrf_token(current.config.db_path, current.session.id, csrf_token):
+        return PlainTextResponse(
+            "Invalid CSRF token.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+    result = discord_stats_actions.run_discord_stats_action_and_audit(
+        action=str(submitted_form.get("discord_action") or ""),
         audit_log_path=current.config.audit_log_path,
         username=current.user.username,
         instance=paths.DEFAULT_INSTANCE_NAME,
