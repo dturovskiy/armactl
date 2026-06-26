@@ -17,6 +17,16 @@ ROSTER_QUERY_TIMEOUT_SECONDS = 0.75
 MAX_TEXT_LENGTH = 160
 MAX_DISCORD_MESSAGE_LENGTH = 1900
 MAX_PLAYER_PREVIEW = 8
+DISCORD_TABLE_COLUMNS = (
+    ("Status", 8),
+    ("Map", 18),
+    ("Players", 7),
+    ("FPS", 5),
+    ("Mods", 4),
+)
+KNOWN_SCENARIO_LABELS = {
+    "23_Campaign": "Conflict: Everon",
+}
 
 
 @dataclass(frozen=True)
@@ -110,11 +120,20 @@ def _clean_map_label(value: str) -> str:
     return _safe_text(cleaned.replace("_", " "), "unknown", max_length=80)
 
 
-def _scenario_fallback_label(scenario_id: str) -> str:
-    return _clean_map_label(scenario_id)
+def _scenario_stem(scenario_id: str) -> str:
+    cleaned = scenario_id.strip()
+    if cleaned.startswith("{") and "}" in cleaned:
+        cleaned = cleaned.split("}", 1)[1]
+    stem = cleaned.replace("\\", "/").rsplit("/", 1)[-1]
+    if stem.lower().endswith(".conf"):
+        stem = stem[:-5]
+    return stem
 
 
 def _map_text(snapshot: PublicStatsSnapshot) -> str:
+    scenario_label = KNOWN_SCENARIO_LABELS.get(_scenario_stem(snapshot.scenario_id))
+    if scenario_label:
+        return scenario_label
     return _clean_map_label(snapshot.map_name or snapshot.scenario_id)
 
 
@@ -265,31 +284,58 @@ def _truncate_discord_message(message: str) -> str:
     return message[: MAX_DISCORD_MESSAGE_LENGTH - 3].rstrip() + "..."
 
 
-def _discord_table_values(snapshot: PublicStatsSnapshot) -> str:
-    values = [
+def _discord_cell(value: str, width: int) -> str:
+    text = _safe_text(value, max_length=max(width, 8))
+    if len(text) > width:
+        text = text[: max(width - 3, 1)].rstrip() + "..."
+    return f"{text:<{width}}"
+
+
+def _discord_table_row(values: list[str]) -> str:
+    return "  ".join(
+        _discord_cell(value, width)
+        for value, (_, width) in zip(values, DISCORD_TABLE_COLUMNS, strict=True)
+    )
+
+
+def _discord_table_values(snapshot: PublicStatsSnapshot) -> list[str]:
+    return [
         _status_label(snapshot),
         _map_text(snapshot),
         _player_count_text(snapshot),
         snapshot.fps_text,
         _mods_text(snapshot),
     ]
-    return " | ".join(values)
+
+
+def _discord_summary_line(snapshot: PublicStatsSnapshot) -> str:
+    return "  ".join(
+        [
+            f"{_status_emoji(snapshot)} **{_status_label(snapshot)}**",
+            f"🗺️ **{_map_text(snapshot)}**",
+            f"👥 **{_player_count_text(snapshot)}**",
+            f"🎯 **{snapshot.fps_text} FPS**",
+            f"🧩 **{_mods_text(snapshot)} mods**",
+        ]
+    )
 
 
 def render_discord_stats_message(snapshot: PublicStatsSnapshot) -> str:
     """Render public stats as a Discord-safe markdown message."""
     table_rows = [
-        "Status | Map | Players | FPS | Mods",
-        _discord_table_values(snapshot),
-        "",
-        "Online:",
-        *_discord_player_lines(snapshot),
+        _discord_table_row([label for label, _ in DISCORD_TABLE_COLUMNS]),
+        _discord_table_row(_discord_table_values(snapshot)),
     ]
     lines = [
         f"**{snapshot.server_name}**",
-        f"{_status_emoji(snapshot)} Server statistics",
+        "📊 Server statistics",
+        _discord_summary_line(snapshot),
         "```text",
         *table_rows,
+        "```",
+        "👥 Online:",
+        "```text",
+        *_discord_player_lines(snapshot),
         "```",
         f"🕒 Updated: {_discord_timestamp(snapshot.generated_at)}",
     ]

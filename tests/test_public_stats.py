@@ -84,11 +84,13 @@ def test_render_discord_stats_message_is_public_and_mention_safe(monkeypatch) ->
     text = public_stats.render_discord_stats_message(snapshot)
 
     assert "**@ everyone Reforger**" in text
-    assert "Server statistics" in text
+    assert "📊 Server statistics" in text
+    assert "🟢 **Online**" in text
+    assert "🗺️ **Everon**" in text
     assert "```text" in text
-    assert "Status | Map | Players | FPS | Mods" in text
-    assert "Online | Everon | 2/64 | 59.8 | 4" in text
-    assert "Online:" in text
+    assert "Status    Map" in text
+    assert "Online    Everon" in text
+    assert "👥 Online:" in text
     assert "- @ here Player" in text
     assert "- Normal Player" in text
     assert "Telemetry:" not in text
@@ -108,8 +110,8 @@ def test_stats_public_cli_renders_discord_message(monkeypatch) -> None:
         running=True,
         service_state="active",
         server_name="Public Server",
-        scenario_id="Scenario.conf",
-        map_name="ARM-Campaign_ScenarioName_Everon",
+        scenario_id="{ECC61978EDCC2B5A}Missions/23_Campaign.conf",
+        map_name="#AR-Campaign_ScenarioName_Everon",
         players_available=True,
         player_count=3,
         max_players=64,
@@ -130,9 +132,11 @@ def test_stats_public_cli_renders_discord_message(monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert "**Public Server**" in result.output
-    assert "Status | Map | Players | FPS | Mods" in result.output
-    assert "Online | Everon | 3/64 | 60.0 | 12" in result.output
-    assert "Online:" in result.output
+    assert "📊 Server statistics" in result.output
+    assert "🗺️ **Conflict: Everon**" in result.output
+    assert "Status    Map" in result.output
+    assert "Online    Conflict: Everon" in result.output
+    assert "👥 Online:" in result.output
     assert "- Denis" in result.output
     assert "- Vova" in result.output
     assert "`(running)`" not in result.output
@@ -146,8 +150,8 @@ def test_stats_public_cli_honors_global_json_output(monkeypatch) -> None:
         running=False,
         service_state="inactive",
         server_name="Public Server",
-        scenario_id="Scenario.conf",
-        map_name="ARM-Campaign_ScenarioName_Everon",
+        scenario_id="{ECC61978EDCC2B5A}Missions/23_Campaign.conf",
+        map_name="#AR-Campaign_ScenarioName_Everon",
         players_available=False,
         player_count=None,
         max_players=None,
@@ -252,8 +256,8 @@ def test_publish_discord_stats_creates_and_updates_existing_message(
         running=True,
         service_state="active",
         server_name="Public Server",
-        scenario_id="Scenario.conf",
-        map_name="ARM-Campaign_ScenarioName_Everon",
+        scenario_id="{ECC61978EDCC2B5A}Missions/23_Campaign.conf",
+        map_name="#AR-Campaign_ScenarioName_Everon",
         players_available=True,
         player_count=3,
         max_players=64,
@@ -330,8 +334,8 @@ def test_publish_discord_stats_does_not_duplicate_on_transient_edit_failure(
         running=True,
         service_state="active",
         server_name="Public Server",
-        scenario_id="Scenario.conf",
-        map_name="ARM-Campaign_ScenarioName_Everon",
+        scenario_id="{ECC61978EDCC2B5A}Missions/23_Campaign.conf",
+        map_name="#AR-Campaign_ScenarioName_Everon",
         players_available=True,
         player_count=3,
         max_players=64,
