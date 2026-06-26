@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -12,8 +13,26 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from jinja2 import Environment, FileSystemLoader
+
 from armactl import paths
 from armactl.public_stats import load_public_stats, render_discord_stats_message
+from armactl.redaction import redact_sensitive_text
+from armactl.service_manager import (
+    ServiceResult,
+    daemon_reload,
+    disable_service,
+    enable_service,
+    get_privileged_channel_user,
+    get_service_status,
+    has_privileged_systemctl_channel,
+    install_privileged_systemctl_channel,
+    install_systemd_unit_file,
+    resolve_linux_user,
+    restart_service,
+    start_service,
+    stop_service,
+)
 
 DEFAULT_INTERVAL_SECONDS = 30
 MIN_INTERVAL_SECONDS = 10
@@ -354,3 +373,156 @@ def run_discord_stats_publisher(
         if once:
             return
         time.sleep(config.interval_seconds)
+
+# ---------------------------------------------------------------------------
+# Optional systemd service management
+# ---------------------------------------------------------------------------
+
+
+def discord_stats_service_name() -> str:
+    """Return the fixed systemd unit name for the Discord stats publisher."""
+    return paths.DISCORD_STATS_SERVICE_NAME
+
+
+def discord_stats_python_path() -> Path:
+    """Return the repo-local Python interpreter used by the publisher service."""
+    return paths.project_root() / ".venv" / "bin" / "python"
+
+
+def check_discord_stats_runtime() -> ServiceResult:
+    """Verify that the repo-local virtualenv can import the Discord stats publisher."""
+    python_bin = discord_stats_python_path()
+    if not python_bin.exists():
+        return ServiceResult(
+            False,
+            f"Discord stats runtime Python not found at {python_bin}. "
+            "Re-run ./scripts/bootstrap.sh --prod or --dev.",
+            1,
+        )
+    return ServiceResult(True, "Discord stats runtime is ready.")
+
+
+def validate_discord_stats_service_config(instance: str) -> list[str]:
+    """Return service-install validation errors for the Discord stats config."""
+    config = load_discord_stats_config(instance)
+    errors = validate_discord_stats_config(config)
+    if not config.enabled:
+        errors.insert(
+            0,
+            "Discord statistics publishing must be enabled before installing the service.",
+        )
+    return errors
+
+
+def render_discord_stats_service_unit(instance: str) -> str:
+    """Render the systemd unit text for the Discord stats publisher."""
+    project_root = paths.project_root()
+    templates_dir = project_root / "templates"
+    env = Environment(loader=FileSystemLoader(str(templates_dir)))
+    home_dir = Path.home()
+    user = resolve_linux_user()
+    service_template = env.get_template("armactl-discord-stats.service.j2")
+    return service_template.render(
+        instance=instance,
+        user=user,
+        home_dir=str(home_dir),
+        bot_dir=str(paths.bot_dir(instance)),
+        project_root=str(project_root),
+        python_bin=str(discord_stats_python_path()),
+    )
+
+
+def install_discord_stats_service(instance: str) -> list[ServiceResult]:
+    """Generate, install, reload and enable the Discord stats publisher service."""
+    results: list[ServiceResult] = []
+    try:
+        ensure_discord_stats_config(instance)
+        errors = validate_discord_stats_service_config(instance)
+        if errors:
+            return [ServiceResult(False, errors[0], 1)]
+
+        runtime_result = check_discord_stats_runtime()
+        if not runtime_result.success:
+            return [runtime_result]
+
+        privileged_results = install_privileged_systemctl_channel()
+        privileged_failures = [result for result in privileged_results if not result.success]
+        if privileged_failures:
+            return privileged_results
+        results.extend(privileged_results)
+
+        service_path = paths.discord_stats_service_file()
+        service_render = render_discord_stats_service_unit(instance)
+        with tempfile.TemporaryDirectory() as tempd:
+            temp_dir = Path(tempd)
+            temp_service = temp_dir / discord_stats_service_name()
+            temp_service.write_text(service_render, encoding="utf-8")
+            install_result = install_systemd_unit_file(temp_service, service_path)
+            if not install_result.success:
+                return [install_result]
+            results.append(install_result)
+
+        reload_result = daemon_reload()
+        results.append(
+            ServiceResult(
+                reload_result.success,
+                "Systemd daemon reloaded"
+                if reload_result.success
+                else f"Daemon reload failed: {reload_result.message}",
+                reload_result.exit_code,
+            )
+        )
+        results.append(enable_service(discord_stats_service_name()))
+    except Exception as error:  # noqa: BLE001 - service setup reports controlled failures.
+        results.append(
+            ServiceResult(
+                False,
+                f"Discord stats service install failed: {redact_sensitive_text(error)}",
+                1,
+            )
+        )
+    return results
+
+
+def get_discord_stats_service_status() -> dict[str, Any]:
+    """Return structured status for the Discord stats publisher service."""
+    status = get_service_status(discord_stats_service_name())
+    service_user = str(status.get("user", "")).strip()
+    helper_user = get_privileged_channel_user()
+    current_user = resolve_linux_user()
+    if service_user and helper_user:
+        helper_matches_service_user: bool | None = service_user == helper_user
+    else:
+        helper_matches_service_user = None
+    status.update(
+        service_file=str(paths.discord_stats_service_file()),
+        installed=paths.discord_stats_service_file().exists(),
+        runtime=check_discord_stats_runtime().to_dict(),
+        privileged_channel_installed=has_privileged_systemctl_channel(),
+        service_user=service_user,
+        current_linux_user=current_user,
+        privileged_channel_user=helper_user,
+        privileged_channel_user_known=helper_user is not None,
+        privileged_channel_matches_service_user=helper_matches_service_user,
+    )
+    return status
+
+
+def start_discord_stats_service() -> ServiceResult:
+    """Start the Discord stats publisher service."""
+    return start_service(discord_stats_service_name())
+
+
+def stop_discord_stats_service() -> ServiceResult:
+    """Stop the Discord stats publisher service."""
+    return stop_service(discord_stats_service_name())
+
+
+def restart_discord_stats_service() -> ServiceResult:
+    """Restart the Discord stats publisher service."""
+    return restart_service(discord_stats_service_name())
+
+
+def disable_discord_stats_service() -> ServiceResult:
+    """Disable Discord stats publisher auto-start."""
+    return disable_service(discord_stats_service_name())

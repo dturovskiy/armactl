@@ -1259,6 +1259,26 @@
     "Stop the game server before updating.": "Зупиніть ігровий сервер перед оновленням.",
     "Suggested files below come from saved mod packs and docs/examples. Selecting one fills the path field.": "Файли нижче взято зі збережених mod pack-ів і docs/examples. Вибір заповнить поле шляху.",
     "armactl checks {modpacks_dir} for saved mod packs and {examples_dir} for example JSON configs.": "armactl перевіряє {modpacks_dir} для збережених mod pack-ів і {examples_dir} для прикладів JSON-конфігів.",
-    "Example config": "Приклад конфігу"
+    "Example config": "Приклад конфігу",
+    "Bots": "Боти",
+    "Discord Statistics": "Статистика Discord",
+    "Webhook configured": "Webhook налаштовано",
+    "Interval": "Інтервал",
+    "Message created": "Повідомлення створено",
+    "discord stats config": "конфіг статистики Discord",
+    "Discord statistics service is not installed": "Сервіс статистики Discord не встановлено",
+    "Discord statistics service status is not available": "Стан сервісу статистики Discord недоступний",
+    "Enable Discord statistics": "Увімкнути статистику Discord",
+    "Discord webhook URL": "URL webhook Discord",
+    "Leave blank to keep existing webhook": "Залиште порожнім, щоб зберегти поточний webhook",
+    "Refresh interval, seconds": "Інтервал оновлення, секунди",
+    "Save Discord settings": "Зберегти налаштування Discord",
+    "You do not have permission to change Discord statistics settings.": "У вас немає дозволу змінювати налаштування статистики Discord.",
+    "Discord statistics data is unavailable.": "Дані статистики Discord недоступні.",
+    "Discord statistics status is not available": "Стан статистики Discord недоступний",
+    "Discord statistics settings saved.": "Налаштування статистики Discord збережено.",
+    "Discord statistics settings were not saved because audit logging failed.": "Налаштування статистики Discord не збережено, бо запис аудиту не вдався.",
+    "Discord statistics settings failed, and audit logging also failed.": "Налаштування статистики Discord не вдалося зберегти, і запис аудиту теж не вдався.",
+    "Discord statistics settings were saved, but audit logging failed.": "Налаштування статистики Discord збережено, але запис аудиту не вдався."
   }
 }

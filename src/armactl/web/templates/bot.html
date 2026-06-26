@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
 {% block title %}{{ t("Bot - armactl web") }}{% endblock %}
-{% block heading %}{{ t("Telegram Bot") }}{% endblock %}
+{% block heading %}{{ t("Bots") }}{% endblock %}
 {% block topbar_actions %}
 <a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
 <form method="post" action="/logout" class="logout-form">
@@ -38,6 +38,51 @@
   {% else %}
     <p class="muted">{{ t("Bot data is unavailable.") }}</p>
     <p class="error">{{ t(page.error) }}</p>
+  {% endif %}
+</section>
+
+<section class="panel full-width">
+  <h2>{{ t("Discord Statistics") }}</h2>
+  {% if page.discord_stats.available %}
+    {% if discord_stats_result %}
+      <section class="notice {{ 'success' if discord_stats_result.success else 'error' }}">
+        <strong>{{ t(discord_stats_result.message) }}</strong>
+      </section>
+    {% endif %}
+    <dl>
+      <dt>{{ t("Instance") }}</dt><dd>{{ page.instance }}</dd>
+      <dt>{{ t("Enabled") }}</dt><dd>{{ t("yes") if page.discord_stats.enabled else t("no") }}</dd>
+      <dt>{{ t("Webhook configured") }}</dt><dd>{{ t("yes") if page.discord_stats.webhook_configured else t("no") }}</dd>
+      <dt>{{ t("Interval") }}</dt><dd>{{ page.discord_stats.interval_seconds }}s</dd>
+      <dt>{{ t("Message created") }}</dt><dd>{{ t("yes") if page.discord_stats.message_id_configured else t("no") }}</dd>
+      <dt>{{ t("Config") }}</dt><dd>{{ t(page.discord_stats.env_path_display|default("discord stats config")) }}</dd>
+      <dt>{{ t("Service") }}</dt><dd>{% if page.discord_stats.service.available %}{{ page.discord_stats.service.service_name or t("unknown") }}{% else %}{{ t(page.discord_stats.service.error) }}{% endif %}</dd>
+      <dt>{{ t("Service active") }}</dt><dd>{% if page.discord_stats.service.available %}{{ t("yes") if page.discord_stats.service.active else t("no") }}{% else %}{{ t("unknown") }}{% endif %}</dd>
+      <dt>{{ t("Service enabled") }}</dt><dd>{% if page.discord_stats.service.available %}{{ t("yes") if page.discord_stats.service.enabled else t("no") }}{% else %}{{ t("unknown") }}{% endif %}</dd>
+    </dl>
+    {% if can_manage_bot %}
+      <form method="post" action="/bot/discord" class="stacked-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label class="checkbox-row">
+          <input type="checkbox" name="discord_enabled" value="1" {% if page.discord_stats.enabled %}checked{% endif %}>
+          <span>{{ t("Enable Discord statistics") }}</span>
+        </label>
+        <label>
+          {{ t("Discord webhook URL") }}
+          <input type="password" name="discord_webhook_url" autocomplete="off" placeholder="{{ t('Leave blank to keep existing webhook') }}">
+        </label>
+        <label>
+          {{ t("Refresh interval, seconds") }}
+          <input type="number" name="discord_interval_seconds" min="10" max="3600" step="1" value="{{ page.discord_stats.interval_seconds }}">
+        </label>
+        <button type="submit">{{ t("Save Discord settings") }}</button>
+      </form>
+    {% else %}
+      <p class="muted">{{ t("You do not have permission to change Discord statistics settings.") }}</p>
+    {% endif %}
+  {% else %}
+    <p class="muted">{{ t("Discord statistics data is unavailable.") }}</p>
+    <p class="error">{{ t(page.discord_stats.error) }}</p>
   {% endif %}
 </section>
 {% endblock %}

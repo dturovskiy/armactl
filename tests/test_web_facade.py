@@ -85,9 +85,26 @@ def _install_bot_fakes(monkeypatch, *, enabled: bool = False) -> None:
         ),
     )
     monkeypatch.setattr(
+        bot_model.discord_stats,
+        "load_discord_stats_config",
+        lambda instance: SimpleNamespace(
+            enabled=enabled,
+            webhook_configured=lambda: enabled,
+            masked_webhook_url=lambda: "configured (...hook)" if enabled else "not configured",
+            interval_seconds=30,
+            message_id="message-id" if enabled else "",
+            env_path=Path("/srv/armactl-data/default/bot/discord-stats.env"),
+        ),
+    )
+    monkeypatch.setattr(
         bot_model.paths,
         "bot_service_file",
         lambda: Path("/nonexistent/armactl-bot.service"),
+    )
+    monkeypatch.setattr(
+        bot_model.paths,
+        "discord_stats_service_file",
+        lambda: Path("/nonexistent/armactl-discord-stats.service"),
     )
 
 

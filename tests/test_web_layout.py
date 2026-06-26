@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from web_route_helpers import _client, _login, _session_cookie_name, _set_cookie
+from web_route_helpers import _client, _form_token, _login, _session_cookie_name, _set_cookie
 
 from armactl.state import PortInfo, ServerState
 from armactl.web.auth.cookies import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
@@ -115,6 +115,18 @@ def _install_management_page_fakes(monkeypatch, *, has_config: bool = True) -> N
                 env_path=Path("/srv/armactl-data/default/bot/.env"),
             ),
         )
+        monkeypatch.setattr(
+            bot_model.discord_stats,
+            "load_discord_stats_config",
+            lambda instance: SimpleNamespace(
+                enabled=True,
+                webhook_configured=lambda: True,
+                masked_webhook_url=lambda: "configured (...hook)",
+                interval_seconds=30,
+                message_id="message-id",
+                env_path=Path("/srv/armactl-data/default/bot/discord-stats.env"),
+            ),
+        )
     else:
         monkeypatch.setattr(
             bot_model.bot_config,
@@ -123,10 +135,22 @@ def _install_management_page_fakes(monkeypatch, *, has_config: bool = True) -> N
                 RuntimeError("config path is not available")
             ),
         )
+        monkeypatch.setattr(
+            bot_model.discord_stats,
+            "load_discord_stats_config",
+            lambda instance: (_ for _ in ()).throw(
+                RuntimeError("discord stats config is not available")
+            ),
+        )
     monkeypatch.setattr(
         bot_model.paths,
         "bot_service_file",
         lambda: Path("/nonexistent/armactl-bot.service"),
+    )
+    monkeypatch.setattr(
+        bot_model.paths,
+        "discord_stats_service_file",
+        lambda: Path("/nonexistent/armactl-discord-stats.service"),
     )
 
 
@@ -296,3 +320,93 @@ def test_management_pages_do_not_render_secrets(tmp_path: Path, monkeypatch):
     assert "raw-bot-token-secret" not in html
     assert SESSION_COOKIE_NAME not in html
     assert CSRF_COOKIE_NAME not in html
+
+
+def test_bot_discord_settings_post_does_not_echo_webhook_secret(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.routes import bot as bot_route
+    from armactl.web.services.discord_stats_actions import DiscordStatsSettingsResult
+
+    password = "owner management password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_management_page_fakes(monkeypatch)
+    captured: dict[str, object] = {}
+
+    def fake_save_discord_settings(**kwargs):
+        captured.update(kwargs)
+        return DiscordStatsSettingsResult(
+            success=True,
+            message="Discord statistics settings saved.",
+            enabled=bool(kwargs["enabled"]),
+            interval_seconds=int(kwargs["interval_seconds"]),
+            webhook_configured=True,
+            webhook_changed=True,
+        )
+
+    monkeypatch.setattr(
+        bot_route.discord_stats_actions,
+        "save_discord_stats_settings_and_audit",
+        fake_save_discord_settings,
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    form_response = client.get("/bot", follow_redirects=False)
+    csrf_token = _form_token(form_response.text)
+
+    webhook = "https://discord.com/api/webhooks/123456/super-secret-webhook-token"
+    response = client.post(
+        "/bot/discord",
+        data={
+            "csrf_token": csrf_token,
+            "discord_enabled": "1",
+            "discord_webhook_url": webhook,
+            "discord_interval_seconds": "10",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert captured["enabled"] is True
+    assert captured["webhook_url"] == webhook
+    assert captured["interval_seconds"] == 10
+    assert "Discord statistics settings saved." in response.text
+    assert webhook not in response.text
+    assert "super-secret-webhook-token" not in response.text
+
+
+def test_bot_discord_settings_requires_manage_permission(
+    tmp_path: Path,
+    monkeypatch,
+    set_web_owner_permissions,
+):
+    from armactl.web.app import create_app
+    from armactl.web.auth.permissions import BOT_VIEW
+    from armactl.web.routes import bot as bot_route
+
+    password = "owner management password"
+    setup_owner_user(tmp_path, "owner", password)
+    set_web_owner_permissions({BOT_VIEW})
+    _install_management_page_fakes(monkeypatch)
+    monkeypatch.setattr(
+        bot_route.discord_stats_actions,
+        "save_discord_stats_settings_and_audit",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("should not save")),
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    form_response = client.get("/bot", follow_redirects=False)
+    csrf_token = _form_token(form_response.text)
+
+    response = client.post(
+        "/bot/discord",
+        data={
+            "csrf_token": csrf_token,
+            "discord_enabled": "1",
+            "discord_webhook_url": "https://discord.com/api/webhooks/123456/secret",
+            "discord_interval_seconds": "10",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.text == "Permission denied."

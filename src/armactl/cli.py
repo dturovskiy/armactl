@@ -1965,3 +1965,84 @@ def stats_discord_run(ctx: click.Context, once: bool) -> None:
     except DiscordStatsPublishError as error:
         click.echo(f"Discord statistics publisher failed: {error}", err=True)
         sys.exit(1)
+
+@stats_discord.group("service")
+def stats_discord_service() -> None:
+    """Manage the Discord statistics publisher systemd service."""
+
+
+def _echo_discord_stats_service_result(action: str, result) -> None:
+    marker = "✓" if result.success else "✗"
+    click.echo(f"Discord statistics service {action}.")
+    click.echo(f"  {marker} {result.message}")
+    sys.exit(0 if result.success else result.exit_code or 1)
+
+
+@stats_discord_service.command("install")
+@click.pass_context
+def stats_discord_service_install(ctx: click.Context) -> None:
+    """Install and enable armactl-discord-stats.service."""
+    from armactl.discord_stats import install_discord_stats_service
+
+    results = install_discord_stats_service(ctx.obj["instance"])
+    click.echo("Discord statistics service install.")
+    failed = False
+    for result in results:
+        marker = "✓" if result.success else "✗"
+        click.echo(f"  {marker} {result.message}")
+        failed = failed or not result.success
+    if failed:
+        sys.exit(1)
+
+
+@stats_discord_service.command("start")
+def stats_discord_service_start() -> None:
+    """Start armactl-discord-stats.service."""
+    from armactl.discord_stats import start_discord_stats_service
+
+    _echo_discord_stats_service_result("start", start_discord_stats_service())
+
+
+@stats_discord_service.command("stop")
+def stats_discord_service_stop() -> None:
+    """Stop armactl-discord-stats.service."""
+    from armactl.discord_stats import stop_discord_stats_service
+
+    _echo_discord_stats_service_result("stop", stop_discord_stats_service())
+
+
+@stats_discord_service.command("restart")
+def stats_discord_service_restart() -> None:
+    """Restart armactl-discord-stats.service."""
+    from armactl.discord_stats import restart_discord_stats_service
+
+    _echo_discord_stats_service_result("restart", restart_discord_stats_service())
+
+
+@stats_discord_service.command("disable")
+def stats_discord_service_disable() -> None:
+    """Disable armactl-discord-stats.service."""
+    from armactl.discord_stats import disable_discord_stats_service
+
+    _echo_discord_stats_service_result("disable", disable_discord_stats_service())
+
+
+@stats_discord_service.command("status")
+def stats_discord_service_status() -> None:
+    """Show armactl-discord-stats.service status."""
+    from armactl.discord_stats import get_discord_stats_service_status
+
+    status = get_discord_stats_service_status()
+    runtime = status.get("runtime", {})
+    click.echo("Discord statistics service status.")
+    click.echo(f"  Service:        {status.get('service_name', 'armactl-discord-stats.service')}")
+    click.echo(f"  Service file:   {status.get('service_file', '')}")
+    click.echo(f"  Installed:      {'yes' if status.get('installed') else 'no'}")
+    click.echo(f"  Active:         {'yes' if status.get('active') else 'no'}")
+    click.echo(f"  Enabled:        {'yes' if status.get('enabled') else 'no'}")
+    click.echo(f"  State:          {status.get('active_state', 'unknown')}")
+    if status.get("main_pid"):
+        click.echo(f"  PID:            {status.get('main_pid')}")
+    runtime_marker = "✓" if isinstance(runtime, dict) and runtime.get("success") else "✗"
+    runtime_message = runtime.get("message", "unknown") if isinstance(runtime, dict) else "unknown"
+    click.echo(f"  Runtime check:  {runtime_marker} {runtime_message}")

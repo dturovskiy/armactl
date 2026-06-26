@@ -5,6 +5,7 @@ from __future__ import annotations
 __all__ = [
     "admin_actions",
     "audit",
+    "discord_stats_actions",
     "file_uploads",
     "mod_actions",
     "pending_restart",

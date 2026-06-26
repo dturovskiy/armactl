@@ -130,6 +130,12 @@ def _player_list_text(snapshot: PublicStatsSnapshot) -> str:
     return "unavailable"
 
 
+def _discord_player_lines(snapshot: PublicStatsSnapshot) -> list[str]:
+    if snapshot.player_names:
+        return [f"- {name}" for name in snapshot.player_names]
+    return [f"- {_player_list_text(snapshot)}"]
+
+
 def _parse_generated_at(value: str) -> datetime | None:
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
@@ -258,17 +264,34 @@ def _truncate_discord_message(message: str) -> str:
         return message
     return message[: MAX_DISCORD_MESSAGE_LENGTH - 3].rstrip() + "..."
 
+
+def _discord_table_values(snapshot: PublicStatsSnapshot) -> str:
+    values = [
+        _status_label(snapshot),
+        _map_text(snapshot),
+        _player_count_text(snapshot),
+        snapshot.fps_text,
+        _mods_text(snapshot),
+    ]
+    return " | ".join(values)
+
+
 def render_discord_stats_message(snapshot: PublicStatsSnapshot) -> str:
     """Render public stats as a Discord-safe markdown message."""
+    table_rows = [
+        "Status | Map | Players | FPS | Mods",
+        _discord_table_values(snapshot),
+        "",
+        "Online:",
+        *_discord_player_lines(snapshot),
+    ]
     lines = [
         f"**{snapshot.server_name}**",
-        f"{_status_emoji(snapshot)} **Status:** {_status_label(snapshot)}",
-        f"🗺️ **Map:** {_map_text(snapshot)}",
-        f"👥 **Players:** {_player_count_text(snapshot)}",
-        f"🧍 **Online:** {_player_list_text(snapshot)}",
-        f"🎯 **FPS:** {snapshot.fps_text}",
-        f"🧩 **Mods:** {_mods_text(snapshot)}",
-        f"🕒 **Updated:** {_discord_timestamp(snapshot.generated_at)}",
+        f"{_status_emoji(snapshot)} Server statistics",
+        "```text",
+        *table_rows,
+        "```",
+        f"🕒 Updated: {_discord_timestamp(snapshot.generated_at)}",
     ]
     return _truncate_discord_message("\n".join(lines))
 

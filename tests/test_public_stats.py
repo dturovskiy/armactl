@@ -84,11 +84,13 @@ def test_render_discord_stats_message_is_public_and_mention_safe(monkeypatch) ->
     text = public_stats.render_discord_stats_message(snapshot)
 
     assert "**@ everyone Reforger**" in text
-    assert "**Status:** Online" in text
-    assert "**Players:** 2/64" in text
-    assert "**Map:** Everon" in text
-    assert "**FPS:** 59.8" in text
-    assert "**Online:** @ here Player, Normal Player" in text
+    assert "Server statistics" in text
+    assert "```text" in text
+    assert "Status | Map | Players | FPS | Mods" in text
+    assert "Online | Everon | 2/64 | 59.8 | 4" in text
+    assert "Online:" in text
+    assert "- @ here Player" in text
+    assert "- Normal Player" in text
     assert "Telemetry:" not in text
     assert "Mod preview:" not in text
     assert "<t:" in text
@@ -128,8 +130,11 @@ def test_stats_public_cli_renders_discord_message(monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert "**Public Server**" in result.output
-    assert "**Players:** 3/64" in result.output
-    assert "**Status:** Online" in result.output
+    assert "Status | Map | Players | FPS | Mods" in result.output
+    assert "Online | Everon | 3/64 | 60.0 | 12" in result.output
+    assert "Online:" in result.output
+    assert "- Denis" in result.output
+    assert "- Vova" in result.output
     assert "`(running)`" not in result.output
 
 
@@ -362,3 +367,62 @@ def test_publish_discord_stats_does_not_duplicate_on_transient_edit_failure(
         raise AssertionError("expected DiscordStatsPublishError")
 
     assert calls == ["PATCH"]
+
+
+def test_render_discord_stats_service_unit_contains_execstart(tmp_path: Path, monkeypatch) -> None:
+    from armactl import discord_stats
+
+    python_bin = tmp_path / ".venv" / "bin" / "python"
+    monkeypatch.setattr(discord_stats, "discord_stats_python_path", lambda: python_bin)
+    monkeypatch.setattr(discord_stats, "resolve_linux_user", lambda: "defenders88")
+
+    text = discord_stats.render_discord_stats_service_unit("default")
+
+    assert "Description=armactl Discord Statistics Publisher (default)" in text
+    assert "User=defenders88" in text
+    assert f"ExecStart={python_bin} -m armactl --instance default stats discord run" in text
+    assert "Restart=always" in text
+
+
+def test_validate_discord_stats_service_config_requires_enabled(monkeypatch) -> None:
+    from armactl import discord_stats
+
+    monkeypatch.setattr(
+        discord_stats,
+        "load_discord_stats_config",
+        lambda instance: discord_stats.DiscordStatsConfig(
+            instance=instance,
+            enabled=False,
+            webhook_url="https://discord.com/api/webhooks/123456/secret-token",
+        ),
+    )
+
+    errors = discord_stats.validate_discord_stats_service_config("default")
+
+    assert "Discord statistics publishing must be enabled" in errors[0]
+
+
+def test_stats_discord_service_status_cli(monkeypatch) -> None:
+    from armactl import discord_stats
+
+    monkeypatch.setattr(
+        discord_stats,
+        "get_discord_stats_service_status",
+        lambda: {
+            "service_name": "armactl-discord-stats.service",
+            "service_file": "/etc/systemd/system/armactl-discord-stats.service",
+            "installed": True,
+            "active": True,
+            "enabled": True,
+            "active_state": "active",
+            "main_pid": 123,
+            "runtime": {"success": True, "message": "Discord stats runtime is ready."},
+        },
+    )
+
+    result = CliRunner().invoke(main, ["stats", "discord", "service", "status"])
+
+    assert result.exit_code == 0
+    assert "Discord statistics service status." in result.output
+    assert "armactl-discord-stats.service" in result.output
+    assert "Active:         yes" in result.output

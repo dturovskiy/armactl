@@ -162,10 +162,12 @@ Read-only Discord community statistics can be published through a Discord webhoo
 ./armactl stats discord configure --webhook-url "https://discord.com/api/webhooks/..." --enabled --interval-seconds 30
 ./armactl stats discord preview
 ./armactl stats discord publish
-./armactl stats discord run
+./armactl stats discord service install
+./armactl stats discord service restart
+./armactl stats discord service status
 ```
 
-The publisher creates one Discord message, stores its message ID in the private instance bot config, and updates that message on later runs. Discord-native timestamps render in each viewer's local timezone.
+The publisher creates one Discord message, stores its message ID in the private instance bot config, and updates that message on later runs. Use `stats discord run` for a foreground loop, or the `armactl-discord-stats.service` commands for normal unattended updates. The local web dashboard `/bot` page can save the webhook and interval without exposing the stored webhook back to the browser. Discord-native timestamps render in each viewer's local timezone.
 
 ## Local Web Dashboard
 

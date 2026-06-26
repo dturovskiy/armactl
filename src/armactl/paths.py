@@ -28,6 +28,7 @@ SERVICE_NAME = "armareforger.service"
 RESTART_SERVICE_NAME = "armareforger-restart.service"
 TIMER_NAME = "armareforger-restart.timer"
 BOT_SERVICE_NAME = "armactl-bot.service"
+DISCORD_STATS_SERVICE_NAME = "armactl-discord-stats.service"
 WEB_SERVICE_NAME = "armactl-web.service"
 PRIVILEGED_HELPER_NAME = "armactl-systemctl-helper"
 PRIVILEGED_SUDOERS_NAME = "armactl-systemctl-helper"
@@ -306,6 +307,11 @@ def timer_file() -> Path:
 def bot_service_file() -> Path:
     """Path to the optional Telegram bot systemd service unit."""
     return SYSTEMD_DIR / BOT_SERVICE_NAME
+
+
+def discord_stats_service_file() -> Path:
+    """Path to the optional Discord statistics systemd service unit."""
+    return SYSTEMD_DIR / DISCORD_STATS_SERVICE_NAME
 
 
 def web_service_file() -> Path:

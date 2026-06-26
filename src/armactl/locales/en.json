@@ -676,6 +676,26 @@
     "Stop the game server before updating.": "Stop the game server before updating.",
     "Suggested files below come from saved mod packs and docs/examples. Selecting one fills the path field.": "Suggested files below come from saved mod packs and docs/examples. Selecting one fills the path field.",
     "armactl checks {modpacks_dir} for saved mod packs and {examples_dir} for example JSON configs.": "armactl checks {modpacks_dir} for saved mod packs and {examples_dir} for example JSON configs.",
-    "Example config": "Example config"
+    "Example config": "Example config",
+    "Bots": "Bots",
+    "Discord Statistics": "Discord Statistics",
+    "Webhook configured": "Webhook configured",
+    "Interval": "Interval",
+    "Message created": "Message created",
+    "discord stats config": "discord stats config",
+    "Discord statistics service is not installed": "Discord statistics service is not installed",
+    "Discord statistics service status is not available": "Discord statistics service status is not available",
+    "Enable Discord statistics": "Enable Discord statistics",
+    "Discord webhook URL": "Discord webhook URL",
+    "Leave blank to keep existing webhook": "Leave blank to keep existing webhook",
+    "Refresh interval, seconds": "Refresh interval, seconds",
+    "Save Discord settings": "Save Discord settings",
+    "You do not have permission to change Discord statistics settings.": "You do not have permission to change Discord statistics settings.",
+    "Discord statistics data is unavailable.": "Discord statistics data is unavailable.",
+    "Discord statistics status is not available": "Discord statistics status is not available",
+    "Discord statistics settings saved.": "Discord statistics settings saved.",
+    "Discord statistics settings were not saved because audit logging failed.": "Discord statistics settings were not saved because audit logging failed.",
+    "Discord statistics settings failed, and audit logging also failed.": "Discord statistics settings failed, and audit logging also failed.",
+    "Discord statistics settings were saved, but audit logging failed.": "Discord statistics settings were saved, but audit logging failed."
   }
 }
