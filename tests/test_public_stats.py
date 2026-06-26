@@ -55,6 +55,7 @@ def _patch_public_stats_sources(monkeypatch) -> None:
             available=True,
             current=2,
             max_players=64,
+            map_name="Everon",
             entries=(
                 types.SimpleNamespace(name="@here Player"),
                 types.SimpleNamespace(name="Normal Player"),
@@ -85,8 +86,12 @@ def test_render_discord_stats_message_is_public_and_mention_safe(monkeypatch) ->
     assert "**@ everyone Reforger**" in text
     assert "\nStatus: " in text
     assert "Players: **2/64**" in text
+    assert "Map: **Everon**" in text
     assert "FPS: **59.8**" in text
-    assert "Weapons @ here" in text
+    assert "Online: @ here Player, Normal Player" in text
+    assert "Telemetry:" not in text
+    assert "Mod preview:" not in text
+    assert "Weapons @ here" not in text
     assert "@everyone" not in text
     assert "@here" not in text
     assert "/srv/secret" not in text
@@ -101,6 +106,7 @@ def test_stats_public_cli_renders_discord_message(monkeypatch) -> None:
         service_state="active",
         server_name="Public Server",
         scenario_id="Scenario.conf",
+        map_name="Everon",
         players_available=True,
         player_count=3,
         max_players=64,
@@ -134,6 +140,7 @@ def test_stats_public_cli_honors_global_json_output(monkeypatch) -> None:
         service_state="inactive",
         server_name="Public Server",
         scenario_id="Scenario.conf",
+        map_name="Everon",
         players_available=False,
         player_count=None,
         max_players=None,
@@ -239,6 +246,7 @@ def test_publish_discord_stats_creates_and_updates_existing_message(
         service_state="active",
         server_name="Public Server",
         scenario_id="Scenario.conf",
+        map_name="Everon",
         players_available=True,
         player_count=3,
         max_players=64,
@@ -316,6 +324,7 @@ def test_publish_discord_stats_does_not_duplicate_on_transient_edit_failure(
         service_state="active",
         server_name="Public Server",
         scenario_id="Scenario.conf",
+        map_name="Everon",
         players_available=True,
         player_count=3,
         max_players=64,

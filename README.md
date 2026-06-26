@@ -159,7 +159,7 @@ See [docs/telegram-bot.md](docs/telegram-bot.md) for the full flow.
 Read-only Discord community statistics can be published through a Discord webhook without exposing server-control commands:
 
 ```bash
-./armactl stats discord configure --webhook-url "https://discord.com/api/webhooks/..." --enabled --interval-seconds 60
+./armactl stats discord configure --webhook-url "https://discord.com/api/webhooks/..." --enabled --interval-seconds 30
 ./armactl stats discord preview
 ./armactl stats discord publish
 ./armactl stats discord run

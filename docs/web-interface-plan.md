@@ -96,7 +96,7 @@ Install, repair, update checks, and other slow operations should run as backgrou
 
 ## Public Statistics
 
-Community-facing statistics must stay read-only. Public Discord/website-style output can include server status, player counts, FPS freshness, scenario, and mod counts, but must not expose secrets, raw paths, admin actions, or server-control commands. The Discord webhook publisher should create one message and update it on later runs instead of spamming the channel.
+Community-facing statistics must stay read-only. Public Discord/website-style output can include server status, map/scenario summary, player counts and names, FPS freshness, and mod counts, but must not expose secrets, raw paths, admin actions, or server-control commands. The Discord webhook publisher should create one message and update it on later runs instead of spamming the channel.
 
 ## Deployment
 

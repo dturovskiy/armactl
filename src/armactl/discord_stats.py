@@ -15,8 +15,8 @@ from typing import Any
 from armactl import paths
 from armactl.public_stats import load_public_stats, render_discord_stats_message
 
-DEFAULT_INTERVAL_SECONDS = 60
-MIN_INTERVAL_SECONDS = 15
+DEFAULT_INTERVAL_SECONDS = 30
+MIN_INTERVAL_SECONDS = 10
 MAX_INTERVAL_SECONDS = 3600
 CONFIG_FILE_NAME = "discord-stats.env"
 DISCORD_USER_AGENT = "armactl-discord-stats/1.0"

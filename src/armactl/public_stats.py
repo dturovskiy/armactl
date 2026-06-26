@@ -30,6 +30,7 @@ class PublicStatsSnapshot:
     service_state: str
     server_name: str
     scenario_id: str
+    map_name: str
     players_available: bool
     player_count: int | None
     max_players: int | None
@@ -89,6 +90,40 @@ def _mods_text(snapshot: PublicStatsSnapshot) -> str:
     return str(snapshot.mod_count)
 
 
+def _scenario_fallback_label(scenario_id: str) -> str:
+    cleaned = scenario_id
+    if cleaned.startswith("{") and "}" in cleaned:
+        cleaned = cleaned.split("}", 1)[1]
+    tail = cleaned.replace("\\", "/").rsplit("/", 1)[-1]
+    if tail.lower().endswith(".conf"):
+        tail = tail[:-5]
+    return _safe_text(tail.replace("_", " "), "unknown", max_length=80)
+
+
+def _map_text(snapshot: PublicStatsSnapshot) -> str:
+    return snapshot.map_name or _scenario_fallback_label(snapshot.scenario_id)
+
+
+def _player_list_text(snapshot: PublicStatsSnapshot) -> str:
+    if snapshot.player_names:
+        return ", ".join(snapshot.player_names)
+    if not snapshot.players_available:
+        return "unavailable"
+    if snapshot.player_count == 0:
+        return "none"
+    if not snapshot.roster_available:
+        return "roster unavailable"
+    return "unavailable"
+
+
+def _format_generated_at(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
 def _load_config_and_mods(
     config_path: str,
 ) -> tuple[status_summary.ConfigSummary, status_summary.ModsSummary]:
@@ -131,6 +166,7 @@ def load_public_stats(instance: str = paths.DEFAULT_INSTANCE_NAME) -> PublicStat
         service_state=_safe_text(service.get("active_state"), "unknown", max_length=64),
         server_name=_safe_text(config.server_name, "Unknown server"),
         scenario_id=_safe_text(config.scenario_id, "unknown"),
+        map_name=_safe_text(players.map_name, "", max_length=80),
         players_available=bool(players.available),
         player_count=players.current if isinstance(players.current, int) else None,
         max_players=players.max_players if isinstance(players.max_players, int) else None,
@@ -156,15 +192,14 @@ def render_public_stats_text(snapshot: PublicStatsSnapshot) -> str:
     lines = [
         f"Server: {snapshot.server_name}",
         f"Status: {'running' if snapshot.running else 'stopped'} ({snapshot.lifecycle})",
+        f"Map: {_map_text(snapshot)}",
         f"Players: {_player_count_text(snapshot)}",
+        f"Online: {_player_list_text(snapshot)}",
         f"FPS: {snapshot.fps_text}",
-        f"Telemetry: {snapshot.telemetry_age_text}",
         f"Scenario: {snapshot.scenario_id}",
         f"Mods: {_mods_text(snapshot)}",
-        f"Updated: {snapshot.generated_at}",
+        f"Updated: {_format_generated_at(snapshot.generated_at)}",
     ]
-    if snapshot.player_names:
-        lines.append(f"Online: {', '.join(snapshot.player_names)}")
     return "\n".join(lines)
 
 
@@ -180,20 +215,13 @@ def render_discord_stats_message(snapshot: PublicStatsSnapshot) -> str:
     lines = [
         f"**{snapshot.server_name}**",
         f"Status: **{status_text}** (`{snapshot.lifecycle}`)",
+        f"Map: **{_map_text(snapshot)}**",
         f"Players: **{_player_count_text(snapshot)}**",
+        f"Online: {_player_list_text(snapshot)}",
         f"FPS: **{snapshot.fps_text}**",
-        f"Telemetry: `{snapshot.telemetry_age_text}`",
-        f"Scenario: `{snapshot.scenario_id}`",
         f"Mods: **{_mods_text(snapshot)}**",
+        f"Updated: `{_format_generated_at(snapshot.generated_at)}`",
     ]
-    if snapshot.player_names:
-        lines.append(f"Online: {', '.join(snapshot.player_names)}")
-    if snapshot.mod_preview:
-        preview = ", ".join(snapshot.mod_preview)
-        if snapshot.remaining_mod_count > 0:
-            preview = f"{preview}, +{snapshot.remaining_mod_count} more"
-        lines.append(f"Mod preview: {preview}")
-    lines.append(f"Updated: `{snapshot.generated_at}`")
     return _truncate_discord_message("\n".join(lines))
 
 

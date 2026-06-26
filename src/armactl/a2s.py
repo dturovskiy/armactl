@@ -37,6 +37,7 @@ class PlayerStatus:
     port: int | None
     player_count: int | None = None
     max_players: int | None = None
+    map_name: str = ""
     error: str = ""
 
 
@@ -180,4 +181,5 @@ def query_player_status(
         port=port,
         player_count=info.player_count,
         max_players=info.max_players or max_players,
+        map_name=info.map_name,
     )

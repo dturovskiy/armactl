@@ -16,6 +16,7 @@ class PlayerView:
     available: bool
     current: int | None
     max_players: int | None
+    map_name: str = ""
     entries: tuple[PlayerEntry, ...] = ()
     count_source: str = "a2s"
     a2s_available: bool = False
@@ -80,6 +81,7 @@ def query_player_view(
         available=player_status.available or roster_available,
         current=current,
         max_players=max_players,
+        map_name=player_status.map_name,
         entries=entries,
         count_source=count_source,
         a2s_available=player_status.available,
