@@ -17,8 +17,8 @@ ROSTER_QUERY_TIMEOUT_SECONDS = 0.75
 MAX_TEXT_LENGTH = 160
 MAX_DISCORD_MESSAGE_LENGTH = 1900
 MAX_PLAYER_PREVIEW = 8
-KNOWN_SCENARIO_DETAILS = {
-    "23_Campaign": {"map": "Everon", "scenario": "Conflict"},
+KNOWN_SCENARIO_MAPS = {
+    "23_Campaign": "Everon",
 }
 
 
@@ -123,20 +123,11 @@ def _scenario_stem(scenario_id: str) -> str:
     return stem
 
 
-def _known_scenario_details(snapshot: PublicStatsSnapshot) -> dict[str, str]:
-    return KNOWN_SCENARIO_DETAILS.get(_scenario_stem(snapshot.scenario_id), {})
-
-
 def _map_text(snapshot: PublicStatsSnapshot) -> str:
-    known_map = _known_scenario_details(snapshot).get("map")
+    known_map = KNOWN_SCENARIO_MAPS.get(_scenario_stem(snapshot.scenario_id))
     if known_map:
         return known_map
     return _clean_map_label(snapshot.map_name or snapshot.scenario_id)
-
-
-def _scenario_text(snapshot: PublicStatsSnapshot) -> str:
-    scenario = _known_scenario_details(snapshot).get("scenario", "")
-    return _safe_text(scenario, "", max_length=80) if scenario else ""
 
 
 def _player_list_text(snapshot: PublicStatsSnapshot) -> str:
@@ -309,16 +300,11 @@ def _discord_stats_row(snapshot: PublicStatsSnapshot) -> str:
 
 def render_discord_stats_message(snapshot: PublicStatsSnapshot) -> str:
     """Render public stats as a Discord-safe markdown message."""
-    stat_lines = [_discord_stats_row(snapshot)]
-    scenario = _scenario_text(snapshot)
-    if scenario:
-        stat_lines.append(f"🎮 Scenario: {scenario}")
-
     lines = [
         f"**{snapshot.server_name}**",
         "📊 Server statistics",
         "```text",
-        *stat_lines,
+        _discord_stats_row(snapshot),
         "```",
         "👥 Online:",
         "```text",

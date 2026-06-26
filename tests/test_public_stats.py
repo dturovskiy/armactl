@@ -141,7 +141,7 @@ def test_stats_public_cli_renders_discord_message(monkeypatch) -> None:
     )
     assert "🟢 Status: Online" in result.output
     assert expected_row in result.output
-    assert "🎮 Scenario: Conflict" in result.output
+    assert "Scenario:" not in result.output
     assert "Map: Conflict" not in result.output
     assert "Status    Map" not in result.output
     assert "👥 Online:" in result.output
@@ -182,7 +182,7 @@ def test_discord_stats_message_uses_singular_mod_label() -> None:
         "👥 Players: 0/10  🎯 FPS: 60.0  🧩 Mods: 1 mod"
     )
     assert expected_row in text
-    assert "🎮 Scenario: Conflict" in text
+    assert "Scenario:" not in text
     assert "Map: Conflict" not in text
     assert "1 mods" not in text
 
