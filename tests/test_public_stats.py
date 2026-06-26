@@ -136,11 +136,13 @@ def test_stats_public_cli_renders_discord_message(monkeypatch) -> None:
     assert "**Public Server**" in result.output
     assert "📊 Server statistics" in result.output
     expected_row = (
-        "🟢 Status: Online  🗺️ Map: Conflict: Everon  "
+        "🟢 Status: Online  🗺️ Map: Everon  "
         "👥 Players: 3/64  🎯 FPS: 60.0  🧩 Mods: 12 mods"
     )
     assert "🟢 Status: Online" in result.output
     assert expected_row in result.output
+    assert "🎮 Scenario: Conflict" in result.output
+    assert "Map: Conflict" not in result.output
     assert "Status    Map" not in result.output
     assert "👥 Online:" in result.output
     assert "- Denis" in result.output
@@ -176,10 +178,12 @@ def test_discord_stats_message_uses_singular_mod_label() -> None:
     text = public_stats.render_discord_stats_message(snapshot)
 
     expected_row = (
-        "🟢 Status: Online  🗺️ Map: Conflict: Everon  "
+        "🟢 Status: Online  🗺️ Map: Everon  "
         "👥 Players: 0/10  🎯 FPS: 60.0  🧩 Mods: 1 mod"
     )
     assert expected_row in text
+    assert "🎮 Scenario: Conflict" in text
+    assert "Map: Conflict" not in text
     assert "1 mods" not in text
 
 
