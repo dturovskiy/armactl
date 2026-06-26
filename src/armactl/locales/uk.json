@@ -1150,6 +1150,7 @@
     "I understand this saves the full config JSON": "Я розумію, що це зберігає повний JSON конфіга",
     "Save advanced config": "Зберегти розширений конфіг",
     "Reset editor changes": "Скинути зміни в редакторі",
+    "Reset to loaded config": "Повернути початковий стан",
     "Reload config from disk": "Перезавантажити конфіг з диска",
     "Confirmation is required to save raw config JSON.": "Потрібне підтвердження для збереження сирого JSON конфіга.",
     "Config JSON is required.": "Потрібно вказати JSON конфіга.",

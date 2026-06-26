@@ -563,6 +563,7 @@
     "I understand this saves the full config JSON": "I understand this saves the full config JSON",
     "Save advanced config": "Save advanced config",
     "Reset editor changes": "Reset editor changes",
+    "Reset to loaded config": "Reset to loaded config",
     "Reload config from disk": "Reload config from disk",
     "Confirmation is required to save raw config JSON.": "Confirmation is required to save raw config JSON.",
     "Config JSON is required.": "Config JSON is required.",

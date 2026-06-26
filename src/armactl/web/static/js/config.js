@@ -41,9 +41,38 @@
     }
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", setupConfigDirtyNotice);
-  } else {
+  function setupRawConfigReset() {
+    const resetButton = document.querySelector("[data-config-raw-reset]");
+    const editor = document.querySelector("[data-config-raw-editor]");
+    if (!resetButton || !editor) {
+      return;
+    }
+
+    const loadedConfig = editor.getAttribute("data-loaded-config") ?? editor.defaultValue;
+    const form = resetButton.form;
+    const confirmation = form ? form.querySelector('input[name="confirm"]') : null;
+
+    resetButton.addEventListener("click", () => {
+      editor.value = loadedConfig;
+      editor.defaultValue = loadedConfig;
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+
+      if (confirmation) {
+        confirmation.checked = false;
+        confirmation.defaultChecked = false;
+        confirmation.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+  }
+
+  function setupConfigPage() {
     setupConfigDirtyNotice();
+    setupRawConfigReset();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", setupConfigPage);
+  } else {
+    setupConfigPage();
   }
 })();

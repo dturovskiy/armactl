@@ -6,6 +6,7 @@ import json
 import re
 import warnings
 from copy import deepcopy
+from html import unescape
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,27 @@ def _form_token(html: str) -> str:
     match = re.search(r'name="csrf_token" value="([^"]+)"', html)
     assert match is not None
     return match.group(1)
+
+
+def _raw_editor_value(html: str) -> str:
+    match = re.search(
+        r'<textarea(?=[^>]*name="raw_config")[^>]*>(.*?)</textarea>',
+        html,
+        re.S,
+    )
+    assert match is not None
+    return unescape(match.group(1))
+
+
+def _raw_editor_loaded_value(html: str) -> str:
+    match = re.search(
+        r'<textarea(?=[^>]*name="raw_config")'
+        r'(?=[^>]*data-loaded-config="([^"]*)")[^>]*>',
+        html,
+        re.S,
+    )
+    assert match is not None
+    return unescape(match.group(1))
 
 
 def _login(client, username: str, password: str):
@@ -879,8 +901,10 @@ def test_config_page_shows_redacted_advanced_json_editor(tmp_path: Path, monkeyp
     assert "raw-rcon-secret" not in response.text
     assert "admin-password-secret" not in response.text
     assert 'name="confirm" value="raw-config-save" required' in response.text
-    assert 'type="reset" class="secondary"' in response.text
-    assert "Reset editor changes" in response.text
+    assert 'type="button" class="secondary" data-config-raw-reset' in response.text
+    assert "Reset to loaded config" in response.text
+    assert "data-config-raw-editor" in response.text
+    assert "data-loaded-config=" in response.text
     assert 'href="/config/raw"' in response.text
     assert "Reload config from disk" in response.text
 
@@ -915,25 +939,36 @@ def test_raw_config_edit_requires_confirmation(tmp_path: Path, monkeypatch):
 
 
 def test_raw_config_edit_rejects_invalid_json_without_backup(tmp_path: Path, monkeypatch):
+    from armactl.web.services import config_edit
+    from armactl.web.services.pending_work import list_pending_work
+
     original_config = _sample_config()
     config_path = _write_config(tmp_path, deepcopy(original_config))
     client = _authed_client(tmp_path, monkeypatch, config_path)
     csrf_token = _form_token(client.get("/config").text)
+    submitted_text = '{\n  "game": "still editable"\n'
 
     response = client.post(
         "/config/raw",
         data={
             "csrf_token": csrf_token,
             "confirm": "raw-config-save",
-            "raw_config": "{not json",
+            "raw_config": submitted_text,
         },
         follow_redirects=False,
     )
 
     assert response.status_code == 400
     assert "Invalid JSON at line" in response.text
+    assert "Traceback" not in response.text
+    assert str(config_path) not in response.text
+    assert _raw_editor_value(response.text) == submitted_text
+    assert _raw_editor_loaded_value(response.text) == config_edit.build_raw_config_editor_text(
+        original_config,
+    )
     assert json.loads(config_path.read_text()) == original_config
     assert list(config_path.parent.glob("config.json.before-web-config-save-*.bak")) == []
+    assert list_pending_work(tmp_path / "web" / "web.db") == []
     audit_text = _audit_log_text(tmp_path)
     assert "raw-rcon-secret" not in audit_text
     assert "admin-password-secret" not in audit_text
@@ -961,6 +996,12 @@ def test_raw_config_edit_rejects_secret_changes(tmp_path: Path, monkeypatch):
 
     assert response.status_code == 400
     assert "Secret fields cannot be changed in the web config editor." in response.text
+    assert "Traceback" not in response.text
+    assert str(config_path) not in response.text
+    assert "changed-secret" not in response.text
+    assert _raw_editor_value(response.text) == config_edit.build_raw_config_editor_text(
+        original_config,
+    )
     assert json.loads(config_path.read_text()) == original_config
     assert list(config_path.parent.glob("config.json.before-web-config-save-*.bak")) == []
     audit_text = _audit_log_text(tmp_path)

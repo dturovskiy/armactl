@@ -32,7 +32,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [ ] Improve mod cleanup edge-case recovery workflows.
 - [ ] Improve player history and moderation workflows with clear identity rules.
 - [x] Improve schedule timezone UX with browser-local input/display and UTC backend normalization.
-- [x] Add config-focused editor phase 2 with validation, backups, audit, and recovery.
+- [x] Add config-focused editor phase 2 with validation, backups, audit, recovery, and reset/error UX.
 - [ ] Decide and document safe scope for lightweight file editing beyond config.
 - [ ] Close remaining TUI/Web parity gaps that should be web-primary.
 - [ ] Run final VM smoke, architecture/security/dead-code/docs review before main merge.

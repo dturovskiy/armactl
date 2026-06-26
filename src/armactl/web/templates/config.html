@@ -146,7 +146,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label class="config-raw-editor-label">
       <span>{{ t("config.json") }}</span>
-      <textarea class="config-json-editor" name="raw_config" rows="24" spellcheck="false" required>{{ page.raw_config_text|default("") }}</textarea>
+      <textarea class="config-json-editor" name="raw_config" rows="24" spellcheck="false" data-config-raw-editor data-loaded-config="{{ page.raw_config_loaded_text|default("")|e }}" required>{{ page.raw_config_text|default("") }}</textarea>
     </label>
     <label class="inline-confirm config-checkbox-field">
       <input type="checkbox" name="confirm" value="raw-config-save" required>
@@ -154,7 +154,7 @@
     </label>
     <div class="form-actions">
       <button type="submit" class="danger">{{ t("Save advanced config") }}</button>
-      <button type="reset" class="secondary">{{ t("Reset editor changes") }}</button>
+      <button type="button" class="secondary" data-config-raw-reset>{{ t("Reset to loaded config") }}</button>
       <a class="button-link secondary-link" href="/config/raw">{{ t("Reload config from disk") }}</a>
     </div>
   </form>

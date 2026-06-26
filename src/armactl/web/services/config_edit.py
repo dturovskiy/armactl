@@ -34,6 +34,10 @@ class ConfigEditError(ValueError):
     """Raised when a web config edit cannot be safely applied."""
 
 
+class SecretConfigEditError(ConfigEditError):
+    """Raised when raw config input attempts to mutate a protected secret."""
+
+
 class ConfigAuditError(RuntimeError):
     """Raised when a saved config change could not be audited."""
 
@@ -192,6 +196,23 @@ def _config_restart_fingerprint(config: Mapping[str, Any]) -> str:
 def build_raw_config_editor_text(config: Mapping[str, Any]) -> str:
     """Return formatted config JSON with secret values replaced by placeholders."""
     return json.dumps(_redacted_config_copy(config), ensure_ascii=False, indent=2)
+
+
+def safe_raw_config_editor_text_for_rerender(raw_config: str) -> str | None:
+    """Return submitted raw config text after redaction when it is safe to rerender."""
+    if len(str(raw_config).encode("utf-8")) > RAW_CONFIG_MAX_BYTES:
+        return None
+    return redact_sensitive_text(raw_config)
+
+
+def raw_config_editor_text_after_error(
+    raw_config: str,
+    error: ConfigEditError,
+) -> str | None:
+    """Return submitted raw config text when it is safe to echo after a save error."""
+    if isinstance(error, SecretConfigEditError):
+        return None
+    return safe_raw_config_editor_text_for_rerender(raw_config)
 
 
 def _parse_raw_config_text(raw_config: str) -> dict[str, Any]:
@@ -361,7 +382,7 @@ def _restore_secret_placeholders(
 
         if current_exists:
             if not submitted_exists:
-                raise ConfigEditError(
+                raise SecretConfigEditError(
                     "Secret fields cannot be removed in the web config editor."
                 )
             if (
@@ -371,13 +392,13 @@ def _restore_secret_placeholders(
                 _set_nested_value(restored, path, current_value)
                 continue
             if submitted_value != current_value:
-                raise ConfigEditError(
+                raise SecretConfigEditError(
                     "Secret fields cannot be changed in the web config editor."
                 )
             continue
 
         if submitted_exists:
-            raise ConfigEditError(
+            raise SecretConfigEditError(
                 "Secret fields cannot be changed in the web config editor."
             )
     return restored

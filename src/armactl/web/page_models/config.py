@@ -21,7 +21,11 @@ from armactl.web.services.config_edit import (
 )
 
 
-def load_config_page(instance: str) -> dict[str, Any]:
+def load_config_page(
+    instance: str,
+    *,
+    raw_config_text_override: str | None = None,
+) -> dict[str, Any]:
     """Return safe read-only config details for a web page."""
     state, error_page = _discover_management_state(instance)
     if error_page is not None:
@@ -35,7 +39,12 @@ def load_config_page(instance: str) -> dict[str, Any]:
         summary = _decorate_config(_plain_dict(status_summary.summarize_config(config)))
         edit_form = build_config_edit_form(config)
         edit_fields = build_config_edit_fields(config)
-        raw_config_text = build_raw_config_editor_text(config)
+        raw_config_loaded_text = build_raw_config_editor_text(config)
+        raw_config_text = (
+            raw_config_text_override
+            if raw_config_text_override is not None
+            else raw_config_loaded_text
+        )
     except Exception as error:
         return _missing_config_page(instance, state, _safe_error_message(error))
 
@@ -49,4 +58,5 @@ def load_config_page(instance: str) -> dict[str, Any]:
         "edit": edit_form,
         "edit_fields": edit_fields,
         "raw_config_text": raw_config_text,
+        "raw_config_loaded_text": raw_config_loaded_text,
     }

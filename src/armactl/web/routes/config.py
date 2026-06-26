@@ -33,13 +33,17 @@ def _render_config_page(
     audit_error: str = "",
     pending_work_warning: str = "",
     pending_work_error: str = "",
+    raw_config_text_override: str | None = None,
     status_code: int = status.HTTP_200_OK,
 ) -> Response:
     if not require_permission(current, CONFIG_VIEW):
         return permission_denied_response()
 
     form_csrf = get_form_csrf_token(request, current)
-    page = config_page_model.load_config_page(paths.DEFAULT_INSTANCE_NAME)
+    page = config_page_model.load_config_page(
+        paths.DEFAULT_INSTANCE_NAME,
+        raw_config_text_override=raw_config_text_override,
+    )
     response = request.app.state.templates.TemplateResponse(
         request=request,
         name="config.html",
@@ -168,10 +172,14 @@ async def save_raw_config_page(request: Request) -> Response:
             status_code=status.HTTP_403_FORBIDDEN,
         )
     if str(submitted_form.get("confirm") or "") != "raw-config-save":
+        raw_config = str(submitted_form.get("raw_config") or "")
         return _render_config_page(
             request,
             current,
             save_error="Confirmation is required to save raw config JSON.",
+            raw_config_text_override=config_edit.safe_raw_config_editor_text_for_rerender(
+                raw_config,
+            ),
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -189,6 +197,10 @@ async def save_raw_config_page(request: Request) -> Response:
             request,
             current,
             save_error=str(error),
+            raw_config_text_override=config_edit.raw_config_editor_text_after_error(
+                raw_config,
+                error,
+            ),
             status_code=status.HTTP_400_BAD_REQUEST,
         )
     except config_edit.ConfigAuditError as error:
