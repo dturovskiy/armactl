@@ -17,13 +17,6 @@ ROSTER_QUERY_TIMEOUT_SECONDS = 0.75
 MAX_TEXT_LENGTH = 160
 MAX_DISCORD_MESSAGE_LENGTH = 1900
 MAX_PLAYER_PREVIEW = 8
-DISCORD_TABLE_COLUMNS = (
-    ("Status", 8),
-    ("Map", 18),
-    ("Players", 7),
-    ("FPS", 5),
-    ("Mods", 4),
-)
 KNOWN_SCENARIO_LABELS = {
     "23_Campaign": "Conflict: Everon",
 }
@@ -284,30 +277,6 @@ def _truncate_discord_message(message: str) -> str:
     return message[: MAX_DISCORD_MESSAGE_LENGTH - 3].rstrip() + "..."
 
 
-def _discord_cell(value: str, width: int) -> str:
-    text = _safe_text(value, max_length=max(width, 8))
-    if len(text) > width:
-        text = text[: max(width - 3, 1)].rstrip() + "..."
-    return f"{text:<{width}}"
-
-
-def _discord_table_row(values: list[str]) -> str:
-    return "  ".join(
-        _discord_cell(value, width)
-        for value, (_, width) in zip(values, DISCORD_TABLE_COLUMNS, strict=True)
-    )
-
-
-def _discord_table_values(snapshot: PublicStatsSnapshot) -> list[str]:
-    return [
-        _status_label(snapshot),
-        _map_text(snapshot),
-        _player_count_text(snapshot),
-        snapshot.fps_text,
-        _mods_text(snapshot),
-    ]
-
-
 def _discord_mods_label(snapshot: PublicStatsSnapshot) -> str:
     mods = _mods_text(snapshot)
     if mods == "1":
@@ -317,30 +286,23 @@ def _discord_mods_label(snapshot: PublicStatsSnapshot) -> str:
     return mods
 
 
-def _discord_summary_line(snapshot: PublicStatsSnapshot) -> str:
+def _discord_stats_row(snapshot: PublicStatsSnapshot) -> str:
     return "  ".join(
         [
-            f"{_status_emoji(snapshot)} **{_status_label(snapshot)}**",
-            f"🗺️ **{_map_text(snapshot)}**",
-            f"👥 **{_player_count_text(snapshot)}**",
-            f"🎯 **{snapshot.fps_text} FPS**",
-            f"🧩 **{_discord_mods_label(snapshot)}**",
+            f"{_status_emoji(snapshot)} Status: {_status_label(snapshot)}",
+            f"🗺️ Map: {_map_text(snapshot)}",
+            f"👥 Players: {_player_count_text(snapshot)}",
+            f"🎯 FPS: {snapshot.fps_text}",
+            f"🧩 Mods: {_discord_mods_label(snapshot)}",
         ]
     )
-
-
 def render_discord_stats_message(snapshot: PublicStatsSnapshot) -> str:
     """Render public stats as a Discord-safe markdown message."""
-    table_rows = [
-        _discord_table_row([label for label, _ in DISCORD_TABLE_COLUMNS]),
-        _discord_table_row(_discord_table_values(snapshot)),
-    ]
     lines = [
         f"**{snapshot.server_name}**",
         "📊 Server statistics",
-        _discord_summary_line(snapshot),
         "```text",
-        *table_rows,
+        _discord_stats_row(snapshot),
         "```",
         "👥 Online:",
         "```text",

@@ -85,12 +85,13 @@ def test_render_discord_stats_message_is_public_and_mention_safe(monkeypatch) ->
 
     assert "**@ everyone Reforger**" in text
     assert "📊 Server statistics" in text
-    assert "🟢 **Online**" in text
-    assert "🗺️ **Everon**" in text
-    assert "🧩 **4 mods**" in text
+    assert "🟢 Status: Online" in text
+    assert "🗺️ Map: Everon" in text
+    assert "👥 Players: 2/64" in text
+    assert "🎯 FPS: 59.8" in text
+    assert "🧩 Mods: 4 mods" in text
     assert "```text" in text
-    assert "Status    Map" in text
-    assert "Online    Everon" in text
+    assert "Status    Map" not in text
     assert "👥 Online:" in text
     assert "- @ here Player" in text
     assert "- Normal Player" in text
@@ -134,10 +135,13 @@ def test_stats_public_cli_renders_discord_message(monkeypatch) -> None:
     assert result.exit_code == 0
     assert "**Public Server**" in result.output
     assert "📊 Server statistics" in result.output
-    assert "🗺️ **Conflict: Everon**" in result.output
-    assert "🧩 **12 mods**" in result.output
-    assert "Status    Map" in result.output
-    assert "Online    Conflict: Everon" in result.output
+    expected_row = (
+        "🟢 Status: Online  🗺️ Map: Conflict: Everon  "
+        "👥 Players: 3/64  🎯 FPS: 60.0  🧩 Mods: 12 mods"
+    )
+    assert "🟢 Status: Online" in result.output
+    assert expected_row in result.output
+    assert "Status    Map" not in result.output
     assert "👥 Online:" in result.output
     assert "- Denis" in result.output
     assert "- Vova" in result.output
@@ -171,7 +175,11 @@ def test_discord_stats_message_uses_singular_mod_label() -> None:
 
     text = public_stats.render_discord_stats_message(snapshot)
 
-    assert "🧩 **1 mod**" in text
+    expected_row = (
+        "🟢 Status: Online  🗺️ Map: Conflict: Everon  "
+        "👥 Players: 0/10  🎯 FPS: 60.0  🧩 Mods: 1 mod"
+    )
+    assert expected_row in text
     assert "1 mods" not in text
 
 
