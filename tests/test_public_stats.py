@@ -87,6 +87,7 @@ def test_render_discord_stats_message_is_public_and_mention_safe(monkeypatch) ->
     assert "📊 Server statistics" in text
     assert "🟢 **Online**" in text
     assert "🗺️ **Everon**" in text
+    assert "🧩 **4 mods**" in text
     assert "```text" in text
     assert "Status    Map" in text
     assert "Online    Everon" in text
@@ -134,12 +135,44 @@ def test_stats_public_cli_renders_discord_message(monkeypatch) -> None:
     assert "**Public Server**" in result.output
     assert "📊 Server statistics" in result.output
     assert "🗺️ **Conflict: Everon**" in result.output
+    assert "🧩 **12 mods**" in result.output
     assert "Status    Map" in result.output
     assert "Online    Conflict: Everon" in result.output
     assert "👥 Online:" in result.output
     assert "- Denis" in result.output
     assert "- Vova" in result.output
     assert "`(running)`" not in result.output
+
+
+def test_discord_stats_message_uses_singular_mod_label() -> None:
+    snapshot = public_stats.PublicStatsSnapshot(
+        instance="default",
+        generated_at="2026-06-26T10:00:00+00:00",
+        lifecycle="running",
+        running=True,
+        service_state="active",
+        server_name="Public Server",
+        scenario_id="{ECC61978EDCC2B5A}Missions/23_Campaign.conf",
+        map_name="#AR-Campaign_ScenarioName_Everon",
+        players_available=True,
+        player_count=0,
+        max_players=10,
+        player_names=(),
+        roster_available=True,
+        fps_available=True,
+        fps_stale=False,
+        fps_text="60.0",
+        telemetry_age_text="0s",
+        mods_available=True,
+        mod_count=1,
+        mod_preview=("Where Am I",),
+        remaining_mod_count=0,
+    )
+
+    text = public_stats.render_discord_stats_message(snapshot)
+
+    assert "🧩 **1 mod**" in text
+    assert "1 mods" not in text
 
 
 def test_stats_public_cli_honors_global_json_output(monkeypatch) -> None:

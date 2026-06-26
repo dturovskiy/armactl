@@ -308,6 +308,15 @@ def _discord_table_values(snapshot: PublicStatsSnapshot) -> list[str]:
     ]
 
 
+def _discord_mods_label(snapshot: PublicStatsSnapshot) -> str:
+    mods = _mods_text(snapshot)
+    if mods == "1":
+        return "1 mod"
+    if mods.isdecimal():
+        return f"{mods} mods"
+    return mods
+
+
 def _discord_summary_line(snapshot: PublicStatsSnapshot) -> str:
     return "  ".join(
         [
@@ -315,7 +324,7 @@ def _discord_summary_line(snapshot: PublicStatsSnapshot) -> str:
             f"🗺️ **{_map_text(snapshot)}**",
             f"👥 **{_player_count_text(snapshot)}**",
             f"🎯 **{snapshot.fps_text} FPS**",
-            f"🧩 **{_mods_text(snapshot)} mods**",
+            f"🧩 **{_discord_mods_label(snapshot)}**",
         ]
     )
 
