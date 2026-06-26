@@ -241,6 +241,7 @@ def test_render_privileged_helper_script_uses_python_and_lf_newlines() -> None:
     assert "\r" not in rendered
     assert "def main(argv: list[str]) -> int:" in rendered
     assert "armactl-bot.service" in rendered
+    assert "armactl-discord-stats.service" in rendered
     assert "armactl-web.service" in rendered
 
 
