@@ -1803,3 +1803,165 @@ def mods_import(ctx: click.Context, input_file: str, replace: bool) -> None:
     except ConfigError as e:
         click.echo(f"[{instance}] ✗ Failed to import: {e}", err=True)
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Public statistics commands
+# ---------------------------------------------------------------------------
+
+
+@main.group()
+def stats() -> None:
+    """Show read-only public server statistics."""
+
+
+@stats.command("public")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "discord", "json"]),
+    default="text",
+    show_default=True,
+    help="Output format.",
+)
+@click.pass_context
+def stats_public(ctx: click.Context, output_format: str) -> None:
+    """Render read-only stats for public/community channels."""
+    from armactl.public_stats import (
+        load_public_stats,
+        render_discord_stats_message,
+        render_public_stats_json,
+        render_public_stats_text,
+    )
+
+    snapshot = load_public_stats(ctx.obj["instance"])
+    if ctx.obj["json"] or output_format == "json":
+        click.echo(render_public_stats_json(snapshot))
+    elif output_format == "discord":
+        click.echo(render_discord_stats_message(snapshot))
+    else:
+        click.echo(render_public_stats_text(snapshot))
+
+
+@stats.command("discord-message")
+@click.pass_context
+def stats_discord_message(ctx: click.Context) -> None:
+    """Render a Discord-safe read-only server statistics message."""
+    from armactl.public_stats import load_public_stats, render_discord_stats_message
+
+    click.echo(render_discord_stats_message(load_public_stats(ctx.obj["instance"])))
+
+
+@stats.group("discord")
+def stats_discord() -> None:
+    """Configure and run the read-only Discord statistics publisher."""
+
+
+@stats_discord.command("configure")
+@click.option(
+    "--webhook-url",
+    default="",
+    help="Discord webhook URL. If omitted, the existing value is kept.",
+)
+@click.option(
+    "--interval-seconds",
+    type=int,
+    default=None,
+    help="Refresh interval for the publisher loop.",
+)
+@click.option(
+    "--enabled/--disabled",
+    default=None,
+    help="Enable or disable Discord statistics publishing.",
+)
+@click.pass_context
+def stats_discord_configure(
+    ctx: click.Context,
+    webhook_url: str,
+    interval_seconds: int | None,
+    enabled: bool | None,
+) -> None:
+    """Save read-only Discord statistics publisher settings."""
+    from armactl.discord_stats import (
+        DiscordStatsConfig,
+        DiscordStatsConfigError,
+        load_discord_stats_config,
+        save_discord_stats_config,
+    )
+
+    current = load_discord_stats_config(ctx.obj["instance"])
+    if enabled is True and not webhook_url.strip() and not current.webhook_url.strip():
+        webhook_url = click.prompt("Discord webhook URL", hide_input=True)
+    updated = DiscordStatsConfig(
+        instance=current.instance,
+        enabled=current.enabled if enabled is None else enabled,
+        webhook_url=webhook_url.strip() or current.webhook_url,
+        interval_seconds=interval_seconds or current.interval_seconds,
+        message_id=current.message_id,
+        env_path=current.env_path,
+    )
+    try:
+        path = save_discord_stats_config(updated)
+    except DiscordStatsConfigError as error:
+        click.echo(f"Discord statistics config failed: {error}", err=True)
+        sys.exit(1)
+
+    click.echo("Discord statistics config saved.")
+    click.echo(f"  Enabled:      {'yes' if updated.enabled else 'no'}")
+    click.echo(f"  Webhook:      {updated.masked_webhook_url()}")
+    click.echo(f"  Interval:     {updated.interval_seconds}s")
+    click.echo(f"  Message ID:   {updated.message_id or 'not created yet'}")
+    click.echo(f"  Config file:  {path}")
+
+
+@stats_discord.command("status")
+@click.pass_context
+def stats_discord_status(ctx: click.Context) -> None:
+    """Show read-only Discord statistics publisher settings."""
+    from armactl.discord_stats import load_discord_stats_config
+
+    config = load_discord_stats_config(ctx.obj["instance"])
+    click.echo("Discord statistics publisher.")
+    click.echo(f"  Enabled:      {'yes' if config.enabled else 'no'}")
+    click.echo(f"  Webhook:      {config.masked_webhook_url()}")
+    click.echo(f"  Interval:     {config.interval_seconds}s")
+    click.echo(f"  Message ID:   {config.message_id or 'not created yet'}")
+    click.echo(f"  Config file:  {config.env_path}")
+
+
+@stats_discord.command("preview")
+@click.pass_context
+def stats_discord_preview(ctx: click.Context) -> None:
+    """Render the Discord statistics message without sending it."""
+    from armactl.public_stats import load_public_stats, render_discord_stats_message
+
+    click.echo(render_discord_stats_message(load_public_stats(ctx.obj["instance"])))
+
+
+@stats_discord.command("publish")
+@click.pass_context
+def stats_discord_publish(ctx: click.Context) -> None:
+    """Create or update the configured Discord statistics message once."""
+    from armactl.discord_stats import DiscordStatsPublishError, publish_discord_stats
+
+    try:
+        result = publish_discord_stats(ctx.obj["instance"])
+    except DiscordStatsPublishError as error:
+        click.echo(f"Discord statistics publish failed: {error}", err=True)
+        sys.exit(1)
+    click.echo(result.message)
+    click.echo(f"  Message ID: {result.message_id}")
+
+
+@stats_discord.command("run")
+@click.option("--once", is_flag=True, help="Publish once and exit.")
+@click.pass_context
+def stats_discord_run(ctx: click.Context, once: bool) -> None:
+    """Run the Discord statistics publisher loop."""
+    from armactl.discord_stats import DiscordStatsPublishError, run_discord_stats_publisher
+
+    try:
+        run_discord_stats_publisher(ctx.obj["instance"], once=once)
+    except DiscordStatsPublishError as error:
+        click.echo(f"Discord statistics publisher failed: {error}", err=True)
+        sys.exit(1)

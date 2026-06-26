@@ -94,6 +94,10 @@ The logs page reads fixed sources and should render bounded, redacted output.
 
 Install, repair, update checks, and other slow operations should run as background jobs. The dashboard should show status, progress, bounded output tails, and final outcomes without blocking normal HTTP requests.
 
+## Public Statistics
+
+Community-facing statistics must stay read-only. Public Discord/website-style output can include server status, player counts, FPS freshness, scenario, and mod counts, but must not expose secrets, raw paths, admin actions, or server-control commands. The Discord webhook publisher should create one message and update it on later runs instead of spamming the channel.
+
 ## Deployment
 
 See [web-deployment.md](web-deployment.md) for setup, service commands, health checks, HTTPS, and reverse proxy guidance.
@@ -107,6 +111,7 @@ Near-term dashboard work focuses on:
 - safer config controls after behavior is verified;
 - mod cleanup edge-case recovery improvements;
 - player history/moderation improvements with reliable identity rules;
+- read-only community statistics polish before any Discord/Telegram publishing automation;
 - schedule timezone edge-case smoke after browser/timezone changes;
 - clearer logs and report download/export flows.
 

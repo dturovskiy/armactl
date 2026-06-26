@@ -156,6 +156,17 @@ The repository ships [.env.example](.env.example) as a template. Real runtime `.
 
 See [docs/telegram-bot.md](docs/telegram-bot.md) for the full flow.
 
+Read-only Discord community statistics can be published through a Discord webhook without exposing server-control commands:
+
+```bash
+./armactl stats discord configure --webhook-url "https://discord.com/api/webhooks/..." --enabled --interval-seconds 60
+./armactl stats discord preview
+./armactl stats discord publish
+./armactl stats discord run
+```
+
+The publisher creates one Discord message, stores its message ID in the private instance bot config, and updates that message on later runs.
+
 ## Local Web Dashboard
 
 The web dashboard runs beside the Arma server and reuses the same backend modules as the CLI and TUI. Current dashboard capabilities include:
@@ -168,6 +179,7 @@ The web dashboard runs beside the Arma server and reuses the same backend module
 - file browser with bounded preview, single-file download, and no-overwrite upload
 - logs and diagnostic report views
 - server maintenance jobs for install, repair, update checks, and updates, with operator-visible job status for `/updates`, `server:update-check`, and `server:update` flows
+- read-only public statistics output for community channels, without server-control commands
 - instance-scoped player registry foundation with reliable IDs and no IP storage by default
 - sessions, CSRF protection, permissions, and login throttling
 - action records plus pending operator work for saved config/admin/mod changes

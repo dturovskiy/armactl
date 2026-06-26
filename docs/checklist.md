@@ -25,6 +25,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] File browser with bounded preview, download, and no-overwrite upload.
 - [x] Logs and diagnostic report views.
 - [x] Background jobs for install, repair, update checks, and updates.
+- [x] Read-only public statistics output and Discord webhook publisher for community channels, without server-control commands.
 - [x] Player registry foundation with reliable IDs and no IP storage by default.
 - [ ] Continue production hardening for the local dashboard.
 - [ ] Polish server update checks and update job UX.
