@@ -90,18 +90,32 @@ def _mods_text(snapshot: PublicStatsSnapshot) -> str:
     return str(snapshot.mod_count)
 
 
-def _scenario_fallback_label(scenario_id: str) -> str:
-    cleaned = scenario_id
+def _clean_map_label(value: str) -> str:
+    cleaned = value.strip()
     if cleaned.startswith("{") and "}" in cleaned:
         cleaned = cleaned.split("}", 1)[1]
-    tail = cleaned.replace("\\", "/").rsplit("/", 1)[-1]
-    if tail.lower().endswith(".conf"):
-        tail = tail[:-5]
-    return _safe_text(tail.replace("_", " "), "unknown", max_length=80)
+    cleaned = cleaned.replace("\\", "/").rsplit("/", 1)[-1]
+    if cleaned.lower().endswith(".conf"):
+        cleaned = cleaned[:-5]
+
+    for marker in ("ScenarioName_", "scenarioName_"):
+        if marker in cleaned:
+            cleaned = cleaned.split(marker, 1)[1]
+            break
+
+    for prefix in ("ARM-Campaign_", "Campaign_", "DOE_"):
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix) :]
+
+    return _safe_text(cleaned.replace("_", " "), "unknown", max_length=80)
+
+
+def _scenario_fallback_label(scenario_id: str) -> str:
+    return _clean_map_label(scenario_id)
 
 
 def _map_text(snapshot: PublicStatsSnapshot) -> str:
-    return snapshot.map_name or _scenario_fallback_label(snapshot.scenario_id)
+    return _clean_map_label(snapshot.map_name or snapshot.scenario_id)
 
 
 def _player_list_text(snapshot: PublicStatsSnapshot) -> str:
@@ -116,12 +130,48 @@ def _player_list_text(snapshot: PublicStatsSnapshot) -> str:
     return "unavailable"
 
 
-def _format_generated_at(value: str) -> str:
+def _parse_generated_at(value: str) -> datetime | None:
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
     except ValueError:
+        return None
+
+
+def _format_generated_at(value: str) -> str:
+    parsed = _parse_generated_at(value)
+    if parsed is None:
         return value
-    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return parsed.strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _discord_timestamp(value: str) -> str:
+    parsed = _parse_generated_at(value)
+    if parsed is None:
+        return _format_generated_at(value)
+    unix_timestamp = int(parsed.timestamp())
+    return f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)"
+
+
+def _status_label(snapshot: PublicStatsSnapshot) -> str:
+    if snapshot.running:
+        return "Online"
+    return {
+        "starting": "Starting",
+        "stopped": "Offline",
+        "incomplete": "Incomplete install",
+        "not_installed": "Not installed",
+    }.get(snapshot.lifecycle, "Unknown")
+
+
+def _status_emoji(snapshot: PublicStatsSnapshot) -> str:
+    if snapshot.running:
+        return "🟢"
+    return {
+        "starting": "🟡",
+        "stopped": "🔴",
+        "incomplete": "🟠",
+        "not_installed": "⚪",
+    }.get(snapshot.lifecycle, "⚪")
 
 
 def _load_config_and_mods(
@@ -191,7 +241,7 @@ def render_public_stats_text(snapshot: PublicStatsSnapshot) -> str:
     """Render public stats as plain text for terminals/logs."""
     lines = [
         f"Server: {snapshot.server_name}",
-        f"Status: {'running' if snapshot.running else 'stopped'} ({snapshot.lifecycle})",
+        f"Status: {_status_label(snapshot)}",
         f"Map: {_map_text(snapshot)}",
         f"Players: {_player_count_text(snapshot)}",
         f"Online: {_player_list_text(snapshot)}",
@@ -203,7 +253,6 @@ def render_public_stats_text(snapshot: PublicStatsSnapshot) -> str:
     return "\n".join(lines)
 
 
-
 def _truncate_discord_message(message: str) -> str:
     if len(message) <= MAX_DISCORD_MESSAGE_LENGTH:
         return message
@@ -211,16 +260,15 @@ def _truncate_discord_message(message: str) -> str:
 
 def render_discord_stats_message(snapshot: PublicStatsSnapshot) -> str:
     """Render public stats as a Discord-safe markdown message."""
-    status_text = "running" if snapshot.running else "stopped"
     lines = [
         f"**{snapshot.server_name}**",
-        f"Status: **{status_text}** (`{snapshot.lifecycle}`)",
-        f"Map: **{_map_text(snapshot)}**",
-        f"Players: **{_player_count_text(snapshot)}**",
-        f"Online: {_player_list_text(snapshot)}",
-        f"FPS: **{snapshot.fps_text}**",
-        f"Mods: **{_mods_text(snapshot)}**",
-        f"Updated: `{_format_generated_at(snapshot.generated_at)}`",
+        f"{_status_emoji(snapshot)} **Status:** {_status_label(snapshot)}",
+        f"🗺️ **Map:** {_map_text(snapshot)}",
+        f"👥 **Players:** {_player_count_text(snapshot)}",
+        f"🧍 **Online:** {_player_list_text(snapshot)}",
+        f"🎯 **FPS:** {snapshot.fps_text}",
+        f"🧩 **Mods:** {_mods_text(snapshot)}",
+        f"🕒 **Updated:** {_discord_timestamp(snapshot.generated_at)}",
     ]
     return _truncate_discord_message("\n".join(lines))
 

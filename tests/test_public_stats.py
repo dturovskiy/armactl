@@ -55,7 +55,7 @@ def _patch_public_stats_sources(monkeypatch) -> None:
             available=True,
             current=2,
             max_players=64,
-            map_name="Everon",
+            map_name="ARM-Campaign_ScenarioName_Everon",
             entries=(
                 types.SimpleNamespace(name="@here Player"),
                 types.SimpleNamespace(name="Normal Player"),
@@ -84,13 +84,14 @@ def test_render_discord_stats_message_is_public_and_mention_safe(monkeypatch) ->
     text = public_stats.render_discord_stats_message(snapshot)
 
     assert "**@ everyone Reforger**" in text
-    assert "\nStatus: " in text
-    assert "Players: **2/64**" in text
-    assert "Map: **Everon**" in text
-    assert "FPS: **59.8**" in text
-    assert "Online: @ here Player, Normal Player" in text
+    assert "**Status:** Online" in text
+    assert "**Players:** 2/64" in text
+    assert "**Map:** Everon" in text
+    assert "**FPS:** 59.8" in text
+    assert "**Online:** @ here Player, Normal Player" in text
     assert "Telemetry:" not in text
     assert "Mod preview:" not in text
+    assert "<t:" in text
     assert "Weapons @ here" not in text
     assert "@everyone" not in text
     assert "@here" not in text
@@ -106,7 +107,7 @@ def test_stats_public_cli_renders_discord_message(monkeypatch) -> None:
         service_state="active",
         server_name="Public Server",
         scenario_id="Scenario.conf",
-        map_name="Everon",
+        map_name="ARM-Campaign_ScenarioName_Everon",
         players_available=True,
         player_count=3,
         max_players=64,
@@ -127,8 +128,9 @@ def test_stats_public_cli_renders_discord_message(monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert "**Public Server**" in result.output
-    assert "Players: **3/64**" in result.output
-    assert "Status: **running**" in result.output
+    assert "**Players:** 3/64" in result.output
+    assert "**Status:** Online" in result.output
+    assert "`(running)`" not in result.output
 
 
 def test_stats_public_cli_honors_global_json_output(monkeypatch) -> None:
@@ -140,7 +142,7 @@ def test_stats_public_cli_honors_global_json_output(monkeypatch) -> None:
         service_state="inactive",
         server_name="Public Server",
         scenario_id="Scenario.conf",
-        map_name="Everon",
+        map_name="ARM-Campaign_ScenarioName_Everon",
         players_available=False,
         player_count=None,
         max_players=None,
@@ -246,7 +248,7 @@ def test_publish_discord_stats_creates_and_updates_existing_message(
         service_state="active",
         server_name="Public Server",
         scenario_id="Scenario.conf",
-        map_name="Everon",
+        map_name="ARM-Campaign_ScenarioName_Everon",
         players_available=True,
         player_count=3,
         max_players=64,
@@ -324,7 +326,7 @@ def test_publish_discord_stats_does_not_duplicate_on_transient_edit_failure(
         service_state="active",
         server_name="Public Server",
         scenario_id="Scenario.conf",
-        map_name="Everon",
+        map_name="ARM-Campaign_ScenarioName_Everon",
         players_available=True,
         player_count=3,
         max_players=64,

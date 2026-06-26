@@ -165,7 +165,7 @@ Read-only Discord community statistics can be published through a Discord webhoo
 ./armactl stats discord run
 ```
 
-The publisher creates one Discord message, stores its message ID in the private instance bot config, and updates that message on later runs.
+The publisher creates one Discord message, stores its message ID in the private instance bot config, and updates that message on later runs. Discord-native timestamps render in each viewer's local timezone.
 
 ## Local Web Dashboard
 
