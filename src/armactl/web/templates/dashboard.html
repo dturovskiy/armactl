@@ -120,8 +120,8 @@
             <td><span class="status-pill {% if item.is_fallback %}status-pill-warning{% else %}status-pill-ok{% endif %}">{{ t(item.storage_label) }}</span></td>
             <td><a class="text-link" href="{{ item.source_path }}">{{ item.source_path }}</a></td>
             <td class="pending-work-date-stack">
-              <span><strong>{{ t("Updated") }}</strong>{{ item.updated_at }}</span>
-              <span><strong>{{ t("Created") }}</strong>{{ item.created_at }}</span>
+              <span><strong>{{ t("Updated") }}</strong>{{ format_web_timestamp(item.updated_at) }}</span>
+              <span><strong>{{ t("Created") }}</strong>{{ format_web_timestamp(item.created_at) }}</span>
             </td>
             <td>{{ item.created_by_username }}</td>
             <td><span class="status-pill status-pill-warning">{{ t(item.resolution_action_label) }}</span></td>
@@ -150,7 +150,7 @@
         <td>{{ job.kind }}</td>
         <td><span class="status-pill status-pill-{{ job.status }} job-status job-status-{{ job.status }}">{{ t(job.status) }}</span></td>
         <td>{{ job.requested_by_username }}</td>
-        <td>{{ job.updated_at }}</td>
+        <td>{{ format_web_timestamp(job.updated_at) }}</td>
       </tr>
     {% endfor %}
     </tbody>

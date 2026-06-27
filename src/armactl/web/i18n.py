@@ -10,6 +10,7 @@ from starlette.responses import Response
 
 from armactl import i18n as armactl_i18n
 from armactl.web.runtime import WebRuntimeConfig
+from armactl.web.time_format import format_web_timestamp
 
 LANGUAGE_COOKIE_NAME = "armactl_web_lang"
 THEME_COOKIE_NAME = "armactl_web_theme"
@@ -215,6 +216,7 @@ def web_template_context(request: Request) -> dict[str, Any]:
         "web_theme": theme,
         "web_next_theme": next_theme_value,
         "web_static_version": static_version,
+        "format_web_timestamp": format_web_timestamp,
     }
     context.update(translation_helpers(language))
     return context

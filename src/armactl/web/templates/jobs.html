@@ -103,8 +103,8 @@
             <div><dt>{{ t("Requested by") }}</dt><dd>{{ item.created_by_username }}</dd></div>
           </dl>
           <div class="pending-work-dates-row">
-            <span><strong>{{ t("Updated") }}</strong> {{ item.updated_at }}</span>
-            <span><strong>{{ t("Created") }}</strong> {{ item.created_at }}</span>
+            <span><strong>{{ t("Updated") }}</strong> {{ format_web_timestamp(item.updated_at) }}</span>
+            <span><strong>{{ t("Created") }}</strong> {{ format_web_timestamp(item.created_at) }}</span>
           </div>
         </article>
       {% endfor %}
@@ -131,7 +131,7 @@
             <div><dt>{{ t("Job ID") }}</dt><dd>#{{ job.id }}</dd></div>
             <div><dt>{{ t("Instance") }}</dt><dd>{{ job.instance }}</dd></div>
             <div><dt>{{ t("Requested by") }}</dt><dd>{{ job.requested_by_username }}</dd></div>
-            <div><dt>{{ t("Updated") }}</dt><dd>{{ job.updated_at }}</dd></div>
+            <div><dt>{{ t("Updated") }}</dt><dd>{{ format_web_timestamp(job.updated_at) }}</dd></div>
             <div><dt>{{ t("Progress") }}</dt><dd>{{ job.progress_current }}{% if job.progress_total %} / {{ job.progress_total }}{% endif %}</dd></div>
           </dl>
           {% if job.result_message or job.error_message %}
@@ -143,9 +143,9 @@
           <details class="job-details" data-job-details-id="{{ job.id }}">
             <summary>{{ t("Job details") }}</summary>
             <dl class="job-details-grid">
-              <div><dt>{{ t("Created") }}</dt><dd>{{ job.created_at }}</dd></div>
-              <div><dt>{{ t("Started") }}</dt><dd>{{ job.started_at or t("not started") }}</dd></div>
-              <div><dt>{{ t("Finished") }}</dt><dd>{{ job.finished_at or t("not finished") }}</dd></div>
+              <div><dt>{{ t("Created") }}</dt><dd>{{ format_web_timestamp(job.created_at) }}</dd></div>
+              <div><dt>{{ t("Started") }}</dt><dd>{% if job.started_at %}{{ format_web_timestamp(job.started_at) }}{% else %}{{ t("not started") }}{% endif %}</dd></div>
+              <div><dt>{{ t("Finished") }}</dt><dd>{% if job.finished_at %}{{ format_web_timestamp(job.finished_at) }}{% else %}{{ t("not finished") }}{% endif %}</dd></div>
               <div><dt>{{ t("Current step") }}</dt><dd>{{ job.current_step or t("none") }}</dd></div>
             </dl>
             {% if job.stdout_tail or job.stderr_tail %}

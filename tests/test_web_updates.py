@@ -180,6 +180,11 @@ def test_updates_page_renders_build_states(
     assert "Latest build" in response.text
     assert "Branch" in response.text
     assert "Last checked" in response.text
+    if check_state == server_versions.SERVER_VERSION_CHECK_UNKNOWN:
+        assert "never" in response.text
+    else:
+        assert "2026-06-21 00:00 UTC" in response.text
+        assert "2026-06-21T00:00:00+00:00" not in response.text
     assert "Check state" in response.text
     assert message in response.text
     assert state_label in response.text

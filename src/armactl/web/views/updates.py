@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from armactl.web.services import server_job_actions, server_versions
+from armactl.web.time_format import format_web_timestamp
 
 
 def _text(value: Any, default: str = "unknown") -> str:
@@ -116,6 +117,9 @@ def build_updates_view(
         version.get("check_state") or version.get("checkState"),
         server_versions.SERVER_VERSION_CHECK_UNKNOWN,
     )
+    last_checked_display = (
+        format_web_timestamp(last_checked) if last_checked != "never" else last_checked
+    )
     server_running = _bool(
         page.get("server_running")
         or version.get("server_running")
@@ -178,8 +182,8 @@ def build_updates_view(
             _item("Branch", branch, translate_value=branch == "unknown"),
             _item(
                 "Last checked",
-                last_checked,
-                translate_value=last_checked == "never",
+                last_checked_display,
+                translate_value=last_checked_display == "never",
             ),
             _item("Check state", _check_state_label(check_state), translate_value=True),
         ],

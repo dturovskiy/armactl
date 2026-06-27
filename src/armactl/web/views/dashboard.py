@@ -6,6 +6,8 @@ import math
 from collections.abc import Mapping
 from typing import Any
 
+from armactl.web.time_format import format_web_timestamp
+
 ACTIVE_LIFECYCLES = frozenset({"stopped", "starting", "running", "updating"})
 TELEMETRY_LOADING_TEXT = "Waiting for telemetry..."
 
@@ -522,7 +524,7 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
                 ),
                 _item(
                     "Last checked",
-                    last_checked,
+                    format_web_timestamp(last_checked) if last_checked != "never" else last_checked,
                     translate_value=last_checked == "never",
                     field="server_version.last_checked",
                 ),

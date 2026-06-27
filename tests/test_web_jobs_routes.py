@@ -146,6 +146,44 @@ def test_authenticated_owner_sees_jobs_page(tmp_path: Path):
     assert 'action="/logout"' in response.text
 
 
+def test_jobs_page_formats_utc_timestamps(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    db_path = tmp_path / "web" / "web.db"
+    job_id = _insert_raw_web_job(
+        db_path,
+        kind="server:update-check",
+        status="failed",
+        created_at="2026-06-27T18:10:58.356827+00:00",
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE web_jobs
+               SET started_at = ?, finished_at = ?, updated_at = ?
+             WHERE id = ?
+            """,
+            (
+                "2026-06-27T18:10:58.381890+00:00",
+                "2026-06-27T18:12:28.483776+00:00",
+                "2026-06-27T18:12:28.483776+00:00",
+                job_id,
+            ),
+        )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/jobs", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "2026-06-27 18:10 UTC" in response.text
+    assert "2026-06-27 18:12 UTC" in response.text
+    assert "2026-06-27T18:10:58" not in response.text
+    assert "2026-06-27T18:12:28" not in response.text
+
+
 def test_jobs_js_static_asset_is_served(tmp_path: Path):
     from armactl.web.app import create_app
 
