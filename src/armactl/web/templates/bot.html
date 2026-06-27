@@ -154,14 +154,18 @@
         </section>
         <section class="bot-subpanel">
           <h3>{{ t("Operations") }}</h3>
+          {% set discord_service_installed = page.discord_stats.service.available %}
+          {% if not discord_service_installed %}
+            <p class="notice-inline notice-warning">{{ t("Discord statistics service is not installed") }}</p>
+          {% endif %}
           <form method="post" action="/bot/discord/action" class="bot-action-grid">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" name="discord_action" value="publish" class="bot-action-button action-primary">{{ t("Publish now") }}</button>
             <button type="submit" name="discord_action" value="install" class="bot-action-button action-secondary">{{ t("Install service") }}</button>
-            <button type="submit" name="discord_action" value="start" class="bot-action-button action-success">{{ t("Start publisher") }}</button>
-            <button type="submit" name="discord_action" value="restart" class="bot-action-button action-warning">{{ t("Restart publisher") }}</button>
-            <button type="submit" name="discord_action" value="stop" class="bot-action-button action-neutral">{{ t("Stop publisher") }}</button>
-            <button type="submit" name="discord_action" value="disable" class="bot-action-button action-danger">{{ t("Disable publisher") }}</button>
+            <button type="submit" name="discord_action" value="start" class="bot-action-button action-success" {% if not discord_service_installed %}disabled{% endif %}>{{ t("Start publisher") }}</button>
+            <button type="submit" name="discord_action" value="restart" class="bot-action-button action-warning" {% if not discord_service_installed %}disabled{% endif %}>{{ t("Restart publisher") }}</button>
+            <button type="submit" name="discord_action" value="stop" class="bot-action-button action-neutral" {% if not discord_service_installed %}disabled{% endif %}>{{ t("Stop publisher") }}</button>
+            <button type="submit" name="discord_action" value="disable" class="bot-action-button action-danger" {% if not discord_service_installed %}disabled{% endif %}>{{ t("Disable publisher") }}</button>
           </form>
         </section>
       </div>

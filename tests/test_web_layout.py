@@ -455,6 +455,8 @@ def test_bot_discord_action_post_runs_controlled_action(tmp_path: Path, monkeypa
     assert "Install service" in response.text
     assert "Restart publisher" in response.text
     assert "action-danger" in response.text
+    assert "Discord statistics service is not installed" in response.text
+    assert 'value="restart" class="bot-action-button action-warning" disabled' in response.text
 
 
 def test_bot_discord_action_requires_manage_permission(
