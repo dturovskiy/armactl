@@ -10,23 +10,64 @@
 </form>
 {% endblock %}
 {% block content %}
-<section class="panel full-width">
-  <h2>{{ t("Telegram Bot Status") }}</h2>
+<section class="panel full-width bot-panel">
+  <div class="section-heading-row">
+    <h2>{{ t("Telegram Bot Status") }}</h2>
+    {% if page.available and page.bot.service.available %}
+      <span class="status-pill status-pill-{{ 'yes' if page.bot.service.active else 'no' }}">
+        {{ t("active") if page.bot.service.active else t("inactive") }}
+      </span>
+    {% endif %}
+  </div>
   {% if page.available %}
-    <dl>
-      <dt>{{ t("Instance") }}</dt><dd>{{ page.instance }}</dd>
-      <dt>{{ t("Enabled") }}</dt><dd>{{ t("yes") if page.bot.enabled else t("no") }}</dd>
-      <dt>{{ t("Token configured") }}</dt><dd>{{ t("yes") if page.bot.token_configured else t("no") }}</dd>
-      <dt>{{ t("Admin chats") }}</dt><dd>{{ page.bot.admin_chat_count }}</dd>
-      <dt>{{ t("Language") }}</dt><dd>{{ page.bot.language or t("unknown") }}</dd>
-      <dt>{{ t("Config") }}</dt><dd>{{ t(page.bot.env_path_display|default(page.bot.env_path|default("unavailable"))) }}</dd>
-      <dt>{{ t("Service") }}</dt><dd>{% if page.bot.service.available %}{{ page.bot.service.service_name or t("unknown") }}{% else %}{{ t(page.bot.service.error) }}{% endif %}</dd>
-      <dt>{{ t("Service active") }}</dt><dd>{% if page.bot.service.available %}{{ t("yes") if page.bot.service.active else t("no") }}{% else %}{{ t("unknown") }}{% endif %}</dd>
-      <dt>{{ t("Service enabled") }}</dt><dd>{% if page.bot.service.available %}{{ t("yes") if page.bot.service.enabled else t("no") }}{% else %}{{ t("unknown") }}{% endif %}</dd>
-      <dt>{{ t("Runtime ready") }}</dt><dd>{% if page.bot.service.available %}{% if page.bot.service.runtime_ready is none %}{{ t("unknown") }}{% elif page.bot.service.runtime_ready %}{{ t("yes") }}{% else %}{{ t("no") }}{% endif %}{% else %}{{ t("unknown") }}{% endif %}</dd>
+    <dl class="key-value-list bot-status-list">
+      <dt>{{ t("Instance") }}</dt>
+      <dd><code>{{ page.instance }}</code></dd>
+      <dt>{{ t("Enabled") }}</dt>
+      <dd><span class="status-pill status-pill-{{ 'yes' if page.bot.enabled else 'no' }}">{{ t("yes") if page.bot.enabled else t("no") }}</span></dd>
+      <dt>{{ t("Token configured") }}</dt>
+      <dd><span class="status-pill status-pill-{{ 'yes' if page.bot.token_configured else 'no' }}">{{ t("yes") if page.bot.token_configured else t("no") }}</span></dd>
+      <dt>{{ t("Admin chats") }}</dt>
+      <dd>{{ page.bot.admin_chat_count }}</dd>
+      <dt>{{ t("Language") }}</dt>
+      <dd><code>{{ page.bot.language or t("unknown") }}</code></dd>
+      <dt>{{ t("Config") }}</dt>
+      <dd><code>{{ t(page.bot.env_path_display|default(page.bot.env_path|default("unavailable"))) }}</code></dd>
+      <dt>{{ t("Service") }}</dt>
+      <dd><code>{% if page.bot.service.available %}{{ page.bot.service.service_name or t("unknown") }}{% else %}{{ t(page.bot.service.error) }}{% endif %}</code></dd>
+      <dt>{{ t("Service active") }}</dt>
+      <dd>
+        {% if page.bot.service.available %}
+          <span class="status-pill status-pill-{{ 'yes' if page.bot.service.active else 'no' }}">{{ t("yes") if page.bot.service.active else t("no") }}</span>
+        {% else %}
+          <span class="status-pill status-pill-unavailable">{{ t("unknown") }}</span>
+        {% endif %}
+      </dd>
+      <dt>{{ t("Service enabled") }}</dt>
+      <dd>
+        {% if page.bot.service.available %}
+          <span class="status-pill status-pill-{{ 'yes' if page.bot.service.enabled else 'no' }}">{{ t("yes") if page.bot.service.enabled else t("no") }}</span>
+        {% else %}
+          <span class="status-pill status-pill-unavailable">{{ t("unknown") }}</span>
+        {% endif %}
+      </dd>
+      <dt>{{ t("Runtime ready") }}</dt>
+      <dd>
+        {% if page.bot.service.available %}
+          {% if page.bot.service.runtime_ready is none %}
+            <span class="status-pill status-pill-unavailable">{{ t("unknown") }}</span>
+          {% elif page.bot.service.runtime_ready %}
+            <span class="status-pill status-pill-yes">{{ t("yes") }}</span>
+          {% else %}
+            <span class="status-pill status-pill-no">{{ t("no") }}</span>
+          {% endif %}
+        {% else %}
+          <span class="status-pill status-pill-unavailable">{{ t("unknown") }}</span>
+        {% endif %}
+      </dd>
     </dl>
     {% if page.errors %}
-      <section class="warning">
+      <section class="notice-panel notice-warning bot-inline-notice">
         <h2>{{ t("Partial data") }}</h2>
         <ul>
           {% for error in page.errors %}
@@ -41,51 +82,89 @@
   {% endif %}
 </section>
 
-<section class="panel full-width">
-  <h2>{{ t("Discord Statistics") }}</h2>
+<section class="panel full-width bot-panel">
+  <div class="section-heading-row">
+    <h2>{{ t("Discord Statistics") }}</h2>
+    {% if page.discord_stats.available and page.discord_stats.service.available %}
+      <span class="status-pill status-pill-{{ 'yes' if page.discord_stats.service.active else 'no' }}">
+        {{ t("active") if page.discord_stats.service.active else t("inactive") }}
+      </span>
+    {% endif %}
+  </div>
   {% if page.discord_stats.available %}
     {% if discord_stats_result %}
-      <section class="notice {{ 'success' if discord_stats_result.success else 'error' }}">
+      <section class="notice-panel {{ 'notice-success' if discord_stats_result.success else 'notice-error' }} bot-action-result">
         <strong>{{ t(discord_stats_result.message) }}</strong>
       </section>
     {% endif %}
-    <dl>
-      <dt>{{ t("Instance") }}</dt><dd>{{ page.instance }}</dd>
-      <dt>{{ t("Enabled") }}</dt><dd>{{ t("yes") if page.discord_stats.enabled else t("no") }}</dd>
-      <dt>{{ t("Webhook configured") }}</dt><dd>{{ t("yes") if page.discord_stats.webhook_configured else t("no") }}</dd>
-      <dt>{{ t("Interval") }}</dt><dd>{{ page.discord_stats.interval_seconds }}s</dd>
-      <dt>{{ t("Message created") }}</dt><dd>{{ t("yes") if page.discord_stats.message_id_configured else t("no") }}</dd>
-      <dt>{{ t("Config") }}</dt><dd>{{ t(page.discord_stats.env_path_display|default("discord stats config")) }}</dd>
-      <dt>{{ t("Service") }}</dt><dd>{% if page.discord_stats.service.available %}{{ page.discord_stats.service.service_name or t("unknown") }}{% else %}{{ t(page.discord_stats.service.error) }}{% endif %}</dd>
-      <dt>{{ t("Service active") }}</dt><dd>{% if page.discord_stats.service.available %}{{ t("yes") if page.discord_stats.service.active else t("no") }}{% else %}{{ t("unknown") }}{% endif %}</dd>
-      <dt>{{ t("Service enabled") }}</dt><dd>{% if page.discord_stats.service.available %}{{ t("yes") if page.discord_stats.service.enabled else t("no") }}{% else %}{{ t("unknown") }}{% endif %}</dd>
+    <dl class="key-value-list bot-status-list">
+      <dt>{{ t("Instance") }}</dt>
+      <dd><code>{{ page.instance }}</code></dd>
+      <dt>{{ t("Enabled") }}</dt>
+      <dd><span class="status-pill status-pill-{{ 'yes' if page.discord_stats.enabled else 'no' }}">{{ t("yes") if page.discord_stats.enabled else t("no") }}</span></dd>
+      <dt>{{ t("Webhook configured") }}</dt>
+      <dd><span class="status-pill status-pill-{{ 'yes' if page.discord_stats.webhook_configured else 'no' }}">{{ t("yes") if page.discord_stats.webhook_configured else t("no") }}</span></dd>
+      <dt>{{ t("Interval") }}</dt>
+      <dd>{{ page.discord_stats.interval_seconds }}s</dd>
+      <dt>{{ t("Message created") }}</dt>
+      <dd><span class="status-pill status-pill-{{ 'yes' if page.discord_stats.message_id_configured else 'no' }}">{{ t("yes") if page.discord_stats.message_id_configured else t("no") }}</span></dd>
+      <dt>{{ t("Config") }}</dt>
+      <dd><code>{{ t(page.discord_stats.env_path_display|default("discord stats config")) }}</code></dd>
+      <dt>{{ t("Service") }}</dt>
+      <dd><code>{% if page.discord_stats.service.available %}{{ page.discord_stats.service.service_name or t("unknown") }}{% else %}{{ t(page.discord_stats.service.error) }}{% endif %}</code></dd>
+      <dt>{{ t("Service active") }}</dt>
+      <dd>
+        {% if page.discord_stats.service.available %}
+          <span class="status-pill status-pill-{{ 'yes' if page.discord_stats.service.active else 'no' }}">{{ t("yes") if page.discord_stats.service.active else t("no") }}</span>
+        {% else %}
+          <span class="status-pill status-pill-unavailable">{{ t("unknown") }}</span>
+        {% endif %}
+      </dd>
+      <dt>{{ t("Service enabled") }}</dt>
+      <dd>
+        {% if page.discord_stats.service.available %}
+          <span class="status-pill status-pill-{{ 'yes' if page.discord_stats.service.enabled else 'no' }}">{{ t("yes") if page.discord_stats.service.enabled else t("no") }}</span>
+        {% else %}
+          <span class="status-pill status-pill-unavailable">{{ t("unknown") }}</span>
+        {% endif %}
+      </dd>
     </dl>
     {% if can_manage_bot %}
-      <form method="post" action="/bot/discord" class="stacked-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label class="checkbox-row">
-          <input type="checkbox" name="discord_enabled" value="1" {% if page.discord_stats.enabled %}checked{% endif %}>
-          <span>{{ t("Enable Discord statistics") }}</span>
-        </label>
-        <label>
-          {{ t("Discord webhook URL") }}
-          <input type="password" name="discord_webhook_url" autocomplete="off" placeholder="{{ t('Leave blank to keep existing webhook') }}">
-        </label>
-        <label>
-          {{ t("Refresh interval, seconds") }}
-          <input type="number" name="discord_interval_seconds" min="10" max="3600" step="1" value="{{ page.discord_stats.interval_seconds }}">
-        </label>
-        <button type="submit">{{ t("Save Discord settings") }}</button>
-      </form>
-      <form method="post" action="/bot/discord/action" class="button-row">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit" name="discord_action" value="publish">{{ t("Publish now") }}</button>
-        <button type="submit" name="discord_action" value="install">{{ t("Install service") }}</button>
-        <button type="submit" name="discord_action" value="start">{{ t("Start publisher") }}</button>
-        <button type="submit" name="discord_action" value="restart">{{ t("Restart publisher") }}</button>
-        <button type="submit" name="discord_action" value="stop" class="secondary-link">{{ t("Stop publisher") }}</button>
-        <button type="submit" name="discord_action" value="disable" class="secondary-link">{{ t("Disable publisher") }}</button>
-      </form>
+      <div class="bot-control-grid">
+        <section class="bot-subpanel">
+          <h3>{{ t("Config") }}</h3>
+          <form method="post" action="/bot/discord" class="bot-settings-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="checkbox-row bot-checkbox-row">
+              <input type="checkbox" name="discord_enabled" value="1" {% if page.discord_stats.enabled %}checked{% endif %}>
+              <span>{{ t("Enable Discord statistics") }}</span>
+            </label>
+            <label class="bot-field bot-field-wide">
+              <span>{{ t("Discord webhook URL") }}</span>
+              <input type="password" name="discord_webhook_url" autocomplete="off" placeholder="{{ t('Leave blank to keep existing webhook') }}">
+            </label>
+            <label class="bot-field bot-field-compact">
+              <span>{{ t("Refresh interval, seconds") }}</span>
+              <input type="number" name="discord_interval_seconds" min="10" max="3600" step="1" value="{{ page.discord_stats.interval_seconds }}">
+            </label>
+            <div class="bot-form-actions">
+              <button type="submit" class="bot-action-button action-primary">{{ t("Save Discord settings") }}</button>
+            </div>
+          </form>
+        </section>
+        <section class="bot-subpanel">
+          <h3>{{ t("Operations") }}</h3>
+          <form method="post" action="/bot/discord/action" class="bot-action-grid">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" name="discord_action" value="publish" class="bot-action-button action-primary">{{ t("Publish now") }}</button>
+            <button type="submit" name="discord_action" value="install" class="bot-action-button action-secondary">{{ t("Install service") }}</button>
+            <button type="submit" name="discord_action" value="start" class="bot-action-button action-success">{{ t("Start publisher") }}</button>
+            <button type="submit" name="discord_action" value="restart" class="bot-action-button action-warning">{{ t("Restart publisher") }}</button>
+            <button type="submit" name="discord_action" value="stop" class="bot-action-button action-neutral">{{ t("Stop publisher") }}</button>
+            <button type="submit" name="discord_action" value="disable" class="bot-action-button action-danger">{{ t("Disable publisher") }}</button>
+          </form>
+        </section>
+      </div>
     {% else %}
       <p class="muted">{{ t("You do not have permission to change Discord statistics settings.") }}</p>
     {% endif %}

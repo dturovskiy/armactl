@@ -1217,6 +1217,194 @@ button.danger {
   color: var(--text);
 }
 
+.bot-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.bot-status-list {
+  grid-template-columns: minmax(150px, 0.34fr) minmax(0, 1fr);
+  gap: 10px 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-strong);
+}
+
+.bot-status-list dt {
+  align-self: center;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+
+.bot-status-list dd {
+  align-self: center;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bot-status-list code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: 0.86rem;
+}
+
+.bot-inline-notice,
+.bot-action-result {
+  margin-top: 0;
+}
+
+.bot-control-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(280px, 0.9fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.bot-subpanel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-strong);
+}
+
+.bot-subpanel h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.bot-settings-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 180px);
+  gap: 12px;
+  align-items: end;
+}
+
+.bot-checkbox-row,
+.bot-field,
+.bot-form-actions {
+  min-width: 0;
+}
+
+.bot-checkbox-row {
+  grid-column: 1 / -1;
+}
+
+.bot-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.bot-field-wide {
+  grid-column: 1;
+}
+
+.bot-field-compact {
+  grid-column: 2;
+}
+
+.bot-field input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.bot-form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bot-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.bot-action-grid input[type="hidden"] {
+  display: none;
+}
+
+.bot-action-button {
+  display: inline-flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 42px;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.bot-action-button.action-primary,
+.bot-action-button.action-success {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--button-text);
+}
+
+.bot-action-button.action-secondary,
+.bot-action-button.action-neutral {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.bot-action-button.action-warning {
+  border-color: var(--warning);
+  background: var(--warning);
+  color: var(--button-text);
+}
+
+.bot-action-button.action-danger {
+  border-color: var(--error);
+  background: var(--error);
+  color: var(--button-text);
+}
+
+.bot-action-button:hover,
+.bot-action-button:focus-visible {
+  filter: brightness(1.05);
+}
+
+@media (max-width: 900px) {
+  .bot-control-grid,
+  .bot-settings-form {
+    grid-template-columns: 1fr;
+  }
+
+  .bot-field-wide,
+  .bot-field-compact {
+    grid-column: 1;
+  }
+}
+
+@media (max-width: 560px) {
+  .bot-status-list,
+  .bot-action-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .job-list {
   display: grid;
   gap: 14px;

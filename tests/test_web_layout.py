@@ -449,9 +449,12 @@ def test_bot_discord_action_post_runs_controlled_action(tmp_path: Path, monkeypa
     assert captured["action"] == "publish"
     assert captured["username"] == "owner"
     assert "Discord statistics message published." in response.text
+    assert "bot-control-grid" in response.text
+    assert "bot-action-grid" in response.text
     assert "Publish now" in response.text
     assert "Install service" in response.text
     assert "Restart publisher" in response.text
+    assert "action-danger" in response.text
 
 
 def test_bot_discord_action_requires_manage_permission(
