@@ -38,6 +38,10 @@ Discord stats use `public_stats.load_public_stats`, which enables roster lookup 
 
 `/players/refresh` is the only implemented player persistence path. It records current reliable IDs into `players.db`, updates current name and name history, and writes intent/outcome audit events. It does not create sessions, online/offline events, ban records, kick records, or kill/death stats.
 
+### Real Server Log Inventory
+
+See [player-log-event-inventory.md](player-log-event-inventory.md) for the read-only pass over real game logs before player history/statistics work. The observed logs can support a cautious sessions/history slice for connect/disconnect, last seen, faction snapshots, mission lifecycle, and aggregate count/FPS telemetry. Kill/death/KD was observed only through mod-emitted lines and should not be treated as vanilla/no-mod functionality.
+
 ## Existing Storage
 
 | Storage | Owner / path | What is stored | What is not stored | Retention / cleanup |
@@ -69,6 +73,7 @@ Discord stats use `public_stats.load_public_stats`, which enables roster lookup 
 ### Sessions / History
 
 - Add a player session/event storage model before claiming history support: reliable ID, display name snapshot, source, observed-at timestamps, online/offline/session state, and count/source metadata.
+- Use the real log inventory to distinguish reliable connect/session signals from heuristic disconnect pairing and mod-dependent combat events.
 - Decide the collector trigger: manual refresh only, dashboard poll, background job/service, or explicit operator action. The current code has no automatic session recorder.
 - Define freshness and conflict rules for A2S count versus RCON roster. A2S cannot identify players; RCON can identify some players but can be unavailable.
 - Add bounded retention or cleanup policy for session/history rows before storing long-lived moderation data.
