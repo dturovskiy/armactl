@@ -98,6 +98,20 @@ Install, repair, update checks, and other slow operations should run as backgrou
 
 Community-facing statistics must stay read-only. Public Discord/website-style output can include server status, map/scenario summary, player counts and names, FPS freshness, and mod counts, but must not expose secrets, raw paths, admin actions, or server-control commands. The Discord webhook publisher creates one message and updates it on later runs instead of spamming the channel; the normal unattended loop is `armactl-discord-stats.service`, while `/bot` can save the webhook and interval without echoing the secret. Transient Discord/network publish failures should log only redacted warnings and retry on the configured interval; invalid config should remain a setup error. Timestamps should use Discord-native local rendering. Because a local publisher cannot update Discord after the host or VM loses network/power, public messages should frame their timestamp as a last heartbeat and warn that stale heartbeats may mean stale status. Per-user message-language localization is future full-bot scope, not webhook scope. Rich per-player columns such as K/D, teamkills, playtime, faction, or role must wait for reliable player history/session data or another verified source, not be guessed from the current roster.
 
+## Player Data And Moderation
+
+See [player-data-inventory.md](player-data-inventory.md) for the current source/storage audit before expanding players, history, or banlist behavior. The current implementation separates live current-player observation from persisted registry data: A2S is count-only, RCON can provide names and reliable IDs, `/players/refresh` persists reliable IDs into `players.db`, and public status stays count-only.
+
+Next player slices should remain public/free/local core scope:
+
+- slice 2: read-only players page / improved players view from existing sources;
+- slice 3: bounded sessions/history storage with no IP storage by default;
+- slice 4: search/filter over reliable IDs, names, and session metadata;
+- slice 5: audited banlist manager after source-of-truth, rollback, and identity rules are settled;
+- slice 6: Discord stats enrichment after stable player history exists.
+
+Do not add ban/kick mutations, kill/death stats, IP tracking, new player-history schema, new log parsers, or Discord enrichment in the inventory-only slice.
+
 ## Deployment
 
 See [web-deployment.md](web-deployment.md) for setup, service commands, health checks, HTTPS, and reverse proxy guidance.

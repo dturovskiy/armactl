@@ -27,12 +27,16 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Background jobs for install, repair, update checks, and updates.
 - [x] Read-only public statistics output, Discord webhook publisher service, and `/bot` webhook settings for community channels, without server-control commands.
 - [x] Player registry foundation with reliable IDs and no IP storage by default.
+- [x] Player data inventory before history/banlist implementation.
 - [ ] Continue production hardening for the local dashboard.
 - [x] Polish server update browser flow with controlled post-action notices and active job links.
 - [ ] Continue polishing server update check/update UX after VM smoke feedback.
 - [ ] Expand safe config controls after field behavior is verified.
 - [ ] Improve mod cleanup edge-case recovery workflows.
-- [ ] Improve player history and moderation workflows with clear identity rules.
+- [ ] Build slice 2 read-only players page / improved players view from existing sources.
+- [ ] Add slice 3 bounded player sessions/history storage with no IP storage by default.
+- [ ] Add slice 4 player search/filter over reliable IDs, names, and session metadata.
+- [ ] Add slice 5 audited banlist manager after identity, storage, and rollback rules are documented.
 - [ ] Add richer read-only Discord player columns only after reliable player history/session data exists.
 - [x] Improve schedule timezone UX with browser-local input/display and UTC backend normalization.
 - [x] Add config-focused editor phase 2 with validation, backups, audit, recovery, and reset/error UX.
