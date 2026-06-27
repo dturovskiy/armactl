@@ -318,7 +318,8 @@ def render_discord_stats_message(snapshot: PublicStatsSnapshot) -> str:
         "```text",
         *_discord_player_lines(snapshot),
         "```",
-        f"🕒 Updated: {_discord_timestamp(snapshot.generated_at)}",
+        f"🕒 Last heartbeat: {_discord_timestamp(snapshot.generated_at)}",
+        "_If the heartbeat is old, this status may be stale._",
     ]
     return _truncate_discord_message("\n".join(lines))
 

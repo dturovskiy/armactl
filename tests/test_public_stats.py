@@ -97,6 +97,9 @@ def test_render_discord_stats_message_is_public_and_mention_safe(monkeypatch) ->
     assert "- Normal Player" in text
     assert "Telemetry:" not in text
     assert "Mod preview:" not in text
+    assert "🕒 Last heartbeat:" in text
+    assert "stale" in text
+    assert "🕒 Updated:" not in text
     assert "<t:" in text
     assert "Weapons @ here" not in text
     assert "@everyone" not in text
