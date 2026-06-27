@@ -450,6 +450,135 @@ def test_publish_discord_stats_does_not_duplicate_on_transient_edit_failure(
     assert calls == ["PATCH"]
 
 
+def test_run_discord_stats_publisher_retries_transient_error(monkeypatch, capsys) -> None:
+    from armactl import discord_stats
+
+    config = discord_stats.DiscordStatsConfig(
+        instance="default",
+        enabled=True,
+        webhook_url="https://discord.com/api/webhooks/123456/secret-token",
+        interval_seconds=13,
+    )
+
+    class StopLoopError(Exception):
+        pass
+
+    calls: list[str] = []
+    sleeps: list[int] = []
+
+    def fake_publish(instance, *, config):
+        calls.append(instance)
+        if len(calls) == 1:
+            raise discord_stats.DiscordStatsPublishError(
+                "temporary failure for "
+                "https://discord.com/api/webhooks/123456/secret-token "
+                "token=plain-secret"
+            )
+        raise StopLoopError
+
+    monkeypatch.setattr(discord_stats, "load_discord_stats_config", lambda instance: config)
+    monkeypatch.setattr(discord_stats, "publish_discord_stats", fake_publish)
+    monkeypatch.setattr(discord_stats.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    try:
+        discord_stats.run_discord_stats_publisher("default")
+    except StopLoopError:
+        pass
+    else:
+        raise AssertionError("expected the loop to continue after the transient error")
+
+    captured = capsys.readouterr()
+    assert calls == ["default", "default"]
+    assert sleeps == [13]
+    assert "Discord statistics publish warning" in captured.err
+    assert "retrying in 13s" in captured.err
+    assert "https://discord.com/api/webhooks" not in captured.err
+    assert "secret-token" not in captured.err
+    assert "plain-secret" not in captured.err
+
+
+def test_stats_discord_run_once_handles_timeout_without_traceback_or_secret(
+    monkeypatch,
+) -> None:
+    from armactl import discord_stats
+
+    config = discord_stats.DiscordStatsConfig(
+        instance="default",
+        enabled=True,
+        webhook_url="https://discord.com/api/webhooks/123456/secret-token",
+        interval_seconds=30,
+    )
+
+    def fail_publish(instance, *, config):
+        raise TimeoutError(
+            "timed out contacting "
+            "https://discord.com/api/webhooks/123456/secret-token?wait=true "
+            "token=plain-secret"
+        )
+
+    monkeypatch.setattr(discord_stats, "load_discord_stats_config", lambda instance: config)
+    monkeypatch.setattr(discord_stats, "publish_discord_stats", fail_publish)
+
+    result = CliRunner().invoke(main, ["stats", "discord", "run", "--once"])
+    combined = result.output + getattr(result, "stderr", "")
+
+    assert result.exit_code == 1
+    assert "Discord statistics publish warning" in combined
+    assert "exiting" in combined
+    assert "Traceback" not in combined
+    assert "https://discord.com/api/webhooks" not in combined
+    assert "secret-token" not in combined
+    assert "plain-secret" not in combined
+
+
+def test_discord_stats_publish_warning_redacts_webhook_and_tokens(capsys) -> None:
+    from armactl import discord_stats
+
+    error = discord_stats.DiscordStatsPublishError(
+        "failed url=https://discord.com/api/webhooks/123456/super-secret-token "
+        "token=plain-secret"
+    )
+
+    discord_stats._print_discord_stats_publish_warning(error, retry_seconds=30)
+
+    captured = capsys.readouterr()
+    assert "Discord statistics publish warning" in captured.err
+    assert "***" in captured.err
+    assert "retrying in 30s" in captured.err
+    assert "https://discord.com/api/webhooks" not in captured.err
+    assert "super-secret-token" not in captured.err
+    assert "plain-secret" not in captured.err
+
+
+def test_run_discord_stats_publisher_does_not_hide_permanent_config_error(
+    monkeypatch,
+) -> None:
+    from armactl import discord_stats
+
+    config = discord_stats.DiscordStatsConfig(
+        instance="default",
+        enabled=True,
+        webhook_url="https://discord.com/api/webhooks/123456/secret-token",
+        interval_seconds=30,
+    )
+
+    def fail_publish(instance, *, config):
+        raise discord_stats.DiscordStatsPublishError(
+            "Discord webhook request failed with HTTP 401.",
+            status_code=401,
+        )
+
+    monkeypatch.setattr(discord_stats, "load_discord_stats_config", lambda instance: config)
+    monkeypatch.setattr(discord_stats, "publish_discord_stats", fail_publish)
+
+    try:
+        discord_stats.run_discord_stats_publisher("default", once=True)
+    except discord_stats.DiscordStatsPublishError as error:
+        assert error.status_code == 401
+    else:
+        raise AssertionError("expected permanent webhook config errors to fail fast")
+
+
 def test_render_discord_stats_service_unit_contains_execstart(tmp_path: Path, monkeypatch) -> None:
     from armactl import discord_stats
 

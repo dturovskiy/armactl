@@ -1943,11 +1943,15 @@ def stats_discord_preview(ctx: click.Context) -> None:
 def stats_discord_publish(ctx: click.Context) -> None:
     """Create or update the configured Discord statistics message once."""
     from armactl.discord_stats import DiscordStatsPublishError, publish_discord_stats
+    from armactl.redaction import redact_sensitive_text
 
     try:
         result = publish_discord_stats(ctx.obj["instance"])
     except DiscordStatsPublishError as error:
-        click.echo(f"Discord statistics publish failed: {error}", err=True)
+        click.echo(
+            f"Discord statistics publish failed: {redact_sensitive_text(error)}",
+            err=True,
+        )
         sys.exit(1)
     click.echo(result.message)
     click.echo(f"  Message ID: {result.message_id}")
@@ -1959,12 +1963,18 @@ def stats_discord_publish(ctx: click.Context) -> None:
 def stats_discord_run(ctx: click.Context, once: bool) -> None:
     """Run the Discord statistics publisher loop."""
     from armactl.discord_stats import DiscordStatsPublishError, run_discord_stats_publisher
+    from armactl.redaction import redact_sensitive_text
 
     try:
-        run_discord_stats_publisher(ctx.obj["instance"], once=once)
+        result = run_discord_stats_publisher(ctx.obj["instance"], once=once)
     except DiscordStatsPublishError as error:
-        click.echo(f"Discord statistics publisher failed: {error}", err=True)
+        click.echo(
+            f"Discord statistics publisher failed: {redact_sensitive_text(error)}",
+            err=True,
+        )
         sys.exit(1)
+    if result is not None and not result.success:
+        sys.exit(result.exit_code or 1)
 
 @stats_discord.group("service")
 def stats_discord_service() -> None:

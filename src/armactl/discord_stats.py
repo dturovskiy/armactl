@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 import time
 import urllib.error
@@ -55,6 +56,16 @@ class DiscordStatsPublishError(Exception):
         self.status_code = status_code
 
 
+_CONFIG_PUBLISH_ERROR_MESSAGES = frozenset(
+    {
+        "Discord statistics publisher is disabled.",
+        "Discord statistics webhook URL is not configured.",
+    }
+)
+_CONFIG_PUBLISH_STATUS_CODES = frozenset({400, 401, 403, 404})
+_TRANSIENT_NETWORK_ERRORS = (urllib.error.URLError, TimeoutError, ConnectionError)
+
+
 @dataclass(frozen=True)
 class DiscordStatsConfig:
     """Instance-scoped Discord statistics publisher config."""
@@ -86,6 +97,15 @@ class DiscordStatsPublishResult:
     message_id: str = ""
     created: bool = False
     updated: bool = False
+
+
+@dataclass(frozen=True)
+class DiscordStatsPublisherRunResult:
+    """Controlled outcome for a foreground publisher run."""
+
+    success: bool
+    message: str
+    exit_code: int = 0
 
 
 def discord_stats_config_file(instance: str = paths.DEFAULT_INSTANCE_NAME) -> Path:
@@ -285,7 +305,7 @@ def _send_json_request(
             f"Discord webhook request failed with HTTP {error.code}.",
             status_code=error.code,
         ) from error
-    except urllib.error.URLError as error:
+    except _TRANSIENT_NETWORK_ERRORS as error:
         raise DiscordStatsPublishError("Discord webhook request failed.") from error
     if not raw:
         return {}
@@ -360,18 +380,76 @@ def publish_discord_stats(
     )
 
 
+def _is_retryable_publish_error(error: DiscordStatsPublishError) -> bool:
+    if error.status_code in _CONFIG_PUBLISH_STATUS_CODES:
+        return False
+    return str(error).strip() not in _CONFIG_PUBLISH_ERROR_MESSAGES
+
+
+def _safe_publish_error_detail(error: BaseException) -> str:
+    detail = " ".join(redact_sensitive_text(error).split())
+    if not detail:
+        detail = error.__class__.__name__
+    if len(detail) > 180:
+        return f"{detail[:177]}..."
+    return detail
+
+
+def _print_discord_stats_publish_warning(
+    error: BaseException,
+    *,
+    retry_seconds: int | None,
+) -> None:
+    detail = _safe_publish_error_detail(error)
+    action = "exiting" if retry_seconds is None else f"retrying in {retry_seconds}s"
+    print(
+        f"Discord statistics publish warning: {detail}; {action}.",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _publish_failure_result(error: BaseException) -> DiscordStatsPublisherRunResult:
+    return DiscordStatsPublisherRunResult(
+        False,
+        f"Discord statistics publish failed: {_safe_publish_error_detail(error)}",
+        1,
+    )
+
+
 def run_discord_stats_publisher(
     instance: str = paths.DEFAULT_INSTANCE_NAME,
     *,
     once: bool = False,
-) -> None:
+) -> DiscordStatsPublisherRunResult | None:
     """Run the read-only Discord statistics publisher loop."""
     while True:
         config = load_discord_stats_config(instance)
-        result = publish_discord_stats(instance, config=config)
+        try:
+            result = publish_discord_stats(instance, config=config)
+        except DiscordStatsPublishError as error:
+            if not _is_retryable_publish_error(error):
+                raise
+            _print_discord_stats_publish_warning(
+                error,
+                retry_seconds=None if once else config.interval_seconds,
+            )
+            if once:
+                return _publish_failure_result(error)
+            time.sleep(config.interval_seconds)
+            continue
+        except _TRANSIENT_NETWORK_ERRORS as error:
+            _print_discord_stats_publish_warning(
+                error,
+                retry_seconds=None if once else config.interval_seconds,
+            )
+            if once:
+                return _publish_failure_result(error)
+            time.sleep(config.interval_seconds)
+            continue
         print(result.message, flush=True)
         if once:
-            return
+            return DiscordStatsPublisherRunResult(True, result.message)
         time.sleep(config.interval_seconds)
 
 # ---------------------------------------------------------------------------

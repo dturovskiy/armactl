@@ -20,6 +20,10 @@ _ASSIGNMENT_PATTERNS = [
         r"(')"
     ),
 ]
+_DISCORD_WEBHOOK_URL_RE = re.compile(
+    r"https://(?:canary\.|ptb\.)?discord(?:app)?\.com/api/webhooks/\d+/[A-Za-z0-9._~+-]+",
+    re.IGNORECASE,
+)
 _BOT_TOKEN_RE = re.compile(r"\b\d{6,}:[A-Za-z0-9_-]{10,}\b")
 
 
@@ -28,6 +32,7 @@ def redact_sensitive_text(value: object | None) -> str:
     text = "" if value is None else str(value)
     for pattern in _ASSIGNMENT_PATTERNS:
         text = pattern.sub(_replace_assignment_match, text)
+    text = _DISCORD_WEBHOOK_URL_RE.sub(REDACTED, text)
     return _BOT_TOKEN_RE.sub(REDACTED, text)
 
 
