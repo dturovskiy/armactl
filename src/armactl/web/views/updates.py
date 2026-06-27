@@ -19,6 +19,16 @@ def _bool(value: Any) -> bool:
     return bool(value)
 
 
+def _positive_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
 def _version(page: Mapping[str, Any]) -> Mapping[str, Any]:
     raw = page.get("version")
     return raw if isinstance(raw, Mapping) else {}
@@ -92,6 +102,7 @@ def build_updates_view(
     page: Mapping[str, Any],
     *,
     can_update_server: bool,
+    action_notice: str = "",
 ) -> dict[str, Any]:
     version = _version(page)
     installed = _text(version.get("installed"), "unknown")
@@ -130,6 +141,17 @@ def build_updates_view(
         version.get("failure_reason") or version.get("failureReason"),
         "",
     )
+    check_job_id = _positive_int(
+        version.get("check_job_id") or version.get("checkJobId")
+    )
+    update_job_id = _positive_int(
+        version.get("update_job_id") or version.get("updateJobId")
+    )
+    active_job = None
+    if check_state == server_versions.SERVER_VERSION_CHECK_UPDATING and update_job_id:
+        active_job = {"id": update_job_id, "label": "Active update job"}
+    elif check_state == server_versions.SERVER_VERSION_CHECK_CHECKING and check_job_id:
+        active_job = {"id": check_job_id, "label": "Active update check job"}
 
     return dict(
         instance=_text(page.get("instance"), "default"),
@@ -169,4 +191,6 @@ def build_updates_view(
         backend_allows_update=backend_allows_update,
         update_note=note,
         failure_reason=failure_reason,
+        action_notice=_text(action_notice, ""),
+        active_job=active_job,
     )

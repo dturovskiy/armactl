@@ -28,7 +28,8 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Read-only public statistics output, Discord webhook publisher service, and `/bot` webhook settings for community channels, without server-control commands.
 - [x] Player registry foundation with reliable IDs and no IP storage by default.
 - [ ] Continue production hardening for the local dashboard.
-- [ ] Polish server update checks and update job UX.
+- [x] Polish server update browser flow with controlled post-action notices and active job links.
+- [ ] Continue polishing server update check/update UX after VM smoke feedback.
 - [ ] Expand safe config controls after field behavior is verified.
 - [ ] Improve mod cleanup edge-case recovery workflows.
 - [ ] Improve player history and moderation workflows with clear identity rules.

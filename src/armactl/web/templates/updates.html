@@ -22,6 +22,12 @@
       <dd>{% if item.translate_value %}{{ t(item.value) }}{% else %}{{ item.value }}{% endif %}</dd>
     {% endfor %}
   </dl>
+  {% if page.active_job %}
+    <p class="notice-inline">
+      <strong>{{ t(page.active_job.label) }}:</strong>
+      <a class="text-link" href="/jobs#background-jobs">#{{ page.active_job.id }} · {{ t("Open background jobs") }}</a>
+    </p>
+  {% endif %}
   {% if page.failure_reason %}
     <p class="notice-inline notice-error">{{ page.failure_reason }}</p>
   {% endif %}
@@ -29,6 +35,9 @@
 
 <section class="panel full-width">
   <h2>{{ t("Update actions") }}</h2>
+  {% if page.action_notice %}
+    <p class="notice-inline">{{ t(page.action_notice) }}</p>
+  {% endif %}
   {% if page.update_note %}
     <p class="notice-inline {% if page.server_running %}notice-warning{% else %}notice-unavailable{% endif %}">{{ t(page.update_note) }}</p>
   {% endif %}

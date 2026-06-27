@@ -50,7 +50,7 @@ Routes should stay thin. Services own validation, backend calls, backups, pendin
 - `/logs` - fixed log/report sources.
 - `/jobs` - background job status.
 - `/players` - player registry foundation.
-- `/updates` - server version/update views.
+- `/updates` - server version/update views, controlled post-action notices, fresh-check reuse feedback, and active update/check job links to `/jobs`.
 
 ## Auth And Safety
 

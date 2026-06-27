@@ -18,10 +18,31 @@ from armactl.web.auth.dependencies import (
 from armactl.web.auth.permissions import DASHBOARD_VIEW, SERVER_UPDATE
 from armactl.web.page_models import updates as updates_page_model
 from armactl.web.routes._common import redirect_to_login
-from armactl.web.services import server_job_actions
+from armactl.web.services import server_job_actions, server_versions
 from armactl.web.views.updates import build_updates_view
 
 router = APIRouter()
+
+_UPDATE_NOTICE_MESSAGES = {
+    "check-queued": server_versions.SERVER_VERSION_MESSAGE_CHECK_QUEUED,
+    "check-reused": "Recent update check reused.",
+    "update-queued": server_job_actions.UPDATE_JOB_QUEUED_MESSAGE,
+    "up-to-date": server_versions.SERVER_VERSION_MESSAGE_UP_TO_DATE,
+    "server-running": server_job_actions.STOP_RUNNING_SERVER_UPDATE_MESSAGE,
+    "update-unavailable": "Run a build check before updating.",
+}
+
+
+def _updates_redirect(notice: str = "") -> RedirectResponse:
+    target = "/updates"
+    if notice in _UPDATE_NOTICE_MESSAGES:
+        target = f"{target}?notice={notice}"
+    return RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
+
+
+def _update_notice(request: Request) -> str:
+    notice_key = str(request.query_params.get("notice") or "")
+    return _UPDATE_NOTICE_MESSAGES.get(notice_key, "")
 
 
 def _render_updates_page(
@@ -41,6 +62,7 @@ def _render_updates_page(
     page = build_updates_view(
         raw_page,
         can_update_server=require_permission(current, SERVER_UPDATE),
+        action_notice=_update_notice(request),
     )
     response = request.app.state.templates.TemplateResponse(
         request=request,
@@ -89,7 +111,7 @@ def check_for_updates(
         return current
 
     try:
-        server_job_actions.request_server_update_check_and_start(
+        job = server_job_actions.request_server_update_check_and_start(
             current.config.db_path,
             audit_log_path=current.config.audit_log_path,
             username=current.user.username,
@@ -100,7 +122,7 @@ def check_for_updates(
             str(exc),
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
-    return RedirectResponse("/updates", status_code=status.HTTP_303_SEE_OTHER)
+    return _updates_redirect("check-queued" if job is not None else "check-reused")
 
 
 @router.post("/updates/update")
@@ -126,9 +148,9 @@ def update_server(
         )
 
     if result.status == server_job_actions.SERVER_UPDATE_ACTION_QUEUED:
-        return RedirectResponse("/updates", status_code=status.HTTP_303_SEE_OTHER)
+        return _updates_redirect("update-queued")
     if result.status == server_job_actions.SERVER_UPDATE_ACTION_UP_TO_DATE:
-        return PlainTextResponse(result.message, status_code=status.HTTP_200_OK)
+        return _updates_redirect("up-to-date")
     if result.status == server_job_actions.SERVER_UPDATE_ACTION_BLOCKED:
-        return PlainTextResponse(result.message, status_code=status.HTTP_400_BAD_REQUEST)
-    return PlainTextResponse(result.message, status_code=status.HTTP_409_CONFLICT)
+        return _updates_redirect("server-running")
+    return _updates_redirect("update-unavailable")

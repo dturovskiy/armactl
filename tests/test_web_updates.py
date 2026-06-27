@@ -371,10 +371,57 @@ def test_updates_check_queues_existing_background_job(
     ]
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/updates"
+    assert response.headers["location"] == "/updates?notice=check-queued"
     assert len(jobs) == 1
     assert jobs[0].status == "queued"
     assert scheduled == [jobs[0].id]
+
+
+def test_updates_check_reuses_fresh_cached_result_without_job(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import server as server_jobs
+    from armactl.web.jobs.store import list_recent_jobs
+
+    monkeypatch.setattr(
+        server_jobs,
+        "start_server_job_worker",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("fresh cache must not start worker")
+        ),
+    )
+    password = "owner updates password"
+    setup_owner_user(tmp_path, "owner", password)
+    server_versions.save_server_version_check(
+        tmp_path / "web" / "web.db",
+        installed="100",
+        latest="101",
+        check_state=server_versions.SERVER_VERSION_CHECK_AVAILABLE,
+    )
+    _install_updates_page(
+        monkeypatch,
+        _updates_page(server_versions.SERVER_VERSION_CHECK_AVAILABLE),
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _updates_csrf_token(client)
+
+    response = client.post(
+        "/updates/check",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    jobs = [
+        job
+        for job in list_recent_jobs(tmp_path / "web" / "web.db")
+        if job.kind == "server:update-check"
+    ]
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/updates?notice=check-reused"
+    assert jobs == []
 
 
 def test_updates_update_queues_existing_background_job(
@@ -419,7 +466,7 @@ def test_updates_update_queues_existing_background_job(
     ]
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/updates"
+    assert response.headers["location"] == "/updates?notice=update-queued"
     assert len(jobs) == 1
     assert jobs[0].status == "queued"
     assert scheduled == [jobs[0].id]
@@ -470,8 +517,47 @@ def test_updates_update_blocks_running_server_without_job(
         if job.kind == "server:update"
     ]
 
-    assert response.status_code == 400
-    assert response.text == "Stop the game server before updating."
+    assert response.status_code == 303
+    assert response.headers["location"] == "/updates?notice=server-running"
+    assert jobs == []
+
+
+def test_updates_update_redirects_up_to_date_without_job(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs.store import list_recent_jobs
+    from armactl.web.services import server_job_actions
+
+    monkeypatch.setattr(
+        server_job_actions.server_versions,
+        "load_server_version_state",
+        lambda **kwargs: _version_state(server_versions.SERVER_VERSION_CHECK_UPTODATE),
+    )
+    password = "owner updates password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_updates_page(
+        monkeypatch,
+        _updates_page(server_versions.SERVER_VERSION_CHECK_UPTODATE),
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _updates_csrf_token(client)
+
+    response = client.post(
+        "/updates/update",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    jobs = [
+        job
+        for job in list_recent_jobs(tmp_path / "web" / "web.db")
+        if job.kind == "server:update"
+    ]
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/updates?notice=up-to-date"
     assert jobs == []
 
 
