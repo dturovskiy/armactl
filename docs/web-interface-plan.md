@@ -22,6 +22,7 @@ The armactl web dashboard is a local browser interface for managing the same Arm
 - Background jobs for install, repair, update checks, and updates.
 - Player registry foundation with reliable IDs and no IP storage by default.
 - Player log event DB ingest foundation for sanitized parser output in the existing `players.db`, with dedupe and no raw log-line/IP storage.
+- Manual player log collector/import foundation through CLI for explicitly supplied bounded text log files, with dry-run/write modes and safe basename+file-marker+line source refs.
 - Action records and pending operator work for changes that need follow-up.
 
 ## Package Shape
@@ -109,17 +110,19 @@ Phase 1 player-history foundation is code-only parser/event-model prep. `armactl
 
 Phase 2 player-history DB ingest foundation is also code-only. `player_registry.ingest_player_log_events` stores sanitized `PlayerLogEvent` fields in the existing instance `players.db` as `player_log_events`, records source/ref/confidence metadata, dedupes repeated events, and updates the existing reliable-ID registry only for newly stored events. It does not store raw log lines or player addresses, read live logs, run a background scanner, expose history views, calculate Discord K/D, or manage bans.
 
-Future player history work should add a collector trigger, sessionization, retention rules, and history UI before any public/Discord enrichment.
+Phase 3a manual collector/import foundation is CLI-only. `armactl player-history collect` accepts explicit log file paths, defaults to dry-run, writes only with `--write`, resolves the instance-scoped `players.db` from `--instance` and `--data-root`, reads regular UTF-8 text logs line-by-line within max byte/line bounds, fails closed for files over the byte limit, and sends parsed events to the existing ingest path with sanitized basename+file-marker+line source refs. It does not read live `journalctl`, run a daemon/background poller, expose web routes/templates, store raw log lines, store IP/address values, or create sessions/history views.
+
+Future player history work should add live scanner trigger decisions, sessionization, retention rules, and history UI before any public/Discord enrichment.
 
 Next player slices should remain public/free/local core scope:
 
 - slice 2: read-only players page / improved players view from existing sources;
-- slice 3: live/manual collection, sessionization, retention, and history views using the event storage foundation, with no IP storage by default;
+- slice 3: live scanner/sessionization, retention, and history views using the parser/import/storage foundation, with no IP storage by default;
 - slice 4: search/filter over reliable IDs, names, and session metadata;
 - slice 5: audited banlist manager after source-of-truth, rollback, and identity rules are settled;
 - slice 6: Discord stats enrichment after stable player history exists.
 
-Do not add ban/kick mutations, kill/death stats presentation, IP tracking, live journal readers, background jobs, history views, or Discord enrichment until later slices explicitly choose those sources and retention rules.
+Do not add ban/kick mutations, kill/death stats presentation, IP tracking, live journal readers, background jobs, history views, retention jobs, or Discord enrichment until later slices explicitly choose those sources and retention rules.
 
 ## Deployment
 

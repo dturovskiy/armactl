@@ -1014,6 +1014,82 @@ def web_service_status(data_root: Path | None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Player history commands
+# ---------------------------------------------------------------------------
+
+
+@main.group("player-history")
+def player_history() -> None:
+    """Manual player-history import tools."""
+
+
+@player_history.command("collect")
+@click.argument(
+    "log_files",
+    nargs=-1,
+    required=True,
+    type=click.Path(file_okay=True, dir_okay=True, path_type=Path),
+)
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Optional armactl data root containing instance players.db.",
+)
+@click.option(
+    "--dry-run/--write",
+    default=True,
+    show_default=True,
+    help="Preview parsed counts without writing, or import into players.db.",
+)
+@click.option(
+    "--max-bytes",
+    type=click.IntRange(1),
+    default=None,
+    help="Maximum accepted file size in bytes; larger files are skipped.",
+)
+@click.option(
+    "--max-lines",
+    type=click.IntRange(1),
+    default=None,
+    help="Maximum lines scanned from each accepted file.",
+)
+@click.pass_context
+def player_history_collect(
+    ctx: click.Context,
+    log_files: tuple[Path, ...],
+    data_root: Path | None,
+    dry_run: bool,
+    max_bytes: int | None,
+    max_lines: int | None,
+) -> None:
+    """Parse explicitly supplied text log files; never reads live journals."""
+    from armactl.player_log_collector import (
+        DEFAULT_MAX_FILE_BYTES,
+        DEFAULT_MAX_FILE_LINES,
+        collect_player_log_events,
+        format_player_log_collection_summary,
+    )
+    from armactl.web.services.player_registry import player_registry_db_path
+
+    instance = ctx.obj["instance"]
+    root = data_root or paths.DEFAULT_DATA_ROOT
+    summary = collect_player_log_events(
+        log_files,
+        player_registry_db_path(instance, data_root=root),
+        dry_run=dry_run,
+        max_bytes=max_bytes or DEFAULT_MAX_FILE_BYTES,
+        max_lines=max_lines or DEFAULT_MAX_FILE_LINES,
+    )
+    if ctx.obj["json"]:
+        click.echo(json.dumps(summary.to_dict(), indent=2))
+    else:
+        click.echo(format_player_log_collection_summary(summary))
+    if summary.error_count:
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
 # Discovery / Install / Repair
 # ---------------------------------------------------------------------------
 
