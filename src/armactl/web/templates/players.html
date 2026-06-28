@@ -62,7 +62,7 @@
               <strong class="wrap-value">{{ player.display_name }}</strong>
               <span class="player-row-subtle">{{ player.source }}</span>
             </td>
-            <td>{% if player.reliable_id %}<span class="wrap-value player-id-cell">{{ player.reliable_id }}</span>{% else %}<span class="muted">{{ t("No reliable ID") }}</span>{% endif %}</td>
+            <td>{% if player.reliable_id %}<span class="player-id-cell player-id-clip" title="{{ player.reliable_id }}">{{ player.reliable_id }}</span>{% else %}<span class="muted">{{ t("No reliable ID") }}</span>{% endif %}</td>
             <td>{% if player.faction %}<span class="wrap-value">{{ player.faction }}</span>{% else %}<span class="muted">{{ t("No faction") }}</span>{% endif %}</td>
             <td class="player-stat-number">{{ player.kill_count }} / {{ player.death_count }}</td>
             <td class="player-stat-number">{{ player.teamkill_count }}</td>

@@ -1112,16 +1112,23 @@ button.danger {
   text-align: center;
 }
 
+.player-current-table td:nth-child(2),
+.player-registry-table td:nth-child(2) {
+  overflow: hidden;
+}
+
 .player-id-cell {
-  font-size: 0.9rem;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.86rem;
   white-space: nowrap;
 }
 
-.player-id-cell.wrap-value,
-.player-id-cell .wrap-value {
-  overflow-wrap: normal;
-  word-break: normal;
-  white-space: nowrap;
+.player-id-clip {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
 }
 
 .player-stat-number {
