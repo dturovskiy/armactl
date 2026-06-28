@@ -1,13 +1,31 @@
 {% extends "layout.html" %}
-{% macro actor_block(label, name, reliable_id, session_id, faction) -%}
+{% macro inline_actor(name, reliable_id) -%}
+  {% if name %}
+    <strong class="wrap-value">{{ name }}</strong>
+  {% elif reliable_id %}
+    <span class="wrap-value">{{ reliable_id }}</span>
+  {% else %}
+    <span class="muted">{{ t("n/a") }}</span>
+  {% endif %}
+{%- endmacro %}
+{% macro actor_detail(label, name, reliable_id, session_id, faction) -%}
   {% if name or reliable_id or session_id or faction %}
-    <div class="player-event-field">
-      <span class="player-event-label">{{ t(label) }}</span>
-      {% if name %}<strong class="player-event-value wrap-value">{{ name }}</strong>{% endif %}
+    <div class="player-event-detail-field">
+      <span class="player-event-detail-label">{{ t(label) }}</span>
+      {% if name %}<strong class="wrap-value">{{ name }}</strong>{% endif %}
       {% if reliable_id %}<span class="wrap-value">{{ reliable_id }}</span>{% endif %}
       {% if session_id %}<span>{{ tr("session {id}", id=session_id) }}</span>{% endif %}
       {% if faction %}<span>{{ faction }}</span>{% endif %}
     </div>
+  {% endif %}
+{%- endmacro %}
+{% macro combat_summary(event) -%}
+  {% if event.damage_type or event.hit_zone or event.distance_m is not none %}
+    {% if event.damage_type %}<strong>{{ event.damage_type }}</strong>{% endif %}
+    {% if event.hit_zone %}<span>{{ event.hit_zone }}</span>{% endif %}
+    {% if event.distance_m is not none %}<span>{{ tr("{distance} m", distance=event.distance_m) }}</span>{% endif %}
+  {% else %}
+    <span class="muted">{{ t("n/a") }}</span>
   {% endif %}
 {%- endmacro %}
 {% block title %}{{ t("Players - armactl web") }}{% endblock %}
@@ -24,9 +42,34 @@
 {% endblock %}
 {% block content %}
 <section class="panel full-width player-history-panel">
+  <nav class="player-section-tabs" aria-label="{{ t('Player sections') }}">
+    <a class="player-section-tab" href="/players">{{ t("Known Players") }}</a>
+    <a class="player-section-tab active" href="/players/history">{{ t("Player Events") }}</a>
+    <span class="player-section-tab disabled">{{ t("Ban list") }} · {{ t("Planned") }}</span>
+  </nav>
+
   <div class="section-heading-row">
     <h2>{{ t("Player Events") }}</h2>
-    <a class="button-link secondary-link" href="/players">{{ t("Known Players") }}</a>
+    <span class="muted">{{ tr("Showing {count} event(s)", count=events|length) }}</span>
+  </div>
+
+  <div class="player-summary-grid">
+    <div class="player-summary-item">
+      <span>{{ t("Event type") }}</span>
+      <strong>{{ t(event_type) if event_type else t("All event types") }}</strong>
+    </div>
+    <div class="player-summary-item">
+      <span>{{ t("Player ID") }}</span>
+      <strong class="wrap-value">{{ player_id if player_id else t("No filter") }}</strong>
+    </div>
+    <div class="player-summary-item">
+      <span>{{ t("Name / text") }}</span>
+      <strong class="wrap-value">{{ query if query else t("No filter") }}</strong>
+    </div>
+    <div class="player-summary-item">
+      <span>{{ t("Limit") }}</span>
+      <strong>{{ limit }}</strong>
+    </div>
   </div>
 
   <form method="get" action="/players/history" class="player-search-form player-history-filter-form">
@@ -59,52 +102,64 @@
   </form>
 
   {% if events %}
-    <div class="player-event-list">
-      {% for event in events %}
-        <article class="player-event-card">
-          <header class="player-event-header">
-            <div class="player-event-title">
-              <span class="status-pill status-pill-ok">{{ event.event_type }}</span>
-              <strong class="wrap-value">
-                {{ event.player_name or event.victim_name or event.instigator_name or t(event.event_type) }}
-              </strong>
-            </div>
-            <time class="player-event-time">{{ format_web_timestamp(event.event_time) or event.event_time }}</time>
-          </header>
-
-          <div class="player-event-grid">
-            {{ actor_block("Player", event.player_name, event.player_id, event.session_player_id, event.player_faction) }}
-            {{ actor_block("Victim", event.victim_name, event.victim_id, event.victim_session_player_id, event.victim_faction) }}
-            {{ actor_block("Instigator", event.instigator_name, event.instigator_id, event.instigator_session_player_id, event.instigator_faction) }}
-
-            {% if event.player_faction or event.faction_resource %}
-              <div class="player-event-field">
-                <span class="player-event-label">{{ t("Faction") }}</span>
-                {% if event.player_faction %}<strong class="player-event-value">{{ event.player_faction }}</strong>{% endif %}
-                {% if event.faction_resource %}<span class="wrap-value">{{ event.faction_resource }}</span>{% endif %}
+    <div class="player-table-wrap">
+      <table class="player-events-table">
+        <thead>
+          <tr>
+            <th>{{ t("Time") }}</th>
+            <th>{{ t("Event") }}</th>
+            <th>{{ t("Player") }}</th>
+            <th>{{ t("Target") }}</th>
+            <th>{{ t("Faction") }}</th>
+            <th>{{ t("Combat") }}</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for event in events %}
+          <tr class="player-event-main-row">
+            <td><time>{{ format_web_timestamp(event.event_time) or event.event_time }}</time></td>
+            <td><span class="status-pill status-pill-ok">{{ event.event_type }}</span></td>
+            <td>{{ inline_actor(event.player_name, event.player_id) }}</td>
+            <td>{{ inline_actor(event.victim_name, event.victim_id) }}</td>
+            <td>
+              {% set faction = event.player_faction or event.victim_faction or event.instigator_faction %}
+              {% if faction %}<span class="wrap-value">{{ faction }}</span>{% else %}<span class="muted">{{ t("n/a") }}</span>{% endif %}
+            </td>
+            <td><span class="player-event-combat-cell">{{ combat_summary(event) }}</span></td>
+          </tr>
+          <tr class="player-event-details-row">
+            <td colspan="6">
+              <div class="player-event-details">
+                {{ actor_detail("Player", event.player_name, event.player_id, event.session_player_id, event.player_faction) }}
+                {{ actor_detail("Victim", event.victim_name, event.victim_id, event.victim_session_player_id, event.victim_faction) }}
+                {{ actor_detail("Instigator", event.instigator_name, event.instigator_id, event.instigator_session_player_id, event.instigator_faction) }}
+                {% if event.faction_resource %}
+                  <div class="player-event-detail-field">
+                    <span class="player-event-detail-label">{{ t("Faction resource") }}</span>
+                    <span class="wrap-value">{{ event.faction_resource }}</span>
+                  </div>
+                {% endif %}
+                <div class="player-event-detail-field">
+                  <span class="player-event-detail-label">{{ t("Flags") }}</span>
+                  <span class="player-event-flags">
+                    {% if event.teamkill %}<span class="status-pill status-pill-warning">{{ t("TK") }}</span>{% endif %}
+                    {% if event.suicide %}<span class="status-pill status-pill-warning">{{ t("Suicide") }}</span>{% endif %}
+                    {% if event.ai_instigator %}<span class="status-pill status-pill-ok">{{ t("AI") }}</span>{% endif %}
+                    {% if not event.teamkill and not event.suicide and not event.ai_instigator %}<span class="muted">{{ t("n/a") }}</span>{% endif %}
+                  </span>
+                </div>
+                <div class="player-event-detail-field">
+                  <span class="player-event-detail-label">{{ t("Source") }}</span>
+                  <span>{{ event.source }}</span>
+                  <span>{{ t("Confidence") }}: {{ event.confidence }}</span>
+                  {% if event.source_ref %}<span class="wrap-value">{{ t("Reference") }}: {{ event.source_ref }}</span>{% endif %}
+                </div>
               </div>
-            {% endif %}
-
-            {% if event.damage_type or event.hit_zone or event.distance_m is not none %}
-              <div class="player-event-field">
-                <span class="player-event-label">{{ t("Combat") }}</span>
-                {% if event.damage_type %}<strong class="player-event-value">{{ event.damage_type }}</strong>{% endif %}
-                {% if event.hit_zone %}<span>{{ event.hit_zone }}</span>{% endif %}
-                {% if event.distance_m is not none %}<span>{{ tr("{distance} m", distance=event.distance_m) }}</span>{% endif %}
-              </div>
-            {% endif %}
-          </div>
-
-          <div class="player-event-meta">
-            {% if event.teamkill %}<span class="status-pill status-pill-warn">{{ t("TK") }}</span>{% endif %}
-            {% if event.suicide %}<span class="status-pill status-pill-warn">{{ t("Suicide") }}</span>{% endif %}
-            {% if event.ai_instigator %}<span class="status-pill status-pill-ok">{{ t("AI") }}</span>{% endif %}
-            <span>{{ t("Source") }}: {{ event.source }}</span>
-            <span>{{ t("Confidence") }}: {{ event.confidence }}</span>
-            {% if event.source_ref %}<span class="wrap-value">{{ t("Reference") }}: {{ event.source_ref }}</span>{% endif %}
-          </div>
-        </article>
-      {% endfor %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
     </div>
   {% elif query or event_type or player_id %}
     <p class="muted">{{ t("No player history events match search.") }}</p>

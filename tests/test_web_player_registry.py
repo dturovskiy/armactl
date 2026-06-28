@@ -570,9 +570,10 @@ def test_player_history_route_renders_stored_rows_without_raw_sources(
     assert "player_update" in html
     assert "faction_join" in html
     assert "teamkill" in html
-    assert "player-event-card" in html
-    assert "player-history-table" not in html
-    assert "<table" not in html
+    assert "player-events-table" in html
+    assert "player-event-details-row" in html
+    assert "player-event-card" not in html
+    assert "<table" in html
     assert "Alpha ***" in html
     assert "Alpha One" in html
     assert "Bravo Two" in html
@@ -589,6 +590,43 @@ def test_player_history_route_renders_stored_rows_without_raw_sources(
     assert "198.51.100.7" not in html
     assert "203.0.113.9" not in html
     assert raw_auth_line not in html
+
+
+def test_player_history_route_filters_known_event_type(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.ingest_player_log_events(
+        db_path,
+        [
+            _parse_log_event(
+                "BACKEND : Authenticated player: "
+                f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One",
+                observed_at="2026-01-01T12:00:01+00:00",
+                raw_source_ref="journal:alpha-auth",
+            ),
+            _parse_log_event(
+                "SCRIPT : INFO: Faction: player Alpha One "
+                f"(playerID = 7 | UUID = {PLAYER_ALPHA_ID}) "
+                "has joined faction #US_Army (US)",
+                observed_at="2026-01-01T12:00:03+00:00",
+                raw_source_ref="journal:faction",
+            ),
+        ],
+        ingested_at="2026-01-01T12:00:05+00:00",
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get("/players/history?event_type=faction_join", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "faction_join" in response.text
+    assert "journal:faction" in response.text
+    assert "journal:alpha-auth" not in response.text
+    assert 'value="faction_join" selected' in response.text
 
 
 def test_player_history_route_ignores_unknown_event_type_filter(
