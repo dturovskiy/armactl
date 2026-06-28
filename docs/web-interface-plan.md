@@ -104,6 +104,10 @@ See [player-log-event-inventory.md](player-log-event-inventory.md) for the real 
 
 See [player-data-inventory.md](player-data-inventory.md) for the current source/storage audit before expanding players, history, or banlist behavior. The current implementation separates live current-player observation from persisted registry data: A2S is count-only, RCON can provide names and reliable IDs, `/players/refresh` persists reliable IDs into `players.db`, and public status stays count-only.
 
+Phase 1 player-history foundation is code-only parser/event-model prep. `armactl.player_log_events` parses sanitized backend authentication, network player update, faction join, script combat, and optional ServerAdminTools kill-wrapper lines into a bounded DTO. It does not read live logs, store raw log lines, store player addresses, create schema, or expose UI.
+
+Future player history work should add DB ingest/storage with retention and confidence rules before any history UI or public/Discord enrichment.
+
 Next player slices should remain public/free/local core scope:
 
 - slice 2: read-only players page / improved players view from existing sources;
@@ -112,7 +116,7 @@ Next player slices should remain public/free/local core scope:
 - slice 5: audited banlist manager after source-of-truth, rollback, and identity rules are settled;
 - slice 6: Discord stats enrichment after stable player history exists.
 
-Do not add ban/kick mutations, kill/death stats, IP tracking, new player-history schema, new log parsers, or Discord enrichment in the inventory-only slice.
+Do not add ban/kick mutations, kill/death stats presentation, IP tracking, player-history schema migration, live journal readers, background jobs, or Discord enrichment until later slices explicitly choose those sources and retention rules.
 
 ## Deployment
 

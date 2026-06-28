@@ -29,13 +29,14 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Player registry foundation with reliable IDs and no IP storage by default.
 - [x] Player data inventory before history/banlist implementation.
 - [x] Real server log/event inventory before player history/statistics implementation.
+- [x] Player history parser foundation for sanitized auth/update/faction/combat log events, without live scanning, UI, DB ingest, raw log-line storage, or IP storage.
 - [ ] Continue production hardening for the local dashboard.
 - [x] Polish server update browser flow with controlled post-action notices and active job links.
 - [ ] Continue polishing server update check/update UX after VM smoke feedback.
 - [ ] Expand safe config controls after field behavior is verified.
 - [ ] Improve mod cleanup edge-case recovery workflows.
 - [ ] Build slice 2 read-only players page / improved players view from existing sources.
-- [ ] Add slice 3 bounded player sessions/history storage with no IP storage by default.
+- [ ] Add slice 3 bounded player sessions/history DB ingest and storage with no IP storage by default.
 - [ ] Add slice 4 player search/filter over reliable IDs, names, and session metadata.
 - [ ] Add slice 5 audited banlist manager after identity, storage, and rollback rules are documented.
 - [ ] Add richer read-only Discord player columns only after reliable player history/session data exists.
