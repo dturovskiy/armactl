@@ -655,13 +655,15 @@ def test_player_history_route_renders_stored_rows_without_raw_sources(
 
     assert response.status_code == 200
     html = response.text
-    assert "2026-01-01 12:00 UTC" in html
+    assert 'data-local-time datetime="2026-01-01T12:00:' in html
+    assert "2026-01-01 12:00 UTC" not in html
     assert "player_authenticated" in html
     assert "player_update" in html
     assert "faction_join" in html
     assert "teamkill" in html
     assert "player-events-table" in html
     assert "player-event-details-row" in html
+    assert "player-event-summary-cell" in html
     assert "player-event-card" not in html
     assert "<table" in html
     assert "Alpha ***" in html

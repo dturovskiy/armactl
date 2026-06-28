@@ -769,6 +769,7 @@
     "Discord statistics settings saved.": "Discord statistics settings saved.",
     "Discord statistics settings were not saved because audit logging failed.": "Discord statistics settings were not saved because audit logging failed.",
     "Discord statistics settings failed, and audit logging also failed.": "Discord statistics settings failed, and audit logging also failed.",
-    "Discord statistics settings were saved, but audit logging failed.": "Discord statistics settings were saved, but audit logging failed."
+    "Discord statistics settings were saved, but audit logging failed.": "Discord statistics settings were saved, but audit logging failed.",
+    "Unknown": "Unknown"
   }
 }

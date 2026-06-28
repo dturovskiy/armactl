@@ -1,6 +1,7 @@
 {% extends "layout.html" %}
 {% block title %}{{ t("Players - armactl web") }}{% endblock %}
 {% block heading %}{{ t("Players") }}{% endblock %}
+{% block extra_scripts %}<script defer src="{{ url_for('static', path='/js/player_times.js') }}?v={{ web_static_version }}"></script>{% endblock %}
 {% block topbar_actions %}
 <a class="button-link secondary-link" href="/admins">{{ t("Admins") }}</a>
 <a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
@@ -62,13 +63,13 @@
               <strong class="wrap-value">{{ player.display_name }}</strong>
               <span class="player-row-subtle">{{ player.source }}</span>
             </td>
-            <td>{% if player.reliable_id %}<span class="player-id-cell player-id-clip" title="{{ player.reliable_id }}">{{ player.reliable_id }}</span>{% else %}<span class="muted">{{ t("No reliable ID") }}</span>{% endif %}</td>
+            <td>{% if player.reliable_id %}<span class="player-id-cell player-id-clip" title="{{ player.reliable_id }}">{{ player.reliable_id[:8] }}...{{ player.reliable_id[-5:] }}</span>{% else %}<span class="muted">{{ t("No reliable ID") }}</span>{% endif %}</td>
             <td>{% if player.faction %}<span class="wrap-value">{{ player.faction }}</span>{% else %}<span class="muted">{{ t("No faction") }}</span>{% endif %}</td>
             <td class="player-stat-number">{{ player.kill_count }} / {{ player.death_count }}</td>
             <td class="player-stat-number">{{ player.teamkill_count }}</td>
             <td class="player-stat-number">{{ player.suicide_count }}</td>
             <td>{% if player.role %}<span class="wrap-value">{{ player.role }}</span>{% else %}<span class="muted">{{ t("Not tracked") }}</span>{% endif %}</td>
-            <td>{% if player.joined_at %}<time>{{ format_web_timestamp(player.joined_at) or player.joined_at }}</time>{% else %}<span class="muted">{{ t("Not tracked") }}</span>{% endif %}</td>
+            <td>{% if player.joined_at %}<time data-local-time datetime="{{ player.joined_at }}" title="{{ player.joined_at }}">{{ player.joined_at[:16]|replace("T", " ") }}</time>{% else %}<span class="muted">{{ t("Not tracked") }}</span>{% endif %}</td>
             <td class="player-stat-number">{{ player.event_count }}</td>
           </tr>
         {% endfor %}

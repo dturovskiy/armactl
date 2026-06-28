@@ -1,6 +1,7 @@
 {% extends "layout.html" %}
 {% block title %}{{ t("Players - armactl web") }}{% endblock %}
 {% block heading %}{{ t("Players") }}{% endblock %}
+{% block extra_scripts %}<script defer src="{{ url_for('static', path='/js/player_times.js') }}?v={{ web_static_version }}"></script>{% endblock %}
 {% block topbar_actions %}
 <a class="button-link secondary-link" href="/admins">{{ t("Admins") }}</a>
 <a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
@@ -75,7 +76,7 @@
               <strong class="wrap-value">{{ player.current_name }}</strong>
               <span class="player-row-subtle">{{ t("Seen count") }}: {{ player.seen_count }}</span>
             </td>
-            <td><span class="player-id-cell player-id-clip" title="{{ player.reliable_id }}">{{ player.reliable_id }}</span></td>
+            <td><span class="player-id-cell player-id-clip" title="{{ player.reliable_id }}">{{ player.reliable_id[:8] }}...{{ player.reliable_id[-5:] }}</span></td>
             <td>{% if player.faction %}<span class="wrap-value">{{ player.faction }}</span>{% else %}<span class="muted">{{ t("No faction") }}</span>{% endif %}</td>
             <td class="player-stat-number">{{ player.kill_count }}</td>
             <td class="player-stat-number">{{ player.death_count }}</td>
@@ -83,7 +84,7 @@
             <td class="player-stat-number">{{ player.suicide_count }}</td>
             <td class="player-stat-number">{{ player.event_count }}</td>
             <td>
-              <time>{{ format_web_timestamp(player.last_seen_at) or player.last_seen_at }}</time>
+              <time data-local-time datetime="{{ player.last_seen_at }}" title="{{ player.last_seen_at }}">{{ player.last_seen_at[:16]|replace("T", " ") }}</time>
               <span class="player-row-subtle">{{ player.last_source }}</span>
             </td>
           </tr>
