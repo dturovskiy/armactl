@@ -1000,22 +1000,91 @@ button.danger {
   font: inherit;
 }
 
+.player-history-panel {
+  max-width: 100%;
+}
+
+.player-history-filter-form {
+  margin-bottom: 18px;
+}
+
 .player-history-filter-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
 }
 
-.player-history-table td {
-  vertical-align: top;
+.player-event-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
 }
 
-.player-history-actor,
-.event-detail-list,
-.event-flags {
+.player-event-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.player-event-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.player-event-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.player-event-time {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.player-event-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.player-event-field {
   display: grid;
   gap: 4px;
-  min-width: 130px;
+  min-width: 0;
+}
+
+.player-event-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.player-event-value {
+  color: var(--text);
+}
+
+.player-event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.9rem;
 }
 
 .player-admin-form {

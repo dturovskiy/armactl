@@ -505,7 +505,7 @@ def test_player_history_route_renders_empty_state_and_migrates_v1_db(
     response = client.get("/players/history", follow_redirects=False)
 
     assert response.status_code == 200
-    assert "No player history events recorded yet." in response.text
+    assert "No player events recorded yet." in response.text
     assert "player_log_events" in _sqlite_tables(db_path)
     assert _registry_schema_version(db_path) == "2"
 
@@ -570,6 +570,9 @@ def test_player_history_route_renders_stored_rows_without_raw_sources(
     assert "player_update" in html
     assert "faction_join" in html
     assert "teamkill" in html
+    assert "player-event-card" in html
+    assert "player-history-table" not in html
+    assert "<table" not in html
     assert "Alpha ***" in html
     assert "Alpha One" in html
     assert "Bravo Two" in html

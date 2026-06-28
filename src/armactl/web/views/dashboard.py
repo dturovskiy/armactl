@@ -362,8 +362,8 @@ def _management_links(
         links.append(
             {
                 "href": "/players/history",
-                "label": "Player History",
-                "description": "Stored player events",
+                "label": "Players",
+                "description": "Player events and registry",
             }
         )
     if can_view_bot:
