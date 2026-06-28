@@ -129,6 +129,7 @@ def _render_player_history_page(
             "query": page.query,
             "event_type": page.event_type,
             "event_type_options": page.event_type_options,
+            "event_type_labels": page.event_type_labels,
             "player_id": page.reliable_id,
             "limit": page.limit,
             "events": page.events,

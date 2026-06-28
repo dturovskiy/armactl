@@ -550,7 +550,6 @@
     "Events": "Events",
     "No faction": "No faction",
     "Player event log": "Player event log",
-    "Target": "Target",
     "Markers": "Markers",
     "Diagnostics": "Diagnostics",
     "Player Events": "Player Events",
@@ -770,6 +769,13 @@
     "Discord statistics settings were not saved because audit logging failed.": "Discord statistics settings were not saved because audit logging failed.",
     "Discord statistics settings failed, and audit logging also failed.": "Discord statistics settings failed, and audit logging also failed.",
     "Discord statistics settings were saved, but audit logging failed.": "Discord statistics settings were saved, but audit logging failed.",
-    "Unknown": "Unknown"
+    "Unknown": "Unknown",
+    "Authenticated": "Authenticated",
+    "Player update": "Player update",
+    "Faction join": "Faction join",
+    "Kill": "Kill",
+    "Teamkill": "Teamkill",
+    "Other death": "Other death",
+    "Combat hint": "Combat hint"
   }
 }

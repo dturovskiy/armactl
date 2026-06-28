@@ -9,19 +9,19 @@ from armactl import paths, player_log_events
 from armactl.web.services import player_registry, player_sources
 from armactl.web.services.player_identity import normalize_player_query, safe_player_text
 
+PLAYER_HISTORY_EVENT_TYPE_LABELS = {
+    player_log_events.EVENT_TYPE_PLAYER_AUTHENTICATED: "Authenticated",
+    player_log_events.EVENT_TYPE_PLAYER_UPDATE: "Player update",
+    player_log_events.EVENT_TYPE_FACTION_JOIN: "Faction join",
+    player_log_events.EVENT_TYPE_KILL: "Kill",
+    player_log_events.EVENT_TYPE_SUICIDE: "Suicide",
+    player_log_events.EVENT_TYPE_TEAMKILL: "Teamkill",
+    player_log_events.EVENT_TYPE_OTHER_DEATH: "Other death",
+    player_log_events.EVENT_TYPE_COMBAT_HINT: "Combat hint",
+}
 PLAYER_HISTORY_EVENT_TYPES = (
     ("", "All event types"),
-    (
-        player_log_events.EVENT_TYPE_PLAYER_AUTHENTICATED,
-        player_log_events.EVENT_TYPE_PLAYER_AUTHENTICATED,
-    ),
-    (player_log_events.EVENT_TYPE_PLAYER_UPDATE, player_log_events.EVENT_TYPE_PLAYER_UPDATE),
-    (player_log_events.EVENT_TYPE_FACTION_JOIN, player_log_events.EVENT_TYPE_FACTION_JOIN),
-    (player_log_events.EVENT_TYPE_KILL, player_log_events.EVENT_TYPE_KILL),
-    (player_log_events.EVENT_TYPE_SUICIDE, player_log_events.EVENT_TYPE_SUICIDE),
-    (player_log_events.EVENT_TYPE_TEAMKILL, player_log_events.EVENT_TYPE_TEAMKILL),
-    (player_log_events.EVENT_TYPE_OTHER_DEATH, player_log_events.EVENT_TYPE_OTHER_DEATH),
-    (player_log_events.EVENT_TYPE_COMBAT_HINT, player_log_events.EVENT_TYPE_COMBAT_HINT),
+    *PLAYER_HISTORY_EVENT_TYPE_LABELS.items(),
 )
 PLAYER_HISTORY_EVENT_TYPE_VALUES = frozenset(
     event_type for event_type, _label in PLAYER_HISTORY_EVENT_TYPES if event_type
@@ -110,6 +110,7 @@ class PlayerHistoryPage:
     limit: int
     events: tuple[player_registry.PlayerLogEventRecord, ...]
     event_type_options: tuple[tuple[str, str], ...]
+    event_type_labels: dict[str, str]
 
 
 def _moderation_player(player: player_sources.CurrentPlayer) -> ModerationPlayer:
@@ -327,4 +328,5 @@ def load_player_history_page(
             )
         ),
         event_type_options=PLAYER_HISTORY_EVENT_TYPES,
+        event_type_labels=PLAYER_HISTORY_EVENT_TYPE_LABELS,
     )

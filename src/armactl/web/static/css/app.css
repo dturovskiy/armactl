@@ -1159,6 +1159,13 @@ button.danger {
   vertical-align: top;
 }
 
+.player-event-type-pill {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .player-event-details-row td {
   padding-top: 0;
   background: var(--panel-strong);

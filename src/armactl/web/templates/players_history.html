@@ -110,7 +110,7 @@
         {% for event in events %}
           <tr class="player-event-main-row">
             <td>{{ local_time(event.event_time) }}</td>
-            <td><span class="status-pill status-pill-ok">{{ event.event_type }}</span></td>
+            <td><span class="status-pill status-pill-ok player-event-type-pill" title="{{ event.event_type }}">{{ t(event_type_labels.get(event.event_type, event.event_type)) }}</span></td>
             <td>{{ inline_actor(event.player_name) }}</td>
             <td>
               {% set faction = event.player_faction or event.victim_faction or event.instigator_faction %}

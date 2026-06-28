@@ -1137,7 +1137,6 @@
     "Events": "Події",
     "No faction": "Без фракції",
     "Player event log": "Журнал подій гравців",
-    "Target": "Ціль",
     "Markers": "Позначки",
     "Diagnostics": "Діагностика",
     "Player Events": "Події гравців",
@@ -1352,6 +1351,13 @@
     "Discord statistics settings saved.": "Налаштування статистики Discord збережено.",
     "Discord statistics settings were not saved because audit logging failed.": "Налаштування статистики Discord не збережено, бо запис аудиту не вдався.",
     "Discord statistics settings failed, and audit logging also failed.": "Налаштування статистики Discord не вдалося зберегти, і запис аудиту теж не вдався.",
-    "Discord statistics settings were saved, but audit logging failed.": "Налаштування статистики Discord збережено, але запис аудиту не вдався."
+    "Discord statistics settings were saved, but audit logging failed.": "Налаштування статистики Discord збережено, але запис аудиту не вдався.",
+    "Authenticated": "Автентифікація",
+    "Player update": "Оновлення гравця",
+    "Faction join": "Вступ до фракції",
+    "Kill": "Вбивство",
+    "Teamkill": "TK",
+    "Other death": "Інша смерть",
+    "Combat hint": "Бій"
   }
 }
