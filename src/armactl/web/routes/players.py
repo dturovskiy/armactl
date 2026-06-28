@@ -58,7 +58,6 @@ def _render_players_page(
             "page": page,
             "query": page.query,
             "players": page.players,
-            "registry_path": page.registry_path,
             "refresh_result": refresh_result,
             "audit_error": audit_error,
         },

@@ -388,6 +388,65 @@ def test_list_known_players_searches_by_name_and_id(tmp_path: Path):
     assert [player.current_name for player in by_id] == ["Alpha"]
 
 
+def test_list_player_summaries_aggregates_event_stats(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.record_current_players_snapshot(
+        db_path,
+        [
+            _reliable_player("Alpha One", PLAYER_ALPHA_ID),
+            _reliable_player("Bravo Two", PLAYER_BRAVO_ID),
+        ],
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+    player_registry.ingest_player_log_events(
+        db_path,
+        [
+            _parse_log_event(
+                "SCRIPT : INFO: Faction: player Alpha One "
+                f"(playerID = 7 | UUID = {PLAYER_ALPHA_ID}) "
+                "has joined faction #US_Army (US)",
+                observed_at="2026-06-16T12:01:00+00:00",
+                raw_source_ref="journal:faction",
+            ),
+            _parse_log_event(
+                "SCRIPT : INFO: KILL TK: Bravo Two "
+                f"(playerID = 8 | UUID = {PLAYER_BRAVO_ID}) from US faction "
+                "at <4 5 6> was killed by Alpha One "
+                f"(playerID = 7 | UUID = {PLAYER_ALPHA_ID}) from US faction "
+                "who was at that time at <4 5 7> [2.2m away from the corpse]. "
+                "With last inflicted damage type Bullet to the 'LeftArm' hit zone",
+                observed_at="2026-06-16T12:02:00+00:00",
+                raw_source_ref="journal:teamkill",
+            ),
+            _parse_log_event(
+                "SCRIPT : INFO: KILL SUICIDE: Alpha One "
+                f"(playerID = 7 | UUID = {PLAYER_ALPHA_ID}) from US faction "
+                "at <1 2 3> killed himself! "
+                "With last inflicted damage type Explosion to the 'Torso' hit zone",
+                observed_at="2026-06-16T12:03:00+00:00",
+                raw_source_ref="journal:suicide",
+            ),
+        ],
+        ingested_at="2026-06-16T12:04:00+00:00",
+    )
+
+    summaries = {
+        player.reliable_id: player
+        for player in player_registry.list_player_summaries(db_path)
+    }
+
+    assert summaries[PLAYER_ALPHA_ID].faction == "US"
+    assert summaries[PLAYER_ALPHA_ID].event_count == 3
+    assert summaries[PLAYER_ALPHA_ID].kill_count == 1
+    assert summaries[PLAYER_ALPHA_ID].death_count == 1
+    assert summaries[PLAYER_ALPHA_ID].teamkill_count == 1
+    assert summaries[PLAYER_ALPHA_ID].suicide_count == 1
+    assert summaries[PLAYER_BRAVO_ID].event_count == 1
+    assert summaries[PLAYER_BRAVO_ID].death_count == 1
+
+
 def test_players_route_requires_authentication(tmp_path: Path):
     from armactl.web.app import create_app
 
@@ -579,8 +638,12 @@ def test_player_history_route_renders_stored_rows_without_raw_sources(
     assert "Bravo Two" in html
     assert PLAYER_ALPHA_ID in html
     assert PLAYER_BRAVO_ID in html
-    assert "US_Army" in html
+    assert "US_Army" not in html
     assert "US" in html
+    assert "Faction resource" not in html
+    assert "session " not in html
+    assert "Confidence" not in html
+    assert "Diagnostics" in html
     assert "Bullet" in html
     assert "LeftArm" in html
     assert "2.2 m" in html
@@ -771,7 +834,11 @@ def test_players_refresh_route_delegates_persistence_and_audit_to_service(
         "player_registry_db_path",
         lambda instance, data_root=None: db_path,
     )
-    monkeypatch.setattr(player_registry, "list_known_players", lambda db_path, query="": [])
+    monkeypatch.setattr(
+        player_registry,
+        "list_known_players",
+        lambda db_path, query="", limit=100: [],
+    )
     app = create_app(data_root=tmp_path)
     client = _client(app)
     _login(client, "owner", "owner players password")

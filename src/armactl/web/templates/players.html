@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
 {% block title %}{{ t("Players - armactl web") }}{% endblock %}
-{% block heading %}{{ t("Player Registry") }}{% endblock %}
+{% block heading %}{{ t("Players") }}{% endblock %}
 {% block topbar_actions %}
 <a class="button-link secondary-link" href="/players/history">{{ t("Player Events") }}</a>
 <a class="button-link secondary-link" href="/admins">{{ t("Admins") }}</a>
@@ -33,13 +33,11 @@
   </nav>
 
   <div class="section-heading-row">
-    <h2>{{ t("Known Players") }}</h2>
+    <h2>{{ t("Player table") }}</h2>
     <a class="button-link secondary-link" href="/players/history">{{ t("Player Events") }}</a>
   </div>
-  <dl>
-    <dt>{{ t("Instance") }}</dt><dd>default</dd>
-    <dt>{{ t("Registry path") }}</dt><dd class="wrap-value">{{ registry_path }}</dd>
-  </dl>
+  <p class="muted">{{ t("Known players with compact statistics from stored player events.") }}</p>
+
   <form method="get" action="/players" class="player-search-form">
     <label>
       <span>{{ t("Search players") }}</span>
@@ -56,21 +54,44 @@
   </form>
 
   {% if players %}
-    <table>
-      <thead><tr><th>{{ t("Current nickname") }}</th><th>{{ t("Identity ID") }}</th><th>{{ t("First seen") }}</th><th>{{ t("Last seen") }}</th><th>{{ t("Seen count") }}</th><th>{{ t("Source") }}</th></tr></thead>
-      <tbody>
-      {% for player in players %}
-        <tr>
-          <td class="wrap-value">{{ player.current_name }}</td>
-          <td class="wrap-value">{{ player.reliable_id }}</td>
-          <td>{{ player.first_seen_at }}</td>
-          <td>{{ player.last_seen_at }}</td>
-          <td>{{ player.seen_count }}</td>
-          <td>{{ player.last_source }}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+    <div class="player-table-wrap">
+      <table class="player-registry-table">
+        <thead>
+          <tr>
+            <th>{{ t("Nickname") }}</th>
+            <th>{{ t("Identity ID") }}</th>
+            <th>{{ t("Faction") }}</th>
+            <th>{{ t("Kills") }}</th>
+            <th>{{ t("Deaths") }}</th>
+            <th>{{ t("TK") }}</th>
+            <th>{{ t("Suicides") }}</th>
+            <th>{{ t("Events") }}</th>
+            <th>{{ t("Last seen") }}</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for player in players %}
+          <tr>
+            <td>
+              <strong class="wrap-value">{{ player.current_name }}</strong>
+              <span class="player-row-subtle">{{ t("Seen count") }}: {{ player.seen_count }}</span>
+            </td>
+            <td class="wrap-value player-id-cell">{{ player.reliable_id }}</td>
+            <td>{% if player.faction %}<span class="wrap-value">{{ player.faction }}</span>{% else %}<span class="muted">{{ t("No faction") }}</span>{% endif %}</td>
+            <td class="player-stat-number">{{ player.kill_count }}</td>
+            <td class="player-stat-number">{{ player.death_count }}</td>
+            <td class="player-stat-number">{{ player.teamkill_count }}</td>
+            <td class="player-stat-number">{{ player.suicide_count }}</td>
+            <td class="player-stat-number">{{ player.event_count }}</td>
+            <td>
+              <time>{{ format_web_timestamp(player.last_seen_at) or player.last_seen_at }}</time>
+              <span class="player-row-subtle">{{ player.last_source }}</span>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
   {% elif query %}
     <p class="muted">{{ t("No known players match search.") }}</p>
   {% else %}

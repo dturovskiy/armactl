@@ -8,14 +8,12 @@
     <span class="muted">{{ t("n/a") }}</span>
   {% endif %}
 {%- endmacro %}
-{% macro actor_detail(label, name, reliable_id, session_id, faction) -%}
-  {% if name or reliable_id or session_id or faction %}
+{% macro id_detail(label, reliable_id, faction) -%}
+  {% if reliable_id or faction %}
     <div class="player-event-detail-field">
       <span class="player-event-detail-label">{{ t(label) }}</span>
-      {% if name %}<strong class="wrap-value">{{ name }}</strong>{% endif %}
       {% if reliable_id %}<span class="wrap-value">{{ reliable_id }}</span>{% endif %}
-      {% if session_id %}<span>{{ tr("session {id}", id=session_id) }}</span>{% endif %}
-      {% if faction %}<span>{{ faction }}</span>{% endif %}
+      {% if faction %}<span class="wrap-value">{{ faction }}</span>{% endif %}
     </div>
   {% endif %}
 {%- endmacro %}
@@ -49,27 +47,8 @@
   </nav>
 
   <div class="section-heading-row">
-    <h2>{{ t("Player Events") }}</h2>
+    <h2>{{ t("Player event log") }}</h2>
     <span class="muted">{{ tr("Showing {count} event(s)", count=events|length) }}</span>
-  </div>
-
-  <div class="player-summary-grid">
-    <div class="player-summary-item">
-      <span>{{ t("Event type") }}</span>
-      <strong>{{ t(event_type) if event_type else t("All event types") }}</strong>
-    </div>
-    <div class="player-summary-item">
-      <span>{{ t("Player ID") }}</span>
-      <strong class="wrap-value">{{ player_id if player_id else t("No filter") }}</strong>
-    </div>
-    <div class="player-summary-item">
-      <span>{{ t("Name / text") }}</span>
-      <strong class="wrap-value">{{ query if query else t("No filter") }}</strong>
-    </div>
-    <div class="player-summary-item">
-      <span>{{ t("Limit") }}</span>
-      <strong>{{ limit }}</strong>
-    </div>
   </div>
 
   <form method="get" action="/players/history" class="player-search-form player-history-filter-form">
@@ -130,17 +109,11 @@
           <tr class="player-event-details-row">
             <td colspan="6">
               <div class="player-event-details">
-                {{ actor_detail("Player", event.player_name, event.player_id, event.session_player_id, event.player_faction) }}
-                {{ actor_detail("Victim", event.victim_name, event.victim_id, event.victim_session_player_id, event.victim_faction) }}
-                {{ actor_detail("Instigator", event.instigator_name, event.instigator_id, event.instigator_session_player_id, event.instigator_faction) }}
-                {% if event.faction_resource %}
-                  <div class="player-event-detail-field">
-                    <span class="player-event-detail-label">{{ t("Faction resource") }}</span>
-                    <span class="wrap-value">{{ event.faction_resource }}</span>
-                  </div>
-                {% endif %}
+                {{ id_detail("Player ID", event.player_id, event.player_faction) }}
+                {{ id_detail("Victim", event.victim_id, event.victim_faction) }}
+                {{ id_detail("Instigator", event.instigator_id, event.instigator_faction) }}
                 <div class="player-event-detail-field">
-                  <span class="player-event-detail-label">{{ t("Flags") }}</span>
+                  <span class="player-event-detail-label">{{ t("Markers") }}</span>
                   <span class="player-event-flags">
                     {% if event.teamkill %}<span class="status-pill status-pill-warning">{{ t("TK") }}</span>{% endif %}
                     {% if event.suicide %}<span class="status-pill status-pill-warning">{{ t("Suicide") }}</span>{% endif %}
@@ -148,12 +121,11 @@
                     {% if not event.teamkill and not event.suicide and not event.ai_instigator %}<span class="muted">{{ t("n/a") }}</span>{% endif %}
                   </span>
                 </div>
-                <div class="player-event-detail-field">
-                  <span class="player-event-detail-label">{{ t("Source") }}</span>
-                  <span>{{ event.source }}</span>
-                  <span>{{ t("Confidence") }}: {{ event.confidence }}</span>
+                <details class="player-event-diagnostics">
+                  <summary>{{ t("Diagnostics") }}</summary>
+                  <span>{{ t("Source") }}: {{ event.source }}</span>
                   {% if event.source_ref %}<span class="wrap-value">{{ t("Reference") }}: {{ event.source_ref }}</span>{% endif %}
-                </div>
+                </details>
               </div>
             </td>
           </tr>

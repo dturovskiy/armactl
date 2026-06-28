@@ -64,8 +64,7 @@ class PlayerRegistryPage:
 
     instance: str
     query: str
-    players: tuple[player_registry.KnownPlayer, ...]
-    registry_path: Path
+    players: tuple[player_registry.PlayerSummary, ...]
 
 
 @dataclass(frozen=True)
@@ -158,8 +157,7 @@ def load_player_registry_page(
     return PlayerRegistryPage(
         instance=normalized_instance,
         query=normalized_query,
-        players=tuple(player_registry.list_known_players(registry_path, query=normalized_query)),
-        registry_path=registry_path,
+        players=tuple(player_registry.list_player_summaries(registry_path, query=normalized_query)),
     )
 
 

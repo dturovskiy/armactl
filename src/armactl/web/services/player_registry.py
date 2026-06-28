@@ -14,7 +14,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from armactl import paths
-from armactl.player_log_events import PlayerLogEvent
+from armactl.player_log_events import (
+    EVENT_TYPE_KILL,
+    EVENT_TYPE_OTHER_DEATH,
+    EVENT_TYPE_SUICIDE,
+    EVENT_TYPE_TEAMKILL,
+    PlayerLogEvent,
+)
 from armactl.web.services.player_identity import (
     normalize_reliable_player_id,
     safe_player_text,
@@ -88,6 +94,24 @@ class KnownPlayer:
     last_seen_at: str
     seen_count: int
     last_source: str
+
+
+@dataclass(frozen=True)
+class PlayerSummary:
+    """One known player with lightweight event-derived counters."""
+
+    reliable_id: str
+    current_name: str
+    first_seen_at: str
+    last_seen_at: str
+    seen_count: int
+    last_source: str
+    faction: str
+    event_count: int
+    kill_count: int
+    death_count: int
+    teamkill_count: int
+    suicide_count: int
 
 
 @dataclass(frozen=True)
@@ -863,6 +887,159 @@ def list_player_log_events(
     finally:
         connection.close()
     return [_player_log_event_record_from_row(row) for row in rows]
+
+
+def _empty_player_summary(player: KnownPlayer) -> PlayerSummary:
+    return PlayerSummary(
+        reliable_id=player.reliable_id,
+        current_name=player.current_name,
+        first_seen_at=player.first_seen_at,
+        last_seen_at=player.last_seen_at,
+        seen_count=player.seen_count,
+        last_source=player.last_source,
+        faction="",
+        event_count=0,
+        kill_count=0,
+        death_count=0,
+        teamkill_count=0,
+        suicide_count=0,
+    )
+
+
+def _event_role_ids(row: sqlite3.Row, known_ids: set[str]) -> set[str]:
+    return {
+        str(row[column])
+        for column in ("player_id", "victim_id", "instigator_id")
+        if row[column] and str(row[column]) in known_ids
+    }
+
+
+def _event_role_factions(row: sqlite3.Row) -> tuple[tuple[str, str], ...]:
+    return (
+        (str(row["player_id"] or ""), _safe_event_text(row["player_faction"]) or ""),
+        (str(row["victim_id"] or ""), _safe_event_text(row["victim_faction"]) or ""),
+        (
+            str(row["instigator_id"] or ""),
+            _safe_event_text(row["instigator_faction"]) or "",
+        ),
+    )
+
+
+def _increment_summary_counter(
+    summaries: dict[str, dict[str, object]],
+    reliable_id: str,
+    key: str,
+) -> None:
+    summaries[reliable_id][key] = int(summaries[reliable_id][key]) + 1
+
+
+def list_player_summaries(
+    db_path: Path,
+    *,
+    query: str = "",
+    limit: int = DEFAULT_PLAYER_LIST_LIMIT,
+) -> list[PlayerSummary]:
+    """List known players with compact counters derived from stored events."""
+    players = list_known_players(db_path, query=query, limit=limit)
+    if not players:
+        return []
+
+    summaries: dict[str, dict[str, object]] = {
+        player.reliable_id: {
+            "faction": "",
+            "event_count": 0,
+            "kill_count": 0,
+            "death_count": 0,
+            "teamkill_count": 0,
+            "suicide_count": 0,
+        }
+        for player in players
+    }
+    known_ids = set(summaries)
+    placeholders = ",".join("?" for _ in known_ids)
+    if not placeholders:
+        return [_empty_player_summary(player) for player in players]
+
+    connection = _connect_existing(db_path)
+    if connection is None:
+        return [_empty_player_summary(player) for player in players]
+    try:
+        rows = connection.execute(
+            f"""
+            SELECT
+                event_type,
+                COALESCE(observed_at, created_at) AS event_time,
+                event_id,
+                player_id,
+                player_faction,
+                victim_id,
+                victim_faction,
+                instigator_id,
+                instigator_faction,
+                teamkill,
+                suicide
+            FROM player_log_events
+            WHERE player_id IN ({placeholders})
+               OR victim_id IN ({placeholders})
+               OR instigator_id IN ({placeholders})
+            ORDER BY event_time DESC, event_id DESC
+            """,
+            tuple(known_ids) * 3,
+        ).fetchall()
+    finally:
+        connection.close()
+
+    death_events = {
+        EVENT_TYPE_KILL,
+        EVENT_TYPE_TEAMKILL,
+        EVENT_TYPE_SUICIDE,
+        EVENT_TYPE_OTHER_DEATH,
+    }
+    for row in rows:
+        event_type = str(row["event_type"] or "")
+        touched_ids = _event_role_ids(row, known_ids)
+        for reliable_id in touched_ids:
+            _increment_summary_counter(summaries, reliable_id, "event_count")
+
+        instigator_id = str(row["instigator_id"] or "")
+        victim_id = str(row["victim_id"] or "")
+        is_teamkill = event_type == EVENT_TYPE_TEAMKILL or bool(
+            _event_bool_from_row(row["teamkill"])
+        )
+        is_suicide = event_type == EVENT_TYPE_SUICIDE or bool(
+            _event_bool_from_row(row["suicide"])
+        )
+
+        if event_type in {EVENT_TYPE_KILL, EVENT_TYPE_TEAMKILL} and instigator_id in summaries:
+            _increment_summary_counter(summaries, instigator_id, "kill_count")
+        if is_teamkill and instigator_id in summaries:
+            _increment_summary_counter(summaries, instigator_id, "teamkill_count")
+        if event_type in death_events and victim_id in summaries:
+            _increment_summary_counter(summaries, victim_id, "death_count")
+        if is_suicide and victim_id in summaries:
+            _increment_summary_counter(summaries, victim_id, "suicide_count")
+
+        for reliable_id, faction in _event_role_factions(row):
+            if reliable_id in summaries and faction and not summaries[reliable_id]["faction"]:
+                summaries[reliable_id]["faction"] = faction
+
+    return [
+        PlayerSummary(
+            reliable_id=player.reliable_id,
+            current_name=player.current_name,
+            first_seen_at=player.first_seen_at,
+            last_seen_at=player.last_seen_at,
+            seen_count=player.seen_count,
+            last_source=player.last_source,
+            faction=str(summaries[player.reliable_id]["faction"]),
+            event_count=int(summaries[player.reliable_id]["event_count"]),
+            kill_count=int(summaries[player.reliable_id]["kill_count"]),
+            death_count=int(summaries[player.reliable_id]["death_count"]),
+            teamkill_count=int(summaries[player.reliable_id]["teamkill_count"]),
+            suicide_count=int(summaries[player.reliable_id]["suicide_count"]),
+        )
+        for player in players
+    ]
 
 
 def list_known_players(
