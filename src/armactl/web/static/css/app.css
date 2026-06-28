@@ -1099,16 +1099,34 @@ button.danger {
 .player-registry-table th:nth-child(5),
 .player-registry-table th:nth-child(6),
 .player-registry-table th:nth-child(7),
-.player-registry-table th:nth-child(8) { width: 7%; }
+.player-registry-table th:nth-child(8) {
+  width: 7%;
+  text-align: center;
+}
 .player-registry-table th:nth-child(9) { width: 16%; }
+
+.player-current-table th:nth-child(4),
+.player-current-table th:nth-child(5),
+.player-current-table th:nth-child(6),
+.player-current-table th:nth-child(9) {
+  text-align: center;
+}
 
 .player-id-cell {
   font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.player-id-cell.wrap-value,
+.player-id-cell .wrap-value {
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: nowrap;
 }
 
 .player-stat-number {
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  text-align: center;
   white-space: nowrap;
 }
 
