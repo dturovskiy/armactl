@@ -16,6 +16,7 @@ This inventory records the current implemented player-data flow before the playe
 | Admin add/update/remove (`/admins/add`, `/admins/remove`) | Operator form or quick-add player row | Official IDs in `config.json` `game.admins`; labels in `admins-state.json`; pending restart in `web.db` / fallback file | Mutates immediately; server restart may be required | High/moderation data | Existing audited admin workflow, not a ban/kick workflow. Supports SteamID64, IdentityId, Steam profile URL, and vanity lookup. |
 | Player registry page (`/players`) | `player_registry.list_known_players` | `~/armactl-data/<instance>/players.db` | As fresh as last manual refresh | High/moderation data | Read-only list of known reliable players, current name, first/last seen, count, and source. Basic query matches reliable ID, current name, and historical names. |
 | Player registry refresh (`/players/refresh`) | Current roster from `player_sources.load_current_player_roster` | `players.db` tables `players`, `player_names`, `player_registry_schema_meta`; web audit log | On-demand POST only | High/moderation data | Records only reliable player IDs. Unreliable/slot-only rows are counted and ignored. Audit stores counts/source, not player names. |
+| Player log event DB ingest foundation (`player_registry.ingest_player_log_events`) | Parsed `PlayerLogEvent` DTOs from `player_log_events`; no live reader or collector | `players.db` table `player_log_events`, plus existing `players`/`player_names` observations for reliable IDs | Only when a future caller submits parsed events; no automatic freshness | High/moderation data | Stores sanitized structured auth/update/faction/combat fields with source/ref/confidence and a dedupe key. Does not store raw log lines or player addresses. No UI, live scanner, history views, Discord K/D, or banlist behavior. |
 | TUI player status (`src/armactl/tui/**`) | Shared `player_view` and config/status summaries | None | Live per TUI refresh/action | Medium | TUI can show RCON roster names when configured; no persistent player history. |
 | Telegram bot player/status output (`telegram_bot.py`) | Shared `player_view` | Bot `.env` stores bot config, not player history | Live per bot command/callback | Medium/private chat | Can show count and roster details when RCON is configured. Not part of public Discord stats. |
 | FPS/logStats metrics (`metrics.query_server_fps_metrics`) | Latest `config/logs/*/console.log` tail | Server runtime log files, not a player DB | Latest console log mtime; stale after configured age | Low | Parses aggregate FPS/frame/memory/players/AI from `-logStats`; not identities, sessions, or connect/disconnect events. |
@@ -36,7 +37,7 @@ Discord stats use `public_stats.load_public_stats`, which enables roster lookup 
 
 ### Player Refresh / Registry
 
-`/players/refresh` is the only implemented player persistence path. It records current reliable IDs into `players.db`, updates current name and name history, and writes intent/outcome audit events. It does not create sessions, online/offline events, ban records, kick records, or kill/death stats.
+`/players/refresh` remains the only browser/operator-triggered player persistence path. It records current reliable IDs into `players.db`, updates current name and name history, and writes intent/outcome audit events. The code-only log event ingest API can persist parsed DTOs into `players.db` when a future caller supplies them, but no live reader, route, background job, or history view calls it yet. Neither path creates online/offline session state, ban records, kick records, or Discord K/D projections.
 
 ### Real Server Log Inventory
 
@@ -46,7 +47,7 @@ See [player-log-event-inventory.md](player-log-event-inventory.md) for the read-
 
 | Storage | Owner / path | What is stored | What is not stored | Retention / cleanup |
 | --- | --- | --- | --- | --- |
-| Player registry DB | `~/armactl-data/<instance>/players.db` | `players`: reliable ID, current name, first/last seen, seen count, last source. `player_names`: reliable ID, name, first/last seen, seen count. Schema meta. | IPs, secrets, RCON password, admin password, sessions, online/offline events, ban/kick history, kill/death stats, raw RCON rows. | No player retention/cleanup currently. File is forced to mode `0600`. |
+| Player registry DB | `~/armactl-data/<instance>/players.db` | `players`: reliable ID, current name, first/last seen, seen count, last source. `player_names`: reliable ID, name, first/last seen, seen count. `player_log_events`: deduped parsed event kind, observed/log timestamp, source/ref/confidence, sanitized identity/name/session/faction/combat fields. Schema meta. | IPs/player addresses, raw log lines, secrets, RCON password, admin password, online/offline session state, ban/kick history, Discord K/D projections, raw RCON rows. | No player retention/cleanup currently. File is forced to mode `0600`. |
 | Web runtime DB | `~/armactl-data/web/web.db` | Web users, sessions, CSRF tokens, jobs, server version checks, login rate limits, pending restarts/work. | Player registry/history/session tables. | Sessions/CSRF have expiry fields; login rate-limit rows are pruned by auth code; job rows have no player retention. File is mode `0600`. |
 | Web audit log | `~/armactl-data/logs/web/audit.log` | JSON-lines records for mutating web actions. Player refresh stores phase/source/counts and controlled failure metadata. Admin actions store target ID and changed status. | Raw player names for player refresh, IPs, passwords, RCON secrets, tracebacks. | No audit retention/rotation in current code. Web log view tails and redacts output. |
 | Game config | `~/armactl-data/<instance>/config/config.json` | Official `game.admins` ID list, server config including A2S/RCON ports and configured secrets. | Player registry, sessions/history, banlist manager state. | Config backups are managed by config save flows; no player-specific retention. |
@@ -64,7 +65,7 @@ See [player-log-event-inventory.md](player-log-event-inventory.md) for the read-
 - Logs/report views are allowlisted, line-limited, byte-bounded, and redacted for common secrets, session/CSRF values, and Argon2 password hashes.
 - Public status fails closed with a generic error. Unknown log sources and permission failures return controlled responses without tracebacks.
 - Player IDs/names are visible on authenticated moderation pages and stored in `players.db`; treat them as moderation data. Public status does not publish names or IDs. Discord stats publishes a bounded current-name preview by design.
-- No code currently adds IP storage for players. Tests explicitly assert player registry tables do not contain `ip`, `ip_address`, `token`, or `password` columns.
+- No code currently adds IP storage for players. Tests assert player registry/event tables do not contain `ip`, `ip_address`, or raw-line columns, and event ingest redacts address-like values before storage.
 - Existing RCON code reads the configured password to query the roster but does not persist it and does not implement ban/kick commands.
 - One should-fix for future mutation work: unexpected admin backend exceptions are rendered as generic 500 without traceback/secrets, but tests show a backend mutation can occur before the exception without pending-work recovery. New moderation mutations should avoid that shape by using explicit rollback/transaction boundaries.
 
@@ -72,7 +73,7 @@ See [player-log-event-inventory.md](player-log-event-inventory.md) for the read-
 
 ### Sessions / History
 
-- Add a player session/event storage model before claiming history support: reliable ID, display name snapshot, source, observed-at timestamps, online/offline/session state, and count/source metadata.
+- Build session/history semantics on top of the event ingest foundation before claiming history support: reliable ID, display name snapshot, source, observed-at timestamps, online/offline/session state, and count/source metadata.
 - Use the real log inventory to distinguish reliable connect/session signals from heuristic disconnect pairing and mod-dependent combat events.
 - Decide the collector trigger: manual refresh only, dashboard poll, background job/service, or explicit operator action. The current code has no automatic session recorder.
 - Define freshness and conflict rules for A2S count versus RCON roster. A2S cannot identify players; RCON can identify some players but can be unavailable.
@@ -113,7 +114,7 @@ See [player-log-event-inventory.md](player-log-event-inventory.md) for the read-
 ## Recommended Next Slices
 
 - Slice 2: read-only players page / improved players view from the existing live roster plus registry, without new schema or moderation mutations.
-- Slice 3: sessions/history storage with reliable identity rules, retention, migrations, and no IP storage by default.
+- Slice 3: live/manual collection, sessionization, retention, and history views on top of the event storage foundation, with no IP storage by default.
 - Slice 4: search/filter across reliable IDs, known names, and session metadata after slice 3 exists.
 - Slice 5: banlist manager with chosen source of truth, audited confirmation, backup/rollback, and redacted errors.
 - Slice 6: Discord stats enrichment after stable player history exists; do not guess K/D, playtime, faction, role, or moderation state from the current roster alone.

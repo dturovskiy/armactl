@@ -21,6 +21,7 @@ The armactl web dashboard is a local browser interface for managing the same Arm
 - Logs and diagnostic report views.
 - Background jobs for install, repair, update checks, and updates.
 - Player registry foundation with reliable IDs and no IP storage by default.
+- Player log event DB ingest foundation for sanitized parser output in the existing `players.db`, with dedupe and no raw log-line/IP storage.
 - Action records and pending operator work for changes that need follow-up.
 
 ## Package Shape
@@ -104,19 +105,21 @@ See [player-log-event-inventory.md](player-log-event-inventory.md) for the real 
 
 See [player-data-inventory.md](player-data-inventory.md) for the current source/storage audit before expanding players, history, or banlist behavior. The current implementation separates live current-player observation from persisted registry data: A2S is count-only, RCON can provide names and reliable IDs, `/players/refresh` persists reliable IDs into `players.db`, and public status stays count-only.
 
-Phase 1 player-history foundation is code-only parser/event-model prep. `armactl.player_log_events` parses sanitized backend authentication, network player update, faction join, script combat, and optional ServerAdminTools kill-wrapper lines into a bounded DTO. It does not read live logs, store raw log lines, store player addresses, create schema, or expose UI.
+Phase 1 player-history foundation is code-only parser/event-model prep. `armactl.player_log_events` parses sanitized backend authentication, network player update, faction join, script combat, and optional ServerAdminTools kill-wrapper lines into a bounded DTO. It does not read live logs, store raw log lines, store player addresses, or expose UI.
 
-Future player history work should add DB ingest/storage with retention and confidence rules before any history UI or public/Discord enrichment.
+Phase 2 player-history DB ingest foundation is also code-only. `player_registry.ingest_player_log_events` stores sanitized `PlayerLogEvent` fields in the existing instance `players.db` as `player_log_events`, records source/ref/confidence metadata, dedupes repeated events, and updates the existing reliable-ID registry only for newly stored events. It does not store raw log lines or player addresses, read live logs, run a background scanner, expose history views, calculate Discord K/D, or manage bans.
+
+Future player history work should add a collector trigger, sessionization, retention rules, and history UI before any public/Discord enrichment.
 
 Next player slices should remain public/free/local core scope:
 
 - slice 2: read-only players page / improved players view from existing sources;
-- slice 3: bounded sessions/history storage with no IP storage by default;
+- slice 3: live/manual collection, sessionization, retention, and history views using the event storage foundation, with no IP storage by default;
 - slice 4: search/filter over reliable IDs, names, and session metadata;
 - slice 5: audited banlist manager after source-of-truth, rollback, and identity rules are settled;
 - slice 6: Discord stats enrichment after stable player history exists.
 
-Do not add ban/kick mutations, kill/death stats presentation, IP tracking, player-history schema migration, live journal readers, background jobs, or Discord enrichment until later slices explicitly choose those sources and retention rules.
+Do not add ban/kick mutations, kill/death stats presentation, IP tracking, live journal readers, background jobs, history views, or Discord enrichment until later slices explicitly choose those sources and retention rules.
 
 ## Deployment
 

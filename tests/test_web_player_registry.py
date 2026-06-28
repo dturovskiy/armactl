@@ -274,6 +274,8 @@ def test_registry_db_migrates_existing_minimal_schema_idempotently(tmp_path: Pat
     assert "seen_count" in _sqlite_columns(db_path, "player_names")
     assert "ip_address" not in _sqlite_columns(db_path, "players")
     assert "idx_player_names_name" in _sqlite_indexes(db_path)
+    assert "player_log_events" in _sqlite_tables(db_path)
+    assert "idx_player_log_events_observed_at" in _sqlite_indexes(db_path)
     assert player_registry.list_known_players(db_path)[0].last_source == "unknown"
     assert player_registry.list_player_names(db_path, "ABCDEF1234567890")[0].seen_count == 1
 
