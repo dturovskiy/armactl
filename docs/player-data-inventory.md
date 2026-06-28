@@ -16,8 +16,9 @@ This inventory records the current implemented player-data flow before the playe
 | Admin add/update/remove (`/admins/add`, `/admins/remove`) | Operator form or quick-add player row | Official IDs in `config.json` `game.admins`; labels in `admins-state.json`; pending restart in `web.db` / fallback file | Mutates immediately; server restart may be required | High/moderation data | Existing audited admin workflow, not a ban/kick workflow. Supports SteamID64, IdentityId, Steam profile URL, and vanity lookup. |
 | Player registry page (`/players`) | `player_registry.list_known_players` | `~/armactl-data/<instance>/players.db` | As fresh as last manual refresh | High/moderation data | Read-only list of known reliable players, current name, first/last seen, count, and source. Basic query matches reliable ID, current name, and historical names. |
 | Player registry refresh (`/players/refresh`) | Current roster from `player_sources.load_current_player_roster` | `players.db` tables `players`, `player_names`, `player_registry_schema_meta`; web audit log | On-demand POST only | High/moderation data | Records only reliable player IDs. Unreliable/slot-only rows are counted and ignored. Audit stores counts/source, not player names. |
-| Player log event DB ingest foundation (`player_registry.ingest_player_log_events`) | Parsed `PlayerLogEvent` DTOs from `player_log_events`; no live reader or collector | `players.db` table `player_log_events`, plus existing `players`/`player_names` observations for reliable IDs | Only when a future caller submits parsed events; no automatic freshness | High/moderation data | Stores sanitized structured auth/update/faction/combat fields with source/ref/confidence and a dedupe key. Does not store raw log lines or player addresses. No UI, live scanner, history views, Discord K/D, or banlist behavior. |
+| Player log event DB ingest foundation (`player_registry.ingest_player_log_events`) | Parsed `PlayerLogEvent` DTOs from `player_log_events`; no live reader or collector | `players.db` table `player_log_events`, plus existing `players`/`player_names` observations for reliable IDs | Only when a caller submits parsed events; no automatic freshness | High/moderation data | Stores sanitized structured auth/update/faction/combat fields with source/ref/confidence and a dedupe key. Does not store raw log lines or player addresses. No live scanner, sessionization, Discord K/D, or banlist behavior. |
 | Manual player log collector/import CLI (`player_log_collector`, `player-history collect`) | Explicit operator-supplied regular text log file paths only | Existing `players.db` through `player_registry.ingest_player_log_events`; dry-run writes nothing | Manual CLI run only | High/moderation data | Reads accepted files line-by-line with max byte/line bounds; files over the byte limit fail closed. Source refs are sanitized basename+file-marker+line only. Summaries/errors use safe labels. No live `journalctl`, daemon, web UI, raw log-line storage, absolute path storage, or IP/address storage. |
+| Player history events page (`/players/history`) | `player_registry.list_player_log_events` over already stored `player_log_events` | Existing instance `players.db`; read-only | As fresh as the last manual collector/import or other ingest caller | High/moderation data | Authenticated `players:view` page lists bounded stored events newest first, with event-type, reliable-ID, and text/name filters. It shows sanitized source refs only and never reads log files, mutates state, displays raw paths, raw log lines, IPs/addresses, secrets, ban/kick state, sessions, playtime, K/D, or Discord enrichment. |
 | TUI player status (`src/armactl/tui/**`) | Shared `player_view` and config/status summaries | None | Live per TUI refresh/action | Medium | TUI can show RCON roster names when configured; no persistent player history. |
 | Telegram bot player/status output (`telegram_bot.py`) | Shared `player_view` | Bot `.env` stores bot config, not player history | Live per bot command/callback | Medium/private chat | Can show count and roster details when RCON is configured. Not part of public Discord stats. |
 | FPS/logStats metrics (`metrics.query_server_fps_metrics`) | Latest `config/logs/*/console.log` tail | Server runtime log files, not a player DB | Latest console log mtime; stale after configured age | Low | Parses aggregate FPS/frame/memory/players/AI from `-logStats`; not identities, sessions, or connect/disconnect events. |
@@ -38,7 +39,7 @@ Discord stats use `public_stats.load_public_stats`, which enables roster lookup 
 
 ### Player Refresh / Registry
 
-`/players/refresh` remains the only browser/operator-triggered current-roster persistence path. It records current reliable IDs into `players.db`, updates current name and name history, and writes intent/outcome audit events. The manual `player-history collect` CLI can parse explicitly supplied bounded text log files and feed sanitized DTOs into the same `players.db` event ingest path, or run as a dry-run without writing. No live reader, route, background job, or history view calls it automatically. Neither path creates online/offline session state, ban records, kick records, or Discord K/D projections.
+`/players/refresh` remains the only browser/operator-triggered current-roster persistence path. It records current reliable IDs into `players.db`, updates current name and name history, and writes intent/outcome audit events. The manual `player-history collect` CLI can parse explicitly supplied bounded text log files and feed sanitized DTOs into the same `players.db` event ingest path, or run as a dry-run without writing. `/players/history` reads only those already stored event rows. No live reader, background job, or web request reads log files automatically. None of these paths creates online/offline session state, ban records, kick records, retention cleanup, or Discord K/D projections.
 
 ### Real Server Log Inventory
 
@@ -66,15 +67,15 @@ See [player-log-event-inventory.md](player-log-event-inventory.md) for the read-
 - Logs/report views are allowlisted, line-limited, byte-bounded, and redacted for common secrets, session/CSRF values, and Argon2 password hashes.
 - Public status fails closed with a generic error. Unknown log sources and permission failures return controlled responses without tracebacks.
 - Player IDs/names are visible on authenticated moderation pages and stored in `players.db`; treat them as moderation data. Public status does not publish names or IDs. Discord stats publishes a bounded current-name preview by design.
-- No code currently adds IP storage for players. Tests assert player registry/event tables do not contain `ip`, `ip_address`, or raw-line columns, and event ingest redacts address-like values before storage.
+- No code currently adds IP storage for players. Tests assert player registry/event tables do not contain `ip`, `ip_address`, or raw-line columns, event ingest redacts address-like values before storage, and `/players/history` does not render raw source paths, IPs, or raw log lines.
 - Existing RCON code reads the configured password to query the roster but does not persist it and does not implement ban/kick commands.
 - One should-fix for future mutation work: unexpected admin backend exceptions are rendered as generic 500 without traceback/secrets, but tests show a backend mutation can occur before the exception without pending-work recovery. New moderation mutations should avoid that shape by using explicit rollback/transaction boundaries.
 
-## Gaps Before Player History
+## Gaps Before Richer Player History
 
 ### Sessions / History
 
-- Build session/history semantics on top of the event ingest foundation before claiming history support: reliable ID, display name snapshot, source, observed-at timestamps, online/offline/session state, and count/source metadata.
+- Read-only stored event history is implemented for `player_log_events`; richer session/history semantics still need reliable ID, display name snapshot, source, observed-at timestamps, online/offline/session state, and count/source metadata.
 - Use the real log inventory to distinguish reliable connect/session signals from heuristic disconnect pairing and mod-dependent combat events.
 - Manual explicit log-file import exists for bounded text files. Future work still needs to decide any live scanner/dashboard poll/background job trigger; the current code has no automatic session recorder.
 - Define freshness and conflict rules for A2S count versus RCON roster. A2S cannot identify players; RCON can identify some players but can be unavailable.
@@ -84,6 +85,7 @@ See [player-log-event-inventory.md](player-log-event-inventory.md) for the read-
 ### Search By Nickname / ID
 
 - Existing `list_known_players` already supports basic `LIKE` search across reliable ID, current name, and historical names.
+- Existing `list_player_log_events` supports bounded event-type, reliable-ID, and text/name filters across stored event fields.
 - Add normalized/case-stable search helpers and indexes if the registry grows.
 - Add session-aware filters only after session storage exists: last seen range, online/offline status, source, and known-name history.
 - Add detail views or APIs that expose bounded name history without leaking raw logs or secrets.
@@ -114,8 +116,8 @@ See [player-log-event-inventory.md](player-log-event-inventory.md) for the read-
 
 ## Recommended Next Slices
 
-- Slice 2: read-only players page / improved players view from the existing live roster plus registry, without new schema or moderation mutations.
-- Slice 3: live scanner/sessionization, retention, and history views on top of the parser/import/storage foundation, with no IP storage by default.
+- Slice 2: read-only players page / improved players view from the existing live roster, registry, and stored event history, without new schema or moderation mutations.
+- Slice 3: live scanner/sessionization and retention policy on top of the parser/import/storage foundation, with no IP storage by default.
 - Slice 4: search/filter across reliable IDs, known names, and session metadata after slice 3 exists.
 - Slice 5: banlist manager with chosen source of truth, audited confirmation, backup/rollback, and redacted errors.
 - Slice 6: Discord stats enrichment after stable player history exists; do not guess K/D, playtime, faction, role, or moderation state from the current roster alone.

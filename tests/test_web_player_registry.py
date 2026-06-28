@@ -15,6 +15,10 @@ from armactl.web.auth.setup import setup_owner_user
 from armactl.web.services.player_registry import PlayerObservation
 from armactl.web.services.player_sources import CurrentPlayer, CurrentPlayerRoster
 
+PLAYER_ALPHA_ID = "11111111-1111-4111-8111-111111111111"
+PLAYER_BRAVO_ID = "22222222-2222-4222-8222-222222222222"
+PLAYER_CHARLIE_ID = "33333333-3333-4333-8333-333333333333"
+
 
 def _client(app):
     with warnings.catch_warnings():
@@ -91,6 +95,14 @@ def _roster(*players: CurrentPlayer) -> CurrentPlayerRoster:
     )
 
 
+def _parse_log_event(line: str, **kwargs):
+    from armactl import player_log_events
+
+    event = player_log_events.parse_player_log_event(line, **kwargs)
+    assert event is not None
+    return event
+
+
 def _registry_schema_version(db_path: Path) -> str:
     with sqlite3.connect(db_path) as connection:
         row = connection.execute(
@@ -138,10 +150,7 @@ def _audit_events(data_root: Path) -> list[dict]:
     audit_path = data_root / "logs" / "web" / "audit.log"
     if not audit_path.exists():
         return []
-    return [
-        json.loads(line)
-        for line in audit_path.read_text(encoding="utf-8").splitlines()
-    ]
+    return [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
 
 
 def _authed_client(tmp_path: Path, monkeypatch, *, db_path: Path | None = None):
@@ -282,24 +291,16 @@ def test_registry_db_migrates_existing_minimal_schema_idempotently(tmp_path: Pat
     with sqlite3.connect(db_path) as connection:
         first_snapshot = (
             connection.execute("SELECT * FROM players ORDER BY reliable_id").fetchall(),
-            connection.execute(
-                "SELECT * FROM player_names ORDER BY reliable_id, name"
-            ).fetchall(),
-            connection.execute(
-                "SELECT * FROM player_registry_schema_meta ORDER BY key"
-            ).fetchall(),
+            connection.execute("SELECT * FROM player_names ORDER BY reliable_id, name").fetchall(),
+            connection.execute("SELECT * FROM player_registry_schema_meta ORDER BY key").fetchall(),
         )
     player_registry.ensure_player_registry_db(db_path)
 
     with sqlite3.connect(db_path) as connection:
         second_snapshot = (
             connection.execute("SELECT * FROM players ORDER BY reliable_id").fetchall(),
-            connection.execute(
-                "SELECT * FROM player_names ORDER BY reliable_id, name"
-            ).fetchall(),
-            connection.execute(
-                "SELECT * FROM player_registry_schema_meta ORDER BY key"
-            ).fetchall(),
+            connection.execute("SELECT * FROM player_names ORDER BY reliable_id, name").fetchall(),
+            connection.execute("SELECT * FROM player_registry_schema_meta ORDER BY key").fetchall(),
         )
     assert second_snapshot == first_snapshot
 
@@ -393,10 +394,13 @@ def test_players_route_requires_authentication(tmp_path: Path):
     client = _client(create_app(data_root=tmp_path))
 
     get_response = client.get("/players", follow_redirects=False)
+    history_response = client.get("/players/history", follow_redirects=False)
     post_response = client.post("/players/refresh", data={}, follow_redirects=False)
 
     assert get_response.status_code == 303
     assert get_response.headers["location"] == "/login"
+    assert history_response.status_code == 303
+    assert history_response.headers["location"] == "/login"
     assert post_response.status_code == 303
     assert post_response.headers["location"] == "/login"
 
@@ -417,6 +421,7 @@ def test_players_route_requires_players_view_permission(
     _login(client, "owner", "owner players password")
 
     response = client.get("/players", follow_redirects=False)
+    history_response = client.get("/players/history", follow_redirects=False)
     post_response = client.post(
         "/players/refresh",
         data={"csrf_token": "unused"},
@@ -425,6 +430,8 @@ def test_players_route_requires_players_view_permission(
 
     assert response.status_code == 403
     assert response.text == "Permission denied."
+    assert history_response.status_code == 403
+    assert history_response.text == "Permission denied."
     assert post_response.status_code == 403
     assert post_response.text == "Permission denied."
     assert not PLAYERS_VIEW.endswith(":manage")
@@ -446,6 +453,167 @@ def test_players_route_html_escapes_player_names(tmp_path: Path, monkeypatch):
     assert response.status_code == 200
     assert "&lt;Alpha &amp; Co&gt;" in response.text
     assert "<Alpha & Co>" not in response.text
+
+
+def test_player_history_route_renders_empty_state_and_migrates_v1_db(
+    tmp_path: Path,
+    monkeypatch,
+):
+    db_path = tmp_path / "default" / "players.db"
+    db_path.parent.mkdir(parents=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE player_registry_schema_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO player_registry_schema_meta(key, value)
+            VALUES ('schema_version', '1')
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE players (
+                reliable_id TEXT PRIMARY KEY,
+                current_name TEXT NOT NULL,
+                first_seen_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                seen_count INTEGER NOT NULL,
+                last_source TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE player_names (
+                reliable_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                first_seen_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                seen_count INTEGER NOT NULL,
+                PRIMARY KEY (reliable_id, name)
+            )
+            """
+        )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get("/players/history", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "No player history events recorded yet." in response.text
+    assert "player_log_events" in _sqlite_tables(db_path)
+    assert _registry_schema_version(db_path) == "2"
+
+
+def test_player_history_route_renders_stored_rows_without_raw_sources(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    raw_auth_line = (
+        "BACKEND : Authenticated player: "
+        f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha 203.0.113.9"
+    )
+    parsed_events = [
+        _parse_log_event(
+            raw_auth_line,
+            observed_at="2026-01-01T12:00:01+00:00",
+            raw_source_ref=(
+                "/home/deus/armactl-data/default/config/logs/run/"
+                "console-198.51.100.7.log:203.0.113.9:1"
+            ),
+        ),
+        _parse_log_event(
+            "NETWORK : ### Updating player: PlayerId=7, Name=Alpha One, "
+            f"rplIdentity=42, IdentityId={PLAYER_ALPHA_ID}",
+            observed_at="2026-01-01T12:00:02+00:00",
+            raw_source_ref="journal:update",
+        ),
+        _parse_log_event(
+            "SCRIPT : INFO: Faction: player Alpha One "
+            f"(playerID = 7 | UUID = {PLAYER_ALPHA_ID}) "
+            "has joined faction #US_Army (US)",
+            observed_at="2026-01-01T12:00:03+00:00",
+            raw_source_ref="journal:faction",
+        ),
+        _parse_log_event(
+            "SCRIPT : INFO: KILL TK: Bravo Two "
+            f"(playerID = 8 | UUID = {PLAYER_BRAVO_ID}) from US faction "
+            "at <4 5 6> was killed by Alpha One "
+            f"(playerID = 7 | UUID = {PLAYER_ALPHA_ID}) from US faction "
+            "who was at that time at <4 5 7> [2.2m away from the corpse]. "
+            "With last inflicted damage type Bullet to the 'LeftArm' hit zone",
+            observed_at="2026-01-01T12:00:04+00:00",
+            raw_source_ref="journal:teamkill",
+        ),
+    ]
+    player_registry.ingest_player_log_events(
+        db_path,
+        parsed_events,
+        ingested_at="2026-01-01T12:00:05+00:00",
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get("/players/history", follow_redirects=False)
+
+    assert response.status_code == 200
+    html = response.text
+    assert "2026-01-01 12:00 UTC" in html
+    assert "player_authenticated" in html
+    assert "player_update" in html
+    assert "faction_join" in html
+    assert "teamkill" in html
+    assert "Alpha ***" in html
+    assert "Alpha One" in html
+    assert "Bravo Two" in html
+    assert PLAYER_ALPHA_ID in html
+    assert PLAYER_BRAVO_ID in html
+    assert "US_Army" in html
+    assert "US" in html
+    assert "Bullet" in html
+    assert "LeftArm" in html
+    assert "2.2 m" in html
+    assert "console-***.log:***" in html
+    assert "/home/deus" not in html
+    assert "armactl-data" not in html
+    assert "198.51.100.7" not in html
+    assert "203.0.113.9" not in html
+    assert raw_auth_line not in html
+
+
+def test_player_history_route_ignores_unknown_event_type_filter(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.ingest_player_log_events(
+        db_path,
+        [
+            _parse_log_event(
+                "BACKEND : Authenticated player: "
+                f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One",
+                observed_at="2026-01-01T12:00:01+00:00",
+                raw_source_ref="journal:alpha-auth",
+            )
+        ],
+        ingested_at="2026-01-01T12:00:05+00:00",
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get("/players/history?event_type=not-real", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "player_authenticated" in response.text
+    assert "not-real" not in response.text
 
 
 def test_players_refresh_requires_csrf(tmp_path: Path, monkeypatch):
@@ -658,9 +826,10 @@ def test_players_refresh_success_writes_outcome_audit_success(
     assert result.stored_count == 1
     assert result.ignored_count == 1
     assert result.reliable_count == 1
-    assert [player.current_name for player in player_registry.list_known_players(
-        tmp_path / "default" / "players.db"
-    )] == ["Alpha token=***"]
+    assert [
+        player.current_name
+        for player in player_registry.list_known_players(tmp_path / "default" / "players.db")
+    ] == ["Alpha token=***"]
     events = _audit_events(tmp_path)
     assert [event["details"]["phase"] for event in events] == ["intent", "outcome"]
     outcome = events[1]

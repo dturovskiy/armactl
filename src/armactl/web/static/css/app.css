@@ -985,7 +985,9 @@ button.danger {
   font-weight: 700;
 }
 
-.player-search-form input[type="search"] {
+.player-search-form input[type="search"],
+.player-search-form input[type="number"],
+.player-search-form select {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -996,6 +998,24 @@ button.danger {
   background: var(--input-bg);
   color: var(--text);
   font: inherit;
+}
+
+.player-history-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.player-history-table td {
+  vertical-align: top;
+}
+
+.player-history-actor,
+.event-detail-list,
+.event-flags {
+  display: grid;
+  gap: 4px;
+  min-width: 130px;
 }
 
 .player-admin-form {

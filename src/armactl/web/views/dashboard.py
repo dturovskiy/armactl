@@ -273,9 +273,7 @@ def _server_update_action(
     if not can_update_server:
         return None
     server_version = _section(snapshot, "server_version")
-    can_update = bool(
-        server_version.get("can_update") or server_version.get("canUpdate")
-    )
+    can_update = bool(server_version.get("can_update") or server_version.get("canUpdate"))
     running = bool(
         snapshot.get("running")
         or server_version.get("server_running")
@@ -316,6 +314,7 @@ def _management_links(
     can_view_bot: bool,
     can_view_files: bool,
     can_view_logs: bool,
+    can_view_players: bool = False,
     can_view_schedule: bool = False,
     can_update_server: bool = False,
 ) -> tuple[list[dict[str, str]], str]:
@@ -357,6 +356,14 @@ def _management_links(
                 "href": "/admins",
                 "label": "Admins",
                 "description": "Game admin IDs and labels",
+            }
+        )
+    if can_view_players:
+        links.append(
+            {
+                "href": "/players/history",
+                "label": "Player History",
+                "description": "Stored player events",
             }
         )
     if can_view_bot:
@@ -759,6 +766,7 @@ def build_dashboard_view(
     can_view_bot: bool,
     can_view_jobs: bool,
     can_view_files: bool = False,
+    can_view_players: bool = False,
     can_view_schedule: bool = False,
     can_view_logs: bool = False,
     can_update_server: bool = False,
@@ -789,6 +797,7 @@ def build_dashboard_view(
         can_view_admins=can_view_admins,
         can_view_bot=can_view_bot,
         can_view_files=can_view_files,
+        can_view_players=can_view_players,
         can_view_schedule=can_view_schedule,
         can_view_logs=can_view_logs,
         can_update_server=can_update_server,

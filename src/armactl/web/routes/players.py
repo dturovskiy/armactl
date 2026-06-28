@@ -69,6 +69,54 @@ def _render_players_page(
     return response
 
 
+def _render_player_history_page(
+    request: Request,
+    current: CurrentSession,
+    *,
+    status_code: int = status.HTTP_200_OK,
+) -> Response:
+    if not require_permission(current, PLAYERS_VIEW):
+        return permission_denied_response()
+
+    page = players_page_model.load_player_history_page(
+        paths.DEFAULT_INSTANCE_NAME,
+        data_root=current.config.data_root,
+        query=request.query_params.get("q", ""),
+        event_type=request.query_params.get("event_type", ""),
+        reliable_id=request.query_params.get("player_id", ""),
+        limit=request.query_params.get("limit", ""),
+    )
+    form_csrf = get_form_csrf_token(request, current)
+    response = request.app.state.templates.TemplateResponse(
+        request=request,
+        name="players_history.html",
+        context={
+            "current_user": current.user,
+            "csrf_token": form_csrf.token,
+            "page": page,
+            "query": page.query,
+            "event_type": page.event_type,
+            "event_type_options": page.event_type_options,
+            "player_id": page.reliable_id,
+            "limit": page.limit,
+            "events": page.events,
+        },
+        status_code=status_code,
+    )
+    if form_csrf.should_set_cookie:
+        set_csrf_cookie(response, form_csrf.token, current.config)
+    return response
+
+
+@router.get("/players/history", response_class=HTMLResponse)
+def player_history_page(request: Request) -> Response:
+    """Render stored player log events from the instance registry."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    return _render_player_history_page(request, current)
+
+
 @router.get("/players", response_class=HTMLResponse)
 def players_page(request: Request) -> Response:
     """Render known reliable players from the instance registry."""

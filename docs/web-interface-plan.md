@@ -23,6 +23,7 @@ The armactl web dashboard is a local browser interface for managing the same Arm
 - Player registry foundation with reliable IDs and no IP storage by default.
 - Player log event DB ingest foundation for sanitized parser output in the existing `players.db`, with dedupe and no raw log-line/IP storage.
 - Manual player log collector/import foundation through CLI for explicitly supplied bounded text log files, with dry-run/write modes and safe basename+file-marker+line source refs.
+- Read-only player history web view for already stored player log events, with bounded filters and no web-request log reads or mutations.
 - Action records and pending operator work for changes that need follow-up.
 
 ## Package Shape
@@ -52,6 +53,7 @@ Routes should stay thin. Services own validation, backend calls, backups, pendin
 - `/logs` - fixed log/report sources.
 - `/jobs` - background job status.
 - `/players` - player registry foundation.
+- `/players/history` - authenticated read-only stored player event history.
 - `/updates` - server version/update views, controlled post-action notices, fresh-check reuse feedback, and active update/check job links to `/jobs`.
 
 ## Auth And Safety
@@ -112,17 +114,19 @@ Phase 2 player-history DB ingest foundation is also code-only. `player_registry.
 
 Phase 3a manual collector/import foundation is CLI-only. `armactl player-history collect` accepts explicit log file paths, defaults to dry-run, writes only with `--write`, resolves the instance-scoped `players.db` from `--instance` and `--data-root`, reads regular UTF-8 text logs line-by-line within max byte/line bounds, fails closed for files over the byte limit, and sends parsed events to the existing ingest path with sanitized basename+file-marker+line source refs. It does not read live `journalctl`, run a daemon/background poller, expose web routes/templates, store raw log lines, store IP/address values, or create sessions/history views.
 
-Future player history work should add live scanner trigger decisions, sessionization, retention rules, and history UI before any public/Discord enrichment.
+Phase 3b read-only history view is web-only. `/players/history` lists already stored `player_log_events` newest first with bounded limit, event-type, reliable-ID, and text/name filters. It uses the existing `players:view` permission, displays sanitized source refs only, and does not read log files, run a scanner, mutate data, store or display IPs, show raw log lines, create sessions, calculate K/D, manage bans, or enrich Discord output.
+
+Future player history work should add live scanner trigger decisions, sessionization, retention rules, and richer session/history semantics before any public/Discord enrichment.
 
 Next player slices should remain public/free/local core scope:
 
-- slice 2: read-only players page / improved players view from existing sources;
-- slice 3: live scanner/sessionization, retention, and history views using the parser/import/storage foundation, with no IP storage by default;
+- slice 2: read-only players page / improved players view from existing sources and stored event history;
+- slice 3: live scanner/sessionization and retention policy using the parser/import/storage foundation, with no IP storage by default;
 - slice 4: search/filter over reliable IDs, names, and session metadata;
 - slice 5: audited banlist manager after source-of-truth, rollback, and identity rules are settled;
 - slice 6: Discord stats enrichment after stable player history exists.
 
-Do not add ban/kick mutations, kill/death stats presentation, IP tracking, live journal readers, background jobs, history views, retention jobs, or Discord enrichment until later slices explicitly choose those sources and retention rules.
+Do not add ban/kick mutations, aggregate kill/death stats, IP tracking, live journal readers, background jobs, sessionization, retention jobs, or Discord enrichment until later slices explicitly choose those sources and retention rules.
 
 ## Deployment
 

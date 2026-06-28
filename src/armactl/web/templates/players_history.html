@@ -1,0 +1,138 @@
+{% extends "layout.html" %}
+{% macro player_cell(name, reliable_id, session_id, faction) -%}
+  {% if name or reliable_id or session_id or faction %}
+    <div class="player-history-actor">
+      {% if name %}<strong class="wrap-value">{{ name }}</strong>{% endif %}
+      {% if reliable_id %}<span class="wrap-value">{{ reliable_id }}</span>{% endif %}
+      {% if session_id %}<span>{{ tr("session {id}", id=session_id) }}</span>{% endif %}
+      {% if faction %}<span>{{ faction }}</span>{% endif %}
+    </div>
+  {% else %}
+    <span class="muted">{{ t("n/a") }}</span>
+  {% endif %}
+{%- endmacro %}
+{% macro flag_value(value) -%}
+  {% if value is none %}{{ t("n/a") }}{% elif value %}{{ t("yes") }}{% else %}{{ t("no") }}{% endif %}
+{%- endmacro %}
+{% block title %}{{ t("Player History - armactl web") }}{% endblock %}
+{% block heading %}{{ t("Player History") }}{% endblock %}
+{% block topbar_actions %}
+<a class="button-link secondary-link" href="/players">{{ t("Player Registry") }}</a>
+<a class="button-link secondary-link" href="/admins">{{ t("Admins") }}</a>
+<a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
+<form method="post" action="/logout" class="logout-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <span class="user-label">{{ current_user.username }}</span>
+  <button type="submit">{{ t("Log out") }}</button>
+</form>
+{% endblock %}
+{% block content %}
+<section class="panel full-width player-history-panel">
+  <div class="section-heading-row">
+    <h2>{{ t("Stored Events") }}</h2>
+    <a class="button-link secondary-link" href="/players">{{ t("Known Players") }}</a>
+  </div>
+
+  <form method="get" action="/players/history" class="player-search-form player-history-filter-form">
+    <div class="player-history-filter-grid">
+      <label>
+        <span>{{ t("Event type") }}</span>
+        <select name="event_type">
+          {% for option_value, option_label in event_type_options %}
+            <option value="{{ option_value }}"{% if option_value == event_type %} selected{% endif %}>{{ t(option_label) }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>{{ t("Player ID") }}</span>
+        <input type="search" name="player_id" value="{{ player_id }}" autocomplete="off">
+      </label>
+      <label>
+        <span>{{ t("Name / text") }}</span>
+        <input type="search" name="q" value="{{ query }}" autocomplete="off">
+      </label>
+      <label>
+        <span>{{ t("Limit") }}</span>
+        <input type="number" name="limit" value="{{ limit }}" min="1" max="250" step="1">
+      </label>
+    </div>
+    <div class="form-actions">
+      <button type="submit">{{ t("Apply filters") }}</button>
+      <a class="button-link secondary-link" href="/players/history">{{ t("Clear") }}</a>
+    </div>
+  </form>
+
+  {% if events %}
+    <table class="player-history-table">
+      <thead>
+        <tr>
+          <th>{{ t("Time") }}</th>
+          <th>{{ t("Event") }}</th>
+          <th>{{ t("Source") }}</th>
+          <th>{{ t("Player") }}</th>
+          <th>{{ t("Victim") }}</th>
+          <th>{{ t("Instigator") }}</th>
+          <th>{{ t("Faction") }}</th>
+          <th>{{ t("Flags") }}</th>
+          <th>{{ t("Combat") }}</th>
+          <th>{{ t("Source ref") }}</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for event in events %}
+        <tr>
+          <td>{{ format_web_timestamp(event.event_time) or event.event_time }}</td>
+          <td class="wrap-value"><strong>{{ event.event_type }}</strong></td>
+          <td>
+            <div class="event-detail-list">
+              <span class="wrap-value">{{ event.source }}</span>
+              <span class="status-pill status-pill-ok">{{ event.confidence }}</span>
+            </div>
+          </td>
+          <td>{{ player_cell(event.player_name, event.player_id, event.session_player_id, event.player_faction) }}</td>
+          <td>{{ player_cell(event.victim_name, event.victim_id, event.victim_session_player_id, event.victim_faction) }}</td>
+          <td>{{ player_cell(event.instigator_name, event.instigator_id, event.instigator_session_player_id, event.instigator_faction) }}</td>
+          <td>
+            {% if event.player_faction or event.faction_resource %}
+              <div class="event-detail-list">
+                {% if event.player_faction %}<span>{{ event.player_faction }}</span>{% endif %}
+                {% if event.faction_resource %}<span class="wrap-value">{{ event.faction_resource }}</span>{% endif %}
+              </div>
+            {% else %}
+              <span class="muted">{{ t("n/a") }}</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="event-flags">
+              <span>{{ t("TK") }}: {{ flag_value(event.teamkill) }}</span>
+              <span>{{ t("Suicide") }}: {{ flag_value(event.suicide) }}</span>
+              <span>{{ t("AI") }}: {{ flag_value(event.ai_instigator) }}</span>
+            </div>
+          </td>
+          <td>
+            {% if event.damage_type or event.hit_zone or event.distance_m is not none %}
+              <div class="event-detail-list">
+                {% if event.damage_type %}<span>{{ event.damage_type }}</span>{% endif %}
+                {% if event.hit_zone %}<span>{{ event.hit_zone }}</span>{% endif %}
+                {% if event.distance_m is not none %}<span>{{ tr("{distance} m", distance=event.distance_m) }}</span>{% endif %}
+              </div>
+            {% else %}
+              <span class="muted">{{ t("n/a") }}</span>
+            {% endif %}
+          </td>
+          <td class="wrap-value">
+            {% if event.source_ref %}{{ event.source_ref }}{% else %}<span class="muted">{{ t("n/a") }}</span>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% elif query or event_type or player_id %}
+    <p class="muted">{{ t("No player history events match search.") }}</p>
+  {% else %}
+    <div class="notice-panel notice-unavailable">
+      <strong>{{ t("No player history events recorded yet.") }}</strong>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

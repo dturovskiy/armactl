@@ -5,9 +5,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from armactl import paths
+from armactl import paths, player_log_events
 from armactl.web.services import player_registry, player_sources
 from armactl.web.services.player_identity import normalize_player_query, safe_player_text
+
+PLAYER_HISTORY_EVENT_TYPES = (
+    ("", "All event types"),
+    (
+        player_log_events.EVENT_TYPE_PLAYER_AUTHENTICATED,
+        player_log_events.EVENT_TYPE_PLAYER_AUTHENTICATED,
+    ),
+    (player_log_events.EVENT_TYPE_PLAYER_UPDATE, player_log_events.EVENT_TYPE_PLAYER_UPDATE),
+    (player_log_events.EVENT_TYPE_FACTION_JOIN, player_log_events.EVENT_TYPE_FACTION_JOIN),
+    (player_log_events.EVENT_TYPE_KILL, player_log_events.EVENT_TYPE_KILL),
+    (player_log_events.EVENT_TYPE_SUICIDE, player_log_events.EVENT_TYPE_SUICIDE),
+    (player_log_events.EVENT_TYPE_TEAMKILL, player_log_events.EVENT_TYPE_TEAMKILL),
+    (player_log_events.EVENT_TYPE_OTHER_DEATH, player_log_events.EVENT_TYPE_OTHER_DEATH),
+    (player_log_events.EVENT_TYPE_COMBAT_HINT, player_log_events.EVENT_TYPE_COMBAT_HINT),
+)
+PLAYER_HISTORY_EVENT_TYPE_VALUES = frozenset(
+    event_type for event_type, _label in PLAYER_HISTORY_EVENT_TYPES if event_type
+)
 
 
 @dataclass(frozen=True)
@@ -48,6 +66,19 @@ class PlayerRegistryPage:
     query: str
     players: tuple[player_registry.KnownPlayer, ...]
     registry_path: Path
+
+
+@dataclass(frozen=True)
+class PlayerHistoryPage:
+    """Read-only stored player event history page model."""
+
+    instance: str
+    query: str
+    event_type: str
+    reliable_id: str
+    limit: int
+    events: tuple[player_registry.PlayerLogEventRecord, ...]
+    event_type_options: tuple[tuple[str, str], ...]
 
 
 def _moderation_player(player: player_sources.CurrentPlayer) -> ModerationPlayer:
@@ -129,4 +160,57 @@ def load_player_registry_page(
         query=normalized_query,
         players=tuple(player_registry.list_known_players(registry_path, query=normalized_query)),
         registry_path=registry_path,
+    )
+
+
+def _normalize_history_limit(value: object) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return player_registry.DEFAULT_PLAYER_HISTORY_EVENT_LIMIT
+    return max(1, min(parsed, player_registry.MAX_PLAYER_HISTORY_EVENT_LIMIT))
+
+
+def _normalize_history_event_type(value: object) -> str:
+    candidate = safe_player_text(value, max_length=80)
+    if candidate in PLAYER_HISTORY_EVENT_TYPE_VALUES:
+        return candidate
+    return ""
+
+
+def load_player_history_page(
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    *,
+    data_root: Path = paths.DEFAULT_DATA_ROOT,
+    query: str = "",
+    event_type: str = "",
+    reliable_id: str = "",
+    limit: object = player_registry.DEFAULT_PLAYER_HISTORY_EVENT_LIMIT,
+) -> PlayerHistoryPage:
+    """Return stored player log events for the history page."""
+    normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
+    normalized_query = normalize_player_query(query)
+    normalized_event_type = _normalize_history_event_type(event_type)
+    normalized_reliable_id = safe_player_text(reliable_id, max_length=120)
+    normalized_limit = _normalize_history_limit(limit)
+    registry_path = player_registry.player_registry_db_path(
+        normalized_instance,
+        data_root=data_root,
+    )
+    return PlayerHistoryPage(
+        instance=normalized_instance,
+        query=normalized_query,
+        event_type=normalized_event_type,
+        reliable_id=normalized_reliable_id,
+        limit=normalized_limit,
+        events=tuple(
+            player_registry.list_player_log_events(
+                registry_path,
+                limit=normalized_limit,
+                event_type=normalized_event_type,
+                reliable_id=normalized_reliable_id,
+                query=normalized_query,
+            )
+        ),
+        event_type_options=PLAYER_HISTORY_EVENT_TYPES,
     )

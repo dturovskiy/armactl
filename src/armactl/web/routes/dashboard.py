@@ -24,6 +24,7 @@ from armactl.web.auth.permissions import (
     JOBS_VIEW,
     LOGS_VIEW,
     MODS_VIEW,
+    PLAYERS_VIEW,
     SCHEDULE_VIEW,
     SERVER_UPDATE,
 )
@@ -57,15 +58,14 @@ def _dashboard_permission_flags(current: CurrentSession) -> dict[str, bool]:
         "can_view_jobs": require_permission(current, JOBS_VIEW),
         "can_view_files": require_permission(current, FILES_READ),
         "can_view_logs": require_permission(current, LOGS_VIEW),
+        "can_view_players": require_permission(current, PLAYERS_VIEW),
         "can_view_schedule": require_permission(current, SCHEDULE_VIEW),
         "can_update_server": require_permission(current, SERVER_UPDATE),
     }
 
 
 def _load_dashboard_model(current: CurrentSession) -> tuple[dict, dict, dict[str, bool]]:
-    snapshot = dashboard_page_model.load_dashboard_snapshot(
-        "default", web_config=current.config
-    )
+    snapshot = dashboard_page_model.load_dashboard_snapshot("default", web_config=current.config)
     permissions = _dashboard_permission_flags(current)
     dashboard = build_dashboard_view(snapshot, **permissions)
     return snapshot, dashboard, permissions
@@ -154,6 +154,4 @@ def dashboard_status_json(request: Request) -> Response:
 
     language = resolve_language(request)
     translate = translation_helpers(language)["t"]
-    return JSONResponse(
-        build_dashboard_status_payload(snapshot, dashboard, translate=translate)
-    )
+    return JSONResponse(build_dashboard_status_payload(snapshot, dashboard, translate=translate))

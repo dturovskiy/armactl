@@ -23,6 +23,8 @@ from armactl.web.services.player_identity import (
 PLAYER_REGISTRY_DB_NAME = "players.db"
 PLAYER_REGISTRY_SCHEMA_VERSION = "2"
 PRIVATE_PLAYER_REGISTRY_FILE_MODE = 0o600
+DEFAULT_PLAYER_HISTORY_EVENT_LIMIT = 100
+MAX_PLAYER_HISTORY_EVENT_LIMIT = 250
 DEFAULT_PLAYER_LIST_LIMIT = 100
 _LEGACY_DEFAULT_TIMESTAMP = "1970-01-01T00:00:00+00:00"
 PLAYER_LOG_EVENT_TEXT_MAX_LENGTH = 240
@@ -115,6 +117,52 @@ class PlayerLogEventIngestResult:
     duplicate_count: int
 
 
+@dataclass(frozen=True)
+class PlayerLogEventRecord:
+    """One sanitized persisted player log event row for read-only views."""
+
+    event_id: int
+    event_type: str
+    source: str
+    source_ref: str
+    confidence: str
+    observed_at: str
+    log_timestamp: str
+    player_id: str
+    player_name: str
+    session_player_id: str
+    rpl_identity: str
+    player_faction: str
+    faction_resource: str
+    victim_id: str
+    victim_name: str
+    victim_session_player_id: str
+    victim_faction: str
+    instigator_id: str
+    instigator_name: str
+    instigator_session_player_id: str
+    instigator_faction: str
+    teamkill: bool | None
+    suicide: bool | None
+    ai_instigator: bool | None
+    damage_type: str
+    hit_zone: str
+    distance_m: float | None
+    created_at: str
+
+    @property
+    def event_time(self) -> str:
+        return self.observed_at or self.created_at
+
+
+def _bounded_player_history_limit(value: object) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_PLAYER_HISTORY_EVENT_LIMIT
+    return max(1, min(parsed, MAX_PLAYER_HISTORY_EVENT_LIMIT))
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -160,9 +208,7 @@ def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
 def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
     if not _table_exists(connection, table_name):
         return set()
-    rows = connection.execute(
-        f"PRAGMA table_info({_quote_identifier(table_name)})"
-    ).fetchall()
+    rows = connection.execute(f"PRAGMA table_info({_quote_identifier(table_name)})").fetchall()
     return {str(row[1]) for row in rows}
 
 
@@ -423,6 +469,42 @@ def _name_from_row(row: sqlite3.Row) -> KnownPlayerName:
         first_seen_at=str(row["first_seen_at"]),
         last_seen_at=str(row["last_seen_at"]),
         seen_count=int(row["seen_count"]),
+    )
+
+
+def _player_log_event_record_from_row(row: sqlite3.Row) -> PlayerLogEventRecord:
+    return PlayerLogEventRecord(
+        event_id=int(row["event_id"]),
+        event_type=_safe_event_text(row["event_type"]) or "unknown",
+        source=_safe_event_text(row["source"]) or "unknown",
+        source_ref=_safe_event_source_ref(row["source_ref"]) or "",
+        confidence=_safe_event_text(row["confidence"]) or "unknown",
+        observed_at=_safe_event_text(row["observed_at"]) or "",
+        log_timestamp=_safe_event_text(row["log_timestamp"]) or "",
+        player_id=_safe_event_player_id(row["player_id"]) or "",
+        player_name=_safe_event_text(row["player_name"]) or "",
+        session_player_id=_safe_event_text(row["session_player_id"]) or "",
+        rpl_identity=_safe_event_text(row["rpl_identity"]) or "",
+        player_faction=_safe_event_text(row["player_faction"]) or "",
+        faction_resource=_safe_event_text(row["faction_resource"]) or "",
+        victim_id=_safe_event_player_id(row["victim_id"]) or "",
+        victim_name=_safe_event_text(row["victim_name"]) or "",
+        victim_session_player_id=_safe_event_text(row["victim_session_player_id"]) or "",
+        victim_faction=_safe_event_text(row["victim_faction"]) or "",
+        instigator_id=_safe_event_player_id(row["instigator_id"]) or "",
+        instigator_name=_safe_event_text(row["instigator_name"]) or "",
+        instigator_session_player_id=_safe_event_text(
+            row["instigator_session_player_id"],
+        )
+        or "",
+        instigator_faction=_safe_event_text(row["instigator_faction"]) or "",
+        teamkill=_event_bool_from_row(row["teamkill"]),
+        suicide=_event_bool_from_row(row["suicide"]),
+        ai_instigator=_event_bool_from_row(row["ai_instigator"]),
+        damage_type=_safe_event_text(row["damage_type"]) or "",
+        hit_zone=_safe_event_text(row["hit_zone"]) or "",
+        distance_m=_event_distance(row["distance_m"]),
+        created_at=_safe_event_text(row["created_at"]) or "",
     )
 
 
@@ -691,10 +773,96 @@ def _event_bool(value: bool | None) -> int | None:
 def _event_distance(value: float | None) -> float | None:
     if value is None:
         return None
-    distance = float(value)
+    try:
+        distance = float(value)
+    except (TypeError, ValueError):
+        return None
     if not math.isfinite(distance):
         return None
     return distance
+
+
+def _event_bool_from_row(value: object) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    text = str(value).strip().casefold()
+    if text in {"1", "true", "yes"}:
+        return True
+    if text in {"0", "false", "no"}:
+        return False
+    return None
+
+
+def list_player_log_events(
+    db_path: Path,
+    *,
+    limit: int = DEFAULT_PLAYER_HISTORY_EVENT_LIMIT,
+    event_type: str = "",
+    reliable_id: str = "",
+    query: str = "",
+) -> list[PlayerLogEventRecord]:
+    """List sanitized stored player log events, newest first."""
+    connection = _connect_existing(db_path)
+    if connection is None:
+        return []
+
+    normalized_limit = _bounded_player_history_limit(limit)
+    normalized_event_type = _safe_event_text(event_type, max_length=80) or ""
+    raw_reliable_id = safe_player_text(reliable_id, max_length=120)
+    normalized_reliable_id = normalize_reliable_player_id(raw_reliable_id)
+    if raw_reliable_id and not normalized_reliable_id:
+        connection.close()
+        return []
+    normalized_query = safe_player_text(query, max_length=120)
+
+    where_clauses: list[str] = []
+    params: list[object] = []
+    if normalized_event_type:
+        where_clauses.append("event_type = ?")
+        params.append(normalized_event_type)
+    if normalized_reliable_id:
+        where_clauses.append("(player_id = ? OR victim_id = ? OR instigator_id = ?)")
+        params.extend((normalized_reliable_id, normalized_reliable_id, normalized_reliable_id))
+    if normalized_query:
+        search_columns = (
+            "event_type",
+            "source",
+            "source_ref",
+            "confidence",
+            "player_id",
+            "player_name",
+            "player_faction",
+            "faction_resource",
+            "victim_id",
+            "victim_name",
+            "victim_faction",
+            "instigator_id",
+            "instigator_name",
+            "instigator_faction",
+            "damage_type",
+            "hit_zone",
+        )
+        where_clauses.append(
+            "(" + " OR ".join(f"{column} LIKE ?" for column in search_columns) + ")"
+        )
+        params.extend([f"%{normalized_query}%"] * len(search_columns))
+
+    sql = "SELECT * FROM player_log_events"
+    if where_clauses:
+        sql += " WHERE " + " AND ".join(where_clauses)
+    sql += " ORDER BY COALESCE(observed_at, created_at) DESC, event_id DESC LIMIT ?"
+    params.append(normalized_limit)
+
+    try:
+        with connection:
+            rows = connection.execute(sql, tuple(params)).fetchall()
+    finally:
+        connection.close()
+    return [_player_log_event_record_from_row(row) for row in rows]
 
 
 def list_known_players(

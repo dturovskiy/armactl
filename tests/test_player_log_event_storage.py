@@ -313,3 +313,75 @@ def test_ingest_combat_event_variants(tmp_path: Path) -> None:
     assert other_death["teamkill"] == 0
     assert other_death["suicide"] == 0
     assert other_death["ai_instigator"] is None
+
+
+def test_list_player_log_events_filters_and_sorts_newest_first(tmp_path: Path) -> None:
+    db_path = tmp_path / "default" / "players.db"
+    parsed_events = [
+        _parse(
+            "BACKEND : Authenticated player: "
+            f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One",
+            observed_at="2026-01-01T12:00:01+00:00",
+            raw_source_ref="journal:alpha-auth",
+        ),
+        _parse(
+            "SCRIPT : INFO: KILL ENEMY: Bravo Two "
+            f"(playerID = 8 | UUID = {PLAYER_BRAVO_ID}) from FIA faction "
+            "at <10 20 30> was killed by Alpha One "
+            f"(playerID = 7 | UUID = {PLAYER_ALPHA_ID}) from US faction "
+            "who was at that time at <40 50 60> [64.5m away from the corpse]. "
+            "With last inflicted damage type Projectile to the 'Head' hit zone",
+            observed_at="2026-01-01T12:00:03+00:00",
+            raw_source_ref="journal:kill",
+        ),
+        _parse(
+            "SCRIPT : INFO: KILL TK: Alpha One "
+            f"(playerID = 7 | UUID = {PLAYER_ALPHA_ID}) from US faction "
+            "at <4 5 6> was killed by Charlie Three "
+            f"(playerID = 9 | UUID = {PLAYER_CHARLIE_ID}) from US faction "
+            "who was at that time at <4 5 7> [2.2m away from the corpse]. "
+            "With last inflicted damage type Bullet to the 'LeftArm' hit zone",
+            observed_at="2026-01-01T12:00:05+00:00",
+            raw_source_ref="journal:teamkill",
+        ),
+    ]
+    player_registry.ingest_player_log_events(
+        db_path,
+        parsed_events,
+        ingested_at="2026-01-01T12:00:10+00:00",
+    )
+
+    all_rows = player_registry.list_player_log_events(db_path)
+    limited_rows = player_registry.list_player_log_events(db_path, limit=2)
+    teamkill_rows = player_registry.list_player_log_events(
+        db_path,
+        event_type=events.EVENT_TYPE_TEAMKILL,
+    )
+    alpha_rows = player_registry.list_player_log_events(db_path, reliable_id=PLAYER_ALPHA_ID)
+    bravo_rows = player_registry.list_player_log_events(db_path, reliable_id=PLAYER_BRAVO_ID)
+    charlie_rows = player_registry.list_player_log_events(db_path, reliable_id=PLAYER_CHARLIE_ID)
+    name_rows = player_registry.list_player_log_events(db_path, query="Bravo")
+
+    assert [row.event_type for row in all_rows] == [
+        events.EVENT_TYPE_TEAMKILL,
+        events.EVENT_TYPE_KILL,
+        events.EVENT_TYPE_PLAYER_AUTHENTICATED,
+    ]
+    assert [row.event_type for row in limited_rows] == [
+        events.EVENT_TYPE_TEAMKILL,
+        events.EVENT_TYPE_KILL,
+    ]
+    assert [row.event_type for row in teamkill_rows] == [events.EVENT_TYPE_TEAMKILL]
+    assert [row.event_type for row in alpha_rows] == [
+        events.EVENT_TYPE_TEAMKILL,
+        events.EVENT_TYPE_KILL,
+        events.EVENT_TYPE_PLAYER_AUTHENTICATED,
+    ]
+    assert [row.event_type for row in bravo_rows] == [events.EVENT_TYPE_KILL]
+    assert [row.event_type for row in charlie_rows] == [events.EVENT_TYPE_TEAMKILL]
+    assert [row.event_type for row in name_rows] == [events.EVENT_TYPE_KILL]
+    assert all_rows[0].teamkill is True
+    assert all_rows[0].suicide is False
+    assert all_rows[0].damage_type == "Bullet"
+    assert all_rows[0].hit_zone == "LeftArm"
+    assert all_rows[0].distance_m == 2.2
