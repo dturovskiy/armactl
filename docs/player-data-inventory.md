@@ -40,7 +40,7 @@ Discord stats use `public_stats.load_public_stats`, which enables roster lookup 
 
 ### Real Server Log Inventory
 
-See [player-log-event-inventory.md](player-log-event-inventory.md) for the read-only pass over real game logs before player history/statistics work. The observed logs can support a cautious sessions/history slice for connect/disconnect, last seen, faction snapshots, mission lifecycle, and aggregate count/FPS telemetry. Kill/death/KD was observed only through mod-emitted lines and should not be treated as vanilla/no-mod functionality.
+See [player-log-event-inventory.md](player-log-event-inventory.md) for the read-only pass over real game logs before player history/statistics work. The observed logs can support a cautious sessions/history slice for connect/disconnect, last seen, faction snapshots, mission lifecycle, and aggregate count/FPS telemetry. Combat stats are feasible on the checked deployments through script-emitted `INFO: KILL ...` lines, with optional ServerAdminTools wrappers on some servers; they must be stored with an explicit source/capability flag and should not be treated as vanilla/no-mod functionality.
 
 ## Existing Storage
 

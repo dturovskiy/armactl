@@ -59,22 +59,27 @@ For armactl storage, the safest primary key remains the existing reliable player
 
 ### Kill / Death / Teamkill
 
-Kill/death lines were observed in the service journal, but they appear to be emitted by installed script/mod components rather than vanilla server logging. Observed patterns include:
+Kill/death lines were observed in the service journal on both checked VMs, including a control pass on a server where the ServerAdminTools `player_killed` wrapper was not present. The strongest common source is the generic script-emitted `INFO: KILL ...` line, while another checked server additionally emitted ServerAdminTools event-wrapper lines. These still appear to be script/mod component output rather than a vanilla server logging contract. Observed patterns include:
 
 - player killed by AI;
 - player killed by another player;
+- player suicide;
+- teamkill;
 - victim and instigator names/IDs;
 - victim and instigator faction labels;
 - position, damage type, and hit zone;
-- ServerAdminTools `player_killed` event with `friendly: false`.
+- generic `INFO: KILL ENEMY`, `INFO: KILL SUICIDE`, `INFO: KILL TK`, and `INFO: KILL OTHER_DEATH` lines;
+- optional ServerAdminTools `player_killed` event wrapper with `friendly: true/false` when that component emits it.
 
-No confirmed `friendly: true` teamkill event was observed in the bounded sample. Teamkill parsing is therefore only a future possibility if the same event source emits `friendly: true` or an equivalent teamkill marker.
+Teamkill parsing is confirmed when `INFO: KILL TK` is present. On the wrapper-emitting server, the optional ServerAdminTools wrapper also confirmed `friendly: true`. On the no-wrapper control server, the generic combat log still emitted kill and suicide records.
 
-Based on observed logs, kill/death/KD is not feasible from vanilla/no-mod logs. It is feasible only when the current mod-emitted lines are present and accepted as the source of truth for that statistic.
+Based on observed logs, kill/death/KD is feasible for the current deployments if armactl treats these script-emitted combat lines as the source of truth and stores the detected source/capability with each event. It is still not safe to claim vanilla/no-mod combat statistics until a no-mod server produces the same lines.
 
 ### Faction / Role / Team
 
 Faction joins were observed in script lines that include player name, session player ID, stable UUID, faction resource, and a side label such as a short faction name. These can be parsed when the full line is present.
+
+The no-wrapper control pass confirmed this pattern around a live manual test: the journal contained a player identity update, a faction join line, and subsequent `KILL ENEMY` / `KILL SUICIDE` lines for the same stable UUID.
 
 Side/team is not separately authoritative in the observed logs. It can be inferred only from faction labels in faction and kill/death lines.
 
@@ -139,7 +144,9 @@ SCRIPT : INFO: Faction: player <PLAYER_NAME> (playerID = <SESSION_PLAYER_ID> | U
 
 ```text
 SCRIPT : INFO: KILL ENEMY: <VICTIM_NAME> (playerID = <VICTIM_SESSION_ID> | UUID = <VICTIM_ID>) from <VICTIM_FACTION> faction at <POSITION> was killed by <INSTIGATOR_NAME_OR_AI> from <INSTIGATOR_FACTION> faction. With last inflicted damage type <DAMAGE_TYPE> to the '<HIT_ZONE>' hit zone
-SCRIPT : ServerAdminTools | Event serveradmintools_player_killed | player: <VICTIM_NAME>, instigator: <INSTIGATOR_NAME_OR_AI>, friendly: false
+SCRIPT : INFO: KILL SUICIDE: <VICTIM_NAME> (playerID = <VICTIM_SESSION_ID> | UUID = <VICTIM_ID>) from <VICTIM_FACTION> faction at <POSITION> killed himself! With last inflicted damage type <DAMAGE_TYPE> to the '<HIT_ZONE>' hit zone
+SCRIPT : INFO: KILL TK: <VICTIM_NAME> (playerID = <VICTIM_SESSION_ID> | UUID = <VICTIM_ID>) from <VICTIM_FACTION> faction at <POSITION> was killed by <INSTIGATOR_NAME> (playerID = <INSTIGATOR_SESSION_ID> | UUID = <INSTIGATOR_ID>) from <INSTIGATOR_FACTION> faction. With last inflicted damage type <DAMAGE_TYPE> to the '<HIT_ZONE>' hit zone
+SCRIPT : ServerAdminTools | Event serveradmintools_player_killed | player: <VICTIM_NAME>, instigator: <INSTIGATOR_NAME_OR_AI>, friendly: true|false
 ```
 
 ```text
@@ -160,15 +167,15 @@ Reliably parseable now, with bounded journal/log reads:
 - player name snapshots tied to stable IDs when `identityId` or roster join is available;
 - aggregate player count and FPS telemetry;
 - mission/server start and shutdown-save lifecycle markers;
-- faction join when the full script line is present.
+- faction join when the full script line is present;
+- combat kill/death/suicide/teamkill events when generic `INFO: KILL ...` script lines are present and the parser records the source/capability.
 
 Parseable only heuristically:
 
 - disconnect/end-session pairing when the stable ID is absent from the disconnect line;
 - session duration when logs rotate or the journal window starts after the connect line;
 - mission end from shutdown/save/service stop sequences;
-- kill/death from mod-emitted lines, not from vanilla server logs;
-- teamkill only if a future sample confirms `friendly: true` or another explicit marker;
+- optional ServerAdminTools `player_killed` wrapper correlation, because not every checked VM emits that wrapper;
 - side/team from faction labels.
 
 Not observed as reliable log events:
@@ -186,7 +193,7 @@ Needs RCON or registry join:
 
 Needs a mod or another source:
 
-- authoritative kill/death/KD/teamkill statistics;
+- authoritative combat statistics on servers that do not emit the current `INFO: KILL ...` script lines;
 - authoritative role/loadout changes;
 - explicit side/team changes beyond faction labels;
 - moderation event history if it is not emitted into logs by the chosen source of truth.
