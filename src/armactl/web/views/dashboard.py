@@ -361,9 +361,9 @@ def _management_links(
     if can_view_players:
         links.append(
             {
-                "href": "/players/history",
+                "href": "/players",
                 "label": "Players",
-                "description": "Player events and registry",
+                "description": "Current players and history",
             }
         )
     if can_view_bot:

@@ -172,7 +172,7 @@ def _authed_client(tmp_path: Path, monkeypatch, *, db_path: Path | None = None):
 
 
 def _players_csrf_token(client) -> str:
-    response = client.get("/players", follow_redirects=False)
+    response = client.get("/players/known", follow_redirects=False)
     assert response.status_code == 200
     return _form_token(response.text)
 
@@ -453,11 +453,14 @@ def test_players_route_requires_authentication(tmp_path: Path):
     client = _client(create_app(data_root=tmp_path))
 
     get_response = client.get("/players", follow_redirects=False)
+    known_response = client.get("/players/known", follow_redirects=False)
     history_response = client.get("/players/history", follow_redirects=False)
     post_response = client.post("/players/refresh", data={}, follow_redirects=False)
 
     assert get_response.status_code == 303
     assert get_response.headers["location"] == "/login"
+    assert known_response.status_code == 303
+    assert known_response.headers["location"] == "/login"
     assert history_response.status_code == 303
     assert history_response.headers["location"] == "/login"
     assert post_response.status_code == 303
@@ -480,6 +483,7 @@ def test_players_route_requires_players_view_permission(
     _login(client, "owner", "owner players password")
 
     response = client.get("/players", follow_redirects=False)
+    known_response = client.get("/players/known", follow_redirects=False)
     history_response = client.get("/players/history", follow_redirects=False)
     post_response = client.post(
         "/players/refresh",
@@ -489,6 +493,8 @@ def test_players_route_requires_players_view_permission(
 
     assert response.status_code == 403
     assert response.text == "Permission denied."
+    assert known_response.status_code == 403
+    assert known_response.text == "Permission denied."
     assert history_response.status_code == 403
     assert history_response.text == "Permission denied."
     assert post_response.status_code == 403
@@ -507,11 +513,36 @@ def test_players_route_html_escapes_player_names(tmp_path: Path, monkeypatch):
     )
     client = _authed_client(tmp_path, monkeypatch, db_path=db_path)
 
-    response = client.get("/players", follow_redirects=False)
+    response = client.get("/players/known", follow_redirects=False)
 
     assert response.status_code == 200
     assert "&lt;Alpha &amp; Co&gt;" in response.text
     assert "<Alpha & Co>" not in response.text
+
+
+def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypatch):
+    from armactl.web.services import player_sources
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _roster(
+            _current_player("Live Alpha", PLAYER_ALPHA_ID),
+            _unreliable_current_player("Live Slot"),
+        ),
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get("/players", follow_redirects=False)
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Current player table" in html
+    assert "Live Alpha" in html
+    assert "Live Slot" in html
+    assert PLAYER_ALPHA_ID in html
+    assert "Known player table" not in html
+    assert "Player event log" not in html
 
 
 def test_player_history_route_renders_empty_state_and_migrates_v1_db(

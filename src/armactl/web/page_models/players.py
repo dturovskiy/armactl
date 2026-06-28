@@ -68,6 +68,38 @@ class PlayerRegistryPage:
 
 
 @dataclass(frozen=True)
+class CurrentPlayerTableRow:
+    """One live player row enriched with stored counters when available."""
+
+    display_name: str
+    reliable_id: str
+    source: str
+    faction: str
+    role: str
+    joined_at: str
+    kill_count: int
+    death_count: int
+    teamkill_count: int
+    suicide_count: int
+    event_count: int
+
+
+@dataclass(frozen=True)
+class CurrentPlayersPage:
+    """Read-only current-player roster page model."""
+
+    instance: str
+    query: str
+    available: bool
+    source: str
+    status: str
+    error: str
+    total_count: int
+    filtered_count: int
+    players: tuple[CurrentPlayerTableRow, ...]
+
+
+@dataclass(frozen=True)
 class PlayerHistoryPage:
     """Read-only stored player event history page model."""
 
@@ -138,6 +170,90 @@ def load_player_moderation_panel(
         source=roster.source,
         status=roster.status,
         error=roster.error,
+    )
+
+
+def _current_player_row(
+    player: player_sources.CurrentPlayer,
+    summary: player_registry.PlayerSummary | None,
+) -> CurrentPlayerTableRow:
+    return CurrentPlayerTableRow(
+        display_name=player.display_name,
+        reliable_id=player.reliable_id,
+        source=player.source,
+        faction=summary.faction if summary else "",
+        role="",
+        joined_at="",
+        kill_count=summary.kill_count if summary else 0,
+        death_count=summary.death_count if summary else 0,
+        teamkill_count=summary.teamkill_count if summary else 0,
+        suicide_count=summary.suicide_count if summary else 0,
+        event_count=summary.event_count if summary else 0,
+    )
+
+
+def _matches_current_player(player: CurrentPlayerTableRow, query: str) -> bool:
+    if not query:
+        return True
+    needle = query.casefold()
+    return any(
+        needle in value.casefold()
+        for value in (
+            player.display_name,
+            player.reliable_id,
+            player.source,
+            player.faction,
+        )
+    )
+
+
+def load_current_players_page(
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    *,
+    data_root: Path = paths.DEFAULT_DATA_ROOT,
+    query: str = "",
+) -> CurrentPlayersPage:
+    """Return the live player roster enriched by stored event counters."""
+    normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
+    normalized_query = normalize_player_query(query)
+    try:
+        roster = player_sources.load_current_player_roster(normalized_instance)
+    except Exception as error:  # noqa: BLE001 - current-player UI degrades safely.
+        return CurrentPlayersPage(
+            instance=normalized_instance,
+            query=normalized_query,
+            available=False,
+            source="unavailable",
+            status="unavailable",
+            error=safe_player_text(error),
+            total_count=0,
+            filtered_count=0,
+            players=(),
+        )
+
+    registry_path = player_registry.player_registry_db_path(
+        normalized_instance,
+        data_root=data_root,
+    )
+    summaries = player_registry.list_player_summaries_by_ids(
+        registry_path,
+        (player.reliable_id for player in roster.players),
+    )
+    rows = tuple(
+        _current_player_row(player, summaries.get(player.reliable_id))
+        for player in roster.players
+    )
+    filtered = tuple(row for row in rows if _matches_current_player(row, normalized_query))
+    return CurrentPlayersPage(
+        instance=normalized_instance,
+        query=normalized_query,
+        available=roster.available,
+        source=roster.source,
+        status=roster.status,
+        error=roster.error,
+        total_count=roster.total_count,
+        filtered_count=len(filtered),
+        players=filtered,
     )
 
 

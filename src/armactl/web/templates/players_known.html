@@ -1,0 +1,101 @@
+{% extends "layout.html" %}
+{% block title %}{{ t("Players - armactl web") }}{% endblock %}
+{% block heading %}{{ t("Players") }}{% endblock %}
+{% block topbar_actions %}
+<a class="button-link secondary-link" href="/admins">{{ t("Admins") }}</a>
+<a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
+<form method="post" action="/logout" class="logout-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <span class="user-label">{{ current_user.username }}</span>
+  <button type="submit">{{ t("Log out") }}</button>
+</form>
+{% endblock %}
+{% block content %}
+{% if refresh_result %}
+<section class="notice-panel full-width result-{{ refresh_result.status_label }}">
+  <h2>{{ t("Player registry refreshed") if refresh_result.backend_success else t("Player registry refresh failed") }}</h2>
+  <p>{{ t(refresh_result.message) }}</p>
+  {% if refresh_result.backend_success %}
+    <p>{{ tr("Recorded {stored} reliable player(s); ignored {ignored} unreliable row(s).", stored=refresh_result.stored_count, ignored=refresh_result.ignored_count) }}</p>
+  {% endif %}
+  {% if audit_error %}
+    <p class="error">{{ audit_error }}</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="panel full-width">
+  <nav class="player-section-tabs" aria-label="{{ t('Player sections') }}">
+    <a class="player-section-tab" href="/players">{{ t("Current Players") }}</a>
+    <a class="player-section-tab active" href="/players/known">{{ t("Known Players") }}</a>
+    <a class="player-section-tab" href="/players/history">{{ t("Player Events") }}</a>
+    <span class="player-section-tab disabled">{{ t("Ban list") }} · {{ t("Planned") }}</span>
+  </nav>
+
+  <div class="section-heading-row">
+    <h2>{{ t("Known player table") }}</h2>
+  </div>
+  <p class="muted">{{ t("Known players with compact statistics from stored player events.") }}</p>
+
+  <form method="get" action="/players/known" class="player-search-form">
+    <label>
+      <span>{{ t("Search known players") }}</span>
+      <input type="search" name="player_search" value="{{ query }}" autocomplete="off">
+    </label>
+    <div class="form-actions">
+      <button type="submit">{{ t("Search") }}</button>
+      <a class="button-link secondary-link" href="/players/known">{{ t("Clear") }}</a>
+    </div>
+  </form>
+  <form method="post" action="/players/refresh" class="player-refresh-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit">{{ t("Update known players from online list") }}</button>
+  </form>
+
+  {% if players %}
+    <div class="player-table-wrap">
+      <table class="player-registry-table">
+        <thead>
+          <tr>
+            <th>{{ t("Nickname") }}</th>
+            <th>{{ t("Identity ID") }}</th>
+            <th>{{ t("Faction") }}</th>
+            <th>{{ t("Kills") }}</th>
+            <th>{{ t("Deaths") }}</th>
+            <th>{{ t("TK") }}</th>
+            <th>{{ t("Suicides") }}</th>
+            <th>{{ t("Events") }}</th>
+            <th>{{ t("Last seen") }}</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for player in players %}
+          <tr>
+            <td>
+              <strong class="wrap-value">{{ player.current_name }}</strong>
+              <span class="player-row-subtle">{{ t("Seen count") }}: {{ player.seen_count }}</span>
+            </td>
+            <td class="wrap-value player-id-cell">{{ player.reliable_id }}</td>
+            <td>{% if player.faction %}<span class="wrap-value">{{ player.faction }}</span>{% else %}<span class="muted">{{ t("No faction") }}</span>{% endif %}</td>
+            <td class="player-stat-number">{{ player.kill_count }}</td>
+            <td class="player-stat-number">{{ player.death_count }}</td>
+            <td class="player-stat-number">{{ player.teamkill_count }}</td>
+            <td class="player-stat-number">{{ player.suicide_count }}</td>
+            <td class="player-stat-number">{{ player.event_count }}</td>
+            <td>
+              <time>{{ format_web_timestamp(player.last_seen_at) or player.last_seen_at }}</time>
+              <span class="player-row-subtle">{{ player.last_source }}</span>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% elif query %}
+    <p class="muted">{{ t("No known players match search.") }}</p>
+  {% else %}
+    <p class="muted">{{ t("No known players recorded yet.") }}</p>
+  {% endif %}
+  <p class="muted">{{ t("Ban management is planned for a later audited slice.") }}</p>
+</section>
+{% endblock %}

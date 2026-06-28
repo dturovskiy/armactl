@@ -933,15 +933,12 @@ def _increment_summary_counter(
     summaries[reliable_id][key] = int(summaries[reliable_id][key]) + 1
 
 
-def list_player_summaries(
+def _player_summaries_for_known_players(
     db_path: Path,
-    *,
-    query: str = "",
-    limit: int = DEFAULT_PLAYER_LIST_LIMIT,
+    players: Iterable[KnownPlayer],
 ) -> list[PlayerSummary]:
-    """List known players with compact counters derived from stored events."""
-    players = list_known_players(db_path, query=query, limit=limit)
-    if not players:
+    player_list = list(players)
+    if not player_list:
         return []
 
     summaries: dict[str, dict[str, object]] = {
@@ -953,16 +950,16 @@ def list_player_summaries(
             "teamkill_count": 0,
             "suicide_count": 0,
         }
-        for player in players
+        for player in player_list
     }
     known_ids = set(summaries)
     placeholders = ",".join("?" for _ in known_ids)
     if not placeholders:
-        return [_empty_player_summary(player) for player in players]
+        return [_empty_player_summary(player) for player in player_list]
 
     connection = _connect_existing(db_path)
     if connection is None:
-        return [_empty_player_summary(player) for player in players]
+        return [_empty_player_summary(player) for player in player_list]
     try:
         rows = connection.execute(
             f"""
@@ -1038,9 +1035,65 @@ def list_player_summaries(
             teamkill_count=int(summaries[player.reliable_id]["teamkill_count"]),
             suicide_count=int(summaries[player.reliable_id]["suicide_count"]),
         )
-        for player in players
+        for player in player_list
     ]
 
+
+def list_player_summaries(
+    db_path: Path,
+    *,
+    query: str = "",
+    limit: int = DEFAULT_PLAYER_LIST_LIMIT,
+) -> list[PlayerSummary]:
+    """List known players with compact counters derived from stored events."""
+    return _player_summaries_for_known_players(
+        db_path,
+        list_known_players(db_path, query=query, limit=limit),
+    )
+
+
+def list_player_summaries_by_ids(
+    db_path: Path,
+    reliable_ids: Iterable[str],
+) -> dict[str, PlayerSummary]:
+    """Return compact summaries for exact reliable player IDs."""
+    normalized_ids = tuple(
+        dict.fromkeys(
+            normalized
+            for reliable_id in reliable_ids
+            if (normalized := normalize_reliable_player_id(reliable_id))
+        )
+    )
+    if not normalized_ids:
+        return {}
+
+    connection = _connect_existing(db_path)
+    if connection is None:
+        return {}
+    placeholders = ",".join("?" for _ in normalized_ids)
+    try:
+        rows = connection.execute(
+            f"""
+            SELECT *
+            FROM players
+            WHERE reliable_id IN ({placeholders})
+            """,
+            normalized_ids,
+        ).fetchall()
+    finally:
+        connection.close()
+
+    players = [_player_from_row(row) for row in rows]
+    players_by_id = {player.reliable_id: player for player in players}
+    ordered_players = [
+        players_by_id[reliable_id]
+        for reliable_id in normalized_ids
+        if reliable_id in players_by_id
+    ]
+    return {
+        summary.reliable_id: summary
+        for summary in _player_summaries_for_known_players(db_path, ordered_players)
+    }
 
 def list_known_players(
     db_path: Path,

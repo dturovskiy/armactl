@@ -1072,6 +1072,21 @@ button.danger {
   overflow-x: auto;
 }
 
+.player-current-table {
+  min-width: 1120px;
+  table-layout: fixed;
+}
+
+.player-current-table th:nth-child(1) { width: 18%; }
+.player-current-table th:nth-child(2) { width: 24%; }
+.player-current-table th:nth-child(3) { width: 12%; }
+.player-current-table th:nth-child(4),
+.player-current-table th:nth-child(5),
+.player-current-table th:nth-child(6),
+.player-current-table th:nth-child(7),
+.player-current-table th:nth-child(9) { width: 7%; }
+.player-current-table th:nth-child(8) { width: 11%; }
+
 .player-registry-table {
   min-width: 1040px;
   table-layout: fixed;

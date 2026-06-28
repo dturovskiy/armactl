@@ -31,7 +31,40 @@ def _redirect_to_login(request: Request) -> RedirectResponse:
     return response
 
 
-def _render_players_page(
+def _render_current_players_page(
+    request: Request,
+    current: CurrentSession,
+    *,
+    status_code: int = status.HTTP_200_OK,
+) -> Response:
+    if not require_permission(current, PLAYERS_VIEW):
+        return permission_denied_response()
+
+    query = request.query_params.get("player_search", "")
+    page = players_page_model.load_current_players_page(
+        paths.DEFAULT_INSTANCE_NAME,
+        data_root=current.config.data_root,
+        query=query,
+    )
+    form_csrf = get_form_csrf_token(request, current)
+    response = request.app.state.templates.TemplateResponse(
+        request=request,
+        name="players.html",
+        context={
+            "current_user": current.user,
+            "csrf_token": form_csrf.token,
+            "page": page,
+            "query": page.query,
+            "players": page.players,
+        },
+        status_code=status_code,
+    )
+    if form_csrf.should_set_cookie:
+        set_csrf_cookie(response, form_csrf.token, current.config)
+    return response
+
+
+def _render_known_players_page(
     request: Request,
     current: CurrentSession,
     *,
@@ -51,7 +84,7 @@ def _render_players_page(
     form_csrf = get_form_csrf_token(request, current)
     response = request.app.state.templates.TemplateResponse(
         request=request,
-        name="players.html",
+        name="players_known.html",
         context={
             "current_user": current.user,
             "csrf_token": form_csrf.token,
@@ -118,11 +151,20 @@ def player_history_page(request: Request) -> Response:
 
 @router.get("/players", response_class=HTMLResponse)
 def players_page(request: Request) -> Response:
+    """Render the live current-player roster."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    return _render_current_players_page(request, current)
+
+
+@router.get("/players/known", response_class=HTMLResponse)
+def known_players_page(request: Request) -> Response:
     """Render known reliable players from the instance registry."""
     current = get_current_session(request)
     if current is None:
         return _redirect_to_login(request)
-    return _render_players_page(request, current)
+    return _render_known_players_page(request, current)
 
 
 @router.post("/players/refresh", response_class=HTMLResponse)
@@ -148,7 +190,7 @@ def refresh_players_page(
         audit_log_path=current.config.audit_log_path,
         username=current.user.username,
     )
-    return _render_players_page(
+    return _render_known_players_page(
         request,
         current,
         refresh_result=result,
