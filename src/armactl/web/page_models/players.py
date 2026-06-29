@@ -75,8 +75,7 @@ class CurrentPlayerTableRow:
     reliable_id: str
     source: str
     faction: str
-    role: str
-    joined_at: str
+    last_seen_at: str
     kill_count: int
     death_count: int
     teamkill_count: int
@@ -183,8 +182,7 @@ def _current_player_row(
         reliable_id=player.reliable_id,
         source=player.source,
         faction=summary.faction if summary else "",
-        role="",
-        joined_at="",
+        last_seen_at=summary.last_seen_at if summary else "",
         kill_count=summary.kill_count if summary else 0,
         death_count=summary.death_count if summary else 0,
         teamkill_count=summary.teamkill_count if summary else 0,

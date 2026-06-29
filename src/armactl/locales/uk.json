@@ -1371,6 +1371,7 @@
     "Kill": "Вбивство",
     "Teamkill": "TK",
     "Other death": "Інша смерть",
-    "Combat hint": "Бій"
+    "Combat hint": "Бій",
+    "Join time and role need session tracking before they can be shown reliably.": "Час входу і роль потребують відстеження сесій, щоб показувати їх надійно."
   }
 }

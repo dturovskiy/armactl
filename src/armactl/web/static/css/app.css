@@ -1101,9 +1101,8 @@ button.danger {
 .player-current-table th:nth-child(4),
 .player-current-table th:nth-child(5),
 .player-current-table th:nth-child(6),
-.player-current-table th:nth-child(7),
-.player-current-table th:nth-child(9) { width: 7%; }
-.player-current-table th:nth-child(8) { width: 11%; }
+.player-current-table th:nth-child(7) { width: 7%; }
+.player-current-table th:nth-child(8) { width: 18%; }
 
 .player-registry-table {
   min-width: 1040px;
@@ -1126,7 +1125,7 @@ button.danger {
 .player-current-table th:nth-child(4),
 .player-current-table th:nth-child(5),
 .player-current-table th:nth-child(6),
-.player-current-table th:nth-child(9) {
+.player-current-table th:nth-child(7) {
   text-align: center;
 }
 

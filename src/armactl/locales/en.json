@@ -789,6 +789,7 @@
     "Kill": "Kill",
     "Teamkill": "Teamkill",
     "Other death": "Other death",
-    "Combat hint": "Combat hint"
+    "Combat hint": "Combat hint",
+    "Join time and role need session tracking before they can be shown reliably.": "Join time and role need session tracking before they can be shown reliably."
   }
 }

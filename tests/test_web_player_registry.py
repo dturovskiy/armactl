@@ -541,6 +541,10 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
     assert "Live Alpha" in html
     assert "Live Slot" in html
     assert PLAYER_ALPHA_ID in html
+    assert "<th>Last seen</th>" in html
+    assert "<th>Role</th>" not in html
+    assert "<th>Joined</th>" not in html
+    assert "Not tracked" not in html
     assert "Known player table" not in html
     assert "Player event log" not in html
 

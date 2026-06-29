@@ -51,9 +51,8 @@
             <th>{{ t("K/D") }}</th>
             <th>{{ t("TK") }}</th>
             <th>{{ t("Suicides") }}</th>
-            <th>{{ t("Role") }}</th>
-            <th>{{ t("Joined") }}</th>
             <th>{{ t("Events") }}</th>
+            <th>{{ t("Last seen") }}</th>
           </tr>
         </thead>
         <tbody>
@@ -68,9 +67,8 @@
             <td class="player-stat-number">{{ player.kill_count }} / {{ player.death_count }}</td>
             <td class="player-stat-number">{{ player.teamkill_count }}</td>
             <td class="player-stat-number">{{ player.suicide_count }}</td>
-            <td>{% if player.role %}<span class="wrap-value">{{ player.role }}</span>{% else %}<span class="muted">{{ t("Not tracked") }}</span>{% endif %}</td>
-            <td>{% if player.joined_at %}<time data-local-time datetime="{{ player.joined_at }}" title="{{ player.joined_at }}">{{ player.joined_at[:16]|replace("T", " ") }}</time>{% else %}<span class="muted">{{ t("Not tracked") }}</span>{% endif %}</td>
             <td class="player-stat-number">{{ player.event_count }}</td>
+            <td>{% if player.last_seen_at %}<time data-local-time datetime="{{ player.last_seen_at }}" title="{{ player.last_seen_at }}">{{ player.last_seen_at[:16]|replace("T", " ") }}</time>{% else %}<span class="muted">-</span>{% endif %}</td>
           </tr>
         {% endfor %}
         </tbody>
@@ -84,6 +82,6 @@
     <p class="muted">{{ t("Current player list unavailable.") }}</p>
     {% if page.error %}<p class="error">{{ page.error }}</p>{% endif %}
   {% endif %}
-  <p class="muted">{{ t("Role and joined time need session tracking before they can be shown reliably.") }}</p>
+  <p class="muted">{{ t("Join time and role need session tracking before they can be shown reliably.") }}</p>
 </section>
 {% endblock %}
