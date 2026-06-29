@@ -10,6 +10,15 @@ from armactl.web.jobs.models import (
     JOB_STATUS_SUCCEEDED,
     JobRecord,
 )
+from armactl.web.jobs.player_logs import (
+    PLAYER_LOG_COLLECTION_JOB_KIND,
+    create_player_log_collection_dispatcher,
+    dispatch_player_log_collection_job,
+    ensure_player_log_collection_job,
+    handle_player_log_collection,
+    resolve_allowlisted_player_log_paths,
+    start_player_log_collection_worker,
+)
 from armactl.web.jobs.runner import (
     JobContext,
     JobDispatcher,
@@ -58,6 +67,13 @@ __all__ = [
     "SERVER_REPAIR_JOB_KIND",
     "SERVER_UPDATE_CHECK_JOB_KIND",
     "SERVER_UPDATE_JOB_KIND",
+    "PLAYER_LOG_COLLECTION_JOB_KIND",
+    "create_player_log_collection_dispatcher",
+    "dispatch_player_log_collection_job",
+    "ensure_player_log_collection_job",
+    "handle_player_log_collection",
+    "resolve_allowlisted_player_log_paths",
+    "start_player_log_collection_worker",
     "create_server_job_dispatcher",
     "dispatch_server_job",
     "enqueue_server_install",

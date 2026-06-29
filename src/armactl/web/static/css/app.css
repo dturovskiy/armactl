@@ -1058,6 +1058,24 @@ button.danger {
   text-transform: uppercase;
 }
 
+.player-log-collection-notice {
+  margin-bottom: 16px;
+}
+
+.player-history-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.player-log-collection-form {
+  display: flex;
+  align-items: center;
+  margin: 0;
+}
+
 .player-history-filter-form {
   margin-bottom: 18px;
 }

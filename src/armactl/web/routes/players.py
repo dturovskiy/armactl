@@ -18,7 +18,7 @@ from armactl.web.auth.dependencies import (
 )
 from armactl.web.auth.permissions import PLAYERS_VIEW
 from armactl.web.page_models import players as players_page_model
-from armactl.web.services import player_actions
+from armactl.web.services import player_actions, player_log_collection
 
 router = APIRouter()
 
@@ -101,6 +101,21 @@ def _render_known_players_page(
     return response
 
 
+def _collection_notice_from_query(request: Request) -> dict[str, str] | None:
+    notice_type = request.query_params.get("log_collection", "")
+    if notice_type == "queued":
+        return {
+            "title": "Player log collection queued.",
+            "message": "Allowlisted server logs will be scanned in the background.",
+        }
+    if notice_type == "active":
+        return {
+            "title": "Player log collection already running.",
+            "message": "An existing player log collection job is already queued or running.",
+        }
+    return None
+
+
 def _render_player_history_page(
     request: Request,
     current: CurrentSession,
@@ -133,6 +148,7 @@ def _render_player_history_page(
             "player_id": page.reliable_id,
             "limit": page.limit,
             "events": page.events,
+            "collection_notice": _collection_notice_from_query(request),
         },
         status_code=status_code,
     )
@@ -197,4 +213,41 @@ def refresh_players_page(
         refresh_result=result,
         audit_error=result.audit_error,
         status_code=status.HTTP_200_OK if result.success else status.HTTP_500_INTERNAL_SERVER_ERROR,
+    )
+
+
+@router.post("/players/history/collect-logs", response_class=HTMLResponse)
+def collect_player_history_logs(
+    request: Request,
+    csrf_token: str = Form(default=""),
+) -> Response:
+    """Queue allowlisted player log collection without running it in the request."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, PLAYERS_VIEW):
+        return permission_denied_response()
+    if not validate_csrf_token(current.config.db_path, current.session.id, csrf_token):
+        return PlainTextResponse(
+            "Invalid CSRF token.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+    try:
+        result = player_log_collection.request_player_log_collection_and_start(
+            current.config.db_path,
+            audit_log_path=current.config.audit_log_path,
+            username=current.user.username,
+            user_id=current.user.id,
+        )
+    except player_log_collection.PlayerLogCollectionActionAuditError as exc:
+        return PlainTextResponse(
+            str(exc),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    notice = "queued" if result.created else "active"
+    return RedirectResponse(
+        f"/players/history?log_collection={notice}&job_id={result.job.id}",
+        status_code=status.HTTP_303_SEE_OTHER,
     )

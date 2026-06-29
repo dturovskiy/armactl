@@ -17,6 +17,7 @@
 {% macro job_category_label(kind) -%}
   {%- if kind.startswith("server:update") -%}{{ t("Server updates") }}
   {%- elif kind.startswith("server:") -%}{{ t("Server management") }}
+  {%- elif kind.startswith("players:") -%}{{ t("Player data") }}
   {%- else -%}{{ t("Other jobs") }}
   {%- endif -%}
 {%- endmacro %}
@@ -24,6 +25,7 @@
   {%- if kind == "server:update-check" -%}{{ t("Update check") }}
   {%- elif kind == "server:update" -%}{{ t("Update server") }}
   {%- elif kind == "server:install" -%}{{ t("Install server") }}
+  {%- elif kind == "players:collect-log-events" -%}{{ t("Collect player log events") }}
   {%- elif kind == "server:repair" -%}{{ t("Repair server") }}
   {%- else -%}{{ kind }}
   {%- endif -%}
