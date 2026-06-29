@@ -1163,18 +1163,19 @@ button.danger {
 }
 
 .player-events-table {
-  min-width: 960px;
+  min-width: 1180px;
   table-layout: fixed;
 }
 
-.player-events-table th:nth-child(1) { width: 170px; }
-.player-events-table th:nth-child(2) { width: 150px; }
-.player-events-table th:nth-child(3) { width: 24%; }
-.player-events-table th:nth-child(4) { width: 14%; }
-.player-events-table th:nth-child(5) { width: auto; }
+.player-events-table th:nth-child(1) { width: 150px; }
+.player-events-table th:nth-child(2) { width: 145px; }
+.player-events-table th:nth-child(3) { width: 20%; }
+.player-events-table th:nth-child(4) { width: 12%; }
+.player-events-table th:nth-child(5) { width: 31%; }
+.player-events-table th:nth-child(6) { width: 145px; }
 
 .player-event-main-row td {
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 .player-event-type-pill {
@@ -1184,33 +1185,30 @@ button.danger {
   white-space: nowrap;
 }
 
-.player-event-details-row td {
-  padding-top: 0;
-  background: var(--panel-strong);
+.player-event-details-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
 }
 
-.player-event-details {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 8px 14px;
-  padding: 10px 12px;
-  border-left: 3px solid var(--accent-soft);
+.player-event-details-cell > span {
+  min-width: 0;
 }
 
-.player-event-summary-cell,
+.player-event-combat-line,
+.player-event-combat-line span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .player-event-detail-field,
 .player-event-combat-cell,
 .player-diagnostic-stack {
   display: grid;
   gap: 3px;
-  min-width: 0;
-}
-
-.player-event-diagnostics {
-  min-width: 0;
-}
-
-.player-diagnostic-line {
   min-width: 0;
 }
 
@@ -1228,17 +1226,23 @@ button.danger {
 }
 
 .player-event-diagnostics {
-  display: grid;
-  gap: 4px;
   min-width: 0;
 }
 
 .player-event-diagnostics summary {
-  color: var(--muted);
+  color: var(--accent);
   cursor: pointer;
   font-weight: 700;
+  white-space: nowrap;
 }
 
+.player-diagnostic-stack {
+  margin-top: 6px;
+}
+
+.player-diagnostic-line {
+  min-width: 0;
+}
 .player-admin-form {
   margin: 0;
 }

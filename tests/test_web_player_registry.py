@@ -662,8 +662,8 @@ def test_player_history_route_renders_stored_rows_without_raw_sources(
     assert "faction_join" in html
     assert "teamkill" in html
     assert "player-events-table" in html
-    assert "player-event-details-row" in html
-    assert "player-event-summary-cell" in html
+    assert "player-event-details-row" not in html
+    assert "player-event-details-cell" in html
     assert "player-event-card" not in html
     assert "<table" in html
     assert "Alpha ***" in html
