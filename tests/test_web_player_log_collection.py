@@ -121,7 +121,7 @@ def test_history_ui_renders_collect_button_notice_and_no_raw_paths(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from armactl.web.jobs import player_logs
+    from armactl.web.jobs import list_recent_jobs, player_logs
 
     started_jobs: list[int] = []
     monkeypatch.setattr(
@@ -151,15 +151,38 @@ def test_history_ui_renders_collect_button_notice_and_no_raw_paths(
     assert len(started_jobs) == 1
 
     notice_page = client.get(response.headers["location"], follow_redirects=False)
-    audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(encoding="utf-8")
 
     assert notice_page.status_code == 200
+    assert "notice-success" in notice_page.text
     assert "Player log collection queued." in notice_page.text
     assert "Allowlisted server logs will be scanned in the background." in notice_page.text
     assert 'href="/jobs"' in notice_page.text
-    assert str(outside_path) not in notice_page.text
-    assert str(outside_path) not in audit_text
-    assert "outside.log" not in audit_text
+
+    active_response = client.post(
+        "/players/history/collect-logs",
+        data={"csrf_token": csrf_token, "source_path": str(outside_path)},
+        follow_redirects=False,
+    )
+    assert active_response.status_code == 303
+    assert active_response.headers["location"].startswith(
+        "/players/history?log_collection=active"
+    )
+    assert len(started_jobs) == 1
+    assert len(list_recent_jobs(tmp_path / "web" / "web.db")) == 1
+
+    active_notice_page = client.get(
+        active_response.headers["location"],
+        follow_redirects=False,
+    )
+    audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(encoding="utf-8")
+
+    assert active_notice_page.status_code == 200
+    assert "notice-warning" in active_notice_page.text
+    assert "Player log collection already running." in active_notice_page.text
+    assert "No duplicate job was created" in active_notice_page.text
+    for rendered in (notice_page.text, active_notice_page.text, audit_text):
+        assert str(outside_path) not in rendered
+        assert "outside.log" not in rendered
 
 
 def test_duplicate_active_player_log_collection_job_is_deduped(
@@ -201,6 +224,136 @@ def test_duplicate_active_player_log_collection_job_is_deduped(
         "intent",
         "intent",
     ]
+
+
+def test_player_log_collection_job_reports_empty_and_no_matching_results(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from armactl.web.jobs import get_job, list_recent_jobs, player_logs
+
+    monkeypatch.setattr(
+        player_logs,
+        "start_player_log_collection_worker",
+        lambda db_path, job_id: None,
+    )
+    client = _setup_owner_client(tmp_path)
+    csrf_token = _history_csrf_token(client)
+    db_path = tmp_path / "web" / "web.db"
+
+    empty_response = client.post(
+        "/players/history/collect-logs",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    assert empty_response.status_code == 303
+    empty_job_id = list_recent_jobs(db_path)[0].id
+    player_logs.dispatch_player_log_collection_job(db_path, empty_job_id)
+    empty_job = get_job(db_path, empty_job_id)
+
+    assert empty_job is not None
+    assert empty_job.status == "succeeded"
+    assert empty_job.result_message == "No allowlisted player logs found."
+    assert "files_requested=0" in empty_job.stdout_tail
+    assert "parsed_events=0" in empty_job.stdout_tail
+
+    raw_line = (
+        "DEFAULT : unmatched connection from 198.51.100.77:2302 "
+        "using /home/deus/projects/armactl/private.log"
+    )
+    log_path = _write_console_log(tmp_path, [raw_line], run="run-with-no-events")
+    no_match_response = client.post(
+        "/players/history/collect-logs",
+        data={"csrf_token": csrf_token, "path": str(log_path)},
+        follow_redirects=False,
+    )
+    assert no_match_response.status_code == 303
+    no_match_job_id = list_recent_jobs(db_path)[0].id
+    player_logs.dispatch_player_log_collection_job(db_path, no_match_job_id)
+    no_match_job = get_job(db_path, no_match_job_id)
+    jobs_page = client.get("/jobs", follow_redirects=False)
+    audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(encoding="utf-8")
+
+    assert no_match_job is not None
+    assert no_match_job.status == "succeeded"
+    assert no_match_job.result_message == "No matching player log events found."
+    assert "files_requested=1" in no_match_job.stdout_tail
+    assert "scanned_lines=1" in no_match_job.stdout_tail
+    assert "parsed_events=0" in no_match_job.stdout_tail
+    assert "stored_events=0" in no_match_job.stdout_tail
+    assert "Collect player log events" in jobs_page.text
+    assert "No matching player log events found." in jobs_page.text
+
+    events = _audit_events(tmp_path)
+    outcomes = [event for event in events if event["details"]["phase"] == "outcome"]
+    assert [event["message"] for event in outcomes] == [
+        "No allowlisted player logs found.",
+        "No matching player log events found.",
+    ]
+    assert outcomes[1]["details"]["files_requested"] == "1"
+    assert outcomes[1]["details"]["parsed_events"] == "0"
+    for rendered in (no_match_job.stdout_tail, jobs_page.text, audit_text):
+        assert raw_line not in rendered
+        assert str(log_path) not in rendered
+        assert "198.51.100.77" not in rendered
+        assert "/home/deus/projects/armactl/private.log" not in rendered
+
+
+def test_player_log_collection_job_failure_uses_safe_job_and_audit_messages(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from armactl.web.jobs import get_job, player_logs
+    from armactl.web.services import player_log_collection
+
+    allowed_log = _write_console_log(tmp_path, _fixture_lines())
+    raw_failure = (
+        f"failed reading {allowed_log} from 198.51.100.88:2302; "
+        "BACKEND : Authenticated player: identityId=secret name=Raw Line"
+    )
+
+    def fail_collect(*args, **kwargs):
+        raise RuntimeError(raw_failure)
+
+    monkeypatch.setattr(
+        player_logs.player_log_collector,
+        "collect_player_log_events",
+        fail_collect,
+    )
+    monkeypatch.setattr(
+        player_logs,
+        "start_player_log_collection_worker",
+        lambda db_path, job_id: None,
+    )
+    db_path = tmp_path / "web" / "web.db"
+    queued = player_log_collection.request_player_log_collection_and_start(
+        db_path,
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+        user_id=None,
+    )
+
+    dispatch = player_logs.dispatch_player_log_collection_job(db_path, queued.job.id)
+    job = get_job(db_path, queued.job.id)
+    audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(encoding="utf-8")
+
+    assert dispatch.ran is True
+    assert job is not None
+    assert job.status == "failed"
+    assert job.error_class == "RuntimeError"
+    assert job.error_message == "Player log collection failed."
+    assert "files=1" in job.stdout_tail
+    assert raw_failure not in job.error_message
+    assert raw_failure not in job.stdout_tail
+    assert raw_failure not in audit_text
+    assert str(allowed_log) not in job.stdout_tail
+    assert str(allowed_log) not in audit_text
+    assert "198.51.100.88" not in job.error_message
+    assert "198.51.100.88" not in audit_text
+    events = _audit_events(tmp_path)
+    assert events[-1]["success"] is False
+    assert events[-1]["details"]["phase"] == "outcome"
+    assert events[-1]["details"]["reason_message"] == "Player log collection failed."
 
 
 def test_player_log_collection_job_collects_allowlisted_logs_and_audits_counts(
@@ -252,9 +405,39 @@ def test_player_log_collection_job_collects_allowlisted_logs_and_audits_counts(
     assert str(allowed_log) not in encoded_rows
     assert str(outside_log) not in encoded_rows
 
+    second = player_log_collection.request_player_log_collection_and_start(
+        db_path,
+        audit_log_path=audit_log_path,
+        username="owner",
+        user_id=None,
+    )
+    second_dispatch = player_logs.dispatch_player_log_collection_job(
+        db_path,
+        second.job.id,
+    )
+    second_job = get_job(db_path, second.job.id)
+
+    assert second.created is True
+    assert second_dispatch.ran is True
+    assert second_job is not None
+    assert second_job.status == "succeeded"
+    assert second_job.result_message == "No new player log events found."
+    assert "parsed_events=2" in second_job.stdout_tail
+    assert "stored_events=0" in second_job.stdout_tail
+    assert "duplicates=2" in second_job.stdout_tail
+    assert str(allowed_log) not in second_job.stdout_tail
+    assert str(outside_log) not in second_job.stdout_tail
+    assert len(_event_rows(tmp_path / "default" / "players.db")) == 2
+
     events = _audit_events(tmp_path)
-    assert [event["details"]["phase"] for event in events] == ["intent", "outcome"]
+    assert [event["details"]["phase"] for event in events] == [
+        "intent",
+        "outcome",
+        "intent",
+        "outcome",
+    ]
     outcome = events[1]
+    duplicate_outcome = events[3]
     assert outcome["action"] == player_logs.PLAYER_LOG_COLLECTION_ACTION
     assert outcome["target"] == player_logs.PLAYER_LOG_COLLECTION_JOB_KIND
     assert outcome["success"] is True
@@ -264,6 +447,10 @@ def test_player_log_collection_job_collects_allowlisted_logs_and_audits_counts(
     assert outcome["details"]["duplicate_events"] == "0"
     assert outcome["details"]["skipped_lines"] == "0"
     assert outcome["details"]["error_count"] == "0"
+    assert duplicate_outcome["message"] == "No new player log events found."
+    assert duplicate_outcome["details"]["parsed_events"] == "2"
+    assert duplicate_outcome["details"]["stored_events"] == "0"
+    assert duplicate_outcome["details"]["duplicate_events"] == "2"
 
     audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(encoding="utf-8")
     assert str(allowed_log) not in audit_text

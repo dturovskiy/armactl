@@ -33,14 +33,14 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Player history DB ingest foundation for sanitized parsed log events in existing `players.db`, with dedupe, source/ref/confidence, and no raw log-line or IP storage.
 - [x] Player history manual collector/import foundation for explicitly supplied bounded text log files, with dry-run/write CLI, safe basename+file-marker+line source refs, fail-closed oversize handling, and no live journalctl, background service, UI, raw log-line, or IP storage.
 - [x] Read-only player history web view for already stored `player_log_events`, with bounded filters and no live log reads, mutations, raw source paths, raw log lines, or IP display.
-- [x] Manual web collection job for player log events from allowlisted instance config logs, with background-job dedupe, bounded reads, audit counts, and no arbitrary file picker, automatic poller, raw paths, raw log lines, or IP storage.
+- [x] Manual web collection job for player log events from allowlisted instance config logs, with background-job dedupe, bounded reads, audit counts, and no arbitrary file picker, automatic poller, raw paths, raw log lines, or IP storage; player-history/stat freshness depends on running this manual collection until a poller exists.
 - [ ] Continue production hardening for the local dashboard.
 - [x] Polish server update browser flow with controlled post-action notices and active job links.
 - [ ] Continue polishing server update check/update UX after VM smoke feedback.
 - [ ] Expand safe config controls after field behavior is verified.
 - [ ] Improve mod cleanup edge-case recovery workflows.
 - [x] Build slice 2 read-only players page / improved players view from existing sources.
-- [ ] Add live scanner/sessionization and retention policy work with no IP storage by default.
+- [ ] Add automatic poller/service, live scanner/sessionization, and retention policy work with no IP storage by default.
 - [ ] Add slice 4 player search/filter over reliable IDs, names, and session metadata.
 - [ ] Add slice 5 audited banlist manager after identity, storage, and rollback rules are documented.
 - [ ] Add richer read-only Discord player columns only after reliable player history/session data exists.

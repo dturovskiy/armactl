@@ -45,7 +45,7 @@
 {% block content %}
 <section class="panel full-width player-history-panel">
   {% if collection_notice %}
-    <section class="notice-panel notice-success full-width player-log-collection-notice">
+    <section class="notice-panel notice-{{ collection_notice.level }} full-width player-log-collection-notice">
       <h2>{{ t(collection_notice.title) }}</h2>
       <p>{{ t(collection_notice.message) }}</p>
       <p>

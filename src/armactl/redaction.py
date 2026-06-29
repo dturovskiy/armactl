@@ -25,6 +25,21 @@ _DISCORD_WEBHOOK_URL_RE = re.compile(
     re.IGNORECASE,
 )
 _BOT_TOKEN_RE = re.compile(r"\b\d{6,}:[A-Za-z0-9_-]{10,}\b")
+_IPV4_ADDRESS_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b")
+_BRACKETED_IPV6_ADDRESS_RE = re.compile(r"\[[0-9A-Fa-f:.]{2,}\](?::\d{1,5})?")
+_POSIX_ABSOLUTE_PATH_RE = re.compile(
+    r"(?<![\w.:@/~-])/(?:home|root|tmp|var|opt|srv|etc|mnt|run|usr)"
+    r"(?:/[^\s,;'\"<>]+)+"
+)
+_HOME_ABSOLUTE_PATH_RE = re.compile(
+    r"(?<![\w.:@/~-])~/(?:[^\s,;'\"<>]+/)+[^\s,;'\"<>]+"
+)
+_WINDOWS_ABSOLUTE_PATH_RE = re.compile(
+    r'(?i)\b[A-Z]:\\(?:[^\s,;\'"<>|]+\\)*[^\s,;\'"<>|]+'
+)
+_UNC_ABSOLUTE_PATH_RE = re.compile(
+    r'\\\\[^\s,;\'"<>|]+(?:\\[^\s,;\'"<>|]+)+'
+)
 
 
 def redact_sensitive_text(value: object | None) -> str:
@@ -33,7 +48,13 @@ def redact_sensitive_text(value: object | None) -> str:
     for pattern in _ASSIGNMENT_PATTERNS:
         text = pattern.sub(_replace_assignment_match, text)
     text = _DISCORD_WEBHOOK_URL_RE.sub(REDACTED, text)
-    return _BOT_TOKEN_RE.sub(REDACTED, text)
+    text = _BOT_TOKEN_RE.sub(REDACTED, text)
+    text = _UNC_ABSOLUTE_PATH_RE.sub(REDACTED, text)
+    text = _WINDOWS_ABSOLUTE_PATH_RE.sub(REDACTED, text)
+    text = _HOME_ABSOLUTE_PATH_RE.sub(REDACTED, text)
+    text = _POSIX_ABSOLUTE_PATH_RE.sub(REDACTED, text)
+    text = _IPV4_ADDRESS_RE.sub(REDACTED, text)
+    return _BRACKETED_IPV6_ADDRESS_RE.sub(REDACTED, text)
 
 
 def safe_subprocess_error(stderr: str | None, stdout: str | None = None) -> str:

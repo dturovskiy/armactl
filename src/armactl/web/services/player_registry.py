@@ -761,16 +761,13 @@ def _player_log_event_key(row: dict[str, object]) -> str:
 
 
 def _safe_event_source_ref(value: object) -> str | None:
-    text = _safe_event_text(
-        value,
+    raw_text = "" if value is None else str(value).replace("\\", "/")
+    if "/" in raw_text:
+        raw_text = raw_text.rsplit("/", 1)[-1]
+    return _safe_event_text(
+        raw_text,
         max_length=PLAYER_LOG_EVENT_REF_MAX_LENGTH,
     )
-    if not text:
-        return None
-    normalized = text.replace("\\", "/")
-    if "/" not in normalized:
-        return text
-    return normalized.rsplit("/", 1)[-1].strip() or None
 
 
 def _safe_event_player_id(value: object) -> str | None:

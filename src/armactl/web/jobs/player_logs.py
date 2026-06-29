@@ -182,6 +182,10 @@ def _summary_message(summary: PlayerLogCollectionSummary) -> str:
         return "No allowlisted player logs found."
     if summary.error_count:
         return "Player log collection completed with skipped files."
+    if summary.matched_events == 0:
+        return "No matching player log events found."
+    if summary.stored_events == 0 and summary.duplicate_events > 0:
+        return "No new player log events found."
     return "Player log collection completed."
 
 
@@ -291,7 +295,7 @@ def handle_player_log_collection(context: JobContext) -> JobHandlerResult:
             job_id=context.job.id,
             error=error,
         )
-        raise
+        raise RuntimeError("Player log collection failed.") from error
 
     context.append_output(stdout=_summary_output(summary))
     message = _summary_message(summary)

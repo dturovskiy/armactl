@@ -105,13 +105,17 @@ def _collection_notice_from_query(request: Request) -> dict[str, str] | None:
     notice_type = request.query_params.get("log_collection", "")
     if notice_type == "queued":
         return {
+            "level": "success",
             "title": "Player log collection queued.",
             "message": "Allowlisted server logs will be scanned in the background.",
         }
     if notice_type == "active":
         return {
+            "level": "warning",
             "title": "Player log collection already running.",
-            "message": "An existing player log collection job is already queued or running.",
+            "message": (
+                "No duplicate job was created; the active collection is already queued or running."
+            ),
         }
     return None
 

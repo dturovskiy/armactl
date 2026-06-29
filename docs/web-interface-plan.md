@@ -24,7 +24,7 @@ The armactl web dashboard is a local browser interface for managing the same Arm
 - Player log event DB ingest foundation for sanitized parser output in the existing `players.db`, with dedupe and no raw log-line/IP storage.
 - Manual player log collector/import foundation through CLI for explicitly supplied bounded text log files, with dry-run/write modes and safe basename+file-marker+line source refs.
 - Read-only player history web view for already stored player log events, with bounded filters and no web-request log reads or mutations.
-- Manual player log collection web job from allowlisted instance config profile logs, with background-job dedupe, audit counts, and no arbitrary path input or automatic poller.
+- Manual player log collection web job from allowlisted instance config profile logs, with background-job dedupe, audit counts, and no arbitrary path input or automatic poller; stored history/stat freshness depends on operators running this collection until polling exists.
 - Action records and pending operator work for changes that need follow-up.
 
 ## Package Shape
@@ -118,14 +118,14 @@ Phase 3a manual collector/import foundation is CLI-only. `armactl player-history
 
 Phase 3b read-only history view is web-only. `/players` defaults to the live current-player table, `/players/known` shows a compact known-player table with event-derived counters when data exists, and `/players/history` lists already stored `player_log_events` newest first with bounded limit, event-type, reliable-ID, and text/name filters. It uses the existing `players:view` permission, displays sanitized source refs only, and does not read log files, run a scanner, mutate data, store or display IPs, show raw log lines, create sessions, calculate K/D, manage bans, or enrich Discord output.
 
-Phase 3c manual web collection adds the `/players/history/collect-logs` button/job. The route only handles auth, permission, CSRF, and redirect notice glue. The job scans only allowlisted current-instance server profile logs already used by armactl telemetry (`config/logs/*/console.log`), writes parsed events through the existing collector/ingest path, dedupes active queued/running jobs, and audits intent plus completion counts. It does not accept a path from the request, expose raw absolute paths, store raw log lines or IPs, run a live poller, sessionize playtime, calculate Discord K/D, or manage bans.
+Phase 3c manual web collection adds the `/players/history/collect-logs` button/job. The route only handles auth, permission, CSRF, and redirect notice glue. The job scans only allowlisted current-instance server profile logs already used by armactl telemetry (`config/logs/*/console.log`), writes parsed events through the existing collector/ingest path, dedupes active queued/running jobs, and audits intent plus completion counts. It does not accept a path from the request, expose raw absolute paths, store raw log lines or IPs, run a live poller/service, sessionize playtime, calculate Discord K/D, or manage bans. Until an automatic poller/service exists, stored player-history/stat freshness depends on operators running this manual collection.
 
-Future player history work should add live scanner trigger decisions, sessionization, retention rules, and richer session/history semantics before any public/Discord enrichment.
+Future player history work should add automatic poller/service trigger decisions, sessionization, retention rules, and richer session/history semantics before any public/Discord enrichment.
 
 Next player slices should remain public/free/local core scope:
 
 - slice 2: read-only players page / improved players view from existing sources and stored event history;
-- slice 3: live scanner/sessionization and retention policy using the parser/import/storage foundation, with no IP storage by default;
+- slice 3: automatic poller/service, live scanner/sessionization, and retention policy using the parser/import/storage foundation, with no IP storage by default;
 - slice 4: search/filter over reliable IDs, names, and session metadata;
 - slice 5: audited banlist manager after source-of-truth, rollback, and identity rules are settled;
 - slice 6: Discord stats enrichment after stable player history exists.
