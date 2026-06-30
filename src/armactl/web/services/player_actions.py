@@ -21,6 +21,7 @@ _SOURCE_UNAVAILABLE = "unavailable"
 
 @dataclass(frozen=True)
 class PlayerRefreshResult:
+    observed_count: int = 0
     stored_count: int = 0
     ignored_count: int = 0
     success: bool = True
@@ -30,7 +31,10 @@ class PlayerRefreshResult:
     backend_success: bool = True
     audit_written: bool = True
     source: str = ""
+    status: str = ""
     reliable_count: int = 0
+    reason_class: str = ""
+    dry_run: bool = False
 
     @property
     def status_label(self) -> str:
@@ -52,6 +56,17 @@ def _safe_source(source: object) -> str:
     return safe_player_text(source) or _SOURCE_UNAVAILABLE
 
 
+def _safe_status(status: object, *, available: bool | None = None) -> str:
+    safe_status = safe_player_text(status)
+    if safe_status:
+        return safe_status
+    if available is True:
+        return "available"
+    if available is False:
+        return "unavailable"
+    return "unknown"
+
+
 def _append_refresh_audit(
     audit_log_path,
     *,
@@ -62,6 +77,8 @@ def _append_refresh_audit(
     message,
     phase,
     source=_SOURCE_PENDING,
+    status="pending",
+    observed_count=0,
     reliable_count=0,
     recorded_count=0,
     ignored_count=0,
@@ -73,6 +90,8 @@ def _append_refresh_audit(
         "action": ACTION_REFRESH,
         "instance": safe_player_text(instance),
         "source": _safe_source(source),
+        "status": _safe_status(status),
+        "observed_count": str(observed_count),
         "reliable_count": str(reliable_count),
         "recorded_count": str(recorded_count),
         "ignored_count": str(ignored_count),
@@ -96,6 +115,7 @@ def _append_refresh_audit(
 
 def _intent_failure(error):
     return PlayerRefreshResult(
+        observed_count=0,
         stored_count=0,
         ignored_count=0,
         success=False,
@@ -130,54 +150,128 @@ def _reliable_observation_count(
     )
 
 
-def _failure_result(
+def _ignored_observation_count(
+    observations: tuple[player_registry.PlayerObservation, ...],
+) -> int:
+    return sum(
+        1
+        for observation in observations
+        if not normalize_reliable_player_id(observation.reliable_id)
+    )
+
+
+def refresh_current_players(
+    instance=paths.DEFAULT_INSTANCE_NAME,
     *,
-    audit_log_path,
-    username,
-    instance,
-    target,
-    message,
-    source,
-    reliable_count,
-    error,
+    data_root=paths.DEFAULT_DATA_ROOT,
+    dry_run: bool = False,
+    observed_at: str | None = None,
 ):
-    safe_source = _safe_source(source)
+    """Refresh the known-player registry from the current roster.
+
+    This safe service-layer entry point is callable from web, job, and CLI glue.
+    It stores only reliable identity rows in players.db and never stores IPs,
+    raw log lines, or raw filesystem paths.
+    """
+    normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
+    db_path = player_registry.player_registry_db_path(
+        normalized_instance,
+        data_root=data_root,
+    )
     try:
-        _append_refresh_audit(
-            audit_log_path,
-            username=username,
-            instance=instance,
-            target=target,
-            success=False,
-            message=message,
-            phase="outcome",
-            source=safe_source,
-            reliable_count=reliable_count,
-            recorded_count=0,
-            ignored_count=0,
-            reason_class=type(error).__name__,
-            reason_message=message,
-        )
-    except AuditLogError as audit_error:
+        roster = player_sources.load_current_player_roster(normalized_instance)
+    except Exception as error:  # noqa: BLE001 - callers need controlled service results.
         return PlayerRefreshResult(
+            observed_count=0,
             stored_count=0,
             ignored_count=0,
             success=False,
-            message="Player registry refresh failed, and audit logging also failed.",
-            audit_error=_safe_error(audit_error),
+            message="Player registry refresh failed while loading current players.",
             backend_success=False,
-            audit_written=False,
-            source=safe_source,
-            reliable_count=reliable_count,
+            source=_SOURCE_UNAVAILABLE,
+            status="unavailable",
+            reliable_count=0,
+            reason_class=type(error).__name__,
+            dry_run=dry_run,
         )
+
+    safe_source = _safe_source(roster.source)
+    safe_status = _safe_status(roster.status, available=roster.available)
+    observations = _registry_observations(roster.players)
+    observed_count = len(roster.players)
+    reliable_count = _reliable_observation_count(observations)
+    ignored_count = _ignored_observation_count(observations)
+
+    if not roster.available:
+        return PlayerRefreshResult(
+            observed_count=observed_count,
+            stored_count=0,
+            ignored_count=ignored_count,
+            success=False,
+            message="Current player roster unavailable.",
+            backend_success=False,
+            source=safe_source,
+            status=safe_status,
+            reliable_count=reliable_count,
+            reason_class="PlayerRosterUnavailable",
+            dry_run=dry_run,
+        )
+
+    if dry_run:
+        return PlayerRefreshResult(
+            observed_count=observed_count,
+            stored_count=0,
+            ignored_count=ignored_count,
+            message="Player registry refresh dry run completed.",
+            source=safe_source,
+            status=safe_status,
+            reliable_count=reliable_count,
+            dry_run=True,
+        )
+
+    if reliable_count == 0:
+        message = (
+            "No current players online."
+            if observed_count == 0
+            else "No reliable current players found."
+        )
+        return PlayerRefreshResult(
+            observed_count=observed_count,
+            stored_count=0,
+            ignored_count=ignored_count,
+            message=message,
+            source=safe_source,
+            status=safe_status,
+            reliable_count=0,
+        )
+
+    try:
+        snapshot = player_registry.record_current_players_snapshot(
+            db_path,
+            observations,
+            observed_at=observed_at,
+        )
+    except Exception as error:  # noqa: BLE001 - callers need controlled service results.
+        return PlayerRefreshResult(
+            observed_count=observed_count,
+            stored_count=0,
+            ignored_count=ignored_count,
+            success=False,
+            message="Player registry refresh failed while saving current players.",
+            backend_success=False,
+            source=safe_source,
+            status=safe_status,
+            reliable_count=reliable_count,
+            reason_class=type(error).__name__,
+            dry_run=dry_run,
+        )
+
     return PlayerRefreshResult(
-        stored_count=0,
-        ignored_count=0,
-        success=False,
-        message=message,
-        backend_success=False,
-        audit_written=True,
+        observed_count=observed_count,
+        stored_count=snapshot.stored_count,
+        ignored_count=snapshot.ignored_count,
         source=safe_source,
+        status=safe_status,
         reliable_count=reliable_count,
     )
 
@@ -208,43 +302,9 @@ def refresh_registry_and_audit(
     except AuditLogError as error:
         return _intent_failure(error)
 
-    try:
-        roster = player_sources.load_current_player_roster(normalized_instance)
-    except Exception as error:  # noqa: BLE001 - route must render a controlled failure.
-        return _failure_result(
-            audit_log_path=audit_log_path,
-            username=username,
-            instance=normalized_instance,
-            target=target,
-            message="Player registry refresh failed while loading current players.",
-            source=_SOURCE_UNAVAILABLE,
-            reliable_count=0,
-            error=error,
-        )
-
-    observations: tuple[player_registry.PlayerObservation, ...] = ()
-    reliable_count = 0
-    try:
-        observations = _registry_observations(roster.players)
-        reliable_count = _reliable_observation_count(observations)
-        snapshot = player_registry.record_current_players_snapshot(db_path, observations)
-    except Exception as error:  # noqa: BLE001 - route must render a controlled failure.
-        return _failure_result(
-            audit_log_path=audit_log_path,
-            username=username,
-            instance=normalized_instance,
-            target=target,
-            message="Player registry refresh failed while saving current players.",
-            source=roster.source,
-            reliable_count=reliable_count,
-            error=error,
-        )
-
-    result = PlayerRefreshResult(
-        stored_count=snapshot.stored_count,
-        ignored_count=snapshot.ignored_count,
-        source=_safe_source(roster.source),
-        reliable_count=reliable_count,
+    result = refresh_current_players(
+        normalized_instance,
+        data_root=data_root,
     )
     try:
         _append_refresh_audit(
@@ -252,24 +312,36 @@ def refresh_registry_and_audit(
             username=username,
             instance=normalized_instance,
             target=target,
-            success=True,
-            message="Player registry refreshed.",
+            success=result.success,
+            message=result.message,
             phase="outcome",
             source=result.source,
+            status=result.status,
+            observed_count=result.observed_count,
             reliable_count=result.reliable_count,
             recorded_count=result.stored_count,
             ignored_count=result.ignored_count,
+            reason_class=result.reason_class,
+            reason_message="" if result.success else result.message,
         )
     except AuditLogError as error:
+        message = (
+            "Player registry refreshed, but audit logging failed."
+            if result.backend_success
+            else "Player registry refresh failed, and audit logging also failed."
+        )
         return PlayerRefreshResult(
+            observed_count=result.observed_count,
             stored_count=result.stored_count,
             ignored_count=result.ignored_count,
             success=False,
-            message="Player registry refreshed, but audit logging failed.",
+            message=message,
             audit_error=_safe_error(error),
-            backend_success=True,
+            backend_success=result.backend_success,
             audit_written=False,
             source=result.source,
+            status=result.status,
             reliable_count=result.reliable_count,
+            reason_class=result.reason_class,
         )
     return result

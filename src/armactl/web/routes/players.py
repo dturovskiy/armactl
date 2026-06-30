@@ -18,7 +18,7 @@ from armactl.web.auth.dependencies import (
 )
 from armactl.web.auth.permissions import PLAYERS_VIEW
 from armactl.web.page_models import players as players_page_model
-from armactl.web.services import player_actions, player_log_collection
+from armactl.web.services import player_current_refresh, player_log_collection
 
 router = APIRouter()
 
@@ -56,6 +56,7 @@ def _render_current_players_page(
             "page": page,
             "query": page.query,
             "players": page.players,
+            "refresh_notice": _current_refresh_notice_from_query(request),
         },
         status_code=status_code,
     )
@@ -68,8 +69,6 @@ def _render_known_players_page(
     request: Request,
     current: CurrentSession,
     *,
-    refresh_result: player_actions.PlayerRefreshResult | None = None,
-    audit_error: str = "",
     status_code: int = status.HTTP_200_OK,
 ) -> Response:
     if not require_permission(current, PLAYERS_VIEW):
@@ -91,14 +90,31 @@ def _render_known_players_page(
             "page": page,
             "query": page.query,
             "players": page.players,
-            "refresh_result": refresh_result,
-            "audit_error": audit_error,
         },
         status_code=status_code,
     )
     if form_csrf.should_set_cookie:
         set_csrf_cookie(response, form_csrf.token, current.config)
     return response
+
+
+def _current_refresh_notice_from_query(request: Request) -> dict[str, str] | None:
+    notice_type = request.query_params.get("refresh_current", "")
+    if notice_type == "queued":
+        return {
+            "level": "success",
+            "title": "Current player refresh queued.",
+            "message": "Known players will be updated from the current roster in the background.",
+        }
+    if notice_type == "active":
+        return {
+            "level": "warning",
+            "title": "Current player refresh already running.",
+            "message": (
+                "No duplicate job was created; the active refresh is already queued or running."
+            ),
+        }
+    return None
 
 
 def _collection_notice_from_query(request: Request) -> dict[str, str] | None:
@@ -188,12 +204,7 @@ def known_players_page(request: Request) -> Response:
     return _render_known_players_page(request, current)
 
 
-@router.post("/players/refresh", response_class=HTMLResponse)
-def refresh_players_page(
-    request: Request,
-    csrf_token: str = Form(default=""),
-) -> Response:
-    """Record reliable current players from the safe moderation view."""
+def _enqueue_current_player_refresh(request: Request, csrf_token: str) -> Response:
     current = get_current_session(request)
     if current is None:
         return _redirect_to_login(request)
@@ -205,19 +216,42 @@ def refresh_players_page(
             status_code=status.HTTP_403_FORBIDDEN,
         )
 
-    result = player_actions.refresh_registry_and_audit(
-        paths.DEFAULT_INSTANCE_NAME,
-        data_root=current.config.data_root,
-        audit_log_path=current.config.audit_log_path,
-        username=current.user.username,
+    try:
+        result = player_current_refresh.request_player_current_refresh_and_start(
+            current.config.db_path,
+            audit_log_path=current.config.audit_log_path,
+            username=current.user.username,
+            user_id=current.user.id,
+        )
+    except player_current_refresh.PlayerCurrentRefreshActionAuditError as exc:
+        return PlainTextResponse(
+            str(exc),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    notice = "queued" if result.created else "active"
+    return RedirectResponse(
+        f"/players?refresh_current={notice}&job_id={result.job.id}",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
-    return _render_known_players_page(
-        request,
-        current,
-        refresh_result=result,
-        audit_error=result.audit_error,
-        status_code=status.HTTP_200_OK if result.success else status.HTTP_500_INTERNAL_SERVER_ERROR,
-    )
+
+
+@router.post("/players/refresh-current", response_class=HTMLResponse)
+def refresh_current_players_page(
+    request: Request,
+    csrf_token: str = Form(default=""),
+) -> Response:
+    """Queue current-roster registry refresh without running it in the request."""
+    return _enqueue_current_player_refresh(request, csrf_token)
+
+
+@router.post("/players/refresh", response_class=HTMLResponse)
+def refresh_players_page(
+    request: Request,
+    csrf_token: str = Form(default=""),
+) -> Response:
+    """Compatibility alias for current-roster refresh enqueue."""
+    return _enqueue_current_player_refresh(request, csrf_token)
 
 
 @router.post("/players/history/collect-logs", response_class=HTMLResponse)

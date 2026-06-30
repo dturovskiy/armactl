@@ -69,18 +69,11 @@ class PlayerRegistryPage:
 
 @dataclass(frozen=True)
 class CurrentPlayerTableRow:
-    """One live player row enriched with stored counters when available."""
+    """One live current-roster row without session-derived claims."""
 
     display_name: str
     reliable_id: str
     source: str
-    faction: str
-    last_seen_at: str
-    kill_count: int
-    death_count: int
-    teamkill_count: int
-    suicide_count: int
-    event_count: int
 
 
 @dataclass(frozen=True)
@@ -167,27 +160,19 @@ def load_player_moderation_panel(
         players=filtered,
         total_count=roster.total_count,
         filtered_count=len(filtered),
-        source=roster.source,
-        status=roster.status,
-        error=roster.error,
+        source=safe_player_text(roster.source) or "unavailable",
+        status=safe_player_text(roster.status) or "unknown",
+        error=safe_player_text(roster.error),
     )
 
 
 def _current_player_row(
     player: player_sources.CurrentPlayer,
-    summary: player_registry.PlayerSummary | None,
 ) -> CurrentPlayerTableRow:
     return CurrentPlayerTableRow(
-        display_name=player.display_name,
-        reliable_id=player.reliable_id,
-        source=player.source,
-        faction=summary.faction if summary else "",
-        last_seen_at=summary.last_seen_at if summary else "",
-        kill_count=summary.kill_count if summary else 0,
-        death_count=summary.death_count if summary else 0,
-        teamkill_count=summary.teamkill_count if summary else 0,
-        suicide_count=summary.suicide_count if summary else 0,
-        event_count=summary.event_count if summary else 0,
+        display_name=safe_player_text(player.display_name) or "Unknown player",
+        reliable_id=safe_player_text(player.reliable_id),
+        source=safe_player_text(player.source) or "unknown",
     )
 
 
@@ -201,7 +186,6 @@ def _matches_current_player(player: CurrentPlayerTableRow, query: str) -> bool:
             player.display_name,
             player.reliable_id,
             player.source,
-            player.faction,
         )
     )
 
@@ -212,7 +196,7 @@ def load_current_players_page(
     data_root: Path = paths.DEFAULT_DATA_ROOT,
     query: str = "",
 ) -> CurrentPlayersPage:
-    """Return the live player roster enriched by stored event counters."""
+    """Return the live player roster without mutating persistent state."""
     normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
     normalized_query = normalize_player_query(query)
     try:
@@ -230,26 +214,15 @@ def load_current_players_page(
             players=(),
         )
 
-    registry_path = player_registry.player_registry_db_path(
-        normalized_instance,
-        data_root=data_root,
-    )
-    summaries = player_registry.list_player_summaries_by_ids(
-        registry_path,
-        (player.reliable_id for player in roster.players),
-    )
-    rows = tuple(
-        _current_player_row(player, summaries.get(player.reliable_id))
-        for player in roster.players
-    )
+    rows = tuple(_current_player_row(player) for player in roster.players)
     filtered = tuple(row for row in rows if _matches_current_player(row, normalized_query))
     return CurrentPlayersPage(
         instance=normalized_instance,
         query=normalized_query,
         available=roster.available,
-        source=roster.source,
-        status=roster.status,
-        error=roster.error,
+        source=safe_player_text(roster.source) or "unavailable",
+        status=safe_player_text(roster.status) or "unknown",
+        error=safe_player_text(roster.error),
         total_count=roster.total_count,
         filtered_count=len(filtered),
         players=filtered,

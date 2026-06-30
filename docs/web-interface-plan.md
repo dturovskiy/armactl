@@ -25,6 +25,7 @@ The armactl web dashboard is a local browser interface for managing the same Arm
 - Manual player log collector/import foundation through CLI for explicitly supplied bounded text log files, with dry-run/write modes and safe basename+file-marker+line source refs.
 - Read-only player history web view for already stored player log events, with bounded filters and no web-request log reads or mutations.
 - Manual player log collection web job from allowlisted instance config profile logs, with background-job dedupe, audit counts, and no arbitrary path input or automatic poller; stored history/stat freshness depends on operators running this collection until polling exists.
+- Current-roster refresh foundation through an explicit `players:refresh-current` background job, with active-job dedupe, audit/job counts, no GET writes, and no session/K/D/role claims.
 - Action records and pending operator work for changes that need follow-up.
 
 ## Package Shape
@@ -53,8 +54,10 @@ Routes should stay thin. Services own validation, backend calls, backups, pendin
 - `/files` - bounded browse, preview, download, and upload.
 - `/logs` - fixed log/report sources.
 - `/jobs` - background job status.
-- `/players` - player registry foundation.
+- `/players` - authenticated live current-player roster, with explicit background refresh button.
+- `/players/known` - authenticated reliable identity directory, not a combat-stat board.
 - `/players/history` - authenticated read-only stored player event history.
+- `POST /players/refresh-current` - authenticated current-roster registry refresh job; accepts CSRF only, not paths.
 - `POST /players/history/collect-logs` - authenticated manual background collection from allowlisted instance config logs; accepts CSRF only, not paths.
 - `/updates` - server version/update views, controlled post-action notices, fresh-check reuse feedback, and active update/check job links to `/jobs`.
 
@@ -108,7 +111,7 @@ Community-facing statistics must stay read-only. Public Discord/website-style ou
 
 See [player-log-event-inventory.md](player-log-event-inventory.md) for the real log-event inventory before adding player history/statistics. Combat statistics are feasible from the observed script-emitted `INFO: KILL ...` lines, but remain source/capability-dependent rather than vanilla/no-mod.
 
-See [player-data-inventory.md](player-data-inventory.md) for the current source/storage audit before expanding players, history, or banlist behavior. The current implementation separates live current-player observation from persisted registry data: A2S is count-only, RCON can provide names and reliable IDs, `/players/refresh` persists reliable IDs into `players.db`, and public status stays count-only.
+See [player-data-inventory.md](player-data-inventory.md) for the current source/storage audit before expanding players, history, or banlist behavior. The current implementation separates live current-player observation from persisted registry data: A2S is count-only, RCON can provide names and reliable IDs, `/players` reads the current roster without persistence, `POST /players/refresh-current` queues a background refresh that persists reliable IDs into `players.db`, and public status stays count-only.
 
 Phase 1 player-history foundation is code-only parser/event-model prep. `armactl.player_log_events` parses sanitized backend authentication, network player update, faction join, script combat, and optional ServerAdminTools kill-wrapper lines into a bounded DTO. It does not read live logs, store raw log lines, store player addresses, or expose UI.
 
@@ -116,23 +119,25 @@ Phase 2 player-history DB ingest foundation is also code-only. `player_registry.
 
 Phase 3a manual collector/import foundation is CLI-only. `armactl player-history collect` accepts explicit log file paths, defaults to dry-run, writes only with `--write`, resolves the instance-scoped `players.db` from `--instance` and `--data-root`, reads regular UTF-8 text logs line-by-line within max byte/line bounds, fails closed for files over the byte limit, and sends parsed events to the existing ingest path with sanitized basename+file-marker+line source refs. It does not read live `journalctl`, run a daemon/background poller, expose web routes/templates, store raw log lines, store IP/address values, or create sessions/history views.
 
-Phase 3b read-only history view is web-only. `/players` defaults to the live current-player table, `/players/known` is a reliable identity directory for known names/IDs/last-seen/source, and `/players/history` lists already stored `player_log_events` newest first with bounded limit, event-type, reliable-ID, and text/name filters for diagnostics and investigation. Historical combat events stay out of `/players/known`; they must not be shown as current-session K/D/playtime/role truth until session tracking exists. The view uses the existing `players:view` permission, displays sanitized source refs only, and does not read log files, run a scanner, mutate data, store or display IPs, show raw log lines, create sessions, calculate K/D, manage bans, or enrich Discord output.
+Phase 3b read-only history view is web-only. `/players` defaults to the live current-player table, `/players/known` is a reliable identity directory for known names/IDs/first-seen/last-seen/source, and `/players/history` lists already stored `player_log_events` newest first with bounded limit, event-type, reliable-ID, and text/name filters for diagnostics and investigation. Historical combat events stay out of `/players/known`; they must not be shown as current-session K/D/playtime/role truth until session tracking exists. The view uses the existing `players:view` permission, displays sanitized source refs only, and does not read log files, run a scanner, mutate data from GET routes, store or display IPs, show raw log lines, create sessions, calculate K/D, manage bans, or enrich Discord output.
 
-Phase 3c manual web collection adds the `/players/history/collect-logs` button/job. The route only handles auth, permission, CSRF, and redirect notice glue. The job scans only allowlisted current-instance server profile logs already used by armactl telemetry (`config/logs/*/console.log`), writes parsed events through the existing collector/ingest path, dedupes active queued/running jobs, and audits intent plus completion counts. It does not accept a path from the request, expose raw absolute paths, store raw log lines or IPs, run a live poller/service, sessionize playtime, calculate Discord K/D, or manage bans. Until an automatic poller/service exists, stored player-history/stat freshness depends on operators running this manual collection.
+Phase 3c manual web collection adds the `/players/history/collect-logs` button/job. The route only handles auth, permission, CSRF, and redirect notice glue. The job scans only allowlisted current-instance server profile logs already used by armactl telemetry (`config/logs/*/console.log`), writes parsed events through the existing collector/ingest path, dedupes active queued/running jobs, and audits intent plus completion counts. It does not accept a path from the request, expose raw absolute paths, store raw log lines or IPs, run a live poller/service, sessionize playtime, calculate Discord K/D, or manage bans. Until a full session/history poller exists, stored player-history/stat freshness depends on operators running this manual collection.
 
-Automatic last-seen/current-session refresh should be added as an explicit poller/job/service slice, not as hidden database writes from read-only page loads. That slice should define retention and session boundaries before promoting join time, roles, or combat counters as current-player facts.
+Phase 3d current-roster refresh foundation adds `POST /players/refresh-current` and the `players:refresh-current` background job. The route only handles auth, `players:view`, CSRF, and redirect notice glue; the service/job read the existing current roster source, update `players.db` known-player first/last seen for reliable IDs, dedupe active queued/running jobs, and audit intent plus counts-only completion outcome. Job result/output includes observed/stored/ignored/source/status counts only. It does not accept request paths, write from GET routes, store raw paths, raw log lines, IPs, or player secrets, create sessions, infer joined time or role, calculate current-session K/D, manage bans/kicks, or enrich Discord output.
+
+Full last-seen automation beyond explicit background refresh, plus current-session semantics, should be added as a later poller/service slice. That slice should define retention and session boundaries before promoting join time, roles, or combat counters as current-player facts.
 
 Future player history work should add automatic poller/service trigger decisions, sessionization, retention rules, and richer session/history semantics before any public/Discord enrichment.
 
 Next player slices should remain public/free/local core scope:
 
 - slice 2: read-only players page / improved players view from existing sources and stored event history;
-- slice 3: automatic poller/service, live scanner/sessionization, and retention policy using the parser/import/storage foundation, with no IP storage by default;
+- slice 3: full session tracking, live scanner/sessionization, and retention policy using the parser/import/storage foundation, with no IP storage by default;
 - slice 4: search/filter over reliable IDs, names, and session metadata;
 - slice 5: audited banlist manager after source-of-truth, rollback, and identity rules are settled;
 - slice 6: Discord stats enrichment after stable player history exists.
 
-Do not add ban/kick mutations, aggregate kill/death stats, IP tracking, live journal readers, automatic pollers, sessionization, retention jobs, or Discord enrichment until later slices explicitly choose those sources and retention rules. Manual operator-triggered web collection is limited to the allowlisted background job above.
+Do not add ban/kick mutations, aggregate kill/death stats, IP tracking, live journal readers, long-running automatic pollers, sessionization, retention jobs, or Discord enrichment until later slices explicitly choose those sources and retention rules. Manual operator-triggered log collection is limited to the allowlisted background job above; current-roster refresh is limited to the explicit `players:refresh-current` job and is not full session tracking.
 
 ## Deployment
 

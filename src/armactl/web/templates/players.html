@@ -12,6 +12,15 @@
 </form>
 {% endblock %}
 {% block content %}
+{% if refresh_notice %}
+<section class="notice-panel notice-{{ refresh_notice.level }} full-width player-current-refresh-notice">
+  <h2>{{ t(refresh_notice.title) }}</h2>
+  <p>{{ t(refresh_notice.message) }}</p>
+  <p>
+    <a class="button-link secondary-link" href="/jobs">{{ t("Open background jobs") }}</a>
+  </p>
+</section>
+{% endif %}
 <section class="panel full-width">
   <nav class="player-section-tabs" aria-label="{{ t('Player sections') }}">
     <a class="player-section-tab active" href="/players">{{ t("Current Players") }}</a>
@@ -22,7 +31,13 @@
 
   <div class="section-heading-row">
     <h2>{{ t("Current player table") }}</h2>
-    <span class="muted">{{ tr("Showing {count} of {total} current player(s)", count=page.filtered_count, total=page.total_count) }}</span>
+    <div class="player-history-action-row">
+      <span class="muted">{{ tr("Showing {count} of {total} current player(s)", count=page.filtered_count, total=page.total_count) }}</span>
+      <form method="post" action="/players/refresh-current" class="player-refresh-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">{{ t("Refresh current players") }}</button>
+      </form>
+    </div>
   </div>
   <dl class="compact-dl">
     <dt>{{ t("Source") }}</dt><dd>{{ page.source }}</dd>
@@ -47,28 +62,15 @@
           <tr>
             <th>{{ t("Nickname") }}</th>
             <th>{{ t("Identity ID") }}</th>
-            <th>{{ t("Faction") }}</th>
-            <th>{{ t("K/D") }}</th>
-            <th>{{ t("TK") }}</th>
-            <th>{{ t("Suicides") }}</th>
-            <th>{{ t("Events") }}</th>
-            <th>{{ t("Last seen") }}</th>
+            <th>{{ t("Source") }}</th>
           </tr>
         </thead>
         <tbody>
         {% for player in players %}
           <tr>
-            <td>
-              <strong class="wrap-value">{{ player.display_name }}</strong>
-              <span class="player-row-subtle">{{ player.source }}</span>
-            </td>
+            <td><strong class="wrap-value">{{ player.display_name }}</strong></td>
             <td>{% if player.reliable_id %}<span class="player-id-cell player-id-clip" title="{{ player.reliable_id }}">{{ player.reliable_id[:8] }}...{{ player.reliable_id[-5:] }}</span>{% else %}<span class="muted">{{ t("No reliable ID") }}</span>{% endif %}</td>
-            <td>{% if player.faction %}<span class="wrap-value">{{ player.faction }}</span>{% else %}<span class="muted">{{ t("No faction") }}</span>{% endif %}</td>
-            <td class="player-stat-number">{{ player.kill_count }} / {{ player.death_count }}</td>
-            <td class="player-stat-number">{{ player.teamkill_count }}</td>
-            <td class="player-stat-number">{{ player.suicide_count }}</td>
-            <td class="player-stat-number">{{ player.event_count }}</td>
-            <td>{% if player.last_seen_at %}<time data-local-time datetime="{{ player.last_seen_at }}" title="{{ player.last_seen_at }}">{{ player.last_seen_at[:16]|replace("T", " ") }}</time>{% else %}<span class="muted">-</span>{% endif %}</td>
+            <td><span class="wrap-value">{{ player.source }}</span></td>
           </tr>
         {% endfor %}
         </tbody>
@@ -82,6 +84,6 @@
     <p class="muted">{{ t("Current player list unavailable.") }}</p>
     {% if page.error %}<p class="error">{{ page.error }}</p>{% endif %}
   {% endif %}
-  <p class="muted">{{ t("Join time and role need session tracking before they can be shown reliably.") }}</p>
+  <p class="muted">{{ t("Joined time, role, and current-session K/D need session tracking before they can be shown reliably.") }}</p>
 </section>
 {% endblock %}
