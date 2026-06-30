@@ -1534,6 +1534,29 @@ def list_player_log_events(
     return [_player_log_event_record_from_row(row) for row in rows]
 
 
+def list_player_log_events_for_sessionization(
+    db_path: Path,
+) -> list[PlayerLogEventRecord]:
+    """List stored player log events in stable ingest order for sessionization."""
+    connection = _connect_existing(db_path)
+    if connection is None:
+        return []
+
+    try:
+        with connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM player_log_events
+                ORDER BY COALESCE(observed_at, log_timestamp, created_at) ASC,
+                         event_id ASC
+                """
+            ).fetchall()
+    finally:
+        connection.close()
+    return [_player_log_event_record_from_row(row) for row in rows]
+
+
 def _empty_player_summary(player: KnownPlayer) -> PlayerSummary:
     return PlayerSummary(
         reliable_id=player.reliable_id,

@@ -1,0 +1,270 @@
+"""Background job handler for stored player log event sessionization."""
+
+from __future__ import annotations
+
+import threading
+from pathlib import Path
+
+from armactl import paths
+from armactl.web.jobs.models import JobRecord
+from armactl.web.jobs.runner import (
+    JobContext,
+    JobDispatcher,
+    JobHandlerResult,
+    dispatch_job,
+)
+from armactl.web.jobs.store import get_or_create_active_job
+from armactl.web.services import player_registry, player_sessionizer
+from armactl.web.services.audit import AuditLogError, append_audit_event
+from armactl.web.services.player_identity import safe_player_text
+
+PLAYER_LOG_SESSIONIZATION_JOB_KIND = "players:sessionize-log-events"
+PLAYER_LOG_SESSIONIZATION_ACTION = "players.log-events.sessionize"
+PLAYER_LOG_SESSIONIZATION_SCOPE = "stored_player_log_events"
+
+
+class PlayerLogSessionizationAuditError(RuntimeError):
+    """Raised when sessionization completes but audit cannot be written."""
+
+
+def _data_root_from_web_db_path(db_path: Path) -> Path:
+    """Infer the armactl data root from the standard web DB location."""
+    db_path = Path(db_path)
+    if db_path.name == "web.db" and db_path.parent.name == "web":
+        return db_path.parent.parent
+    return paths.DEFAULT_DATA_ROOT
+
+
+def _safe_instance(instance: object) -> str:
+    try:
+        return paths.validate_instance_name(str(instance or paths.DEFAULT_INSTANCE_NAME))
+    except paths.InvalidInstanceNameError:
+        return paths.DEFAULT_INSTANCE_NAME
+
+
+def ensure_player_log_sessionization_job(
+    db_path,
+    *,
+    requested_by_username: str,
+    requested_by_user_id: int | None = None,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> tuple[JobRecord, bool]:
+    """Return an active stored-log sessionization job, creating one if needed."""
+    return get_or_create_active_job(
+        db_path,
+        kind=PLAYER_LOG_SESSIONIZATION_JOB_KIND,
+        requested_by_username=requested_by_username,
+        requested_by_user_id=requested_by_user_id,
+        instance=_safe_instance(instance),
+        current_step="Queued player log sessionization",
+    )
+
+
+def _count_details(
+    summary: player_sessionizer.PlayerLogSessionizationSummary | None,
+    *,
+    phase: str,
+    job_id: int | None,
+    reason_class: str = "",
+    reason_message: str = "",
+) -> dict[str, object]:
+    details: dict[str, object] = {
+        "phase": phase,
+        "job_kind": PLAYER_LOG_SESSIONIZATION_JOB_KIND,
+        "job_id": str(job_id or ""),
+        "scope": PLAYER_LOG_SESSIONIZATION_SCOPE,
+        "events_scanned": "0",
+        "events_ignored": "0",
+        "observations_considered": "0",
+        "observations_applied": "0",
+        "observations_skipped": "0",
+        "observations_ignored": "0",
+        "sessions_created": "0",
+        "sessions_updated": "0",
+        "sessions_closed": "0",
+    }
+    if summary is not None:
+        details.update(
+            {
+                "events_scanned": str(summary.events_scanned),
+                "events_ignored": str(summary.events_ignored),
+                "observations_considered": str(summary.observations_considered),
+                "observations_applied": str(summary.observations_applied),
+                "observations_skipped": str(summary.observations_skipped),
+                "observations_ignored": str(summary.observations_ignored),
+                "sessions_created": str(summary.sessions_created),
+                "sessions_updated": str(summary.sessions_updated),
+                "sessions_closed": str(summary.sessions_closed),
+            }
+        )
+    if reason_class:
+        details["reason_class"] = safe_player_text(reason_class, max_length=120)
+    if reason_message:
+        details["reason_message"] = safe_player_text(reason_message, max_length=240)
+    return details
+
+
+def _summary_message(
+    summary: player_sessionizer.PlayerLogSessionizationSummary,
+) -> str:
+    if summary.events_scanned == 0:
+        return "No stored player log events found."
+    if summary.observations_applied == 0:
+        return "No new player session observations applied."
+    return "Player log sessionization completed."
+
+
+def _summary_output(summary: player_sessionizer.PlayerLogSessionizationSummary) -> str:
+    return (
+        "Player log sessionization counts: "
+        f"events_scanned={summary.events_scanned}; "
+        f"events_ignored={summary.events_ignored}; "
+        f"observations_considered={summary.observations_considered}; "
+        f"observations_applied={summary.observations_applied}; "
+        f"observations_skipped={summary.observations_skipped}; "
+        f"observations_ignored={summary.observations_ignored}; "
+        f"sessions_created={summary.sessions_created}; "
+        f"sessions_updated={summary.sessions_updated}; "
+        f"sessions_closed={summary.sessions_closed}"
+    )
+
+
+def _append_sessionization_outcome_audit(
+    audit_log_path: Path,
+    *,
+    username: str,
+    instance: str,
+    job_id: int,
+    summary: player_sessionizer.PlayerLogSessionizationSummary | None,
+    success: bool,
+    message: str,
+    reason_class: str = "",
+    reason_message: str = "",
+) -> None:
+    append_audit_event(
+        audit_log_path,
+        username=username,
+        action=PLAYER_LOG_SESSIONIZATION_ACTION,
+        instance=instance,
+        target=PLAYER_LOG_SESSIONIZATION_JOB_KIND,
+        success=success,
+        message=message,
+        exit_code=0 if success else 1,
+        details=_count_details(
+            summary,
+            phase="outcome",
+            job_id=job_id,
+            reason_class=reason_class,
+            reason_message=reason_message,
+        ),
+    )
+
+
+def _audit_failure_or_raise(
+    audit_log_path: Path,
+    *,
+    username: str,
+    instance: str,
+    job_id: int,
+    error: Exception,
+) -> None:
+    try:
+        _append_sessionization_outcome_audit(
+            audit_log_path,
+            username=username,
+            instance=instance,
+            job_id=job_id,
+            summary=None,
+            success=False,
+            message="Player log sessionization failed.",
+            reason_class=type(error).__name__,
+            reason_message="Player log sessionization failed.",
+        )
+    except AuditLogError as audit_error:
+        raise PlayerLogSessionizationAuditError(
+            "Player log sessionization failed, and audit logging also failed."
+        ) from audit_error
+
+
+def handle_player_log_sessionization(context: JobContext) -> JobHandlerResult:
+    """Sessionize stored player log events for one queued job."""
+    instance = _safe_instance(context.job.instance)
+    data_root = _data_root_from_web_db_path(context.db_path)
+    audit_log_path = paths.web_audit_log_file(data_root)
+    registry_db_path = player_registry.player_registry_db_path(
+        instance,
+        data_root=data_root,
+    )
+    context.append_output(
+        stdout=(
+            "Starting player log sessionization: "
+            f"scope={PLAYER_LOG_SESSIONIZATION_SCOPE}"
+        )
+    )
+
+    try:
+        summary = player_sessionizer.sessionize_stored_player_log_events(registry_db_path)
+    except Exception as error:
+        _audit_failure_or_raise(
+            audit_log_path,
+            username=context.job.requested_by_username,
+            instance=instance,
+            job_id=context.job.id,
+            error=error,
+        )
+        raise RuntimeError("Player log sessionization failed.") from error
+
+    context.append_output(stdout=_summary_output(summary))
+    message = _summary_message(summary)
+    try:
+        _append_sessionization_outcome_audit(
+            audit_log_path,
+            username=context.job.requested_by_username,
+            instance=instance,
+            job_id=context.job.id,
+            summary=summary,
+            success=True,
+            message=message,
+        )
+    except AuditLogError as error:
+        raise PlayerLogSessionizationAuditError(
+            "Player log sessionization completed, but audit logging failed."
+        ) from error
+
+    return JobHandlerResult(
+        result_message=message,
+        current_step="Sessionization complete",
+        progress_current=summary.events_scanned,
+        progress_total=summary.events_scanned,
+    )
+
+
+def create_player_log_sessionization_dispatcher() -> JobDispatcher:
+    """Return the explicit dispatcher for stored-log sessionization jobs."""
+    return JobDispatcher(
+        {PLAYER_LOG_SESSIONIZATION_JOB_KIND: handle_player_log_sessionization}
+    )
+
+
+def dispatch_player_log_sessionization_job(db_path, job_id: int):
+    """Dispatch one queued stored-log sessionization job through the safe handler."""
+    return dispatch_job(db_path, job_id, create_player_log_sessionization_dispatcher())
+
+
+def _run_player_log_sessionization_worker(db_path: Path, job_id: int) -> None:
+    try:
+        dispatch_player_log_sessionization_job(db_path, job_id)
+    except Exception:
+        return
+
+
+def start_player_log_sessionization_worker(db_path, job_id: int) -> threading.Thread:
+    """Start one queued stored-log sessionization job in a background thread."""
+    thread = threading.Thread(
+        target=_run_player_log_sessionization_worker,
+        args=(Path(db_path), job_id),
+        name=f"armactl-web-player-sessionization-job-{job_id}",
+        daemon=True,
+    )
+    thread.start()
+    return thread

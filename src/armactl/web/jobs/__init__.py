@@ -27,6 +27,14 @@ from armactl.web.jobs.player_logs import (
     resolve_allowlisted_player_log_paths,
     start_player_log_collection_worker,
 )
+from armactl.web.jobs.player_sessions import (
+    PLAYER_LOG_SESSIONIZATION_JOB_KIND,
+    create_player_log_sessionization_dispatcher,
+    dispatch_player_log_sessionization_job,
+    ensure_player_log_sessionization_job,
+    handle_player_log_sessionization,
+    start_player_log_sessionization_worker,
+)
 from armactl.web.jobs.runner import (
     JobContext,
     JobDispatcher,
@@ -76,6 +84,7 @@ __all__ = [
     "SERVER_UPDATE_CHECK_JOB_KIND",
     "SERVER_UPDATE_JOB_KIND",
     "PLAYER_LOG_COLLECTION_JOB_KIND",
+    "PLAYER_LOG_SESSIONIZATION_JOB_KIND",
     "PLAYER_CURRENT_REFRESH_JOB_KIND",
     "create_player_current_refresh_dispatcher",
     "dispatch_player_current_refresh_job",
@@ -88,6 +97,11 @@ __all__ = [
     "handle_player_log_collection",
     "resolve_allowlisted_player_log_paths",
     "start_player_log_collection_worker",
+    "create_player_log_sessionization_dispatcher",
+    "dispatch_player_log_sessionization_job",
+    "ensure_player_log_sessionization_job",
+    "handle_player_log_sessionization",
+    "start_player_log_sessionization_worker",
     "create_server_job_dispatcher",
     "dispatch_server_job",
     "enqueue_server_install",

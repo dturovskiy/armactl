@@ -29,6 +29,7 @@ The armactl web dashboard is a local browser interface for managing the same Arm
 - Phase 4a session tracking design documented before implementation, covering session boundary events, source confidence, roster-versus-session truth, no-IP schema, retention/cleanup, conflict rules, and truthful UI/API scope.
 - Phase 4b session schema/vocabulary foundation in `players.db`, with no live scanner/job/UI, no session writers from web routes, no IP/raw log/raw path columns, and no current-session claims.
 - Phase 4c session writer foundation in the registry service layer, with explicit reliable-ID observe/close helpers that sanitize names, sources, refs, faction/side/correlation evidence, enforce one open session per reliable ID, and do not add live scanners, routes, UI pages, retention cleanup, IP storage, raw source storage, or current-session claims.
+- Phase 4d-a stored-log sessionization job foundation, with explicit `players:sessionize-log-events` jobs over already stored `player_log_events`, active-job dedupe, counts-only audit/job output, per-session checkpoint idempotence, and no live scanner/poller, web route/UI/API page, disconnect pairing, retention cleanup, IP storage, raw source storage, or current-session K/D/role/joined claims.
 - Action records and pending operator work for changes that need follow-up.
 
 ## Package Shape
@@ -134,9 +135,11 @@ Phase 4b implements only the session schema/vocabulary foundation. The `players.
 
 Phase 4c implements only the service-layer session writer foundation. `player_registry.observe_player_session` opens or updates one open reliable-ID session row, updates last-seen/name/source/faction/side/correlation evidence, and records the known-player identity observation; `player_registry.close_player_session` closes the current open row with sanitized close source/ref/confidence/end reason. These helpers reject unreliable IDs, store no IP/raw/source-path columns, sanitize path/IP/secret-looking values, and remain explicit service APIs only. They are not called from `/players` GET, current-roster refresh, a daemon, or a background scanner.
 
-Full last-seen automation beyond explicit background refresh and explicit service helper calls, plus current-session semantics, should be added as a later poller/service slice. That slice should define retention and session boundaries before promoting join time, roles, or combat counters as current-player facts.
+Phase 4d-a implements only explicit stored-log sessionization. `player_sessionizer.sessionize_stored_player_log_events` reads already persisted `player_log_events` from `players.db` and writes `player_sessions` through the Phase 4c helpers. Backend auth and network update events with reliable IDs open/update high-confidence sessions; faction joins and combat events with stable UUIDs are presence evidence only and use inferred/medium-confidence observations. The `players:sessionize-log-events` job dedupes queued/running work, writes counts-only job output and audit details, and uses per-session checkpoint metadata to avoid repeat writes on the same stored events. It does not read live logs, poll A2S/RCON, create web session pages/APIs, close sessions, pair heuristic disconnects, run retention cleanup, store IPs/raw paths/raw lines/secrets, or claim joined time, role, K/D, ban/kick, or Discord enrichment.
 
-Future player history implementation should follow the Phase 4a session design before adding automatic poller/service triggers, sessionization, retention jobs, or richer session/history semantics, and before any public/Discord enrichment.
+Full last-seen automation beyond explicit background refresh, explicit service helper calls, and the Phase 4d-a stored-log job, plus current-session semantics, should be added as a later poller/service slice. That slice should define retention, stale-close rules, and disconnect boundaries before promoting join time, roles, or combat counters as current-player facts.
+
+Future player history implementation should follow the Phase 4a session design before adding automatic poller/service triggers, live sessionization, retention jobs, or richer session/history semantics, and before any public/Discord enrichment.
 
 Next player slices should remain public/free/local core scope:
 
@@ -146,7 +149,7 @@ Next player slices should remain public/free/local core scope:
 - slice 5: audited banlist manager after source-of-truth, rollback, and identity rules are settled;
 - slice 6: Discord stats enrichment after stable player history exists.
 
-Do not add ban/kick mutations, aggregate kill/death stats, IP tracking, live journal readers, long-running automatic pollers, sessionization, retention jobs, or Discord enrichment until later slices explicitly choose those sources and retention rules. Manual operator-triggered log collection is limited to the allowlisted background job above; current-roster refresh is limited to the explicit `players:refresh-current` job and is not full session tracking.
+Do not add ban/kick mutations, aggregate kill/death stats, IP tracking, live journal readers, long-running automatic pollers, live sessionization, retention jobs, or Discord enrichment until later slices explicitly choose those sources and retention rules. Manual operator-triggered log collection is limited to the allowlisted background job above; current-roster refresh is limited to the explicit `players:refresh-current` job; stored-log sessionization is limited to `players:sessionize-log-events` and is not full live session tracking.
 
 ## Deployment
 

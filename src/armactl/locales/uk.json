@@ -1282,6 +1282,7 @@
     "Other jobs": "Інші завдання",
     "Player data": "Дані гравців",
     "Collect player log events": "Збір подій гравців з логів",
+    "Sessionize player log events": "Створити сесії з подій гравців",
     "Queued player log collection": "Збір подій гравців у черзі",
     "Collection complete": "Збір завершено",
     "Player log collection completed.": "Збір подій гравців завершено.",
