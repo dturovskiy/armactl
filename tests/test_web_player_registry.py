@@ -520,6 +520,34 @@ def test_players_route_html_escapes_player_names(tmp_path: Path, monkeypatch):
     assert "<Alpha & Co>" not in response.text
 
 
+def test_known_players_page_is_identity_directory_not_stat_board(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.record_current_players_snapshot(
+        db_path,
+        [_reliable_player("Alpha One", PLAYER_ALPHA_ID)],
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+    client = _authed_client(tmp_path, monkeypatch, db_path=db_path)
+
+    response = client.get("/players/known", follow_redirects=False)
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Known reliable players recorded from online snapshots" in html
+    assert "Alpha One" in html
+    assert PLAYER_ALPHA_ID[:8] in html
+    assert "<th>Seen count</th>" in html
+    assert "<th>Source</th>" in html
+    assert "<th>Kills</th>" not in html
+    assert "<th>Deaths</th>" not in html
+    assert "<th>Events</th>" not in html
+
+
 def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypatch):
     from armactl.web.services import player_sources
 
@@ -667,9 +695,11 @@ def test_player_history_route_renders_stored_rows_without_raw_sources(
     assert "teamkill" in html
     assert "player-events-table" in html
     assert "player-event-details-row" not in html
+    assert "player-event-diagnostics-row" in html
     assert "player-event-details-cell" in html
     assert "player-event-card" not in html
     assert "<table" in html
+    assert "<th>Diagnostics</th>" not in html
     assert "Alpha ***" in html
     assert "Alpha One" in html
     assert "Bravo Two" in html

@@ -1128,7 +1128,7 @@
     "Role and joined time need session tracking before they can be shown reliably.": "Роль і час входу потребують відстеження сесій, щоб показувати їх надійно.",
     "Update known players from online list": "Оновити відомих з онлайну",
     "Player table": "Таблиця гравців",
-    "Known players with compact statistics from stored player events.": "Відомі гравці зі стислою статистикою зі збережених подій.",
+    "Known reliable players recorded from online snapshots and log identity events.": "Відомі надійні гравці, записані з онлайн-знімків і подій ідентифікації в логах.",
     "Nickname": "Нікнейм",
     "Kills": "Вбивства",
     "Deaths": "Смерті",

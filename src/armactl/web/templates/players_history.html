@@ -110,7 +110,6 @@
             <th>{{ t("Player") }}</th>
             <th>{{ t("Faction") }}</th>
             <th>{{ t("Details") }}</th>
-            <th>{{ t("Diagnostics") }}</th>
           </tr>
         </thead>
         <tbody>
@@ -142,7 +141,9 @@
                 {% endif %}
               </div>
             </td>
-            <td>
+          </tr>
+          <tr class="player-event-diagnostics-row">
+            <td colspan="5">
               <details class="player-event-diagnostics">
                 <summary>{{ t("Diagnostics") }}</summary>
                 <div class="player-diagnostic-stack">

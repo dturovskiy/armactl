@@ -34,6 +34,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Player history manual collector/import foundation for explicitly supplied bounded text log files, with dry-run/write CLI, safe basename+file-marker+line source refs, fail-closed oversize handling, and no live journalctl, background service, UI, raw log-line, or IP storage.
 - [x] Read-only player history web view for already stored `player_log_events`, with bounded filters and no live log reads, mutations, raw source paths, raw log lines, or IP display.
 - [x] Manual web collection job for player log events from allowlisted instance config logs, with background-job dedupe, bounded reads, audit counts, and no arbitrary file picker, automatic poller, raw paths, raw log lines, or IP storage; player-history/stat freshness depends on running this manual collection until a poller exists.
+- [x] Keep `/players/known` as a reliable identity directory, not a historical combat-stat board.
 - [ ] Continue production hardening for the local dashboard.
 - [x] Polish server update browser flow with controlled post-action notices and active job links.
 - [ ] Continue polishing server update check/update UX after VM smoke feedback.

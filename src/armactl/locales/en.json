@@ -541,7 +541,7 @@
     "Role and joined time need session tracking before they can be shown reliably.": "Role and joined time need session tracking before they can be shown reliably.",
     "Update known players from online list": "Update known players from online list",
     "Player table": "Player table",
-    "Known players with compact statistics from stored player events.": "Known players with compact statistics from stored player events.",
+    "Known reliable players recorded from online snapshots and log identity events.": "Known reliable players recorded from online snapshots and log identity events.",
     "Nickname": "Nickname",
     "Kills": "Kills",
     "Deaths": "Deaths",

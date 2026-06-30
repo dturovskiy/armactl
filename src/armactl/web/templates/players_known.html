@@ -36,7 +36,7 @@
   <div class="section-heading-row">
     <h2>{{ t("Known player table") }}</h2>
   </div>
-  <p class="muted">{{ t("Known players with compact statistics from stored player events.") }}</p>
+  <p class="muted">{{ t("Known reliable players recorded from online snapshots and log identity events.") }}</p>
 
   <form method="get" action="/players/known" class="player-search-form">
     <label>
@@ -60,13 +60,9 @@
           <tr>
             <th>{{ t("Nickname") }}</th>
             <th>{{ t("Identity ID") }}</th>
-            <th>{{ t("Faction") }}</th>
-            <th>{{ t("Kills") }}</th>
-            <th>{{ t("Deaths") }}</th>
-            <th>{{ t("TK") }}</th>
-            <th>{{ t("Suicides") }}</th>
-            <th>{{ t("Events") }}</th>
+            <th>{{ t("Seen count") }}</th>
             <th>{{ t("Last seen") }}</th>
+            <th>{{ t("Source") }}</th>
           </tr>
         </thead>
         <tbody>
@@ -74,19 +70,13 @@
           <tr>
             <td>
               <strong class="wrap-value">{{ player.current_name }}</strong>
-              <span class="player-row-subtle">{{ t("Seen count") }}: {{ player.seen_count }}</span>
             </td>
             <td><span class="player-id-cell player-id-clip" title="{{ player.reliable_id }}">{{ player.reliable_id[:8] }}...{{ player.reliable_id[-5:] }}</span></td>
-            <td>{% if player.faction %}<span class="wrap-value">{{ player.faction }}</span>{% else %}<span class="muted">{{ t("No faction") }}</span>{% endif %}</td>
-            <td class="player-stat-number">{{ player.kill_count }}</td>
-            <td class="player-stat-number">{{ player.death_count }}</td>
-            <td class="player-stat-number">{{ player.teamkill_count }}</td>
-            <td class="player-stat-number">{{ player.suicide_count }}</td>
-            <td class="player-stat-number">{{ player.event_count }}</td>
+            <td class="player-stat-number">{{ player.seen_count }}</td>
             <td>
               <time data-local-time datetime="{{ player.last_seen_at }}" title="{{ player.last_seen_at }}">{{ player.last_seen_at[:16]|replace("T", " ") }}</time>
-              <span class="player-row-subtle">{{ player.last_source }}</span>
             </td>
+            <td><span class="wrap-value">{{ player.last_source }}</span></td>
           </tr>
         {% endfor %}
         </tbody>
