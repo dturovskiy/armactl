@@ -847,7 +847,8 @@ def test_known_players_page_is_identity_directory_not_stat_board(
     assert "<th>Seen count</th>" in html
     assert "<th>First seen</th>" in html
     assert "<th>Last seen</th>" in html
-    assert "<th>Source</th>" in html
+    assert "Source:" in html
+    assert "<th>Source</th>" not in html
     assert "<th>Kills</th>" not in html
     assert "<th>Deaths</th>" not in html
     assert "<th>Events</th>" not in html

@@ -45,7 +45,6 @@
             <th>{{ t("Seen count") }}</th>
             <th>{{ t("First seen") }}</th>
             <th>{{ t("Last seen") }}</th>
-            <th>{{ t("Source") }}</th>
           </tr>
         </thead>
         <tbody>
@@ -53,6 +52,7 @@
           <tr>
             <td>
               <strong class="wrap-value">{{ player.current_name }}</strong>
+              <span class="player-row-subtle player-source-subline">{{ t("Source") }}: {{ player.last_source }}</span>
             </td>
             <td><span class="player-id-cell player-id-clip" title="{{ player.reliable_id }}">{{ player.reliable_id[:8] }}...{{ player.reliable_id[-5:] }}</span></td>
             <td class="player-stat-number">{{ player.seen_count }}</td>
@@ -62,7 +62,6 @@
             <td>
               <time data-local-time datetime="{{ player.last_seen_at }}" title="{{ player.last_seen_at }}">{{ player.last_seen_at[:16]|replace("T", " ") }}</time>
             </td>
-            <td><span class="wrap-value">{{ player.last_source }}</span></td>
           </tr>
         {% endfor %}
         </tbody>

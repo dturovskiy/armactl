@@ -1105,18 +1105,18 @@ button.danger {
 .player-current-table th:nth-child(8) { width: 18%; }
 
 .player-registry-table {
-  min-width: 760px;
+  min-width: 720px;
   table-layout: fixed;
 }
 
-.player-registry-table th:nth-child(1) { width: 30%; }
-.player-registry-table th:nth-child(2) { width: 26%; }
+.player-registry-table th:nth-child(1) { width: 32%; }
+.player-registry-table th:nth-child(2) { width: 24%; }
 .player-registry-table th:nth-child(3) {
   width: 12%;
   text-align: center;
 }
-.player-registry-table th:nth-child(4) { width: 18%; }
-.player-registry-table th:nth-child(5) { width: 14%; }
+.player-registry-table th:nth-child(4) { width: 16%; }
+.player-registry-table th:nth-child(5) { width: 16%; }
 
 .player-current-table th:nth-child(4),
 .player-current-table th:nth-child(5),
