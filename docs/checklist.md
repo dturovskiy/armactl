@@ -36,13 +36,14 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Manual web collection job for player log events from allowlisted instance config logs, with background-job dedupe, bounded reads, audit counts, and no arbitrary file picker, automatic poller, raw paths, raw log lines, or IP storage; player-history/stat freshness depends on running this manual collection until a poller exists.
 - [x] Explicit current-roster refresh foundation through `players:refresh-current` background jobs, with active-job dedupe, counts-only audit/job output, no GET writes, and no raw paths, raw log lines, IPs, joined/role/session K/D, ban/kick, or Discord enrichment.
 - [x] Keep `/players/known` as a reliable identity directory, not a historical combat-stat board.
+- [x] Phase 4a session tracking design for boundary events, reliable versus heuristic sources, roster-observation versus session truth, no-IP schema, retention/cleanup, source conflicts, and truthful UI/API scope.
 - [ ] Continue production hardening for the local dashboard.
 - [x] Polish server update browser flow with controlled post-action notices and active job links.
 - [ ] Continue polishing server update check/update UX after VM smoke feedback.
 - [ ] Expand safe config controls after field behavior is verified.
 - [ ] Improve mod cleanup edge-case recovery workflows.
 - [x] Build slice 2 read-only players page / improved players view from existing sources.
-- [ ] Add full session tracking, live scanner/sessionization, and retention policy work with no IP storage by default.
+- [ ] Implement full session tracking, live scanner/sessionization, and retention policy work from the Phase 4a design, with no IP storage by default.
 - [ ] Add slice 4 player search/filter over reliable IDs, names, and session metadata.
 - [ ] Add slice 5 audited banlist manager after identity, storage, and rollback rules are documented.
 - [ ] Add richer read-only Discord player columns only after reliable player history/session data exists.

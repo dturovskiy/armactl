@@ -26,6 +26,7 @@ The armactl web dashboard is a local browser interface for managing the same Arm
 - Read-only player history web view for already stored player log events, with bounded filters and no web-request log reads or mutations.
 - Manual player log collection web job from allowlisted instance config profile logs, with background-job dedupe, audit counts, and no arbitrary path input or automatic poller; stored history/stat freshness depends on operators running this collection until polling exists.
 - Current-roster refresh foundation through an explicit `players:refresh-current` background job, with active-job dedupe, audit/job counts, no GET writes, and no session/K/D/role claims.
+- Phase 4a session tracking design documented before implementation, covering session boundary events, source confidence, roster-versus-session truth, no-IP schema, retention/cleanup, conflict rules, and truthful UI/API scope.
 - Action records and pending operator work for changes that need follow-up.
 
 ## Package Shape
@@ -125,14 +126,16 @@ Phase 3c manual web collection adds the `/players/history/collect-logs` button/j
 
 Phase 3d current-roster refresh foundation adds `POST /players/refresh-current` and the `players:refresh-current` background job. The route only handles auth, `players:view`, CSRF, and redirect notice glue; the service/job read the existing current roster source, update `players.db` known-player first/last seen for reliable IDs, dedupe active queued/running jobs, and audit intent plus counts-only completion outcome. Job result/output includes observed/stored/ignored/source/status counts only. It does not accept request paths, write from GET routes, store raw paths, raw log lines, IPs, or player secrets, create sessions, infer joined time or role, calculate current-session K/D, manage bans/kicks, or enrich Discord output.
 
+Phase 4a session tracking design is docs-only. It defines how future sessions can open from reliable log auth/update events or first reliable roster observations, close from disconnect/lifecycle/stale observations with confidence, and treat A2S as count-only evidence. It keeps `/players` current-roster GETs as read-only observations, keeps `players:refresh-current` as registry-only persistence, and reserves persisted online/offline truth for a future scanner/job that writes explicit session rows. The planned schema stores reliable IDs, sanitized name snapshots, observed/open/last/closed timestamps, source refs, confidence, end reason, and correlation fields such as RPL identity, connection ID, session player ID, and slot, but not IPs, raw lines, raw paths, public IDs, or secrets. It also requires retention/cleanup rules before long-lived session storage and blocks exact joined time, current role/faction/K/D, banlist, and Discord enrichment until implementation proves the source.
+
 Full last-seen automation beyond explicit background refresh, plus current-session semantics, should be added as a later poller/service slice. That slice should define retention and session boundaries before promoting join time, roles, or combat counters as current-player facts.
 
-Future player history work should add automatic poller/service trigger decisions, sessionization, retention rules, and richer session/history semantics before any public/Discord enrichment.
+Future player history implementation should follow the Phase 4a session design before adding automatic poller/service triggers, sessionization, retention jobs, or richer session/history semantics, and before any public/Discord enrichment.
 
 Next player slices should remain public/free/local core scope:
 
 - slice 2: read-only players page / improved players view from existing sources and stored event history;
-- slice 3: full session tracking, live scanner/sessionization, and retention policy using the parser/import/storage foundation, with no IP storage by default;
+- slice 3: implement full session tracking, live scanner/sessionization, and retention policy using the Phase 4a design and parser/import/storage foundation, with no IP storage by default;
 - slice 4: search/filter over reliable IDs, names, and session metadata;
 - slice 5: audited banlist manager after source-of-truth, rollback, and identity rules are settled;
 - slice 6: Discord stats enrichment after stable player history exists.

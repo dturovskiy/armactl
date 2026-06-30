@@ -198,19 +198,27 @@ Needs a mod or another source:
 - explicit side/team changes beyond faction labels;
 - moderation event history if it is not emitted into logs by the chosen source of truth.
 
+## Phase 4a Session Boundary Classification
+
+Use log events as evidence, not as an automatic promise that a complete session exists. Backend authentication and network player updates with stable `identityId` values are the strongest session-open candidates. RCON roster observations with reliable IDs are reliable presence snapshots, but they only support `first observed online` when used by a future scanner; the existing manual refresh job remains registry-only. Faction joins and combat lines with stable UUIDs are presence/faction/combat evidence and can open only inferred sessions when no better connect event is available. A2S count and FPS `Player: N` telemetry never identify players and must not open identified sessions.
+
+Session close is reliable only when a disconnect event can be tied to the same reliable ID. Disconnects that carry only `rplIdentity`, connection ID, BE slot, or display name are heuristic unless the scanner has a single matching active session. Server shutdown/save/service-stop markers can close active sessions as server-boundary events with an explicit reason. RCON disappearance requires repeated successful fresh snapshots plus a grace period; failed RCON queries mean unknown state. A2S count drops can support low-confidence stale/empty decisions but cannot decide which player left.
+
+Manual imported logs may be old or partial. Sessionization must use event `observed_at`, source refs, confidence, and scanner checkpoints so historical imports do not overwrite newer live online/offline state. Store only parsed fields and sanitized source refs; do not store player network addresses, raw log lines, raw absolute paths, or secrets.
+
 ## Proposed DB/Event Model Impact
 
 `player_sessions` should support:
 
 - `player_id` from the reliable registry path;
 - `name_snapshot` at connect and last observation;
-- `connect_observed_at`, `disconnect_observed_at`, and `last_seen_at`;
-- `source` and `confidence`;
+- `open_observed_at`, optional `close_observed_at`, and `last_seen_at`, labelled as observed/inferred rather than exact joined time unless backed by explicit connect evidence;
+- open/last/close source labels, source refs, and confidence;
 - correlation fields such as `rpl_identity`, `connection_id`, `session_player_id`, and `be_slot`;
 - optional external GUID/hash fields only if product/privacy review decides they are needed;
 - optional `faction` and `side_label` snapshots;
 - `end_reason` for disconnect/shutdown/unknown;
-- `raw_source_ref` such as journal cursor, log file marker, or byte offset, without storing raw lines.
+- `source_ref` such as a sanitized journal cursor, file marker, or line marker, without storing raw absolute paths or raw lines.
 
 `player_events` should support:
 
@@ -219,7 +227,7 @@ Needs a mod or another source:
 - nullable `player_id` and `session_id`;
 - nullable actor/target player IDs for future combat or moderation events;
 - bounded `metadata_json` for parsed fields only;
-- `raw_source_ref`, not raw log text.
+- `source_ref`, not raw log text or raw absolute paths.
 
 Safe to write in an initial sessions/history slice:
 

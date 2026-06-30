@@ -47,6 +47,65 @@ Discord stats use `public_stats.load_public_stats`, which enables roster lookup 
 
 See [player-log-event-inventory.md](player-log-event-inventory.md) for the read-only pass over real game logs before player history/statistics work. The observed logs can support a cautious sessions/history slice for connect/disconnect, last seen, faction snapshots, mission lifecycle, and aggregate count/FPS telemetry. Combat stats are feasible on the checked deployments through script-emitted `INFO: KILL ...` lines, with optional ServerAdminTools wrappers on some servers; they must be stored with an explicit source/capability flag and should not be treated as vanilla/no-mod functionality.
 
+### Phase 4a Session Tracking Design
+
+This section is a design contract only. The current code still has no `player_sessions` table, no live scanner, no automatic poller, no retention job, and no hidden writes from player GET routes.
+
+#### Session Boundary Events
+
+- Open high-confidence sessions from parsed backend authentication or network player-update log events when they include a normalized reliable `identityId`/`IdentityId` and an observation timestamp.
+- Open medium-confidence sessions from a future scanner's first successful RCON roster observation of a reliable ID when no session is already open. The timestamp is `first observed online`, not an exact join time. The existing `players:refresh-current` job remains registry-only and must not open sessions.
+- Open inferred presence sessions from faction/combat events only when they include a reliable player ID and no active session exists. These rows must be labelled as presence-inferred, not explicit connects.
+- Never open an identified player session from A2S player count, FPS `Player: N` telemetry, `/players` GET, or a manual current-roster refresh by itself.
+- Close high-confidence sessions from disconnect events that carry the same reliable ID as an open session. If future parsing only has `rplIdentity`, connection ID, BE slot, or name, close only when that correlation maps to exactly one active session and record the lower confidence.
+- Close sessions from server lifecycle markers such as shutdown/save/service stop as forced server-boundary closes with an explicit end reason.
+- Close stale sessions only after a configured grace period with repeated successful observations that no longer include the player, or after a scanner checkpoint proves the source window has advanced past the last seen event.
+- Never close an identified player session from one failed RCON query, one A2S mismatch, or an old manual import that predates the current live scanner checkpoint.
+
+#### Source Confidence
+
+- Reliable identity sources: normalized reliable IDs from RCON roster rows, backend authentication lines, network player updates, faction lines, combat lines that include stable UUIDs, and the existing `players` registry.
+- Reliable or high-confidence boundary sources: auth/update connect lines with reliable IDs, explicit disconnect lines with reliable IDs, and service shutdown markers for closing all active sessions as server-boundary events.
+- Heuristic sources: RCON roster deltas, A2S/FPS counts, disconnect lines that only include per-run correlation fields, faction/combat events as presence evidence, and imported historical logs with missing start or end windows.
+- Mod-dependent sources: generic script `INFO: KILL ...` lines and optional ServerAdminTools wrappers for combat evidence. They may enrich historical events after capability detection, but must not become vanilla/no-mod K/D claims.
+
+#### Current Roster Observation Versus Session Truth
+
+- The live current roster is a snapshot. `/players` GET may display that snapshot with source/freshness, but it remains read-only and must not update `players.db` or create session rows.
+- `POST /players/refresh-current` persists reliable identity observations into `players` and `player_names`; it does not assert online status, joined time, role, faction, or session K/D.
+- Persisted session truth starts only when a future scanner/job writes `player_sessions` rows with source refs, confidence, and open/close evidence. UI labels should say `first observed`, `last observed`, or `inferred close` unless an explicit connect/disconnect event backs the stronger wording.
+- Manual historical imports should sessionize by their own observed timestamps and source refs. They must not mutate live online/offline state for the current server process.
+
+#### Session Schema Without IP Storage
+
+A future `player_sessions` migration should store only bounded structured fields: `session_id`, `reliable_id`, sanitized `name_at_open` and `name_last`, `open_observed_at`, `last_seen_at`, optional `close_observed_at`, `status`, `open_source`, `last_seen_source`, `close_source`, sanitized source refs, `open_confidence`, `close_confidence`, `end_reason`, nullable correlation fields such as `rpl_identity`, `connection_id`, `session_player_id`, and `be_slot`, optional last faction/side snapshots, scanner checkpoint metadata, and created/updated timestamps. It should index reliable ID, open/close time, status, and source, and should prevent more than one open session per reliable ID unless a future multi-server model explicitly changes that rule.
+
+Optional evidence/link tables can map session rows back to stored `player_log_events` or roster observations by event ID, observed time, source, source ref, confidence, and dedupe key. They must not store IP addresses, external GUID/hash fields by default, raw log lines, raw absolute paths, RCON output, public player IDs, secrets, or request payloads.
+
+#### Retention And Cleanup Rules
+
+- Define per-instance retention settings before enabling long-lived session writes. At minimum, separate windows are needed for closed sessions, raw parsed event rows used as evidence, scanner checkpoints, and web job/audit records.
+- Do not automatically delete `players` or `player_names` identity rows during routine session cleanup; provide an explicit reset/export decision if identity erasure is later required.
+- Close stale open sessions before pruning evidence, so cleanup does not strand permanently open rows.
+- Run cleanup only from an explicit job/CLI or scheduled backend task, never from GET routes. Audit counts, cutoff timestamps, and reason classes only.
+- Prune in bounded batches and keep source refs sanitized. Cleanup output must not include player names, raw paths, raw log lines, IPs, or secrets.
+- Add migration and cleanup tests before the scanner writes long-lived data: no-IP schema assertions, stale-close behavior, retention cutoff behavior, idempotence, and redacted audit/job output.
+
+#### Conflict Rules
+
+- RCON roster with reliable IDs wins for identity and current roster display when available. A2S remains count-only and may disagree with RCON without creating synthetic player rows.
+- Log auth/update events with reliable IDs can open/update sessions even when RCON is unavailable. Log disconnect events can close a matched session even if RCON or A2S lags.
+- RCON absence should close a session only after successful fresh roster samples and a grace period. RCON failure is unknown state, not absence.
+- A2S `0` or count drops can support stale/empty heuristics but cannot identify who left. Use it only with roster/log evidence or server lifecycle markers, and label low-confidence closes accordingly.
+- Faction/combat events update last-seen/faction evidence for an active or inferred session. They do not prove an exact join time, role, or current K/D.
+- Backfilled historical imports must not override newer live scanner state; conflict resolution uses event `observed_at`, source confidence, source ref dedupe, and scanner checkpoint order.
+
+#### Truthful UI/API Scope
+
+- Safe now: authenticated current roster as `current observation`, known reliable identity directory, stored event history with bounded filters, registry first/last seen, source/freshness labels, and count-only public status.
+- Safe after session implementation: historical session list/detail with first observed, last observed, close reason, duration when both ends exist, confidence/source labels, stale/open warnings, and source disagreement notices.
+- Blocked until better evidence: exact joined time from roster-only data, current role/loadout, current-session faction without a recent event timestamp, current-session K/D, public reliable IDs, public session pages, Discord K/D/playtime/faction columns, ban/kick/banlist manager state, IP storage, raw source display, automatic long-running poller, and any hidden DB write from GET routes.
+
 ## Existing Storage
 
 | Storage | Owner / path | What is stored | What is not stored | Retention / cleanup |
@@ -78,10 +137,10 @@ See [player-log-event-inventory.md](player-log-event-inventory.md) for the read-
 ### Sessions / History
 
 - Read-only stored event history is implemented for `player_log_events`; richer session/history semantics still need reliable ID, display name snapshot, source, observed-at timestamps, online/offline/session state, and count/source metadata.
-- Use the real log inventory to distinguish reliable connect/session signals from heuristic disconnect pairing and mod-dependent combat events.
+- Phase 4a now distinguishes reliable connect/session signals from heuristic disconnect pairing, roster deltas, A2S count hints, and mod-dependent combat events; implementation still needs to enforce those rules in code.
 - Manual explicit log-file CLI import exists for bounded text files, and manual web collection exists only for allowlisted current-instance config console logs. Future work still needs to decide any live scanner/dashboard poll trigger; the current code has no automatic session recorder or poller.
-- Define freshness and conflict rules for A2S count versus RCON roster. A2S cannot identify players; RCON can identify some players but can be unavailable.
-- Add bounded retention or cleanup policy for session/history rows before storing long-lived moderation data.
+- Implement the Phase 4a freshness/conflict rules for A2S count, RCON roster, and stored log events. A2S cannot identify players; RCON can identify some players but can be unavailable.
+- Implement bounded retention and cleanup before storing long-lived session data.
 - Keep IP storage out unless there is a separate explicit product/security decision and migration.
 
 ### Search By Nickname / ID
