@@ -8,6 +8,7 @@ import sqlite3
 import warnings
 from pathlib import Path
 
+import pytest
 from starlette.exceptions import StarletteDeprecationWarning
 
 from armactl.web.auth.permissions import PLAYERS_VIEW
@@ -18,6 +19,7 @@ from armactl.web.services.player_sources import CurrentPlayer, CurrentPlayerRost
 PLAYER_ALPHA_ID = "11111111-1111-4111-8111-111111111111"
 PLAYER_BRAVO_ID = "22222222-2222-4222-8222-222222222222"
 PLAYER_CHARLIE_ID = "33333333-3333-4333-8333-333333333333"
+FORBIDDEN_PLAYER_SESSION_COLUMNS = {"ip", "ip_address", "address", "raw_line", "raw_path"}
 
 
 def _client(app):
@@ -146,6 +148,19 @@ def _sqlite_indexes(db_path: Path) -> set[str]:
     return {str(row[0]) for row in rows}
 
 
+def _sqlite_schema_entries(db_path: Path) -> list[tuple[str, str, str]]:
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT type, name, sql
+            FROM sqlite_master
+            WHERE name NOT LIKE 'sqlite_%'
+            ORDER BY type, name
+            """
+        ).fetchall()
+    return [(str(row[0]), str(row[1]), str(row[2])) for row in rows]
+
+
 def _audit_events(data_root: Path) -> list[dict]:
     audit_path = data_root / "logs" / "web" / "audit.log"
     if not audit_path.exists():
@@ -185,14 +200,12 @@ def test_registry_db_creation_has_no_ip_columns(tmp_path: Path):
     player_registry.ensure_player_registry_db(db_path)
 
     assert db_path.is_file()
-    with sqlite3.connect(db_path) as connection:
-        columns = {
-            row[1]
-            for table in ("players", "player_names")
-            for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
-        }
-    assert "ip" not in columns
-    assert "ip_address" not in columns
+    columns = {
+        column
+        for table in _sqlite_tables(db_path)
+        for column in _sqlite_columns(db_path, table)
+    }
+    assert not FORBIDDEN_PLAYER_SESSION_COLUMNS & columns
     assert "token" not in columns
     assert "password" not in columns
 
@@ -207,6 +220,182 @@ def test_registry_db_creation_has_schema_metadata(tmp_path: Path):
     assert "player_registry_schema_meta" in _sqlite_tables(db_path)
     assert _registry_schema_version(db_path) == player_registry.PLAYER_REGISTRY_SCHEMA_VERSION
     assert "idx_player_names_name" in _sqlite_indexes(db_path)
+    assert "player_sessions" in _sqlite_tables(db_path)
+    assert "idx_player_sessions_one_open_per_reliable_id" in _sqlite_indexes(db_path)
+
+
+def test_registry_db_migrates_v2_to_player_sessions_schema(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.ensure_player_registry_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("DROP TABLE player_sessions")
+        connection.execute(
+            """
+            UPDATE player_registry_schema_meta
+            SET value = '2'
+            WHERE key = 'schema_version'
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO players(
+                reliable_id,
+                current_name,
+                first_seen_at,
+                last_seen_at,
+                seen_count,
+                last_source
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                PLAYER_ALPHA_ID,
+                "Alpha",
+                "2026-06-16T12:00:00+00:00",
+                "2026-06-16T12:00:00+00:00",
+                1,
+                "test",
+            ),
+        )
+    assert "player_sessions" not in _sqlite_tables(db_path)
+
+    player_registry.ensure_player_registry_db(db_path)
+
+    columns = _sqlite_columns(db_path, "player_sessions")
+    assert {
+        "session_id",
+        "reliable_id",
+        "name_at_open",
+        "name_last",
+        "open_observed_at",
+        "last_seen_at",
+        "close_observed_at",
+        "status",
+        "open_source",
+        "open_source_ref",
+        "last_seen_source",
+        "last_seen_source_ref",
+        "close_source",
+        "close_source_ref",
+        "open_confidence",
+        "last_seen_confidence",
+        "close_confidence",
+        "end_reason",
+        "rpl_identity",
+        "connection_id",
+        "session_player_id",
+        "be_slot",
+        "faction",
+        "side",
+        "scanner_checkpoint_source",
+        "scanner_checkpoint_ref",
+        "scanner_checkpoint_at",
+        "created_at",
+        "updated_at",
+    } <= columns
+    assert not FORBIDDEN_PLAYER_SESSION_COLUMNS & columns
+    assert _registry_schema_version(db_path) == "3"
+    assert {
+        "idx_player_sessions_reliable_id",
+        "idx_player_sessions_status",
+        "idx_player_sessions_open_observed_at",
+        "idx_player_sessions_last_seen_at",
+        "idx_player_sessions_close_observed_at",
+        "idx_player_sessions_open_source",
+        "idx_player_sessions_last_seen_source",
+        "idx_player_sessions_close_source",
+        "idx_player_sessions_scanner_checkpoint",
+        "idx_player_sessions_one_open_per_reliable_id",
+    } <= _sqlite_indexes(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        insert_session_sql = """
+            INSERT INTO player_sessions(
+                reliable_id,
+                name_at_open,
+                name_last,
+                open_observed_at,
+                last_seen_at,
+                status,
+                open_source,
+                last_seen_source,
+                open_confidence,
+                last_seen_confidence,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        connection.execute(
+            insert_session_sql,
+            (
+                PLAYER_ALPHA_ID,
+                "Alpha",
+                "Alpha",
+                "2026-06-16T12:00:00+00:00",
+                "2026-06-16T12:00:00+00:00",
+                player_registry.PLAYER_SESSION_STATUS_OPEN,
+                player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER,
+                player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER,
+                player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM,
+                player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM,
+                "2026-06-16T12:00:00+00:00",
+                "2026-06-16T12:00:00+00:00",
+            ),
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                insert_session_sql,
+                (
+                    PLAYER_ALPHA_ID,
+                    "Alpha Again",
+                    "Alpha Again",
+                    "2026-06-16T12:01:00+00:00",
+                    "2026-06-16T12:01:00+00:00",
+                    player_registry.PLAYER_SESSION_STATUS_OPEN,
+                    player_registry.PLAYER_SESSION_SOURCE_NETWORK_PLAYER_UPDATE,
+                    player_registry.PLAYER_SESSION_SOURCE_NETWORK_PLAYER_UPDATE,
+                    player_registry.PLAYER_SESSION_CONFIDENCE_HIGH,
+                    player_registry.PLAYER_SESSION_CONFIDENCE_HIGH,
+                    "2026-06-16T12:01:00+00:00",
+                    "2026-06-16T12:01:00+00:00",
+                ),
+            )
+        connection.execute(
+            insert_session_sql,
+            (
+                PLAYER_ALPHA_ID,
+                "Alpha Closed",
+                "Alpha Closed",
+                "2026-06-16T11:00:00+00:00",
+                "2026-06-16T11:05:00+00:00",
+                player_registry.PLAYER_SESSION_STATUS_CLOSED,
+                player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+                player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+                player_registry.PLAYER_SESSION_CONFIDENCE_HIGH,
+                player_registry.PLAYER_SESSION_CONFIDENCE_HIGH,
+                "2026-06-16T11:00:00+00:00",
+                "2026-06-16T11:05:00+00:00",
+            ),
+        )
+        count = connection.execute("SELECT COUNT(*) FROM player_sessions").fetchone()[0]
+    assert count == 2
+
+
+def test_registry_db_session_schema_is_idempotent(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+
+    player_registry.ensure_player_registry_db(db_path)
+    first_schema = _sqlite_schema_entries(db_path)
+    player_registry.ensure_player_registry_db(db_path)
+    second_schema = _sqlite_schema_entries(db_path)
+
+    assert second_schema == first_schema
 
 
 def test_registry_db_migrates_existing_minimal_schema_idempotently(tmp_path: Path):
@@ -285,6 +474,8 @@ def test_registry_db_migrates_existing_minimal_schema_idempotently(tmp_path: Pat
     assert "idx_player_names_name" in _sqlite_indexes(db_path)
     assert "player_log_events" in _sqlite_tables(db_path)
     assert "idx_player_log_events_observed_at" in _sqlite_indexes(db_path)
+    assert "player_sessions" in _sqlite_tables(db_path)
+    assert "idx_player_sessions_one_open_per_reliable_id" in _sqlite_indexes(db_path)
     assert player_registry.list_known_players(db_path)[0].last_source == "unknown"
     assert player_registry.list_player_names(db_path, "ABCDEF1234567890")[0].seen_count == 1
 
@@ -749,7 +940,8 @@ def test_player_history_route_renders_empty_state_and_migrates_v1_db(
     assert response.status_code == 200
     assert "No player events recorded yet." in response.text
     assert "player_log_events" in _sqlite_tables(db_path)
-    assert _registry_schema_version(db_path) == "2"
+    assert "player_sessions" in _sqlite_tables(db_path)
+    assert _registry_schema_version(db_path) == "3"
 
 
 def test_player_history_route_renders_stored_rows_without_raw_sources(

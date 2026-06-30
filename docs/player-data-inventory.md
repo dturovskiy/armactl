@@ -49,7 +49,7 @@ See [player-log-event-inventory.md](player-log-event-inventory.md) for the read-
 
 ### Phase 4a Session Tracking Design
 
-This section is a design contract only. The current code still has no `player_sessions` table, no live scanner, no automatic poller, no retention job, and no hidden writes from player GET routes.
+This section is a design contract for runtime behavior. Phase 4b adds a `player_sessions` schema/vocabulary foundation in `players.db`, but the current code still has no live scanner, no automatic poller, no session open/close writer, no retention job, and no hidden writes from player GET routes.
 
 #### Session Boundary Events
 
@@ -78,7 +78,7 @@ This section is a design contract only. The current code still has no `player_se
 
 #### Session Schema Without IP Storage
 
-A future `player_sessions` migration should store only bounded structured fields: `session_id`, `reliable_id`, sanitized `name_at_open` and `name_last`, `open_observed_at`, `last_seen_at`, optional `close_observed_at`, `status`, `open_source`, `last_seen_source`, `close_source`, sanitized source refs, `open_confidence`, `close_confidence`, `end_reason`, nullable correlation fields such as `rpl_identity`, `connection_id`, `session_player_id`, and `be_slot`, optional last faction/side snapshots, scanner checkpoint metadata, and created/updated timestamps. It should index reliable ID, open/close time, status, and source, and should prevent more than one open session per reliable ID unless a future multi-server model explicitly changes that rule.
+The Phase 4b `player_sessions` migration stores only bounded structured fields: `session_id`, `reliable_id`, sanitized `name_at_open` and `name_last`, `open_observed_at`, `last_seen_at`, optional `close_observed_at`, `status`, `open_source`, `last_seen_source`, `close_source`, sanitized source refs, `open_confidence`, `last_seen_confidence`, `close_confidence`, `end_reason`, nullable correlation fields such as `rpl_identity`, `connection_id`, `session_player_id`, and `be_slot`, optional last faction/side snapshots, scanner checkpoint metadata, and created/updated timestamps. It indexes reliable ID, open/last/close time, status, and source, and prevents more than one open session per reliable ID unless a future multi-server model explicitly changes that rule. No current route/job writes session rows.
 
 Optional evidence/link tables can map session rows back to stored `player_log_events` or roster observations by event ID, observed time, source, source ref, confidence, and dedupe key. They must not store IP addresses, external GUID/hash fields by default, raw log lines, raw absolute paths, RCON output, public player IDs, secrets, or request payloads.
 
@@ -110,7 +110,7 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 
 | Storage | Owner / path | What is stored | What is not stored | Retention / cleanup |
 | --- | --- | --- | --- | --- |
-| Player registry DB | `~/armactl-data/<instance>/players.db` | `players`: reliable ID, current name, first/last seen, seen count, last source. `player_names`: reliable ID, name, first/last seen, seen count. `player_log_events`: deduped parsed event kind, observed/log timestamp, source/ref/confidence, sanitized identity/name/session/faction/combat fields. Schema meta. | IPs/player addresses, raw log lines, secrets, RCON password, admin password, online/offline session state, ban/kick history, Discord K/D projections, raw RCON rows. | No player retention/cleanup currently. File is forced to mode `0600`. |
+| Player registry DB | `~/armactl-data/<instance>/players.db` | `players`: reliable ID, current name, first/last seen, seen count, last source. `player_names`: reliable ID, name, first/last seen, seen count. `player_log_events`: deduped parsed event kind, observed/log timestamp, source/ref/confidence, sanitized identity/name/session/faction/combat fields. `player_sessions`: Phase 4b schema/vocabulary foundation for future session rows, with no current writer. Schema meta. | IPs/player addresses, raw log lines, raw absolute paths, secrets, RCON password, admin password, live online/offline truth, ban/kick history, Discord K/D projections, raw RCON rows. | No player retention/cleanup currently. File is forced to mode `0600`. |
 | Web runtime DB | `~/armactl-data/web/web.db` | Web users, sessions, CSRF tokens, jobs, server version checks, login rate limits, pending restarts/work. | Player registry/history/session tables. | Sessions/CSRF have expiry fields; login rate-limit rows are pruned by auth code; job rows have no player retention. File is mode `0600`. |
 | Web audit log | `~/armactl-data/logs/web/audit.log` | JSON-lines records for mutating web actions. Player refresh stores phase/source/counts and controlled failure metadata. Player log web collection stores intent/outcome phases, job kind, allowlist scope, limits, and aggregate counts only. Admin actions store target ID and changed status. | Raw player names for player refresh, raw log lines, raw absolute log paths, IPs, passwords, RCON secrets, tracebacks. | No audit retention/rotation in current code. Web log view tails and redacts output. |
 | Game config | `~/armactl-data/<instance>/config/config.json` | Official `game.admins` ID list, server config including A2S/RCON ports and configured secrets. | Player registry, sessions/history, banlist manager state. | Config backups are managed by config save flows; no player-specific retention. |
@@ -136,7 +136,7 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 
 ### Sessions / History
 
-- Read-only stored event history is implemented for `player_log_events`; richer session/history semantics still need reliable ID, display name snapshot, source, observed-at timestamps, online/offline/session state, and count/source metadata.
+- Read-only stored event history is implemented for `player_log_events`, and Phase 4b adds the `player_sessions` schema foundation; richer session/history semantics still need a scanner/writer, retention policy, and conflict handling before any online/offline/session truth is produced.
 - Phase 4a now distinguishes reliable connect/session signals from heuristic disconnect pairing, roster deltas, A2S count hints, and mod-dependent combat events; implementation still needs to enforce those rules in code.
 - Manual explicit log-file CLI import exists for bounded text files, and manual web collection exists only for allowlisted current-instance config console logs. Future work still needs to decide any live scanner/dashboard poll trigger; the current code has no automatic session recorder or poller.
 - Implement the Phase 4a freshness/conflict rules for A2S count, RCON roster, and stored log events. A2S cannot identify players; RCON can identify some players but can be unavailable.
@@ -178,7 +178,7 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 ## Recommended Next Slices
 
 - Slice 2: read-only players page / improved players view from the existing live roster, registry, and stored event history, without new schema or moderation mutations.
-- Slice 3: live scanner/sessionization and retention policy on top of the parser/import/storage foundation, with no IP storage by default.
+- Slice 3: live scanner/sessionization and retention policy on top of the parser/import/storage/session-schema foundation, with no IP storage by default.
 - Slice 4: search/filter across reliable IDs, known names, and session metadata after slice 3 exists.
 - Slice 5: banlist manager with chosen source of truth, audited confirmation, backup/rollback, and redacted errors.
 - Slice 6: Discord stats enrichment after stable player history exists; do not guess K/D, playtime, faction, role, or moderation state from the current roster alone.

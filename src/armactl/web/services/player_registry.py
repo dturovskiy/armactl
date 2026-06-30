@@ -15,10 +15,17 @@ from pathlib import Path
 
 from armactl import paths
 from armactl.player_log_events import (
+    CONFIDENCE_HIGH,
+    CONFIDENCE_MEDIUM,
     EVENT_TYPE_KILL,
     EVENT_TYPE_OTHER_DEATH,
     EVENT_TYPE_SUICIDE,
     EVENT_TYPE_TEAMKILL,
+    SOURCE_BACKEND_AUTH,
+    SOURCE_NETWORK_PLAYER_UPDATE,
+    SOURCE_SCRIPT_FACTION_JOIN,
+    SOURCE_SCRIPT_KILL,
+    SOURCE_SERVER_ADMIN_TOOLS_KILL,
     PlayerLogEvent,
 )
 from armactl.web.services.player_identity import (
@@ -27,7 +34,7 @@ from armactl.web.services.player_identity import (
 )
 
 PLAYER_REGISTRY_DB_NAME = "players.db"
-PLAYER_REGISTRY_SCHEMA_VERSION = "2"
+PLAYER_REGISTRY_SCHEMA_VERSION = "3"
 PRIVATE_PLAYER_REGISTRY_FILE_MODE = 0o600
 DEFAULT_PLAYER_HISTORY_EVENT_LIMIT = 100
 MAX_PLAYER_HISTORY_EVENT_LIMIT = 250
@@ -72,6 +79,54 @@ _PLAYER_LOG_EVENT_DEDUPE_COLUMNS = tuple(
     column
     for column in _PLAYER_LOG_EVENT_INSERT_COLUMNS
     if column not in {"event_key", "created_at"}
+)
+PLAYER_SESSION_STATUS_OPEN = "open"
+PLAYER_SESSION_STATUS_CLOSED = "closed"
+PLAYER_SESSION_STATUSES = (
+    PLAYER_SESSION_STATUS_OPEN,
+    PLAYER_SESSION_STATUS_CLOSED,
+)
+PLAYER_SESSION_CONFIDENCE_HIGH = CONFIDENCE_HIGH
+PLAYER_SESSION_CONFIDENCE_MEDIUM = CONFIDENCE_MEDIUM
+PLAYER_SESSION_CONFIDENCE_LOW = "low"
+PLAYER_SESSION_CONFIDENCES = (
+    PLAYER_SESSION_CONFIDENCE_HIGH,
+    PLAYER_SESSION_CONFIDENCE_MEDIUM,
+    PLAYER_SESSION_CONFIDENCE_LOW,
+)
+PLAYER_SESSION_SOURCE_BACKEND_AUTH = SOURCE_BACKEND_AUTH
+PLAYER_SESSION_SOURCE_NETWORK_PLAYER_UPDATE = SOURCE_NETWORK_PLAYER_UPDATE
+PLAYER_SESSION_SOURCE_RCON_ROSTER = "rcon.roster"
+PLAYER_SESSION_SOURCE_SCRIPT_FACTION_JOIN = SOURCE_SCRIPT_FACTION_JOIN
+PLAYER_SESSION_SOURCE_SCRIPT_KILL = SOURCE_SCRIPT_KILL
+PLAYER_SESSION_SOURCE_SERVER_ADMIN_TOOLS_KILL = SOURCE_SERVER_ADMIN_TOOLS_KILL
+PLAYER_SESSION_SOURCE_SERVICE_LIFECYCLE = "service.lifecycle"
+PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT = "scanner.checkpoint"
+PLAYER_SESSION_SOURCE_MANUAL_IMPORT = "manual_import"
+PLAYER_SESSION_SOURCES = (
+    PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+    PLAYER_SESSION_SOURCE_NETWORK_PLAYER_UPDATE,
+    PLAYER_SESSION_SOURCE_RCON_ROSTER,
+    PLAYER_SESSION_SOURCE_SCRIPT_FACTION_JOIN,
+    PLAYER_SESSION_SOURCE_SCRIPT_KILL,
+    PLAYER_SESSION_SOURCE_SERVER_ADMIN_TOOLS_KILL,
+    PLAYER_SESSION_SOURCE_SERVICE_LIFECYCLE,
+    PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
+    PLAYER_SESSION_SOURCE_MANUAL_IMPORT,
+)
+PLAYER_SESSION_END_REASON_DISCONNECT = "disconnect"
+PLAYER_SESSION_END_REASON_SERVER_BOUNDARY = "server_boundary"
+PLAYER_SESSION_END_REASON_STALE_ABSENCE = "stale_absence"
+PLAYER_SESSION_END_REASON_SCANNER_CHECKPOINT = "scanner_checkpoint"
+PLAYER_SESSION_END_REASON_IMPORT_WINDOW = "import_window"
+PLAYER_SESSION_END_REASON_UNKNOWN = "unknown"
+PLAYER_SESSION_END_REASONS = (
+    PLAYER_SESSION_END_REASON_DISCONNECT,
+    PLAYER_SESSION_END_REASON_SERVER_BOUNDARY,
+    PLAYER_SESSION_END_REASON_STALE_ABSENCE,
+    PLAYER_SESSION_END_REASON_SCANNER_CHECKPOINT,
+    PLAYER_SESSION_END_REASON_IMPORT_WINDOW,
+    PLAYER_SESSION_END_REASON_UNKNOWN,
 )
 
 
@@ -214,6 +269,10 @@ def _ensure_private_db_file(db_path: Path) -> None:
 
 def _quote_identifier(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
+
+
+def _sql_text_values(values: tuple[str, ...]) -> str:
+    return ", ".join("'" + value.replace("'", "''") + "'" for value in values)
 
 
 def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
@@ -400,6 +459,117 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+def _ensure_player_sessions_schema(connection: sqlite3.Connection) -> None:
+    status_values = _sql_text_values(PLAYER_SESSION_STATUSES)
+    confidence_values = _sql_text_values(PLAYER_SESSION_CONFIDENCES)
+    end_reason_values = _sql_text_values(PLAYER_SESSION_END_REASONS)
+    connection.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS player_sessions (
+            session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reliable_id TEXT NOT NULL,
+            name_at_open TEXT NOT NULL,
+            name_last TEXT NOT NULL,
+            open_observed_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            close_observed_at TEXT,
+            status TEXT NOT NULL CHECK(status IN ({status_values})),
+            open_source TEXT NOT NULL,
+            open_source_ref TEXT,
+            last_seen_source TEXT NOT NULL,
+            last_seen_source_ref TEXT,
+            close_source TEXT,
+            close_source_ref TEXT,
+            open_confidence TEXT NOT NULL CHECK(open_confidence IN ({confidence_values})),
+            last_seen_confidence TEXT NOT NULL CHECK(
+                last_seen_confidence IN ({confidence_values})
+            ),
+            close_confidence TEXT CHECK(
+                close_confidence IS NULL OR close_confidence IN ({confidence_values})
+            ),
+            end_reason TEXT CHECK(end_reason IS NULL OR end_reason IN ({end_reason_values})),
+            rpl_identity TEXT,
+            connection_id TEXT,
+            session_player_id TEXT,
+            be_slot TEXT,
+            faction TEXT,
+            side TEXT,
+            scanner_checkpoint_source TEXT,
+            scanner_checkpoint_ref TEXT,
+            scanner_checkpoint_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            CHECK(length(reliable_id) > 0),
+            CHECK(length(open_observed_at) > 0),
+            CHECK(length(last_seen_at) > 0),
+            FOREIGN KEY (reliable_id) REFERENCES players(reliable_id)
+                ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_sessions_reliable_id
+        ON player_sessions(reliable_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_sessions_status
+        ON player_sessions(status)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_sessions_open_observed_at
+        ON player_sessions(open_observed_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_sessions_last_seen_at
+        ON player_sessions(last_seen_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_sessions_close_observed_at
+        ON player_sessions(close_observed_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_sessions_open_source
+        ON player_sessions(open_source)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_sessions_last_seen_source
+        ON player_sessions(last_seen_source)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_sessions_close_source
+        ON player_sessions(close_source)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_sessions_scanner_checkpoint
+        ON player_sessions(scanner_checkpoint_source, scanner_checkpoint_ref)
+        """
+    )
+    connection.execute(
+        f"""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_player_sessions_one_open_per_reliable_id
+        ON player_sessions(reliable_id)
+        WHERE status = '{PLAYER_SESSION_STATUS_OPEN}'
+        """
+    )
+
+
 def _ensure_current_player_registry_schema(connection: sqlite3.Connection) -> None:
     _ensure_player_registry_meta_schema(connection)
     _ensure_players_schema(connection)
@@ -452,6 +622,10 @@ def _run_player_registry_migrations(connection: sqlite3.Connection) -> None:
     if current_version < 2:
         _ensure_player_log_events_schema(connection)
         _write_player_registry_schema_version(connection, 2)
+        current_version = 2
+    if current_version < 3:
+        _ensure_player_sessions_schema(connection)
+        _write_player_registry_schema_version(connection, 3)
 
 
 def ensure_player_registry_db(db_path: Path) -> Path:
