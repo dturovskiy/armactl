@@ -161,6 +161,17 @@ def _sqlite_schema_entries(db_path: Path) -> list[tuple[str, str, str]]:
     return [(str(row[0]), str(row[1]), str(row[2])) for row in rows]
 
 
+def _player_session_count(db_path: Path) -> int:
+    if not db_path.exists():
+        return 0
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT COUNT(*) FROM player_sessions"
+        ).fetchone()
+    assert row is not None
+    return int(row[0])
+
+
 def _audit_events(data_root: Path) -> list[dict]:
     audit_path = data_root / "logs" / "web" / "audit.log"
     if not audit_path.exists():
@@ -398,6 +409,207 @@ def test_registry_db_session_schema_is_idempotent(tmp_path: Path):
     assert second_schema == first_schema
 
 
+def test_observe_player_session_opens_reliable_session(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+
+    result = player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        source_ref="journal:auth:1",
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_HIGH,
+        observed_at="2026-06-16T12:00:00+00:00",
+        rpl_identity="42",
+    )
+
+    assert result.written is True
+    assert result.created is True
+    assert result.updated is False
+    assert result.session is not None
+    assert result.session.reliable_id == PLAYER_ALPHA_ID
+    assert result.session.name_at_open == "Alpha One"
+    assert result.session.name_last == "Alpha One"
+    assert result.session.open_observed_at == "2026-06-16T12:00:00+00:00"
+    assert result.session.last_seen_at == "2026-06-16T12:00:00+00:00"
+    assert result.session.status == player_registry.PLAYER_SESSION_STATUS_OPEN
+    assert result.session.open_source == player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH
+    assert result.session.open_source_ref == "journal:auth:1"
+    assert result.session.open_confidence == player_registry.PLAYER_SESSION_CONFIDENCE_HIGH
+    assert result.session.rpl_identity == "42"
+    assert _player_session_count(db_path) == 1
+    assert player_registry.get_open_player_session(db_path, PLAYER_ALPHA_ID) == result.session
+
+
+def test_observe_player_session_repeated_updates_open_row_not_duplicate(
+    tmp_path: Path,
+):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+
+    first = player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        source_ref="journal:auth:1",
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_HIGH,
+        observed_at="2026-06-16T12:00:00+00:00",
+        rpl_identity="42",
+        faction="US",
+    )
+    second = player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha Later",
+        source=player_registry.PLAYER_SESSION_SOURCE_NETWORK_PLAYER_UPDATE,
+        source_ref="journal:update:2",
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_HIGH,
+        observed_at="2026-06-16T12:05:00+00:00",
+        connection_id="conn-7",
+        session_player_id="player-7",
+        side="BLUFOR",
+    )
+
+    assert first.session is not None
+    assert second.session is not None
+    assert second.created is False
+    assert second.updated is True
+    assert second.session.session_id == first.session.session_id
+    assert second.session.name_at_open == "Alpha One"
+    assert second.session.name_last == "Alpha Later"
+    assert second.session.last_seen_at == "2026-06-16T12:05:00+00:00"
+    assert second.session.last_seen_source == (
+        player_registry.PLAYER_SESSION_SOURCE_NETWORK_PLAYER_UPDATE
+    )
+    assert second.session.last_seen_source_ref == "journal:update:2"
+    assert second.session.rpl_identity == "42"
+    assert second.session.connection_id == "conn-7"
+    assert second.session.session_player_id == "player-7"
+    assert second.session.faction == "US"
+    assert second.session.side == "BLUFOR"
+    assert _player_session_count(db_path) == 1
+
+
+def test_close_player_session_updates_status_and_close_fields(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    opened = player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+
+    closed = player_registry.close_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        close_observed_at="2026-06-16T12:10:00+00:00",
+        source=player_registry.PLAYER_SESSION_SOURCE_SERVICE_LIFECYCLE,
+        source_ref="journal:shutdown:10",
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_LOW,
+        end_reason=player_registry.PLAYER_SESSION_END_REASON_SERVER_BOUNDARY,
+    )
+
+    assert opened.session is not None
+    assert closed.written is True
+    assert closed.closed is True
+    assert closed.session is not None
+    assert closed.session.session_id == opened.session.session_id
+    assert closed.session.status == player_registry.PLAYER_SESSION_STATUS_CLOSED
+    assert closed.session.close_observed_at == "2026-06-16T12:10:00+00:00"
+    assert closed.session.close_source == player_registry.PLAYER_SESSION_SOURCE_SERVICE_LIFECYCLE
+    assert closed.session.close_source_ref == "journal:shutdown:10"
+    assert closed.session.close_confidence == player_registry.PLAYER_SESSION_CONFIDENCE_LOW
+    assert closed.session.end_reason == player_registry.PLAYER_SESSION_END_REASON_SERVER_BOUNDARY
+    assert player_registry.get_open_player_session(db_path, PLAYER_ALPHA_ID) is None
+    assert player_registry.get_player_session(db_path, opened.session.session_id) == closed.session
+
+
+def test_observe_player_session_ignores_unreliable_id_without_db_write(
+    tmp_path: Path,
+):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+
+    result = player_registry.observe_player_session(
+        db_path,
+        reliable_id="slot-7",
+        display_name="Slot Only",
+        source=player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER,
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+
+    assert result.written is False
+    assert result.ignored_count == 1
+    assert result.session is None
+    assert not db_path.exists()
+
+
+def test_player_session_writer_sanitizes_sources_and_optional_evidence(
+    tmp_path: Path,
+):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+
+    result = player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha token=raw-player-secret 198.51.100.9",
+        source="/home/deus/projects/armactl/private.log token=raw-source-secret",
+        source_ref=(
+            "/home/deus/armactl-data/default/config/logs/run/"
+            "console-198.51.100.7.log:203.0.113.9:1"
+        ),
+        confidence="not-a-confidence",
+        observed_at="2026-06-16T12:00:00+00:00",
+        rpl_identity="198.51.100.20",
+        connection_id="/home/deus/raw/connection-id",
+        session_player_id="player-7 token=raw-correlation-secret",
+        be_slot="7",
+        faction="US 198.51.100.21 token=raw-faction-secret",
+        side="WEST 203.0.113.10",
+    )
+
+    assert result.session is not None
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        row = dict(connection.execute("SELECT * FROM player_sessions").fetchone())
+    encoded_row = json.dumps(row, sort_keys=True)
+
+    assert row["name_at_open"] == "Alpha token=*** ***"
+    assert row["open_source"] == "private.log token=***"
+    assert row["open_source_ref"] == "console-***.log:***"
+    assert row["open_confidence"] == player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM
+    assert row["rpl_identity"] is None
+    assert row["connection_id"] is None
+    assert row["session_player_id"] == "player-7 token=***"
+    assert row["faction"] == "US *** token=***"
+    assert row["side"] == "WEST ***"
+    for forbidden in (
+        "raw-player-secret",
+        "raw-source-secret",
+        "raw-correlation-secret",
+        "raw-faction-secret",
+        "/home/deus",
+        "armactl-data",
+        "198.51.100.7",
+        "198.51.100.9",
+        "198.51.100.20",
+        "198.51.100.21",
+        "203.0.113.9",
+        "203.0.113.10",
+    ):
+        assert forbidden not in encoded_row
+
+
 def test_registry_db_migrates_existing_minimal_schema_idempotently(tmp_path: Path):
     from armactl.web.services import player_registry
 
@@ -602,6 +814,7 @@ def test_refresh_current_players_service_updates_known_and_last_seen(
     assert player.first_seen_at == "2026-06-16T12:00:00+00:00"
     assert player.last_seen_at == "2026-06-16T12:05:00+00:00"
     assert player.seen_count == 2
+    assert _player_session_count(db_path) == 0
 
 
 def test_refresh_current_players_service_ignores_unreliable_and_avoids_noop_writes(
@@ -887,6 +1100,33 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
     assert "Known player table" not in html
     assert "Player event log" not in html
     assert not (tmp_path / "default" / "players.db").exists()
+
+
+def test_player_get_routes_do_not_write_player_sessions(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_sources
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _roster(_current_player("Live Alpha", PLAYER_ALPHA_ID)),
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+    db_path = tmp_path / "default" / "players.db"
+
+    current_response = client.get("/players", follow_redirects=False)
+    known_response = client.get("/players/known", follow_redirects=False)
+    history_response = client.get("/players/history", follow_redirects=False)
+
+    assert current_response.status_code == 200
+    assert known_response.status_code == 200
+    assert history_response.status_code == 200
+    assert "Live Alpha" in current_response.text
+    assert PLAYER_ALPHA_ID in current_response.text
+    assert not db_path.exists()
+    assert _player_session_count(db_path) == 0
 
 
 def test_player_history_route_renders_empty_state_and_migrates_v1_db(

@@ -38,6 +38,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Keep `/players/known` as a reliable identity directory, not a historical combat-stat board.
 - [x] Phase 4a session tracking design for boundary events, reliable versus heuristic sources, roster-observation versus session truth, no-IP schema, retention/cleanup, source conflicts, and truthful UI/API scope.
 - [x] Phase 4b session schema/vocabulary foundation in `players.db`, without live scanner, session writers, UI/API pages, retention cleanup, IP storage, or raw log/path storage.
+- [x] Phase 4c session writer foundation in the registry service layer, with explicit reliable-ID observe/close helpers, sanitized evidence, one-open-session enforcement, and no live scanner/job, session UI/API, retention cleanup, IP storage, raw log/path storage, or current-session K/D/role/joined claims.
 - [ ] Continue production hardening for the local dashboard.
 - [x] Polish server update browser flow with controlled post-action notices and active job links.
 - [ ] Continue polishing server update check/update UX after VM smoke feedback.

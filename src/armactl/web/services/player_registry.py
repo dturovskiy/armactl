@@ -234,6 +234,53 @@ class PlayerLogEventRecord:
         return self.observed_at or self.created_at
 
 
+@dataclass(frozen=True)
+class PlayerSessionRecord:
+    """One sanitized persisted player session row."""
+
+    session_id: int
+    reliable_id: str
+    name_at_open: str
+    name_last: str
+    open_observed_at: str
+    last_seen_at: str
+    close_observed_at: str
+    status: str
+    open_source: str
+    open_source_ref: str
+    last_seen_source: str
+    last_seen_source_ref: str
+    close_source: str
+    close_source_ref: str
+    open_confidence: str
+    last_seen_confidence: str
+    close_confidence: str
+    end_reason: str
+    rpl_identity: str
+    connection_id: str
+    session_player_id: str
+    be_slot: str
+    faction: str
+    side: str
+    scanner_checkpoint_source: str
+    scanner_checkpoint_ref: str
+    scanner_checkpoint_at: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
+class PlayerSessionWriteResult:
+    """Summary of one controlled player session write attempt."""
+
+    written: bool
+    created: bool = False
+    updated: bool = False
+    closed: bool = False
+    ignored_count: int = 0
+    session: PlayerSessionRecord | None = None
+
+
 def _bounded_player_history_limit(value: object) -> int:
     try:
         parsed = int(value)
@@ -706,6 +753,158 @@ def _player_log_event_record_from_row(row: sqlite3.Row) -> PlayerLogEventRecord:
     )
 
 
+def _player_session_record_from_row(row: sqlite3.Row) -> PlayerSessionRecord:
+    return PlayerSessionRecord(
+        session_id=int(row["session_id"]),
+        reliable_id=normalize_reliable_player_id(row["reliable_id"]),
+        name_at_open=_safe_session_text(row["name_at_open"]) or "Unknown player",
+        name_last=_safe_session_text(row["name_last"]) or "Unknown player",
+        open_observed_at=_safe_session_text(row["open_observed_at"], max_length=80),
+        last_seen_at=_safe_session_text(row["last_seen_at"], max_length=80),
+        close_observed_at=_safe_session_text(row["close_observed_at"], max_length=80),
+        status=_safe_session_text(row["status"], max_length=40),
+        open_source=_safe_session_text(row["open_source"], max_length=80),
+        open_source_ref=_safe_session_source_ref(row["open_source_ref"]),
+        last_seen_source=_safe_session_text(row["last_seen_source"], max_length=80),
+        last_seen_source_ref=_safe_session_source_ref(row["last_seen_source_ref"]),
+        close_source=_safe_session_text(row["close_source"], max_length=80),
+        close_source_ref=_safe_session_source_ref(row["close_source_ref"]),
+        open_confidence=_safe_session_text(row["open_confidence"], max_length=40),
+        last_seen_confidence=_safe_session_text(row["last_seen_confidence"], max_length=40),
+        close_confidence=_safe_session_text(row["close_confidence"], max_length=40),
+        end_reason=_safe_session_text(row["end_reason"], max_length=80),
+        rpl_identity=_safe_session_correlation(row["rpl_identity"]),
+        connection_id=_safe_session_correlation(row["connection_id"]),
+        session_player_id=_safe_session_correlation(row["session_player_id"]),
+        be_slot=_safe_session_correlation(row["be_slot"]),
+        faction=_safe_session_text(row["faction"], max_length=80),
+        side=_safe_session_text(row["side"], max_length=80),
+        scanner_checkpoint_source=_safe_session_source(
+            row["scanner_checkpoint_source"],
+            default="",
+        ),
+        scanner_checkpoint_ref=_safe_session_source_ref(row["scanner_checkpoint_ref"]),
+        scanner_checkpoint_at=_safe_session_text(
+            row["scanner_checkpoint_at"],
+            max_length=80,
+        ),
+        created_at=_safe_session_text(row["created_at"], max_length=80),
+        updated_at=_safe_session_text(row["updated_at"], max_length=80),
+    )
+
+
+def _fetch_player_session_by_id(
+    connection: sqlite3.Connection,
+    session_id: object,
+) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT *
+        FROM player_sessions
+        WHERE session_id = ?
+        """,
+        (session_id,),
+    ).fetchone()
+
+
+def _fetch_open_player_session(
+    connection: sqlite3.Connection,
+    reliable_id: str,
+) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT *
+        FROM player_sessions
+        WHERE reliable_id = ?
+          AND status = ?
+        ORDER BY session_id DESC
+        LIMIT 1
+        """,
+        (reliable_id, PLAYER_SESSION_STATUS_OPEN),
+    ).fetchone()
+
+
+def _current_player_name_for_session(
+    connection: sqlite3.Connection,
+    reliable_id: str,
+) -> str:
+    row = connection.execute(
+        """
+        SELECT current_name
+        FROM players
+        WHERE reliable_id = ?
+        """,
+        (reliable_id,),
+    ).fetchone()
+    if row is None:
+        return ""
+    return _safe_session_text(row["current_name"]) or ""
+
+
+def _safe_session_text(
+    value: object,
+    *,
+    max_length: int = PLAYER_LOG_EVENT_TEXT_MAX_LENGTH,
+) -> str:
+    text = safe_player_text(value, max_length=max_length)
+    text = _IPV4_ADDRESS_RE.sub("***", text)
+    text = _BRACKETED_IPV6_ADDRESS_RE.sub("***", text).strip()
+    return text
+
+
+def _safe_session_source(value: object, *, default: str = "unknown") -> str:
+    raw_text = "" if value is None else str(value).replace("\\", "/")
+    if "/" in raw_text:
+        raw_text = raw_text.rsplit("/", 1)[-1]
+    return _safe_session_text(raw_text, max_length=80) or default
+
+
+def _safe_session_source_ref(value: object) -> str:
+    raw_text = "" if value is None else str(value).replace("\\", "/")
+    if "/" in raw_text:
+        raw_text = raw_text.rsplit("/", 1)[-1]
+    return _safe_session_text(raw_text, max_length=PLAYER_LOG_EVENT_REF_MAX_LENGTH)
+
+
+def _safe_session_timestamp(value: object, *, fallback: str) -> str:
+    return _safe_session_text(value, max_length=80) or fallback
+
+
+def _safe_session_confidence(value: object, *, default: str) -> str:
+    confidence = _safe_session_text(value, max_length=40)
+    if confidence in PLAYER_SESSION_CONFIDENCES:
+        return confidence
+    return default
+
+
+def _safe_session_end_reason(value: object) -> str:
+    reason = _safe_session_text(value, max_length=80)
+    if reason in PLAYER_SESSION_END_REASONS:
+        return reason
+    return PLAYER_SESSION_END_REASON_UNKNOWN
+
+
+def _safe_session_correlation(value: object) -> str:
+    raw_text = "" if value is None else str(value).strip()
+    if "/" in raw_text or "\\" in raw_text:
+        return ""
+    text = _safe_session_text(raw_text, max_length=80)
+    if text == "***":
+        return ""
+    return text
+
+
+def _nullable(value: str) -> str | None:
+    return value or None
+
+
+def _session_update_value(row: sqlite3.Row, column: str, value: str) -> str | None:
+    if value:
+        return value
+    existing = row[column]
+    return str(existing) if existing not in (None, "") else None
+
+
 def _record_reliable_player_observation(
     connection: sqlite3.Connection,
     *,
@@ -791,6 +990,281 @@ def record_current_players_snapshot(
         stored_count=len(reliable_players),
         ignored_count=ignored_count,
     )
+
+
+def observe_player_session(
+    db_path: Path,
+    *,
+    reliable_id: object,
+    display_name: object = "",
+    source: object = PLAYER_SESSION_SOURCE_MANUAL_IMPORT,
+    observed_at: str | None = None,
+    source_ref: object = None,
+    confidence: object = PLAYER_SESSION_CONFIDENCE_MEDIUM,
+    rpl_identity: object = None,
+    connection_id: object = None,
+    session_player_id: object = None,
+    be_slot: object = None,
+    faction: object = None,
+    side: object = None,
+    scanner_checkpoint_source: object = None,
+    scanner_checkpoint_ref: object = None,
+    scanner_checkpoint_at: object = None,
+) -> PlayerSessionWriteResult:
+    """Open or update one reliable player's currently open session."""
+    normalized_id = normalize_reliable_player_id(reliable_id)
+    if not normalized_id:
+        return PlayerSessionWriteResult(written=False, ignored_count=1)
+
+    timestamp = _safe_session_timestamp(observed_at, fallback=_utc_now())
+    safe_name = _safe_session_text(display_name)
+    safe_source = _safe_session_source(source)
+    safe_source_ref = _safe_session_source_ref(source_ref)
+    safe_confidence = _safe_session_confidence(
+        confidence,
+        default=PLAYER_SESSION_CONFIDENCE_MEDIUM,
+    )
+    safe_rpl_identity = _safe_session_correlation(rpl_identity)
+    safe_connection_id = _safe_session_correlation(connection_id)
+    safe_session_player_id = _safe_session_correlation(session_player_id)
+    safe_be_slot = _safe_session_correlation(be_slot)
+    safe_faction = _safe_session_text(faction, max_length=80)
+    safe_side = _safe_session_text(side, max_length=80)
+    safe_checkpoint_source = _safe_session_source(scanner_checkpoint_source, default="")
+    safe_checkpoint_ref = _safe_session_source_ref(scanner_checkpoint_ref)
+    safe_checkpoint_at = _safe_session_text(scanner_checkpoint_at, max_length=80)
+
+    ensure_player_registry_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("BEGIN IMMEDIATE")
+        existing_name = _current_player_name_for_session(connection, normalized_id)
+        name_for_observation = safe_name or existing_name or "Unknown player"
+        _record_reliable_player_observation(
+            connection,
+            reliable_id=normalized_id,
+            display_name=name_for_observation,
+            source=safe_source,
+            observed_at=timestamp,
+        )
+        open_row = _fetch_open_player_session(connection, normalized_id)
+        if open_row is None:
+            cursor = connection.execute(
+                """
+                INSERT INTO player_sessions(
+                    reliable_id,
+                    name_at_open,
+                    name_last,
+                    open_observed_at,
+                    last_seen_at,
+                    status,
+                    open_source,
+                    open_source_ref,
+                    last_seen_source,
+                    last_seen_source_ref,
+                    open_confidence,
+                    last_seen_confidence,
+                    rpl_identity,
+                    connection_id,
+                    session_player_id,
+                    be_slot,
+                    faction,
+                    side,
+                    scanner_checkpoint_source,
+                    scanner_checkpoint_ref,
+                    scanner_checkpoint_at,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    normalized_id,
+                    name_for_observation,
+                    name_for_observation,
+                    timestamp,
+                    timestamp,
+                    PLAYER_SESSION_STATUS_OPEN,
+                    safe_source,
+                    _nullable(safe_source_ref),
+                    safe_source,
+                    _nullable(safe_source_ref),
+                    safe_confidence,
+                    safe_confidence,
+                    _nullable(safe_rpl_identity),
+                    _nullable(safe_connection_id),
+                    _nullable(safe_session_player_id),
+                    _nullable(safe_be_slot),
+                    _nullable(safe_faction),
+                    _nullable(safe_side),
+                    _nullable(safe_checkpoint_source),
+                    _nullable(safe_checkpoint_ref),
+                    _nullable(safe_checkpoint_at),
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            row = _fetch_player_session_by_id(connection, cursor.lastrowid)
+            return PlayerSessionWriteResult(
+                written=True,
+                created=True,
+                session=_player_session_record_from_row(row),
+            )
+
+        session_id = int(open_row["session_id"])
+        name_last = safe_name or str(open_row["name_last"] or "Unknown player")
+        connection.execute(
+            """
+            UPDATE player_sessions
+            SET name_last = ?,
+                last_seen_at = ?,
+                last_seen_source = ?,
+                last_seen_source_ref = ?,
+                last_seen_confidence = ?,
+                rpl_identity = ?,
+                connection_id = ?,
+                session_player_id = ?,
+                be_slot = ?,
+                faction = ?,
+                side = ?,
+                scanner_checkpoint_source = ?,
+                scanner_checkpoint_ref = ?,
+                scanner_checkpoint_at = ?,
+                updated_at = ?
+            WHERE session_id = ?
+            """,
+            (
+                name_last,
+                timestamp,
+                safe_source,
+                _nullable(safe_source_ref),
+                safe_confidence,
+                _session_update_value(open_row, "rpl_identity", safe_rpl_identity),
+                _session_update_value(open_row, "connection_id", safe_connection_id),
+                _session_update_value(
+                    open_row,
+                    "session_player_id",
+                    safe_session_player_id,
+                ),
+                _session_update_value(open_row, "be_slot", safe_be_slot),
+                _session_update_value(open_row, "faction", safe_faction),
+                _session_update_value(open_row, "side", safe_side),
+                _session_update_value(
+                    open_row,
+                    "scanner_checkpoint_source",
+                    safe_checkpoint_source,
+                ),
+                _session_update_value(open_row, "scanner_checkpoint_ref", safe_checkpoint_ref),
+                _session_update_value(open_row, "scanner_checkpoint_at", safe_checkpoint_at),
+                timestamp,
+                session_id,
+            ),
+        )
+        row = _fetch_player_session_by_id(connection, session_id)
+        return PlayerSessionWriteResult(
+            written=True,
+            updated=True,
+            session=_player_session_record_from_row(row),
+        )
+
+
+def close_player_session(
+    db_path: Path,
+    *,
+    reliable_id: object,
+    close_observed_at: str | None = None,
+    source: object = PLAYER_SESSION_SOURCE_MANUAL_IMPORT,
+    source_ref: object = None,
+    confidence: object = PLAYER_SESSION_CONFIDENCE_LOW,
+    end_reason: object = PLAYER_SESSION_END_REASON_UNKNOWN,
+) -> PlayerSessionWriteResult:
+    """Close one reliable player's currently open session when it exists."""
+    normalized_id = normalize_reliable_player_id(reliable_id)
+    if not normalized_id:
+        return PlayerSessionWriteResult(written=False, ignored_count=1)
+
+    connection = _connect_existing(db_path)
+    if connection is None:
+        return PlayerSessionWriteResult(written=False)
+
+    close_timestamp = _safe_session_timestamp(close_observed_at, fallback=_utc_now())
+    safe_source = _safe_session_source(source)
+    safe_source_ref = _safe_session_source_ref(source_ref)
+    safe_confidence = _safe_session_confidence(
+        confidence,
+        default=PLAYER_SESSION_CONFIDENCE_LOW,
+    )
+    safe_end_reason = _safe_session_end_reason(end_reason)
+    try:
+        with connection:
+            connection.execute("BEGIN IMMEDIATE")
+            open_row = _fetch_open_player_session(connection, normalized_id)
+            if open_row is None:
+                return PlayerSessionWriteResult(written=False)
+            session_id = int(open_row["session_id"])
+            connection.execute(
+                """
+                UPDATE player_sessions
+                SET close_observed_at = ?,
+                    status = ?,
+                    close_source = ?,
+                    close_source_ref = ?,
+                    close_confidence = ?,
+                    end_reason = ?,
+                    updated_at = ?
+                WHERE session_id = ?
+                """,
+                (
+                    close_timestamp,
+                    PLAYER_SESSION_STATUS_CLOSED,
+                    safe_source,
+                    _nullable(safe_source_ref),
+                    safe_confidence,
+                    safe_end_reason,
+                    close_timestamp,
+                    session_id,
+                ),
+            )
+            row = _fetch_player_session_by_id(connection, session_id)
+            return PlayerSessionWriteResult(
+                written=True,
+                updated=True,
+                closed=True,
+                session=_player_session_record_from_row(row),
+            )
+    finally:
+        connection.close()
+
+
+def get_player_session(db_path: Path, session_id: int) -> PlayerSessionRecord | None:
+    """Return one sanitized player session row by session ID."""
+    connection = _connect_existing(db_path)
+    if connection is None:
+        return None
+    try:
+        row = _fetch_player_session_by_id(connection, session_id)
+    finally:
+        connection.close()
+    return _player_session_record_from_row(row) if row is not None else None
+
+
+def get_open_player_session(
+    db_path: Path,
+    reliable_id: object,
+) -> PlayerSessionRecord | None:
+    """Return one sanitized open player session for a reliable ID."""
+    normalized_id = normalize_reliable_player_id(reliable_id)
+    if not normalized_id:
+        return None
+    connection = _connect_existing(db_path)
+    if connection is None:
+        return None
+    try:
+        row = _fetch_open_player_session(connection, normalized_id)
+    finally:
+        connection.close()
+    return _player_session_record_from_row(row) if row is not None else None
 
 
 def ingest_player_log_events(
