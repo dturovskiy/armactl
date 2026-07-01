@@ -40,6 +40,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Phase 4b session schema/vocabulary foundation in `players.db`, without live scanner, session writers, UI/API pages, retention cleanup, IP storage, or raw log/path storage.
 - [x] Phase 4c session writer foundation in the registry service layer, with explicit reliable-ID observe/close helpers, sanitized evidence, one-open-session enforcement, and no live scanner/job, session UI/API, retention cleanup, IP storage, raw log/path storage, or current-session K/D/role/joined claims.
 - [x] Phase 4d-a stored-log sessionization job foundation, with explicit `players:sessionize-log-events` background jobs over already stored `player_log_events`, active-job dedupe, counts-only audit/job output, checkpoint idempotence, and no live poller, session UI/API, disconnect pairing, retention cleanup, IP storage, raw log/path storage, or current-session K/D/role/joined claims.
+- [x] Phase 4d-b stored-log close/lifecycle foundation, parsing sanitized disconnect/lifecycle evidence and closing sessions only from unambiguous stored correlation or server-boundary markers, with counts-only output and no live poller, stale-close, retention cleanup, session UI/API, IP storage, raw log/path storage, or current-session K/D/role/joined claims.
 - [ ] Continue production hardening for the local dashboard.
 - [x] Polish server update browser flow with controlled post-action notices and active job links.
 - [ ] Continue polishing server update check/update UX after VM smoke feedback.

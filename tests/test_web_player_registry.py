@@ -307,7 +307,7 @@ def test_registry_db_migrates_v2_to_player_sessions_schema(tmp_path: Path):
         "updated_at",
     } <= columns
     assert not FORBIDDEN_PLAYER_SESSION_COLUMNS & columns
-    assert _registry_schema_version(db_path) == "3"
+    assert _registry_schema_version(db_path) == player_registry.PLAYER_REGISTRY_SCHEMA_VERSION
     assert {
         "idx_player_sessions_reliable_id",
         "idx_player_sessions_status",
@@ -1129,10 +1129,46 @@ def test_player_get_routes_do_not_write_player_sessions(
     assert _player_session_count(db_path) == 0
 
 
+def test_player_get_routes_do_not_close_existing_player_sessions(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_registry, player_sources
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _roster(_current_player("Live Alpha", PLAYER_ALPHA_ID)),
+    )
+    client = _authed_client(tmp_path, monkeypatch, db_path=db_path)
+
+    current_response = client.get("/players", follow_redirects=False)
+    known_response = client.get("/players/known", follow_redirects=False)
+    history_response = client.get("/players/history", follow_redirects=False)
+    session = player_registry.get_open_player_session(db_path, PLAYER_ALPHA_ID)
+
+    assert current_response.status_code == 200
+    assert known_response.status_code == 200
+    assert history_response.status_code == 200
+    assert session is not None
+    assert session.status == player_registry.PLAYER_SESSION_STATUS_OPEN
+    assert _player_session_count(db_path) == 1
+
+
 def test_player_history_route_renders_empty_state_and_migrates_v1_db(
     tmp_path: Path,
     monkeypatch,
 ):
+    from armactl.web.services import player_registry
+
     db_path = tmp_path / "default" / "players.db"
     db_path.parent.mkdir(parents=True)
     with sqlite3.connect(db_path) as connection:
@@ -1182,7 +1218,7 @@ def test_player_history_route_renders_empty_state_and_migrates_v1_db(
     assert "No player events recorded yet." in response.text
     assert "player_log_events" in _sqlite_tables(db_path)
     assert "player_sessions" in _sqlite_tables(db_path)
-    assert _registry_schema_version(db_path) == "3"
+    assert _registry_schema_version(db_path) == player_registry.PLAYER_REGISTRY_SCHEMA_VERSION
 
 
 def test_player_history_route_renders_stored_rows_without_raw_sources(

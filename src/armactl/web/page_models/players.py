@@ -13,6 +13,8 @@ PLAYER_HISTORY_EVENT_TYPE_LABELS = {
     player_log_events.EVENT_TYPE_PLAYER_AUTHENTICATED: "Authenticated",
     player_log_events.EVENT_TYPE_PLAYER_UPDATE: "Player update",
     player_log_events.EVENT_TYPE_FACTION_JOIN: "Faction join",
+    player_log_events.EVENT_TYPE_PLAYER_DISCONNECTED: "Disconnect",
+    player_log_events.EVENT_TYPE_SERVER_LIFECYCLE: "Server lifecycle",
     player_log_events.EVENT_TYPE_KILL: "Kill",
     player_log_events.EVENT_TYPE_SUICIDE: "Suicide",
     player_log_events.EVENT_TYPE_TEAMKILL: "Teamkill",

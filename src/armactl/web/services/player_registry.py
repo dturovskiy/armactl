@@ -19,6 +19,7 @@ from armactl.player_log_events import (
     CONFIDENCE_MEDIUM,
     EVENT_TYPE_KILL,
     EVENT_TYPE_OTHER_DEATH,
+    EVENT_TYPE_PLAYER_DISCONNECTED,
     EVENT_TYPE_SUICIDE,
     EVENT_TYPE_TEAMKILL,
     SOURCE_BACKEND_AUTH,
@@ -34,7 +35,7 @@ from armactl.web.services.player_identity import (
 )
 
 PLAYER_REGISTRY_DB_NAME = "players.db"
-PLAYER_REGISTRY_SCHEMA_VERSION = "3"
+PLAYER_REGISTRY_SCHEMA_VERSION = "4"
 PRIVATE_PLAYER_REGISTRY_FILE_MODE = 0o600
 DEFAULT_PLAYER_HISTORY_EVENT_LIMIT = 100
 MAX_PLAYER_HISTORY_EVENT_LIMIT = 250
@@ -57,6 +58,8 @@ _PLAYER_LOG_EVENT_INSERT_COLUMNS = (
     "player_name",
     "session_player_id",
     "rpl_identity",
+    "connection_id",
+    "be_slot",
     "player_faction",
     "faction_resource",
     "victim_id",
@@ -78,7 +81,7 @@ _PLAYER_LOG_EVENT_INSERT_COLUMNS = (
 _PLAYER_LOG_EVENT_DEDUPE_COLUMNS = tuple(
     column
     for column in _PLAYER_LOG_EVENT_INSERT_COLUMNS
-    if column not in {"event_key", "created_at"}
+    if column not in {"event_key", "created_at", "connection_id", "be_slot"}
 )
 PLAYER_SESSION_STATUS_OPEN = "open"
 PLAYER_SESSION_STATUS_CLOSED = "closed"
@@ -211,6 +214,8 @@ class PlayerLogEventRecord:
     player_name: str
     session_player_id: str
     rpl_identity: str
+    connection_id: str
+    be_slot: str
     player_faction: str
     faction_resource: str
     victim_id: str
@@ -454,6 +459,8 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
             player_name TEXT,
             session_player_id TEXT,
             rpl_identity TEXT,
+            connection_id TEXT,
+            be_slot TEXT,
             player_faction TEXT,
             faction_resource TEXT,
             victim_id TEXT,
@@ -473,6 +480,14 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL
         )
         """
+    )
+    _ensure_columns(
+        connection,
+        "player_log_events",
+        (
+            ("connection_id", "connection_id TEXT"),
+            ("be_slot", "be_slot TEXT"),
+        ),
     )
     connection.execute(
         """
@@ -673,6 +688,10 @@ def _run_player_registry_migrations(connection: sqlite3.Connection) -> None:
     if current_version < 3:
         _ensure_player_sessions_schema(connection)
         _write_player_registry_schema_version(connection, 3)
+        current_version = 3
+    if current_version < 4:
+        _ensure_player_log_events_schema(connection)
+        _write_player_registry_schema_version(connection, 4)
 
 
 def ensure_player_registry_db(db_path: Path) -> Path:
@@ -730,6 +749,8 @@ def _player_log_event_record_from_row(row: sqlite3.Row) -> PlayerLogEventRecord:
         player_name=_safe_event_text(row["player_name"]) or "",
         session_player_id=_safe_event_text(row["session_player_id"]) or "",
         rpl_identity=_safe_event_text(row["rpl_identity"]) or "",
+        connection_id=_safe_event_correlation(row["connection_id"]) or "",
+        be_slot=_safe_event_correlation(row["be_slot"]) or "",
         player_faction=_safe_event_text(row["player_faction"]) or "",
         faction_resource=_safe_event_text(row["faction_resource"]) or "",
         victim_id=_safe_event_player_id(row["victim_id"]) or "",
@@ -1267,6 +1288,52 @@ def get_open_player_session(
     return _player_session_record_from_row(row) if row is not None else None
 
 
+def list_open_player_sessions(db_path: Path) -> list[PlayerSessionRecord]:
+    """Return sanitized currently open player sessions."""
+    connection = _connect_existing(db_path)
+    if connection is None:
+        return []
+    try:
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM player_sessions
+            WHERE status = ?
+            ORDER BY session_id ASC
+            """,
+            (PLAYER_SESSION_STATUS_OPEN,),
+        ).fetchall()
+    finally:
+        connection.close()
+    return [_player_session_record_from_row(row) for row in rows]
+
+
+def list_player_sessions_for_reliable_id(
+    db_path: Path,
+    reliable_id: object,
+) -> list[PlayerSessionRecord]:
+    """Return sanitized player sessions for one reliable ID, newest first."""
+    normalized_id = normalize_reliable_player_id(reliable_id)
+    if not normalized_id:
+        return []
+    connection = _connect_existing(db_path)
+    if connection is None:
+        return []
+    try:
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM player_sessions
+            WHERE reliable_id = ?
+            ORDER BY open_observed_at DESC, session_id DESC
+            """,
+            (normalized_id,),
+        ).fetchall()
+    finally:
+        connection.close()
+    return [_player_session_record_from_row(row) for row in rows]
+
+
 def ingest_player_log_events(
     db_path: Path,
     events: Iterable[PlayerLogEvent],
@@ -1371,17 +1438,21 @@ def _player_log_event_row(
         "log_timestamp": _safe_event_text(event.raw_timestamp),
         "player_id": _safe_event_player_id(event.player_id),
         "player_name": _safe_event_text(event.player_name),
-        "session_player_id": _safe_event_text(event.session_player_id),
-        "rpl_identity": _safe_event_text(event.rpl_identity),
+        "session_player_id": _safe_event_correlation(event.session_player_id),
+        "rpl_identity": _safe_event_correlation(event.rpl_identity),
+        "connection_id": _safe_event_correlation(event.connection_id),
+        "be_slot": _safe_event_correlation(event.be_slot),
         "player_faction": _safe_event_text(event.player_faction),
         "faction_resource": _safe_event_text(event.faction_resource),
         "victim_id": _safe_event_player_id(event.victim_id),
         "victim_name": _safe_event_text(event.victim_name),
-        "victim_session_player_id": _safe_event_text(event.victim_session_player_id),
+        "victim_session_player_id": _safe_event_correlation(
+            event.victim_session_player_id,
+        ),
         "victim_faction": _safe_event_text(event.victim_faction),
         "instigator_id": _safe_event_player_id(event.instigator_id),
         "instigator_name": _safe_event_text(event.instigator_name),
-        "instigator_session_player_id": _safe_event_text(
+        "instigator_session_player_id": _safe_event_correlation(
             event.instigator_session_player_id,
         ),
         "instigator_faction": _safe_event_text(event.instigator_faction),
@@ -1399,6 +1470,9 @@ def _player_log_event_row(
 
 def _player_log_event_key(row: dict[str, object]) -> str:
     payload = {column: row.get(column) for column in _PLAYER_LOG_EVENT_DEDUPE_COLUMNS}
+    if row.get("event_type") == EVENT_TYPE_PLAYER_DISCONNECTED:
+        payload["connection_id"] = row.get("connection_id")
+        payload["be_slot"] = row.get("be_slot")
     encoded = json.dumps(
         {"schema": PLAYER_LOG_EVENT_KEY_VERSION, "event": payload},
         ensure_ascii=True,
@@ -1420,6 +1494,16 @@ def _safe_event_source_ref(value: object) -> str | None:
 
 def _safe_event_player_id(value: object) -> str | None:
     return normalize_reliable_player_id(value) or None
+
+
+def _safe_event_correlation(value: object) -> str | None:
+    raw_text = "" if value is None else str(value).strip()
+    if "/" in raw_text or "\\" in raw_text:
+        return None
+    text = _safe_event_text(raw_text, max_length=80)
+    if text == "***":
+        return None
+    return text
 
 
 def _safe_event_text(
@@ -1504,6 +1588,10 @@ def list_player_log_events(
             "confidence",
             "player_id",
             "player_name",
+            "session_player_id",
+            "rpl_identity",
+            "connection_id",
+            "be_slot",
             "player_faction",
             "faction_resource",
             "victim_id",

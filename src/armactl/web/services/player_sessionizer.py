@@ -23,6 +23,10 @@ _COMBAT_EVENT_TYPES = {
     player_log_events.EVENT_TYPE_TEAMKILL,
     player_log_events.EVENT_TYPE_OTHER_DEATH,
 }
+_CLOSE_EVENT_TYPES = {
+    player_log_events.EVENT_TYPE_PLAYER_DISCONNECTED,
+    player_log_events.EVENT_TYPE_SERVER_LIFECYCLE,
+}
 
 
 @dataclass(frozen=True)
@@ -55,13 +59,34 @@ class _SessionObservation:
     side: str = ""
 
 
+@dataclass(frozen=True)
+class _SessionCloseEvidence:
+    source: str
+    source_ref: str
+    observed_at: str
+    confidence: str
+    end_reason: str
+    rpl_identity: str = ""
+    connection_id: str = ""
+    be_slot: str = ""
+    lifecycle_boundary: bool = False
+
+
+@dataclass(frozen=True)
+class _CloseApplicationResult:
+    applied: bool = False
+    skipped: bool = False
+    ignored: bool = False
+    sessions_closed: int = 0
+
+
 def sessionize_stored_player_log_events(
     db_path: Path,
 ) -> PlayerLogSessionizationSummary:
     """Open/update sessions from already stored sanitized player log events.
 
     This is a stored-log pass only. It does not read live logs, poll RCON/A2S,
-    infer disconnects, close stale sessions, or calculate session statistics.
+    close stale sessions, or calculate session statistics.
     """
     events = player_registry.list_player_log_events_for_sessionization(db_path)
     events_ignored = 0
@@ -71,10 +96,12 @@ def sessionize_stored_player_log_events(
     observations_ignored = 0
     sessions_created = 0
     sessions_updated = 0
+    sessions_closed = 0
 
     for event in events:
         observations = tuple(_observations_from_event(event))
-        if not observations:
+        close_evidence = tuple(_close_evidence_from_event(event))
+        if not observations and not close_evidence:
             events_ignored += 1
             continue
 
@@ -117,6 +144,18 @@ def sessionize_stored_player_log_events(
             elif result.updated:
                 sessions_updated += 1
 
+        for evidence in close_evidence:
+            observations_considered += 1
+            result = _apply_close_evidence(db_path, evidence)
+            if result.ignored:
+                observations_ignored += 1
+                continue
+            if result.applied:
+                observations_applied += 1
+                sessions_closed += result.sessions_closed
+                continue
+            observations_skipped += 1
+
     return PlayerLogSessionizationSummary(
         events_scanned=len(events),
         events_ignored=events_ignored,
@@ -126,7 +165,7 @@ def sessionize_stored_player_log_events(
         observations_ignored=observations_ignored,
         sessions_created=sessions_created,
         sessions_updated=sessions_updated,
-        sessions_closed=0,
+        sessions_closed=sessions_closed,
     )
 
 
@@ -144,6 +183,7 @@ def _observations_from_event(
                 observed_at=observed_at,
                 confidence=player_registry.PLAYER_SESSION_CONFIDENCE_HIGH,
                 rpl_identity=event.rpl_identity,
+                connection_id=event.connection_id,
                 session_player_id=event.session_player_id,
             ),
         )
@@ -167,6 +207,143 @@ def _observations_from_event(
         return _combat_observations(event, observed_at=observed_at)
 
     return ()
+
+
+def _close_evidence_from_event(
+    event: player_registry.PlayerLogEventRecord,
+) -> tuple[_SessionCloseEvidence, ...]:
+    observed_at = _event_observed_at(event)
+    if event.event_type not in _CLOSE_EVENT_TYPES:
+        return ()
+    if event.event_type == player_log_events.EVENT_TYPE_PLAYER_DISCONNECTED:
+        return (
+            _SessionCloseEvidence(
+                source=event.source,
+                source_ref=event.source_ref,
+                observed_at=observed_at,
+                confidence=_session_close_confidence(event.confidence),
+                end_reason=player_registry.PLAYER_SESSION_END_REASON_DISCONNECT,
+                rpl_identity=event.rpl_identity,
+                connection_id=event.connection_id,
+                be_slot=event.be_slot,
+            ),
+        )
+
+    if event.event_type == player_log_events.EVENT_TYPE_SERVER_LIFECYCLE:
+        return (
+            _SessionCloseEvidence(
+                source=player_registry.PLAYER_SESSION_SOURCE_SERVICE_LIFECYCLE,
+                source_ref=event.source_ref,
+                observed_at=observed_at,
+                confidence=_session_close_confidence(event.confidence),
+                end_reason=player_registry.PLAYER_SESSION_END_REASON_SERVER_BOUNDARY,
+                lifecycle_boundary=True,
+            ),
+        )
+
+    return ()
+
+
+def _apply_close_evidence(
+    db_path: Path,
+    evidence: _SessionCloseEvidence,
+) -> _CloseApplicationResult:
+    if evidence.lifecycle_boundary:
+        return _apply_lifecycle_close(db_path, evidence)
+    return _apply_correlated_close(db_path, evidence)
+
+
+def _apply_lifecycle_close(
+    db_path: Path,
+    evidence: _SessionCloseEvidence,
+) -> _CloseApplicationResult:
+    sessions = player_registry.list_open_player_sessions(db_path)
+    if not sessions:
+        return _CloseApplicationResult(skipped=True)
+
+    closed_count = 0
+    for session in sessions:
+        result = player_registry.close_player_session(
+            db_path,
+            reliable_id=session.reliable_id,
+            close_observed_at=evidence.observed_at,
+            source=evidence.source,
+            source_ref=evidence.source_ref,
+            confidence=evidence.confidence,
+            end_reason=evidence.end_reason,
+        )
+        if result.closed:
+            closed_count += 1
+
+    if not closed_count:
+        return _CloseApplicationResult(skipped=True)
+    return _CloseApplicationResult(applied=True, sessions_closed=closed_count)
+
+
+def _apply_correlated_close(
+    db_path: Path,
+    evidence: _SessionCloseEvidence,
+) -> _CloseApplicationResult:
+    if not _has_correlation_evidence(evidence):
+        return _CloseApplicationResult(ignored=True)
+
+    session = _matched_open_session_by_correlation(db_path, evidence)
+    if session is None:
+        return _CloseApplicationResult(skipped=True)
+
+    result = player_registry.close_player_session(
+        db_path,
+        reliable_id=session.reliable_id,
+        close_observed_at=evidence.observed_at,
+        source=evidence.source,
+        source_ref=evidence.source_ref,
+        confidence=evidence.confidence,
+        end_reason=evidence.end_reason,
+    )
+    if not result.closed:
+        return _CloseApplicationResult(skipped=True)
+    return _CloseApplicationResult(applied=True, sessions_closed=1)
+
+
+def _matched_open_session_by_correlation(
+    db_path: Path,
+    evidence: _SessionCloseEvidence,
+) -> player_registry.PlayerSessionRecord | None:
+    sessions = player_registry.list_open_player_sessions(db_path)
+    for field_name in ("rpl_identity", "connection_id", "be_slot"):
+        expected = _correlation_value(getattr(evidence, field_name))
+        if not expected:
+            continue
+        matches = [
+            session
+            for session in sessions
+            if _correlation_value(getattr(session, field_name)) == expected
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            return None
+    return None
+
+
+def _has_correlation_evidence(evidence: _SessionCloseEvidence) -> bool:
+    return any(
+        _correlation_value(value)
+        for value in (evidence.rpl_identity, evidence.connection_id, evidence.be_slot)
+    )
+
+
+def _session_close_confidence(value: str) -> str:
+    if value in player_registry.PLAYER_SESSION_CONFIDENCES:
+        return value
+    return player_registry.PLAYER_SESSION_CONFIDENCE_LOW
+
+
+def _correlation_value(value: object) -> str:
+    text = "" if value is None else str(value).strip()
+    if not text or text == "***" or "/" in text or "\\" in text:
+        return ""
+    return text
 
 
 def _combat_observations(
@@ -220,7 +397,9 @@ def _should_skip_observation(
 ) -> bool:
     session = player_registry.get_open_player_session(db_path, reliable_id)
     if session is None:
-        return False
+        return _closed_session_covers_observation(
+            db_path, reliable_id, observation, event
+        )
 
     checkpoint_event_id = _checkpoint_event_id(session)
     if checkpoint_event_id is not None and checkpoint_event_id >= event.event_id:
@@ -234,6 +413,53 @@ def _should_skip_observation(
         return True
 
     return _is_older_than(observation.observed_at, session.last_seen_at)
+
+
+def _closed_session_covers_observation(
+    db_path: Path,
+    reliable_id: str,
+    observation: _SessionObservation,
+    event: player_registry.PlayerLogEventRecord,
+) -> bool:
+    sessions = player_registry.list_player_sessions_for_reliable_id(db_path, reliable_id)
+    for session in sessions:
+        if session.status != player_registry.PLAYER_SESSION_STATUS_CLOSED:
+            continue
+        checkpoint_event_id = _checkpoint_event_id(session)
+        if checkpoint_event_id is not None and checkpoint_event_id >= event.event_id:
+            return True
+        if _session_has_observation(session, observation):
+            return True
+        if _session_time_contains(session, observation.observed_at):
+            return True
+    return False
+
+
+def _session_has_observation(
+    session: player_registry.PlayerSessionRecord,
+    observation: _SessionObservation,
+) -> bool:
+    return (
+        session.open_source == observation.source
+        and session.open_source_ref == observation.source_ref
+        and session.open_observed_at == observation.observed_at
+    ) or (
+        session.last_seen_source == observation.source
+        and session.last_seen_source_ref == observation.source_ref
+        and session.last_seen_at == observation.observed_at
+    )
+
+
+def _session_time_contains(
+    session: player_registry.PlayerSessionRecord,
+    observed_at: str,
+) -> bool:
+    if not observed_at or not session.open_observed_at or not session.close_observed_at:
+        return False
+    return not _is_older_than(
+        observed_at,
+        session.open_observed_at,
+    ) and not _is_older_than(session.close_observed_at, observed_at)
 
 
 def _checkpoint_ref(event_id: int) -> str:

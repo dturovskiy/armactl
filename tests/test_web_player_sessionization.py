@@ -122,6 +122,185 @@ def test_sessionizer_opens_from_stored_auth_and_update_events(tmp_path: Path):
     assert _session_count(db_path) == 1
 
 
+def test_sessionizer_closes_by_reliable_rpl_identity_and_is_idempotent(
+    tmp_path: Path,
+):
+    from armactl.web.services import player_registry, player_sessionizer
+
+    db_path = tmp_path / "default" / "players.db"
+    events = [
+        _parse_log_event(
+            "BACKEND : Authenticated player: "
+            f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One",
+            observed_at="2026-06-16T12:00:00+00:00",
+            raw_source_ref="journal:auth:1",
+        ),
+        _parse_log_event(
+            "RPL : ServerImpl event: disconnected (identity=42), "
+            "group=5, reason=timeout",
+            observed_at="2026-06-16T12:10:00+00:00",
+            raw_source_ref="journal:rpl-disconnect:2",
+        ),
+    ]
+    player_registry.ingest_player_log_events(db_path, events)
+
+    first = player_sessionizer.sessionize_stored_player_log_events(db_path)
+    rows_after_first = _session_rows(db_path)
+    second = player_sessionizer.sessionize_stored_player_log_events(db_path)
+    rows_after_second = _session_rows(db_path)
+
+    assert first.events_scanned == 2
+    assert first.observations_applied == 2
+    assert first.sessions_created == 1
+    assert first.sessions_closed == 1
+    assert second.observations_applied == 0
+    assert second.sessions_created == 0
+    assert second.sessions_closed == 0
+    assert rows_after_second == rows_after_first
+    assert _session_count(db_path) == 1
+    row = rows_after_first[0]
+    assert row["status"] == player_registry.PLAYER_SESSION_STATUS_CLOSED
+    assert row["close_observed_at"] == "2026-06-16T12:10:00+00:00"
+    assert row["close_source"] == player_log_events.SOURCE_RPL_DISCONNECT
+    assert row["close_source_ref"] == "journal:rpl-disconnect:2"
+    assert row["close_confidence"] == player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM
+    assert row["end_reason"] == player_registry.PLAYER_SESSION_END_REASON_DISCONNECT
+    assert player_registry.get_open_player_session(db_path, PLAYER_ALPHA_ID) is None
+
+
+def test_sessionizer_closes_by_connection_id_only_when_unambiguous(
+    tmp_path: Path,
+):
+    from armactl.web.services import player_registry, player_sessionizer
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_NETWORK_PLAYER_UPDATE,
+        observed_at="2026-06-16T12:00:00+00:00",
+        connection_id="conn-7",
+    )
+    event = _parse_log_event(
+        "NETWORK : Player disconnected: connectionID=conn-7",
+        observed_at="2026-06-16T12:10:00+00:00",
+        raw_source_ref="journal:network-disconnect:3",
+    )
+    player_registry.ingest_player_log_events(db_path, [event])
+
+    summary = player_sessionizer.sessionize_stored_player_log_events(db_path)
+    row = _session_rows(db_path)[0]
+
+    assert summary.sessions_closed == 1
+    assert row["status"] == player_registry.PLAYER_SESSION_STATUS_CLOSED
+    assert row["close_source"] == player_log_events.SOURCE_NETWORK_DISCONNECT
+    assert row["end_reason"] == player_registry.PLAYER_SESSION_END_REASON_DISCONNECT
+    assert player_registry.get_open_player_session(db_path, PLAYER_ALPHA_ID) is None
+
+
+def test_sessionizer_does_not_close_name_slot_disconnect_without_stored_correlation(
+    tmp_path: Path,
+):
+    from armactl.web.services import player_registry, player_sessionizer
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+    event = _parse_log_event(
+        "DEFAULT : BattlEye Server: 'Player #7 Alpha One disconnected'",
+        observed_at="2026-06-16T12:10:00+00:00",
+        raw_source_ref="journal:be-disconnect:4",
+    )
+    player_registry.ingest_player_log_events(db_path, [event])
+
+    summary = player_sessionizer.sessionize_stored_player_log_events(db_path)
+
+    assert summary.sessions_closed == 0
+    assert summary.observations_skipped == 1
+    assert player_registry.get_open_player_session(db_path, PLAYER_ALPHA_ID) is not None
+    assert _session_rows(db_path)[0]["status"] == player_registry.PLAYER_SESSION_STATUS_OPEN
+
+
+def test_sessionizer_does_not_close_ambiguous_slot_disconnect(tmp_path: Path):
+    from armactl.web.services import player_registry, player_sessionizer
+
+    db_path = tmp_path / "default" / "players.db"
+    for reliable_id, name in (
+        (PLAYER_ALPHA_ID, "Alpha One"),
+        (PLAYER_BRAVO_ID, "Bravo Two"),
+    ):
+        player_registry.observe_player_session(
+            db_path,
+            reliable_id=reliable_id,
+            display_name=name,
+            source=player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER,
+            observed_at="2026-06-16T12:00:00+00:00",
+            be_slot="7",
+        )
+    event = _parse_log_event(
+        "DEFAULT : BattlEye Server: 'Player #7 Alpha One disconnected'",
+        observed_at="2026-06-16T12:10:00+00:00",
+        raw_source_ref="journal:be-disconnect:5",
+    )
+    player_registry.ingest_player_log_events(db_path, [event])
+
+    summary = player_sessionizer.sessionize_stored_player_log_events(db_path)
+    rows = _session_rows(db_path)
+
+    assert summary.sessions_closed == 0
+    assert summary.observations_skipped == 1
+    assert {row["status"] for row in rows} == {player_registry.PLAYER_SESSION_STATUS_OPEN}
+
+
+def test_sessionizer_lifecycle_marker_closes_open_sessions_as_server_boundary(
+    tmp_path: Path,
+):
+    from armactl.web.services import player_registry, player_sessionizer
+
+    db_path = tmp_path / "default" / "players.db"
+    for reliable_id, name in (
+        (PLAYER_ALPHA_ID, "Alpha One"),
+        (PLAYER_BRAVO_ID, "Bravo Two"),
+    ):
+        player_registry.observe_player_session(
+            db_path,
+            reliable_id=reliable_id,
+            display_name=name,
+            source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+            observed_at="2026-06-16T12:00:00+00:00",
+        )
+    event = _parse_log_event(
+        "DEFAULT : [PERSISTENCE] Save (SHUTDOWN) started.",
+        observed_at="2026-06-16T12:30:00+00:00",
+        raw_source_ref="journal:shutdown:6",
+    )
+    player_registry.ingest_player_log_events(db_path, [event])
+
+    first = player_sessionizer.sessionize_stored_player_log_events(db_path)
+    rows_after_first = _session_rows(db_path)
+    second = player_sessionizer.sessionize_stored_player_log_events(db_path)
+
+    assert first.sessions_closed == 2
+    assert first.observations_applied == 1
+    assert second.sessions_closed == 0
+    assert _session_rows(db_path) == rows_after_first
+    assert {row["status"] for row in rows_after_first} == {
+        player_registry.PLAYER_SESSION_STATUS_CLOSED
+    }
+    assert {row["end_reason"] for row in rows_after_first} == {
+        player_registry.PLAYER_SESSION_END_REASON_SERVER_BOUNDARY
+    }
+    assert {row["close_source"] for row in rows_after_first} == {
+        player_registry.PLAYER_SESSION_SOURCE_SERVICE_LIFECYCLE
+    }
+
+
 def test_faction_join_opens_inferred_presence_without_duplicate_rows(
     tmp_path: Path,
 ):
@@ -278,6 +457,37 @@ def test_current_roster_refresh_does_not_create_sessions(
     assert result.success is True
     assert result.stored_count == 1
     assert _session_count(tmp_path / "default" / "players.db") == 0
+
+
+def test_current_roster_refresh_does_not_close_existing_sessions(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_actions, player_registry, player_sources
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _roster(),
+    )
+
+    result = player_actions.refresh_current_players("default", data_root=tmp_path)
+    session = player_registry.get_open_player_session(db_path, PLAYER_ALPHA_ID)
+
+    assert result.success is True
+    assert result.stored_count == 0
+    assert result.ignored_count == 0
+    assert session is not None
+    assert session.status == player_registry.PLAYER_SESSION_STATUS_OPEN
+    assert _session_count(db_path) == 1
 
 
 def test_sessionization_job_dedupes_and_audits_counts_only(

@@ -8,6 +8,8 @@ from dataclasses import dataclass, replace
 EVENT_TYPE_PLAYER_AUTHENTICATED = "player_authenticated"
 EVENT_TYPE_PLAYER_UPDATE = "player_update"
 EVENT_TYPE_FACTION_JOIN = "faction_join"
+EVENT_TYPE_PLAYER_DISCONNECTED = "player_disconnected"
+EVENT_TYPE_SERVER_LIFECYCLE = "server_lifecycle"
 EVENT_TYPE_KILL = "kill"
 EVENT_TYPE_SUICIDE = "suicide"
 EVENT_TYPE_TEAMKILL = "teamkill"
@@ -17,11 +19,16 @@ EVENT_TYPE_COMBAT_HINT = "combat_hint"
 SOURCE_BACKEND_AUTH = "backend_authenticated_player"
 SOURCE_NETWORK_PLAYER_UPDATE = "network_player_update"
 SOURCE_SCRIPT_FACTION_JOIN = "script_faction_join"
+SOURCE_RPL_DISCONNECT = "rpl_disconnect"
+SOURCE_NETWORK_DISCONNECT = "network_disconnect"
+SOURCE_BATTLEYE_DISCONNECT = "battleye_disconnect"
+SOURCE_SERVER_LIFECYCLE = "server_lifecycle"
 SOURCE_SCRIPT_KILL = "script_kill"
 SOURCE_SERVER_ADMIN_TOOLS_KILL = "serveradmintools_player_killed"
 
 CONFIDENCE_HIGH = "high"
 CONFIDENCE_MEDIUM = "medium"
+CONFIDENCE_LOW = "low"
 
 
 @dataclass(frozen=True)
@@ -37,6 +44,8 @@ class PlayerLogEvent:
     player_name: str | None = None
     session_player_id: str | None = None
     rpl_identity: str | None = None
+    connection_id: str | None = None
+    be_slot: str | None = None
     player_faction: str | None = None
     faction_resource: str | None = None
     victim_id: str | None = None
@@ -85,6 +94,37 @@ _FACTION_JOIN_RE = re.compile(
     r"\|\s*UUID\s*=\s*(?P<player_id>[^)]+)\)\s+"
     r"has joined faction\s+#(?P<faction_resource>\S+)\s+"
     r"\((?P<player_faction>[^)]+)\)\s*$"
+)
+
+_RPL_DISCONNECT_RE = re.compile(
+    r"\bRPL\s*:\s*ServerImpl event:\s*disconnected\s*"
+    r"\(identity=(?P<rpl_identity>[^)]+)\)"
+    r"(?:,\s*group=[^,]+)?"
+    r"(?:,\s*reason=.*?)?\s*$",
+    re.IGNORECASE,
+)
+
+_NETWORK_DISCONNECT_RE = re.compile(
+    r"\bNETWORK\s*:\s*Player disconnected:\s*"
+    r"connectionID=(?P<connection_id>[^,\s]+)\s*$",
+    re.IGNORECASE,
+)
+
+_BATTLEYE_DISCONNECT_RE = re.compile(
+    r"\bDEFAULT\s*:\s*BattlEye Server:\s*"
+    r"'Player\s+#(?P<be_slot>\d+)\s+(?P<player_name>.*?)\s+disconnected'\s*$",
+    re.IGNORECASE,
+)
+
+_PERSISTENCE_SHUTDOWN_RE = re.compile(
+    r"\bDEFAULT\s*:\s*\[PERSISTENCE\]\s*Save\s*\(SHUTDOWN\)\s*started\.?\s*$",
+    re.IGNORECASE,
+)
+
+_SERVICE_STOP_RE = re.compile(
+    r"\b(?:Stopping|Stopped)\s+"
+    r"(?:Arma\s+Reforger(?:\s+Dedicated\s+Server)?|armareforger\.service)\b",
+    re.IGNORECASE,
 )
 
 _PLAYER_REF_RE = re.compile(
@@ -211,6 +251,50 @@ def parse_player_log_event(
             session_player_id=_clean(match.group("session_player_id")),
             player_faction=_clean(match.group("player_faction")),
             faction_resource=_clean(match.group("faction_resource")),
+            raw_source_ref=raw_source_ref,
+        )
+
+    if match := _RPL_DISCONNECT_RE.search(text):
+        return PlayerLogEvent(
+            event_type=EVENT_TYPE_PLAYER_DISCONNECTED,
+            source=SOURCE_RPL_DISCONNECT,
+            confidence=CONFIDENCE_MEDIUM,
+            observed_at=observed_at,
+            raw_timestamp=raw_timestamp,
+            rpl_identity=_clean(match.group("rpl_identity")),
+            raw_source_ref=raw_source_ref,
+        )
+
+    if match := _NETWORK_DISCONNECT_RE.search(text):
+        return PlayerLogEvent(
+            event_type=EVENT_TYPE_PLAYER_DISCONNECTED,
+            source=SOURCE_NETWORK_DISCONNECT,
+            confidence=CONFIDENCE_MEDIUM,
+            observed_at=observed_at,
+            raw_timestamp=raw_timestamp,
+            connection_id=_clean(match.group("connection_id")),
+            raw_source_ref=raw_source_ref,
+        )
+
+    if match := _BATTLEYE_DISCONNECT_RE.search(text):
+        return PlayerLogEvent(
+            event_type=EVENT_TYPE_PLAYER_DISCONNECTED,
+            source=SOURCE_BATTLEYE_DISCONNECT,
+            confidence=CONFIDENCE_LOW,
+            observed_at=observed_at,
+            raw_timestamp=raw_timestamp,
+            player_name=_clean(match.group("player_name")),
+            be_slot=_clean(match.group("be_slot")),
+            raw_source_ref=raw_source_ref,
+        )
+
+    if _PERSISTENCE_SHUTDOWN_RE.search(text) or _SERVICE_STOP_RE.search(text):
+        return PlayerLogEvent(
+            event_type=EVENT_TYPE_SERVER_LIFECYCLE,
+            source=SOURCE_SERVER_LIFECYCLE,
+            confidence=CONFIDENCE_HIGH,
+            observed_at=observed_at,
+            raw_timestamp=raw_timestamp,
             raw_source_ref=raw_source_ref,
         )
 

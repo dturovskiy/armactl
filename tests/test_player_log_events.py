@@ -66,6 +66,58 @@ def test_parse_faction_join_line() -> None:
     assert event.faction_resource == "US_Army"
 
 
+def test_parse_disconnect_and_lifecycle_lines() -> None:
+    rpl = events.parse_player_log_event(
+        "RPL     : ServerImpl event: disconnected (identity=42), "
+        "group=5, reason=timeout",
+        observed_at="2026-01-01T12:10:00+00:00",
+        raw_source_ref="journal:rpl-disconnect",
+    )
+    network = events.parse_player_log_event(
+        "NETWORK : Player disconnected: connectionID=conn-7",
+        raw_source_ref="journal:network-disconnect",
+    )
+    battleye = events.parse_player_log_event(
+        "DEFAULT : BattlEye Server: 'Player #7 Alpha One disconnected'",
+        raw_source_ref="journal:be-disconnect",
+    )
+    shutdown = events.parse_player_log_event(
+        "DEFAULT : [PERSISTENCE] Save (SHUTDOWN) started.",
+        raw_source_ref="journal:shutdown",
+    )
+    service = events.parse_player_log_event(
+        "systemd[1]: Stopping Arma Reforger Dedicated Server...",
+        raw_source_ref="journal:service-stop",
+    )
+
+    assert rpl is not None
+    assert rpl.event_type == events.EVENT_TYPE_PLAYER_DISCONNECTED
+    assert rpl.source == events.SOURCE_RPL_DISCONNECT
+    assert rpl.confidence == events.CONFIDENCE_MEDIUM
+    assert rpl.rpl_identity == "42"
+    assert rpl.observed_at == "2026-01-01T12:10:00+00:00"
+
+    assert network is not None
+    assert network.event_type == events.EVENT_TYPE_PLAYER_DISCONNECTED
+    assert network.source == events.SOURCE_NETWORK_DISCONNECT
+    assert network.confidence == events.CONFIDENCE_MEDIUM
+    assert network.connection_id == "conn-7"
+
+    assert battleye is not None
+    assert battleye.event_type == events.EVENT_TYPE_PLAYER_DISCONNECTED
+    assert battleye.source == events.SOURCE_BATTLEYE_DISCONNECT
+    assert battleye.confidence == events.CONFIDENCE_LOW
+    assert battleye.be_slot == "7"
+    assert battleye.player_name == "Alpha One"
+
+    assert shutdown is not None
+    assert shutdown.event_type == events.EVENT_TYPE_SERVER_LIFECYCLE
+    assert shutdown.source == events.SOURCE_SERVER_LIFECYCLE
+    assert shutdown.confidence == events.CONFIDENCE_HIGH
+    assert service is not None
+    assert service.event_type == events.EVENT_TYPE_SERVER_LIFECYCLE
+
+
 def test_parse_ai_kill_line() -> None:
     event = events.parse_player_log_event(
         "SCRIPT : INFO: KILL ENEMY: Bravo Two "

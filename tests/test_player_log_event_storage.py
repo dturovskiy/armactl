@@ -94,6 +94,9 @@ def test_player_log_event_schema_lives_in_instance_players_db(tmp_path: Path) ->
         "observed_at",
         "player_id",
         "player_name",
+        "rpl_identity",
+        "connection_id",
+        "be_slot",
         "victim_id",
         "instigator_id",
         "teamkill",
@@ -170,6 +173,100 @@ def test_ingest_auth_update_and_faction_events(tmp_path: Path) -> None:
     assert [(player.reliable_id, player.current_name) for player in known] == [
         (PLAYER_ALPHA_ID, "Alpha One")
     ]
+
+
+def test_ingest_disconnect_and_lifecycle_events(tmp_path: Path) -> None:
+    db_path = tmp_path / "default" / "players.db"
+    parsed_events = [
+        _parse(
+            "RPL : ServerImpl event: disconnected (identity=42), "
+            "group=5, reason=timeout",
+            observed_at="2026-01-01T12:10:00+00:00",
+            raw_source_ref="/home/deus/logs/console.log:198.51.100.7:10",
+        ),
+        _parse(
+            "NETWORK : Player disconnected: connectionID=conn-7",
+            observed_at="2026-01-01T12:11:00+00:00",
+            raw_source_ref="journal:network-disconnect",
+        ),
+        _parse(
+            "DEFAULT : BattlEye Server: 'Player #7 Alpha token=raw-secret "
+            "203.0.113.9 disconnected'",
+            observed_at="2026-01-01T12:12:00+00:00",
+            raw_source_ref="journal:be-disconnect",
+        ),
+        _parse(
+            "DEFAULT : [PERSISTENCE] Save (SHUTDOWN) started.",
+            observed_at="2026-01-01T12:13:00+00:00",
+            raw_source_ref="journal:shutdown",
+        ),
+    ]
+
+    result = player_registry.ingest_player_log_events(db_path, parsed_events)
+
+    rows = _event_rows(db_path)
+    encoded_rows = json.dumps(rows, sort_keys=True)
+    assert result.stored_count == 4
+    assert [row["event_type"] for row in rows] == [
+        events.EVENT_TYPE_PLAYER_DISCONNECTED,
+        events.EVENT_TYPE_PLAYER_DISCONNECTED,
+        events.EVENT_TYPE_PLAYER_DISCONNECTED,
+        events.EVENT_TYPE_SERVER_LIFECYCLE,
+    ]
+    assert rows[0]["rpl_identity"] == "42"
+    assert rows[1]["connection_id"] == "conn-7"
+    assert rows[2]["be_slot"] == "7"
+    assert rows[2]["player_name"] == "Alpha token=*** ***"
+    assert "raw-secret" not in encoded_rows
+    assert "203.0.113.9" not in encoded_rows
+    assert "/home/deus" not in encoded_rows
+    assert "198.51.100.7" not in encoded_rows
+
+
+def test_disconnect_event_dedupe_keeps_distinct_correlation_without_source_ref(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "default" / "players.db"
+    parsed_events = [
+        events.PlayerLogEvent(
+            event_type=events.EVENT_TYPE_PLAYER_DISCONNECTED,
+            source=events.SOURCE_NETWORK_DISCONNECT,
+            confidence=events.CONFIDENCE_MEDIUM,
+            observed_at="2026-01-01T12:10:00+00:00",
+            connection_id="conn-7",
+        ),
+        events.PlayerLogEvent(
+            event_type=events.EVENT_TYPE_PLAYER_DISCONNECTED,
+            source=events.SOURCE_NETWORK_DISCONNECT,
+            confidence=events.CONFIDENCE_MEDIUM,
+            observed_at="2026-01-01T12:10:00+00:00",
+            connection_id="conn-8",
+        ),
+        events.PlayerLogEvent(
+            event_type=events.EVENT_TYPE_PLAYER_DISCONNECTED,
+            source=events.SOURCE_BATTLEYE_DISCONNECT,
+            confidence=events.CONFIDENCE_LOW,
+            observed_at="2026-01-01T12:11:00+00:00",
+            be_slot="7",
+            player_name="Alpha One",
+        ),
+        events.PlayerLogEvent(
+            event_type=events.EVENT_TYPE_PLAYER_DISCONNECTED,
+            source=events.SOURCE_BATTLEYE_DISCONNECT,
+            confidence=events.CONFIDENCE_LOW,
+            observed_at="2026-01-01T12:11:00+00:00",
+            be_slot="8",
+            player_name="Alpha One",
+        ),
+    ]
+
+    result = player_registry.ingest_player_log_events(db_path, parsed_events)
+
+    rows = _event_rows(db_path)
+    assert result.stored_count == 4
+    assert result.duplicate_count == 0
+    assert [row["connection_id"] for row in rows[:2]] == ["conn-7", "conn-8"]
+    assert [row["be_slot"] for row in rows[2:]] == ["7", "8"]
 
 
 def test_duplicate_player_log_event_ingest_is_noop(tmp_path: Path) -> None:
