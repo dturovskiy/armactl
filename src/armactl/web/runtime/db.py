@@ -9,7 +9,7 @@ from pathlib import Path
 
 from armactl.web.runtime.job_store_maintenance import repair_duplicate_active_jobs
 
-WEB_SCHEMA_VERSION = "10"
+WEB_SCHEMA_VERSION = "11"
 PRIVATE_FILE_MODE = 0o600
 _LEGACY_DEFAULT_TIMESTAMP = "1970-01-01T00:00:00+00:00"
 
@@ -353,6 +353,82 @@ def _ensure_web_server_version_checks_schema(connection: sqlite3.Connection) -> 
     )
 
 
+def _ensure_web_current_roster_cache_schema(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS web_current_roster_cache (
+            instance TEXT PRIMARY KEY CHECK(length(trim(instance)) > 0),
+            collected_at TEXT NOT NULL CHECK(length(collected_at) > 0),
+            updated_at TEXT NOT NULL CHECK(length(updated_at) > 0),
+            source TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT '',
+            error TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+    _ensure_columns(
+        connection,
+        "web_current_roster_cache",
+        (
+            (
+                "instance",
+                (
+                    "instance TEXT NOT NULL DEFAULT 'default' "
+                    "CHECK(length(trim(instance)) > 0)"
+                ),
+            ),
+            (
+                "collected_at",
+                f"collected_at TEXT NOT NULL DEFAULT '{_LEGACY_DEFAULT_TIMESTAMP}'",
+            ),
+            (
+                "updated_at",
+                f"updated_at TEXT NOT NULL DEFAULT '{_LEGACY_DEFAULT_TIMESTAMP}'",
+            ),
+            ("source", "source TEXT NOT NULL DEFAULT ''"),
+            ("status", "status TEXT NOT NULL DEFAULT ''"),
+            ("error", "error TEXT NOT NULL DEFAULT ''"),
+        ),
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS web_current_roster_cache_players (
+            instance TEXT NOT NULL CHECK(length(trim(instance)) > 0),
+            ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+            display_name TEXT NOT NULL DEFAULT '',
+            reliable_id TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY(instance, ordinal),
+            FOREIGN KEY(instance) REFERENCES web_current_roster_cache(instance)
+                ON DELETE CASCADE
+        )
+        """
+    )
+    _ensure_columns(
+        connection,
+        "web_current_roster_cache_players",
+        (
+            (
+                "instance",
+                (
+                    "instance TEXT NOT NULL DEFAULT 'default' "
+                    "CHECK(length(trim(instance)) > 0)"
+                ),
+            ),
+            ("ordinal", "ordinal INTEGER NOT NULL DEFAULT 0 CHECK(ordinal >= 0)"),
+            ("display_name", "display_name TEXT NOT NULL DEFAULT ''"),
+            ("reliable_id", "reliable_id TEXT NOT NULL DEFAULT ''"),
+            ("source", "source TEXT NOT NULL DEFAULT ''"),
+        ),
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_web_current_roster_cache_updated_at
+        ON web_current_roster_cache(updated_at)
+        """
+    )
+
+
 def _ensure_web_login_rate_limits_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
@@ -609,6 +685,7 @@ def _ensure_current_web_schema(connection: sqlite3.Connection) -> None:
     _ensure_auth_schema(connection)
     _ensure_web_jobs_schema(connection)
     _ensure_web_server_version_checks_schema(connection)
+    _ensure_web_current_roster_cache_schema(connection)
     _ensure_web_login_rate_limits_schema(connection)
     _ensure_web_pending_restarts_schema(connection)
     _ensure_web_pending_work_schema(connection)
@@ -658,6 +735,10 @@ def _migration_10_server_version_checks(connection: sqlite3.Connection) -> None:
     _ensure_web_server_version_checks_schema(connection)
 
 
+def _migration_11_current_roster_cache(connection: sqlite3.Connection) -> None:
+    _ensure_web_current_roster_cache_schema(connection)
+
+
 _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (1, _migration_1_auth_schema),
     (2, _migration_2_jobs_schema),
@@ -669,6 +750,7 @@ _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (8, _migration_8_current_schema_compatibility),
     (9, _migration_9_pending_work_fingerprints),
     (10, _migration_10_server_version_checks),
+    (11, _migration_11_current_roster_cache),
 )
 
 def _read_schema_version(connection: sqlite3.Connection) -> int:

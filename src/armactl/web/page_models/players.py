@@ -96,6 +96,7 @@ class CurrentPlayersPage:
     status: str
     error: str
     collected_at: str
+    updated_at: str
     age_seconds: int | None
     is_stale: bool
     cache_status: str
@@ -230,6 +231,7 @@ def load_current_players_page(
         status=safe_player_text(snapshot.status) or "unknown",
         error=safe_player_text(result.refresh_error or snapshot.error),
         collected_at=snapshot.collected_at,
+        updated_at=snapshot.updated_at,
         age_seconds=result.age_seconds,
         is_stale=result.is_stale,
         cache_status=safe_player_text(result.cache_status, max_length=40),

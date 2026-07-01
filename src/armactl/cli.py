@@ -1090,6 +1090,63 @@ def player_history_collect(
 
 
 # ---------------------------------------------------------------------------
+# Player current-roster cache commands
+# ---------------------------------------------------------------------------
+
+
+@main.group("players")
+def players() -> None:
+    """Player cache and registry tools."""
+
+
+@players.group("current-cache")
+def players_current_cache() -> None:
+    """Manage the automatic current-roster cache."""
+
+
+@players_current_cache.command("run")
+@click.option("--once", is_flag=True, help="Refresh once and exit.")
+@click.option(
+    "--interval-seconds",
+    type=click.IntRange(10, 3600),
+    default=10,
+    show_default=True,
+    help="Refresh interval for the updater loop.",
+)
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Optional armactl data root containing web.db.",
+)
+@click.pass_context
+def players_current_cache_run(
+    ctx: click.Context,
+    once: bool,
+    interval_seconds: int,
+    data_root: Path | None,
+) -> None:
+    """Run the shared safe current-roster cache updater."""
+    from armactl.player_current_cache_updater import (
+        refresh_current_roster_cache_once,
+        run_current_roster_cache_updater,
+    )
+
+    root = data_root or paths.DEFAULT_DATA_ROOT
+    if once and ctx.obj["json"]:
+        result = refresh_current_roster_cache_once(ctx.obj["instance"], data_root=root)
+        click.echo(json.dumps(result.to_dict(), indent=2))
+    else:
+        result = run_current_roster_cache_updater(
+            ctx.obj["instance"],
+            once=once,
+            interval_seconds=interval_seconds,
+            data_root=root,
+        )
+    if result is not None and not result.success:
+        sys.exit(result.exit_code or 1)
+
+# ---------------------------------------------------------------------------
 # Discovery / Install / Repair
 # ---------------------------------------------------------------------------
 

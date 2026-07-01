@@ -6,6 +6,7 @@ import json
 import re
 import sqlite3
 import warnings
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -1185,6 +1186,115 @@ def test_players_route_uses_fresh_current_roster_cache(tmp_path: Path, monkeypat
     assert not (tmp_path / "default" / "players.db").exists()
 
 
+def test_players_current_json_uses_fresh_persistent_cache_without_live_source(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_current_cache, player_sources
+
+    player_current_cache.clear_current_roster_cache()
+    player_current_cache.store_persistent_current_roster_snapshot(
+        player_current_cache.CurrentRosterSnapshot(
+            instance="default",
+            players=(
+                player_current_cache.CurrentRosterPlayerSnapshot(
+                    display_name="Persistent Alpha",
+                    reliable_id=PLAYER_ALPHA_ID,
+                    source="rcon.guid",
+                ),
+            ),
+            source="rcon.roster",
+            status="available",
+            error="",
+            collected_at=datetime.now(timezone.utc).isoformat(),
+        ),
+        data_root=tmp_path,
+    )
+    calls: list[str] = []
+
+    def fail_if_live_source_is_used(instance):
+        calls.append(instance)
+        raise AssertionError("live source should not be called for fresh cache")
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        fail_if_live_source_is_used,
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get("/players/current.json", follow_redirects=False)
+    db_path = tmp_path / "default" / "players.db"
+
+    assert response.status_code == 200
+    assert calls == []
+    payload = response.json()
+    assert payload["cache_status"] == "persistent"
+    assert payload["is_stale"] is False
+    assert payload["players"] == [
+        {
+            "display_name": "Persistent Alpha",
+            "reliable_id": PLAYER_ALPHA_ID,
+            "source": "rcon.guid",
+        }
+    ]
+    assert payload["updated_at"]
+    assert not db_path.exists()
+    assert _player_session_count(db_path) == 0
+
+
+def test_players_current_json_serves_stale_persistent_cache_on_live_failure(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_current_cache, player_sources
+
+    player_current_cache.clear_current_roster_cache()
+    player_current_cache.store_persistent_current_roster_snapshot(
+        player_current_cache.CurrentRosterSnapshot(
+            instance="default",
+            players=(
+                player_current_cache.CurrentRosterPlayerSnapshot(
+                    display_name="Persistent Stale Alpha",
+                    reliable_id=PLAYER_ALPHA_ID,
+                    source="rcon.guid",
+                ),
+            ),
+            source="rcon.roster",
+            status="available",
+            error="",
+            collected_at="1970-01-01T00:00:00+00:00",
+        ),
+        data_root=tmp_path,
+    )
+    calls: list[str] = []
+
+    def fail_roster(instance):
+        calls.append(instance)
+        raise RuntimeError(
+            "failed token=raw-roster-secret from 198.51.100.9 "
+            "using /home/deus/private.log"
+        )
+
+    monkeypatch.setattr(player_sources, "load_current_player_roster", fail_roster)
+    client = _authed_client(tmp_path, monkeypatch)
+    response = client.get("/players/current.json", follow_redirects=False)
+    rendered = json.dumps(response.json(), sort_keys=True)
+    db_path = tmp_path / "default" / "players.db"
+
+    assert response.status_code == 200
+    assert calls == ["default"]
+    payload = response.json()
+    assert payload["cache_status"] == "stale_persistent"
+    assert payload["is_stale"] is True
+    assert payload["players"][0]["display_name"] == "Persistent Stale Alpha"
+    assert "raw-roster-secret" not in rendered
+    assert "198.51.100.9" not in rendered
+    assert "/home/deus/private.log" not in rendered
+    assert not db_path.exists()
+    assert _player_session_count(db_path) == 0
+
+
 def test_players_route_refreshes_stale_current_roster_cache(tmp_path: Path, monkeypatch):
     from armactl.web.services import player_current_cache, player_sources
 
@@ -1320,6 +1430,12 @@ def test_players_current_json_uses_current_roster_cache_without_db_writes(
             "source": "rcon.guid",
         }
     ]
+    persistent = player_current_cache.get_persistent_current_roster_snapshot(
+        "default",
+        data_root=tmp_path,
+    )
+    assert persistent is not None
+    assert [player.display_name for player in persistent.players] == ["Json Alpha"]
     assert not db_path.exists()
     assert _player_session_count(db_path) == 0
 

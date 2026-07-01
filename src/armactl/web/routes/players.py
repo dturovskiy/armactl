@@ -81,6 +81,7 @@ def _current_players_json_payload(
         "status": page.status,
         "error": page.error,
         "collected_at": page.collected_at,
+        "updated_at": page.updated_at,
         "age_seconds": page.age_seconds,
         "is_stale": page.is_stale,
         "cache_status": page.cache_status,
