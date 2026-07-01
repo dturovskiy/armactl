@@ -1311,6 +1311,194 @@ def test_player_history_route_renders_stored_rows_without_raw_sources(
     assert raw_auth_line not in html
 
 
+def test_player_history_default_hides_session_evidence_rows(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.ingest_player_log_events(
+        db_path,
+        [
+            _parse_log_event(
+                "BACKEND : Authenticated player: "
+                f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One",
+                observed_at="2026-01-01T12:00:01+00:00",
+                raw_source_ref="journal:alpha-auth",
+            ),
+            _parse_log_event(
+                "RPL : ServerImpl event: disconnected (identity=42), "
+                "group=5, reason=Normal",
+                observed_at="2026-01-01T12:00:02+00:00",
+                raw_source_ref="journal:rpl-disconnect",
+            ),
+            _parse_log_event(
+                "NETWORK : Player disconnected: connectionID=conn-17",
+                observed_at="2026-01-01T12:00:03+00:00",
+                raw_source_ref="journal:network-disconnect",
+            ),
+            _parse_log_event(
+                "DEFAULT : [PERSISTENCE] Save (SHUTDOWN) started.",
+                observed_at="2026-01-01T12:00:04+00:00",
+                raw_source_ref="journal:shutdown",
+            ),
+        ],
+        ingested_at="2026-01-01T12:00:05+00:00",
+    )
+    stored_event_types = [
+        event.event_type for event in player_registry.list_player_log_events(db_path)
+    ]
+    sessionizer_event_types = [
+        event.event_type
+        for event in player_registry.list_player_log_events_for_sessionization(db_path)
+    ]
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get("/players/history", follow_redirects=False)
+
+    assert response.status_code == 200
+    html = response.text
+    assert "player_authenticated" in html
+    assert "journal:alpha-auth" in html
+    assert 'title="server_lifecycle"' not in html
+    assert 'title="player_disconnected"' not in html
+    assert "journal:rpl-disconnect" not in html
+    assert "journal:network-disconnect" not in html
+    assert "journal:shutdown" not in html
+    assert "Correlation only" not in html
+    assert "System" not in html
+    assert "server_lifecycle" in stored_event_types
+    assert stored_event_types.count("player_disconnected") == 2
+    assert "server_lifecycle" in sessionizer_event_types
+    assert sessionizer_event_types.count("player_disconnected") == 2
+
+
+def test_player_history_session_evidence_mode_renders_safe_diagnostics(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    raw_rpl_line = (
+        "RPL : ServerImpl event: disconnected (identity=42), group=5, reason=Normal"
+    )
+    raw_network_line = "NETWORK : Player disconnected: connectionID=conn-17"
+    raw_be_line = (
+        "DEFAULT : BattlEye Server: "
+        + chr(39)
+        + "Player #23 Bravo Two disconnected"
+        + chr(39)
+    )
+    raw_lifecycle_line = "DEFAULT : [PERSISTENCE] Save (SHUTDOWN) started."
+    player_registry.ingest_player_log_events(
+        db_path,
+        [
+            _parse_log_event(
+                raw_rpl_line,
+                observed_at="2026-01-01T12:00:02+00:00",
+                raw_source_ref=(
+                    "/home/deus/armactl-data/default/config/logs/run/"
+                    "console-198.51.100.7.log:203.0.113.9:44"
+                ),
+            ),
+            _parse_log_event(
+                raw_network_line,
+                observed_at="2026-01-01T12:00:03+00:00",
+                raw_source_ref="journal:network-disconnect",
+            ),
+            _parse_log_event(
+                raw_be_line,
+                observed_at="2026-01-01T12:00:04+00:00",
+                raw_source_ref="journal:be-disconnect",
+            ),
+            _parse_log_event(
+                raw_lifecycle_line,
+                observed_at="2026-01-01T12:00:05+00:00",
+                raw_source_ref="journal:shutdown",
+            ),
+        ],
+        ingested_at="2026-01-01T12:00:06+00:00",
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get(
+        "/players/history?mode=session_evidence",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'value="session_evidence" selected' in html
+    assert 'title="server_lifecycle"' in html
+    assert 'title="player_disconnected"' in html
+    assert "System" in html
+    assert html.count("Correlation only") == 3
+    assert ">Unknown<" not in html
+    assert "Unknown player" not in html
+    assert "RPL identity" in html
+    assert "42" in html
+    assert "Connection ID" in html
+    assert "conn-17" in html
+    assert "BE slot" in html
+    assert "23" in html
+    assert "console-***.log:***" in html
+    assert "/home/deus" not in html
+    assert "armactl-data" not in html
+    assert "198.51.100.7" not in html
+    assert "203.0.113.9" not in html
+    assert raw_rpl_line not in html
+    assert raw_network_line not in html
+    assert raw_be_line not in html
+    assert raw_lifecycle_line not in html
+
+
+def test_player_history_route_filters_query_with_default_player_event_scope(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.ingest_player_log_events(
+        db_path,
+        [
+            _parse_log_event(
+                "BACKEND : Authenticated player: "
+                f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One",
+                observed_at="2026-01-01T12:00:01+00:00",
+                raw_source_ref="journal:alpha-auth",
+            ),
+            _parse_log_event(
+                "SCRIPT : INFO: Faction: player Bravo One "
+                f"(playerID = 8 | UUID = {PLAYER_BRAVO_ID}) "
+                "has joined faction #US_Army (US)",
+                observed_at="2026-01-01T12:00:03+00:00",
+                raw_source_ref="journal:bravo-faction",
+            ),
+            _parse_log_event(
+                "DEFAULT : [PERSISTENCE] Save (SHUTDOWN) started.",
+                observed_at="2026-01-01T12:00:04+00:00",
+                raw_source_ref="journal:shutdown",
+            ),
+        ],
+        ingested_at="2026-01-01T12:00:05+00:00",
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get("/players/history?q=Bravo", follow_redirects=False)
+
+    assert response.status_code == 200
+    html = response.text
+    assert "faction_join" in html
+    assert "Bravo One" in html
+    assert "journal:bravo-faction" in html
+    assert "journal:alpha-auth" not in html
+    assert "title=\"server_lifecycle\"" not in html
+    assert "journal:shutdown" not in html
+
+
 def test_player_history_route_filters_known_event_type(
     tmp_path: Path,
     monkeypatch,

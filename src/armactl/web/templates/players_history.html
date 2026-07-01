@@ -13,9 +13,23 @@
     <span class="muted">{{ t("Unknown") }}</span>
   {% endif %}
 {%- endmacro %}
+{% macro primary_actor(event) -%}
+  {% if event.event_type == "server_lifecycle" %}
+    <strong class="wrap-value">{{ t("System") }}</strong>
+  {% elif event.event_type == "player_disconnected" and not event.player_id %}
+    <strong class="wrap-value">{{ t("Correlation only") }}</strong>
+  {% else %}
+    {{ inline_actor(event.player_name) }}
+  {% endif %}
+{%- endmacro %}
 {% macro diagnostic_id(label, reliable_id) -%}
   {% if reliable_id %}
     <span class="player-diagnostic-line"><strong>{{ t(label) }}:</strong> <span class="player-id-cell player-id-clip" title="{{ reliable_id }}">{{ reliable_id[:8] }}...{{ reliable_id[-5:] }}</span></span>
+  {% endif %}
+{%- endmacro %}
+{% macro diagnostic_text(label, value) -%}
+  {% if value %}
+    <span class="player-diagnostic-line wrap-value"><strong>{{ t(label) }}:</strong> {{ value }}</span>
   {% endif %}
 {%- endmacro %}
 {% macro combat_summary(event) -%}
@@ -74,6 +88,14 @@
   <form method="get" action="/players/history" class="player-search-form player-history-filter-form">
     <div class="player-history-filter-grid">
       <label>
+        <span>{{ t("View mode") }}</span>
+        <select name="mode">
+          {% for option_value, option_label in mode_options %}
+            <option value="{{ option_value }}"{% if option_value == mode %} selected{% endif %}>{{ t(option_label) }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
         <span>{{ t("Event type") }}</span>
         <select name="event_type">
           {% for option_value, option_label in event_type_options %}
@@ -117,7 +139,7 @@
           <tr class="player-event-main-row">
             <td>{{ local_time(event.event_time) }}</td>
             <td><span class="status-pill status-pill-ok player-event-type-pill" title="{{ event.event_type }}">{{ t(event_type_labels.get(event.event_type, event.event_type)) }}</span></td>
-            <td>{{ inline_actor(event.player_name) }}</td>
+            <td>{{ primary_actor(event) }}</td>
             <td>
               {% set faction = event.player_faction or event.victim_faction or event.instigator_faction %}
               {% if faction %}<span class="wrap-value">{{ faction }}</span>{% else %}<span class="muted">-</span>{% endif %}
@@ -150,6 +172,9 @@
                   {{ diagnostic_id("Player ID", event.player_id) }}
                   {{ diagnostic_id("Victim ID", event.victim_id) }}
                   {{ diagnostic_id("Instigator ID", event.instigator_id) }}
+                  {{ diagnostic_text("RPL identity", event.rpl_identity) }}
+                  {{ diagnostic_text("Connection ID", event.connection_id) }}
+                  {{ diagnostic_text("BE slot", event.be_slot) }}
                   <span class="player-diagnostic-line"><strong>{{ t("Source") }}:</strong> {{ event.source }}</span>
                   {% if event.source_ref %}<span class="player-diagnostic-line wrap-value"><strong>{{ t("Reference") }}:</strong> {{ event.source_ref }}</span>{% endif %}
                 </div>
@@ -160,7 +185,7 @@
         </tbody>
       </table>
     </div>
-  {% elif query or event_type or player_id %}
+  {% elif query or event_type or player_id or mode != "player_events" %}
     <p class="muted">{{ t("No player history events match search.") }}</p>
   {% else %}
     <div class="notice-panel notice-unavailable">

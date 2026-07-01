@@ -28,6 +28,13 @@ PLAYER_HISTORY_EVENT_TYPES = (
 PLAYER_HISTORY_EVENT_TYPE_VALUES = frozenset(
     event_type for event_type, _label in PLAYER_HISTORY_EVENT_TYPES if event_type
 )
+PLAYER_HISTORY_MODE_PLAYER_EVENTS = "player_events"
+PLAYER_HISTORY_MODE_SESSION_EVIDENCE = "session_evidence"
+PLAYER_HISTORY_MODE_OPTIONS = (
+    (PLAYER_HISTORY_MODE_PLAYER_EVENTS, "Player events"),
+    (PLAYER_HISTORY_MODE_SESSION_EVIDENCE, "Session evidence"),
+)
+PLAYER_HISTORY_MODE_VALUES = frozenset(value for value, _label in PLAYER_HISTORY_MODE_OPTIONS)
 
 
 @dataclass(frozen=True)
@@ -100,11 +107,13 @@ class PlayerHistoryPage:
     instance: str
     query: str
     event_type: str
+    mode: str
     reliable_id: str
     limit: int
     events: tuple[player_registry.PlayerLogEventRecord, ...]
     event_type_options: tuple[tuple[str, str], ...]
     event_type_labels: dict[str, str]
+    mode_options: tuple[tuple[str, str], ...]
 
 
 def _moderation_player(player: player_sources.CurrentPlayer) -> ModerationPlayer:
@@ -266,12 +275,20 @@ def _normalize_history_event_type(value: object) -> str:
     return ""
 
 
+def _normalize_history_mode(value: object) -> str:
+    candidate = safe_player_text(value, max_length=80)
+    if candidate in PLAYER_HISTORY_MODE_VALUES:
+        return candidate
+    return PLAYER_HISTORY_MODE_PLAYER_EVENTS
+
+
 def load_player_history_page(
     instance: str = paths.DEFAULT_INSTANCE_NAME,
     *,
     data_root: Path = paths.DEFAULT_DATA_ROOT,
     query: str = "",
     event_type: str = "",
+    mode: str = PLAYER_HISTORY_MODE_PLAYER_EVENTS,
     reliable_id: str = "",
     limit: object = player_registry.DEFAULT_PLAYER_HISTORY_EVENT_LIMIT,
 ) -> PlayerHistoryPage:
@@ -279,6 +296,7 @@ def load_player_history_page(
     normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
     normalized_query = normalize_player_query(query)
     normalized_event_type = _normalize_history_event_type(event_type)
+    normalized_mode = _normalize_history_mode(mode)
     normalized_reliable_id = safe_player_text(reliable_id, max_length=120)
     normalized_limit = _normalize_history_limit(limit)
     registry_path = player_registry.player_registry_db_path(
@@ -289,6 +307,7 @@ def load_player_history_page(
         instance=normalized_instance,
         query=normalized_query,
         event_type=normalized_event_type,
+        mode=normalized_mode,
         reliable_id=normalized_reliable_id,
         limit=normalized_limit,
         events=tuple(
@@ -298,8 +317,11 @@ def load_player_history_page(
                 event_type=normalized_event_type,
                 reliable_id=normalized_reliable_id,
                 query=normalized_query,
+                player_events_only=normalized_mode == PLAYER_HISTORY_MODE_PLAYER_EVENTS,
+                session_evidence_only=normalized_mode == PLAYER_HISTORY_MODE_SESSION_EVIDENCE,
             )
         ),
         event_type_options=PLAYER_HISTORY_EVENT_TYPES,
         event_type_labels=PLAYER_HISTORY_EVENT_TYPE_LABELS,
+        mode_options=PLAYER_HISTORY_MODE_OPTIONS,
     )

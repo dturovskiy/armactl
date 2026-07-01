@@ -20,6 +20,7 @@ from armactl.player_log_events import (
     EVENT_TYPE_KILL,
     EVENT_TYPE_OTHER_DEATH,
     EVENT_TYPE_PLAYER_DISCONNECTED,
+    EVENT_TYPE_SERVER_LIFECYCLE,
     EVENT_TYPE_SUICIDE,
     EVENT_TYPE_TEAMKILL,
     SOURCE_BACKEND_AUTH,
@@ -1557,6 +1558,8 @@ def list_player_log_events(
     event_type: str = "",
     reliable_id: str = "",
     query: str = "",
+    player_events_only: bool = False,
+    session_evidence_only: bool = False,
 ) -> list[PlayerLogEventRecord]:
     """List sanitized stored player log events, newest first."""
     connection = _connect_existing(db_path)
@@ -1574,6 +1577,14 @@ def list_player_log_events(
 
     where_clauses: list[str] = []
     params: list[object] = []
+    if player_events_only:
+        where_clauses.append(
+            "NOT (event_type = ? OR (event_type = ? AND COALESCE(player_id, '') = ''))"
+        )
+        params.extend((EVENT_TYPE_SERVER_LIFECYCLE, EVENT_TYPE_PLAYER_DISCONNECTED))
+    if session_evidence_only:
+        where_clauses.append("(event_type = ? OR event_type = ?)")
+        params.extend((EVENT_TYPE_SERVER_LIFECYCLE, EVENT_TYPE_PLAYER_DISCONNECTED))
     if normalized_event_type:
         where_clauses.append("event_type = ?")
         params.append(normalized_event_type)

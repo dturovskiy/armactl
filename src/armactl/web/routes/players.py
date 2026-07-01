@@ -150,6 +150,7 @@ def _render_player_history_page(
         data_root=current.config.data_root,
         query=request.query_params.get("q", ""),
         event_type=request.query_params.get("event_type", ""),
+        mode=request.query_params.get("mode", ""),
         reliable_id=request.query_params.get("player_id", ""),
         limit=request.query_params.get("limit", ""),
     )
@@ -164,6 +165,8 @@ def _render_player_history_page(
             "query": page.query,
             "event_type": page.event_type,
             "event_type_options": page.event_type_options,
+            "mode": page.mode,
+            "mode_options": page.mode_options,
             "event_type_labels": page.event_type_labels,
             "player_id": page.reliable_id,
             "limit": page.limit,
