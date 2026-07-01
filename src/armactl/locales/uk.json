@@ -896,6 +896,8 @@
     "Kind": "Тип",
     "Requested by": "Запитав",
     "Updated": "Оновлено",
+    "{seconds}s ago": "{seconds} с тому",
+    "Stale": "Застаріло",
     "Job ID": "ID завдання",
     "Created": "Створено",
     "Started": "Запущено",

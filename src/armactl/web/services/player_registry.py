@@ -36,7 +36,7 @@ from armactl.web.services.player_identity import (
 )
 
 PLAYER_REGISTRY_DB_NAME = "players.db"
-PLAYER_REGISTRY_SCHEMA_VERSION = "4"
+PLAYER_REGISTRY_SCHEMA_VERSION = "5"
 PRIVATE_PLAYER_REGISTRY_FILE_MODE = 0o600
 DEFAULT_PLAYER_HISTORY_EVENT_LIMIT = 100
 MAX_PLAYER_HISTORY_EVENT_LIMIT = 250
@@ -520,6 +520,55 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
         ON player_log_events(instigator_id)
         """
     )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_log_events_history_order
+        ON player_log_events(
+            COALESCE(observed_at, created_at) DESC,
+            event_id DESC
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_log_events_type_history_order
+        ON player_log_events(
+            event_type,
+            COALESCE(observed_at, created_at) DESC,
+            event_id DESC
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_log_events_player_history_order
+        ON player_log_events(
+            player_id,
+            COALESCE(observed_at, created_at) DESC,
+            event_id DESC
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_log_events_victim_history_order
+        ON player_log_events(
+            victim_id,
+            COALESCE(observed_at, created_at) DESC,
+            event_id DESC
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_log_events_instigator_history_order
+        ON player_log_events(
+            instigator_id,
+            COALESCE(observed_at, created_at) DESC,
+            event_id DESC
+        )
+        """
+    )
 
 
 def _ensure_player_sessions_schema(connection: sqlite3.Connection) -> None:
@@ -693,6 +742,10 @@ def _run_player_registry_migrations(connection: sqlite3.Connection) -> None:
     if current_version < 4:
         _ensure_player_log_events_schema(connection)
         _write_player_registry_schema_version(connection, 4)
+        current_version = 4
+    if current_version < 5:
+        _ensure_player_log_events_schema(connection)
+        _write_player_registry_schema_version(connection, 5)
 
 
 def ensure_player_registry_db(db_path: Path) -> Path:

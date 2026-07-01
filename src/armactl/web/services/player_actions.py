@@ -7,7 +7,11 @@ from pathlib import Path
 
 from armactl import paths
 from armactl.redaction import redact_sensitive_text
-from armactl.web.services import player_registry, player_sources
+from armactl.web.services import (
+    player_current_cache,
+    player_registry,
+    player_sources,
+)
 from armactl.web.services.audit import AuditLogError, append_audit_event
 from armactl.web.services.player_identity import (
     normalize_reliable_player_id,
@@ -194,6 +198,12 @@ def refresh_current_players(
             reason_class=type(error).__name__,
             dry_run=dry_run,
         )
+
+    player_current_cache.store_current_roster_snapshot_from_roster(
+        roster,
+        instance=normalized_instance,
+        data_root=data_root,
+    )
 
     safe_source = _safe_source(roster.source)
     safe_status = _safe_status(roster.status, available=roster.available)

@@ -10,6 +10,7 @@ __all__ = [
     "mod_actions",
     "pending_restart",
     "pending_work",
+    "player_current_cache",
     "player_current_refresh",
     "player_identity",
     "player_sources",

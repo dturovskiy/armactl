@@ -20,6 +20,13 @@ PLAYER_ALPHA_ID = "11111111-1111-4111-8111-111111111111"
 PLAYER_BRAVO_ID = "22222222-2222-4222-8222-222222222222"
 PLAYER_CHARLIE_ID = "33333333-3333-4333-8333-333333333333"
 FORBIDDEN_PLAYER_SESSION_COLUMNS = {"ip", "ip_address", "address", "raw_line", "raw_path"}
+PLAYER_HISTORY_INDEXES = {
+    "idx_player_log_events_history_order",
+    "idx_player_log_events_type_history_order",
+    "idx_player_log_events_player_history_order",
+    "idx_player_log_events_victim_history_order",
+    "idx_player_log_events_instigator_history_order",
+}
 
 
 def _client(app):
@@ -230,9 +237,36 @@ def test_registry_db_creation_has_schema_metadata(tmp_path: Path):
 
     assert "player_registry_schema_meta" in _sqlite_tables(db_path)
     assert _registry_schema_version(db_path) == player_registry.PLAYER_REGISTRY_SCHEMA_VERSION
+    assert PLAYER_HISTORY_INDEXES <= _sqlite_indexes(db_path)
     assert "idx_player_names_name" in _sqlite_indexes(db_path)
     assert "player_sessions" in _sqlite_tables(db_path)
     assert "idx_player_sessions_one_open_per_reliable_id" in _sqlite_indexes(db_path)
+
+
+def test_registry_db_migrates_v4_history_indexes_idempotently(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.ensure_player_registry_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        for index in PLAYER_HISTORY_INDEXES:
+            connection.execute(f"DROP INDEX IF EXISTS {index}")
+        connection.execute(
+            "UPDATE player_registry_schema_meta SET value = ? WHERE key = ?",
+            ("4", "schema_version"),
+        )
+
+    assert not (PLAYER_HISTORY_INDEXES & _sqlite_indexes(db_path))
+
+    player_registry.ensure_player_registry_db(db_path)
+    first_schema = _sqlite_schema_entries(db_path)
+
+    assert _registry_schema_version(db_path) == player_registry.PLAYER_REGISTRY_SCHEMA_VERSION
+    assert PLAYER_HISTORY_INDEXES <= _sqlite_indexes(db_path)
+
+    player_registry.ensure_player_registry_db(db_path)
+    second_schema = _sqlite_schema_entries(db_path)
+    assert second_schema == first_schema
 
 
 def test_registry_db_migrates_v2_to_player_sessions_schema(tmp_path: Path):
@@ -775,8 +809,14 @@ def test_refresh_current_players_service_updates_known_and_last_seen(
     tmp_path: Path,
     monkeypatch,
 ):
-    from armactl.web.services import player_actions, player_registry, player_sources
+    from armactl.web.services import (
+        player_actions,
+        player_current_cache,
+        player_registry,
+        player_sources,
+    )
 
+    player_current_cache.clear_current_roster_cache()
     rosters = iter(
         (
             _roster(_current_player("Alpha")),
@@ -801,6 +841,10 @@ def test_refresh_current_players_service_updates_known_and_last_seen(
         observed_at="2026-06-16T12:05:00+00:00",
     )
     player = player_registry.get_known_player(db_path, "ABCDEF1234567890")
+    cached = player_current_cache.get_cached_current_roster_snapshot(
+        "default",
+        data_root=tmp_path,
+    )
 
     assert first.success is True
     assert first.observed_count == 1
@@ -814,6 +858,9 @@ def test_refresh_current_players_service_updates_known_and_last_seen(
     assert player.first_seen_at == "2026-06-16T12:00:00+00:00"
     assert player.last_seen_at == "2026-06-16T12:05:00+00:00"
     assert player.seen_count == 2
+    assert cached is not None
+    assert [player.display_name for player in cached.players] == ["Alpha Later"]
+    assert cached.source == "rcon.roster"
     assert _player_session_count(db_path) == 0
 
 
@@ -953,6 +1000,7 @@ def test_players_route_requires_authentication(tmp_path: Path):
     get_response = client.get("/players", follow_redirects=False)
     known_response = client.get("/players/known", follow_redirects=False)
     history_response = client.get("/players/history", follow_redirects=False)
+    current_json_response = client.get("/players/current.json", follow_redirects=False)
     post_response = client.post("/players/refresh", data={}, follow_redirects=False)
     current_post_response = client.post(
         "/players/refresh-current",
@@ -966,6 +1014,8 @@ def test_players_route_requires_authentication(tmp_path: Path):
     assert known_response.headers["location"] == "/login"
     assert history_response.status_code == 303
     assert history_response.headers["location"] == "/login"
+    assert current_json_response.status_code == 303
+    assert current_json_response.headers["location"] == "/login"
     assert post_response.status_code == 303
     assert post_response.headers["location"] == "/login"
     assert current_post_response.status_code == 303
@@ -994,6 +1044,7 @@ def test_players_route_requires_players_view_permission(
     response = client.get("/players", follow_redirects=False)
     known_response = client.get("/players/known", follow_redirects=False)
     history_response = client.get("/players/history", follow_redirects=False)
+    current_json_response = client.get("/players/current.json", follow_redirects=False)
     post_response = client.post(
         "/players/refresh",
         data={"csrf_token": "unused"},
@@ -1011,6 +1062,8 @@ def test_players_route_requires_players_view_permission(
     assert known_response.text == "Permission denied."
     assert history_response.status_code == 403
     assert history_response.text == "Permission denied."
+    assert current_json_response.status_code == 403
+    assert current_json_response.text == "Permission denied."
     assert post_response.status_code == 403
     assert post_response.text == "Permission denied."
     assert current_post_response.status_code == 403
@@ -1099,6 +1152,225 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
     assert "Not tracked" not in html
     assert "Known player table" not in html
     assert "Player event log" not in html
+    assert not (tmp_path / "default" / "players.db").exists()
+
+
+def test_players_route_uses_fresh_current_roster_cache(tmp_path: Path, monkeypatch):
+    from armactl.web.services import player_current_cache, player_sources
+
+    player_current_cache.clear_current_roster_cache()
+    calls: list[str] = []
+
+    def load_roster(instance):
+        calls.append(instance)
+        return _roster(_current_player("Live Alpha", PLAYER_ALPHA_ID))
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        load_roster,
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    first = client.get("/players", follow_redirects=False)
+    second = client.get("/players", follow_redirects=False)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert calls == ["default"]
+    assert "Live Alpha" in first.text
+    assert "Live Alpha" in second.text
+    assert "Updated" in first.text
+    assert "Stale" not in second.text
+    assert not (tmp_path / "default" / "players.db").exists()
+
+
+def test_players_route_refreshes_stale_current_roster_cache(tmp_path: Path, monkeypatch):
+    from armactl.web.services import player_current_cache, player_sources
+
+    player_current_cache.clear_current_roster_cache()
+    stale_snapshot = player_current_cache.CurrentRosterSnapshot(
+        instance="default",
+        players=(
+            player_current_cache.CurrentRosterPlayerSnapshot(
+                display_name="Cached Alpha",
+                reliable_id=PLAYER_ALPHA_ID,
+                source="rcon.roster",
+            ),
+        ),
+        source="rcon.roster",
+        status="available",
+        error="",
+        collected_at="1970-01-01T00:00:00+00:00",
+    )
+    player_current_cache.store_current_roster_snapshot(
+        stale_snapshot,
+        data_root=tmp_path,
+    )
+    calls: list[str] = []
+
+    def load_roster(instance):
+        calls.append(instance)
+        return _roster(_current_player("Fresh Bravo", PLAYER_BRAVO_ID))
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        load_roster,
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+    response = client.get("/players", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert calls == ["default"]
+    assert "Fresh Bravo" in response.text
+    assert "Cached Alpha" not in response.text
+    assert "Stale" not in response.text
+    assert not (tmp_path / "default" / "players.db").exists()
+
+
+def test_players_route_serves_stale_cache_when_live_roster_fails(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_current_cache, player_sources
+
+    player_current_cache.clear_current_roster_cache()
+    stale_snapshot = player_current_cache.CurrentRosterSnapshot(
+        instance="default",
+        players=(
+            player_current_cache.CurrentRosterPlayerSnapshot(
+                display_name="Cached Alpha",
+                reliable_id=PLAYER_ALPHA_ID,
+                source="rcon.roster",
+            ),
+        ),
+        source="rcon.roster",
+        status="available",
+        error="",
+        collected_at="1970-01-01T00:00:00+00:00",
+    )
+    player_current_cache.store_current_roster_snapshot(
+        stale_snapshot,
+        data_root=tmp_path,
+    )
+    calls: list[str] = []
+
+    def fail_roster(instance):
+        calls.append(instance)
+        raise RuntimeError(
+            "failed token=raw-roster-secret from 198.51.100.9 "
+            "using /home/deus/private.log"
+        )
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        fail_roster,
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+    response = client.get("/players", follow_redirects=False)
+    html = response.text
+
+    assert response.status_code == 200
+    assert calls == ["default"]
+    assert "Cached Alpha" in html
+    assert "Stale" in html
+    assert "raw-roster-secret" not in html
+    assert "198.51.100.9" not in html
+    assert "/home/deus/private.log" not in html
+    assert not (tmp_path / "default" / "players.db").exists()
+
+
+def test_players_current_json_uses_current_roster_cache_without_db_writes(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_current_cache, player_sources
+
+    player_current_cache.clear_current_roster_cache()
+    calls: list[str] = []
+
+    def load_roster(instance):
+        calls.append(instance)
+        return _roster(_current_player("Json Alpha", PLAYER_ALPHA_ID))
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        load_roster,
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+    first = client.get("/players/current.json", follow_redirects=False)
+    second = client.get("/players/current.json", follow_redirects=False)
+    db_path = tmp_path / "default" / "players.db"
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.headers["content-type"].startswith("application/json")
+    assert calls == ["default"]
+    payload = second.json()
+    assert payload["source"] == "rcon.roster"
+    assert payload["age_seconds"] is not None
+    assert payload["is_stale"] is False
+    assert payload["players"] == [
+        {
+            "display_name": "Json Alpha",
+            "reliable_id": PLAYER_ALPHA_ID,
+            "source": "rcon.guid",
+        }
+    ]
+    assert not db_path.exists()
+    assert _player_session_count(db_path) == 0
+
+
+def test_players_current_output_sanitizes_roster_values(tmp_path: Path, monkeypatch):
+    from armactl.web.services import player_current_cache, player_sources
+
+    player_current_cache.clear_current_roster_cache()
+
+    def load_roster(instance):
+        return CurrentPlayerRoster(
+            available=True,
+            players=(
+                CurrentPlayer(
+                    display_name=(
+                        "Alpha token=raw-player-secret 198.51.100.9 "
+                        "/home/deus/name.log"
+                    ),
+                    reliable_id=PLAYER_ALPHA_ID,
+                    admin_reference=PLAYER_ALPHA_ID,
+                    source="/home/deus/source.log token=raw-source-secret",
+                ),
+            ),
+            total_count=1,
+            source="rcon.roster token=raw-roster-secret",
+            status="available",
+            error="",
+        )
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        load_roster,
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+    page_response = client.get("/players", follow_redirects=False)
+    json_response = client.get("/players/current.json", follow_redirects=False)
+    rendered = page_response.text + json.dumps(json_response.json(), sort_keys=True)
+
+    assert page_response.status_code == 200
+    assert json_response.status_code == 200
+    for forbidden in (
+        "raw-player-secret",
+        "raw-source-secret",
+        "raw-roster-secret",
+        "198.51.100.9",
+        "/home/deus/name.log",
+        "/home/deus/source.log",
+    ):
+        assert forbidden not in rendered
+    assert "Alpha token=***" in rendered
     assert not (tmp_path / "default" / "players.db").exists()
 
 

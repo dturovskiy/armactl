@@ -299,6 +299,8 @@
     "Kind": "Kind",
     "Requested by": "Requested by",
     "Updated": "Updated",
+    "{seconds}s ago": "{seconds}s ago",
+    "Stale": "Stale",
     "Job ID": "Job ID",
     "Created": "Created",
     "Started": "Started",

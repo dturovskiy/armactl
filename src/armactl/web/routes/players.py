@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Form, Request, status
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 
 from armactl import paths
 from armactl.web.auth.cookies import clear_csrf_cookie, clear_session_cookie, set_csrf_cookie
@@ -63,6 +69,32 @@ def _render_current_players_page(
     if form_csrf.should_set_cookie:
         set_csrf_cookie(response, form_csrf.token, current.config)
     return response
+
+
+def _current_players_json_payload(
+    page: players_page_model.CurrentPlayersPage,
+) -> dict[str, object]:
+    return {
+        "instance": page.instance,
+        "available": page.available,
+        "source": page.source,
+        "status": page.status,
+        "error": page.error,
+        "collected_at": page.collected_at,
+        "age_seconds": page.age_seconds,
+        "is_stale": page.is_stale,
+        "cache_status": page.cache_status,
+        "total_count": page.total_count,
+        "filtered_count": page.filtered_count,
+        "players": [
+            {
+                "display_name": player.display_name,
+                "reliable_id": player.reliable_id,
+                "source": player.source,
+            }
+            for player in page.players
+        ],
+    }
 
 
 def _render_known_players_page(
@@ -196,6 +228,22 @@ def players_page(request: Request) -> Response:
     if current is None:
         return _redirect_to_login(request)
     return _render_current_players_page(request, current)
+
+
+@router.get("/players/current.json")
+def current_players_json(request: Request) -> Response:
+    """Return cached current-player roster DTO for lightweight refreshes."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, PLAYERS_VIEW):
+        return permission_denied_response()
+    page = players_page_model.load_current_players_page(
+        paths.DEFAULT_INSTANCE_NAME,
+        data_root=current.config.data_root,
+        query=request.query_params.get("player_search", ""),
+    )
+    return JSONResponse(_current_players_json_payload(page))
 
 
 @router.get("/players/known", response_class=HTMLResponse)

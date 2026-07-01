@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from armactl import paths, player_log_events
-from armactl.web.services import player_registry, player_sources
+from armactl.web.services import player_current_cache, player_registry, player_sources
 from armactl.web.services.player_identity import normalize_player_query, safe_player_text
 
 PLAYER_HISTORY_EVENT_TYPE_LABELS = {
@@ -95,6 +95,10 @@ class CurrentPlayersPage:
     source: str
     status: str
     error: str
+    collected_at: str
+    age_seconds: int | None
+    is_stale: bool
+    cache_status: str
     total_count: int
     filtered_count: int
     players: tuple[CurrentPlayerTableRow, ...]
@@ -178,7 +182,7 @@ def load_player_moderation_panel(
 
 
 def _current_player_row(
-    player: player_sources.CurrentPlayer,
+    player: player_current_cache.CurrentRosterPlayerSnapshot,
 ) -> CurrentPlayerTableRow:
     return CurrentPlayerTableRow(
         display_name=safe_player_text(player.display_name) or "Unknown player",
@@ -210,31 +214,26 @@ def load_current_players_page(
     """Return the live player roster without mutating persistent state."""
     normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
     normalized_query = normalize_player_query(query)
-    try:
-        roster = player_sources.load_current_player_roster(normalized_instance)
-    except Exception as error:  # noqa: BLE001 - current-player UI degrades safely.
-        return CurrentPlayersPage(
-            instance=normalized_instance,
-            query=normalized_query,
-            available=False,
-            source="unavailable",
-            status="unavailable",
-            error=safe_player_text(error),
-            total_count=0,
-            filtered_count=0,
-            players=(),
-        )
+    result = player_current_cache.load_current_roster_snapshot(
+        normalized_instance,
+        data_root=data_root,
+    )
+    snapshot = result.snapshot
 
-    rows = tuple(_current_player_row(player) for player in roster.players)
+    rows = tuple(_current_player_row(player) for player in snapshot.players)
     filtered = tuple(row for row in rows if _matches_current_player(row, normalized_query))
     return CurrentPlayersPage(
         instance=normalized_instance,
         query=normalized_query,
-        available=roster.available,
-        source=safe_player_text(roster.source) or "unavailable",
-        status=safe_player_text(roster.status) or "unknown",
-        error=safe_player_text(roster.error),
-        total_count=roster.total_count,
+        available=snapshot.available,
+        source=safe_player_text(snapshot.source) or "unavailable",
+        status=safe_player_text(snapshot.status) or "unknown",
+        error=safe_player_text(result.refresh_error or snapshot.error),
+        collected_at=snapshot.collected_at,
+        age_seconds=result.age_seconds,
+        is_stale=result.is_stale,
+        cache_status=safe_player_text(result.cache_status, max_length=40),
+        total_count=snapshot.total_count,
         filtered_count=len(filtered),
         players=filtered,
     )

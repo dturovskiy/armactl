@@ -117,6 +117,11 @@ def test_player_log_event_schema_lives_in_instance_players_db(tmp_path: Path) ->
         "idx_player_log_events_player",
         "idx_player_log_events_victim",
         "idx_player_log_events_instigator",
+        "idx_player_log_events_history_order",
+        "idx_player_log_events_type_history_order",
+        "idx_player_log_events_player_history_order",
+        "idx_player_log_events_victim_history_order",
+        "idx_player_log_events_instigator_history_order",
     }.issubset(_sqlite_indexes(db_path))
 
 

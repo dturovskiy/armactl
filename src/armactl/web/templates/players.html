@@ -42,7 +42,13 @@
   <dl class="compact-dl">
     <dt>{{ t("Source") }}</dt><dd>{{ page.source }}</dd>
     <dt>{{ t("Status") }}</dt><dd>{{ page.status }}</dd>
+    <dt>{{ t("Updated") }}</dt>
+    <dd>
+      {% if page.age_seconds is not none %}{{ tr("{seconds}s ago", seconds=page.age_seconds) }}{% else %}<span class="muted">{{ t("Unknown") }}</span>{% endif %}
+      {% if page.is_stale %}<span class="status-pill status-pill-warning">{{ t("Stale") }}</span>{% endif %}
+    </dd>
   </dl>
+  {% if page.error and (page.is_stale or page.available) %}<p class="error">{{ page.error }}</p>{% endif %}
 
   <form method="get" action="/players" class="player-search-form">
     <label>
