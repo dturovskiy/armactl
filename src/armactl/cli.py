@@ -1109,7 +1109,7 @@ def players_current_cache() -> None:
 @click.option(
     "--interval-seconds",
     type=click.IntRange(10, 3600),
-    default=10,
+    default=60,
     show_default=True,
     help="Refresh interval for the updater loop.",
 )

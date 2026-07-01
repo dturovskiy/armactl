@@ -249,14 +249,13 @@ def test_current_roster_cache_loop_retries_with_redacted_warning(
     with pytest.raises(RuntimeError, match="stop-loop"):
         player_current_cache_updater.run_current_roster_cache_updater(
             "default",
-            interval_seconds=10,
             data_root=tmp_path,
         )
     captured = capsys.readouterr()
 
     assert calls == ["default", "default"]
-    assert sleeps[:2] == [10, 10]
-    assert "retrying in 10s" in captured.err
+    assert sleeps[:2] == [60, 60]
+    assert "retrying in 60s" in captured.err
     assert "Traceback" not in captured.err
     for forbidden in ("raw-loop-secret", "198.51.100.9", "/home/deus/loop.log"):
         assert forbidden not in captured.err

@@ -1,7 +1,10 @@
 {% extends "layout.html" %}
 {% block title %}{{ t("Players - armactl web") }}{% endblock %}
 {% block heading %}{{ t("Players") }}{% endblock %}
-{% block extra_scripts %}<script defer src="{{ url_for('static', path='/js/player_times.js') }}?v={{ web_static_version }}"></script>{% endblock %}
+{% block extra_scripts %}
+<script defer src="{{ url_for("static", path="/js/player_times.js") }}?v={{ web_static_version }}"></script>
+<script defer src="{{ url_for("static", path="/js/players_current_poll.js") }}?v={{ web_static_version }}"></script>
+{% endblock %}
 {% block topbar_actions %}
 <a class="button-link secondary-link" href="/admins">{{ t("Admins") }}</a>
 <a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
@@ -21,7 +24,7 @@
   </p>
 </section>
 {% endif %}
-<section class="panel full-width">
+<section class="panel full-width" data-current-players-root data-current-players-endpoint="/players/current.json" data-current-players-interval-ms="60000" data-current-players-count-template="{{ t("Showing {count} of {total} current player(s)") }}" data-current-players-age-template="{{ t("{seconds}s ago") }}" data-current-players-empty-search-label="{{ t("No current players match search.") }}" data-current-players-empty-online-label="{{ t("No current players online.") }}" data-current-players-empty-unavailable-label="{{ t("Current player list unavailable.") }}" data-current-players-no-reliable-id-label="{{ t("No reliable ID") }}" data-current-players-unknown-label="{{ t("Unknown") }}" data-current-players-unavailable-label="{{ t("unavailable") }}" data-current-players-stale-label="{{ t("Stale") }}">
   <nav class="player-section-tabs" aria-label="{{ t('Player sections') }}">
     <a class="player-section-tab active" href="/players">{{ t("Current Players") }}</a>
     <a class="player-section-tab" href="/players/known">{{ t("Known Players") }}</a>
@@ -32,7 +35,7 @@
   <div class="section-heading-row">
     <h2>{{ t("Current player table") }}</h2>
     <div class="player-history-action-row">
-      <span class="muted">{{ tr("Showing {count} of {total} current player(s)", count=page.filtered_count, total=page.total_count) }}</span>
+      <span class="muted" data-current-players-count-summary>{{ tr("Showing {count} of {total} current player(s)", count=page.filtered_count, total=page.total_count) }}</span>
       <form method="post" action="/players/refresh-current" class="player-refresh-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit">{{ t("Refresh current players") }}</button>
@@ -40,20 +43,20 @@
     </div>
   </div>
   <dl class="compact-dl">
-    <dt>{{ t("Source") }}</dt><dd>{{ page.source }}</dd>
-    <dt>{{ t("Status") }}</dt><dd>{{ page.status }}</dd>
+    <dt>{{ t("Source") }}</dt><dd data-current-players-source>{{ page.source }}</dd>
+    <dt>{{ t("Status") }}</dt><dd data-current-players-status>{{ page.status }}</dd>
     <dt>{{ t("Updated") }}</dt>
     <dd>
-      {% if page.age_seconds is not none %}{{ tr("{seconds}s ago", seconds=page.age_seconds) }}{% else %}<span class="muted">{{ t("Unknown") }}</span>{% endif %}
-      {% if page.is_stale %}<span class="status-pill status-pill-warning">{{ t("Stale") }}</span>{% endif %}
+      <span data-current-players-age>{% if page.age_seconds is not none %}{{ tr("{seconds}s ago", seconds=page.age_seconds) }}{% else %}{{ t("Unknown") }}{% endif %}</span>
+      <span class="status-pill status-pill-warning" data-current-players-stale{% if not page.is_stale %} hidden{% endif %}>{{ t("Stale") }}</span>
     </dd>
   </dl>
-  {% if page.error and (page.is_stale or page.available) %}<p class="error">{{ page.error }}</p>{% endif %}
+  <p class="error" data-current-players-error{% if not page.error %} hidden{% endif %}>{{ page.error }}</p>
 
   <form method="get" action="/players" class="player-search-form">
     <label>
       <span>{{ t("Search current players") }}</span>
-      <input type="search" name="player_search" value="{{ query }}" autocomplete="off">
+      <input type="search" name="player_search" value="{{ query }}" autocomplete="off" data-current-players-search>
     </label>
     <div class="form-actions">
       <button type="submit">{{ t("Search") }}</button>
@@ -61,35 +64,27 @@
     </div>
   </form>
 
-  {% if players %}
-    <div class="player-table-wrap">
-      <table class="player-current-table">
-        <thead>
-          <tr>
-            <th>{{ t("Nickname") }}</th>
-            <th>{{ t("Identity ID") }}</th>
-            <th>{{ t("Source") }}</th>
-          </tr>
-        </thead>
-        <tbody>
-        {% for player in players %}
-          <tr>
-            <td><strong class="wrap-value">{{ player.display_name }}</strong></td>
-            <td>{% if player.reliable_id %}<span class="player-id-cell player-id-clip" title="{{ player.reliable_id }}">{{ player.reliable_id[:8] }}...{{ player.reliable_id[-5:] }}</span>{% else %}<span class="muted">{{ t("No reliable ID") }}</span>{% endif %}</td>
-            <td><span class="wrap-value">{{ player.source }}</span></td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  {% elif query %}
-    <p class="muted">{{ t("No current players match search.") }}</p>
-  {% elif page.available %}
-    <p class="muted">{{ t("No current players online.") }}</p>
-  {% else %}
-    <p class="muted">{{ t("Current player list unavailable.") }}</p>
-    {% if page.error %}<p class="error">{{ page.error }}</p>{% endif %}
-  {% endif %}
+  <div class="player-table-wrap" data-current-players-table{% if not players %} hidden{% endif %}>
+    <table class="player-current-table">
+      <thead>
+        <tr>
+          <th>{{ t("Nickname") }}</th>
+          <th>{{ t("Identity ID") }}</th>
+          <th>{{ t("Source") }}</th>
+        </tr>
+      </thead>
+      <tbody data-current-players-tbody>
+      {% for player in players %}
+        <tr>
+          <td><strong class="wrap-value">{{ player.display_name }}</strong></td>
+          <td>{% if player.reliable_id %}<span class="player-id-cell player-id-clip" title="{{ player.reliable_id }}">{{ player.reliable_id[:8] }}...{{ player.reliable_id[-5:] }}</span>{% else %}<span class="muted">{{ t("No reliable ID") }}</span>{% endif %}</td>
+          <td><span class="wrap-value">{{ player.source }}</span></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="muted" data-current-players-empty{% if players %} hidden{% endif %}>{% if query %}{{ t("No current players match search.") }}{% elif page.available %}{{ t("No current players online.") }}{% else %}{{ t("Current player list unavailable.") }}{% endif %}</p>
   <p class="muted">{{ t("Joined time, role, and current-session K/D need session tracking before they can be shown reliably.") }}</p>
 </section>
 {% endblock %}

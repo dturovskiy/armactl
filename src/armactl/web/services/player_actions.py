@@ -276,6 +276,21 @@ def refresh_current_players(
             dry_run=dry_run,
         )
 
+    try:
+        cached_snapshot = (
+            player_current_cache.store_persistent_current_roster_snapshot_from_roster(
+                roster,
+                instance=normalized_instance,
+                data_root=data_root,
+            )
+        )
+        player_current_cache.store_current_roster_snapshot(
+            cached_snapshot,
+            data_root=data_root,
+        )
+    except player_current_cache.CurrentRosterPersistentCacheError:
+        pass
+
     return PlayerRefreshResult(
         observed_count=observed_count,
         stored_count=snapshot.stored_count,

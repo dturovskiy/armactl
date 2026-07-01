@@ -846,6 +846,10 @@ def test_refresh_current_players_service_updates_known_and_last_seen(
         "default",
         data_root=tmp_path,
     )
+    persistent = player_current_cache.get_persistent_current_roster_snapshot(
+        "default",
+        data_root=tmp_path,
+    )
 
     assert first.success is True
     assert first.observed_count == 1
@@ -862,6 +866,9 @@ def test_refresh_current_players_service_updates_known_and_last_seen(
     assert cached is not None
     assert [player.display_name for player in cached.players] == ["Alpha Later"]
     assert cached.source == "rcon.roster"
+    assert persistent is not None
+    assert [player.display_name for player in persistent.players] == ["Alpha Later"]
+    assert persistent.source == "rcon.roster"
     assert _player_session_count(db_path) == 0
 
 
@@ -869,7 +876,11 @@ def test_refresh_current_players_service_ignores_unreliable_and_avoids_noop_writ
     tmp_path: Path,
     monkeypatch,
 ):
-    from armactl.web.services import player_actions, player_sources
+    from armactl.web.services import (
+        player_actions,
+        player_current_cache,
+        player_sources,
+    )
 
     db_path = tmp_path / "default" / "players.db"
     monkeypatch.setattr(
@@ -893,6 +904,14 @@ def test_refresh_current_players_service_ignores_unreliable_and_avoids_noop_writ
     assert dry_run.dry_run is True
     assert dry_run.stored_count == 0
     assert not db_path.exists()
+    assert _player_session_count(db_path) == 0
+    assert (
+        player_current_cache.get_persistent_current_roster_snapshot(
+            "default",
+            data_root=tmp_path,
+        )
+        is None
+    )
 
     monkeypatch.setattr(
         player_sources,
@@ -912,6 +931,14 @@ def test_refresh_current_players_service_ignores_unreliable_and_avoids_noop_writ
     assert unavailable.message == "Current player roster unavailable."
     assert unavailable.stored_count == 0
     assert not db_path.exists()
+    assert _player_session_count(db_path) == 0
+    assert (
+        player_current_cache.get_persistent_current_roster_snapshot(
+            "default",
+            data_root=tmp_path,
+        )
+        is None
+    )
 
 
 def test_list_known_players_searches_by_name_and_id(tmp_path: Path):
@@ -1143,6 +1170,11 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
     assert "Live Slot" in html
     assert PLAYER_ALPHA_ID in html
     assert "Refresh current players" in html
+    assert "players_current_poll.js" in html
+    assert "data-current-players-root" in html
+    assert "data-current-players-endpoint=\"/players/current.json\"" in html
+    assert "data-current-players-interval-ms=\"60000\"" in html
+    assert "data-current-players-search" in html
     assert 'action="/players/refresh-current"' in html
     assert "<th>Source</th>" in html
     assert "<th>Last seen</th>" not in html
@@ -1154,6 +1186,46 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
     assert "Known player table" not in html
     assert "Player event log" not in html
     assert not (tmp_path / "default" / "players.db").exists()
+
+
+def test_current_players_polling_hook_only_on_current_page(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_sources
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _roster(_current_player("Live Alpha", PLAYER_ALPHA_ID)),
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    current = client.get("/players?player_search=Live", follow_redirects=False)
+    known = client.get("/players/known", follow_redirects=False)
+    history = client.get("/players/history", follow_redirects=False)
+
+    assert current.status_code == 200
+    assert known.status_code == 200
+    assert history.status_code == 200
+    assert "players_current_poll.js" in current.text
+    assert "data-current-players-root" in current.text
+    assert "name=\"player_search\" value=\"Live\"" in current.text
+    assert "players_current_poll.js" not in known.text
+    assert "data-current-players-root" not in known.text
+    assert "players_current_poll.js" not in history.text
+    assert "data-current-players-root" not in history.text
+
+
+def test_current_players_polling_js_uses_no_store_and_preserves_search():
+    script = Path(
+        "src/armactl/web/static/js/players_current_poll.js",
+    ).read_text()
+
+    assert "DEFAULT_POLL_INTERVAL_MS = 60000" in script
+    assert "cache: \"no-store\"" in script
+    assert "url.searchParams.set(\"player_search\", query)" in script
+    assert "window.setInterval(refreshCurrentPlayers, intervalMs)" in script
 
 
 def test_players_route_uses_fresh_current_roster_cache(tmp_path: Path, monkeypatch):
@@ -1182,7 +1254,7 @@ def test_players_route_uses_fresh_current_roster_cache(tmp_path: Path, monkeypat
     assert "Live Alpha" in first.text
     assert "Live Alpha" in second.text
     assert "Updated" in first.text
-    assert "Stale" not in second.text
+    assert "data-current-players-stale hidden" in second.text
     assert not (tmp_path / "default" / "players.db").exists()
 
 
@@ -1335,7 +1407,7 @@ def test_players_route_refreshes_stale_current_roster_cache(tmp_path: Path, monk
     assert calls == ["default"]
     assert "Fresh Bravo" in response.text
     assert "Cached Alpha" not in response.text
-    assert "Stale" not in response.text
+    assert "data-current-players-stale hidden" in response.text
     assert not (tmp_path / "default" / "players.db").exists()
 
 

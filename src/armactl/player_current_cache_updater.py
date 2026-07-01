@@ -12,7 +12,7 @@ from armactl import paths
 from armactl.redaction import redact_sensitive_text
 from armactl.web.services import player_current_cache, player_sources
 
-DEFAULT_INTERVAL_SECONDS = 10
+DEFAULT_INTERVAL_SECONDS = 60
 MIN_INTERVAL_SECONDS = 10
 MAX_INTERVAL_SECONDS = 3600
 
