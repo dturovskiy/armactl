@@ -102,6 +102,25 @@ def _roster(*players: CurrentPlayer) -> CurrentPlayerRoster:
         source="rcon.roster",
         status="available",
         error="",
+        observed_count=len(players),
+        count_source="rcon",
+        roster_available=True,
+        roster_configured=True,
+    )
+
+
+def _count_only_roster(count: int = 7) -> CurrentPlayerRoster:
+    return CurrentPlayerRoster(
+        available=True,
+        players=(),
+        total_count=count,
+        source="a2s",
+        status="available",
+        error="",
+        observed_count=count,
+        count_source="a2s",
+        roster_available=False,
+        roster_configured=True,
     )
 
 
@@ -1188,6 +1207,70 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
     assert not (tmp_path / "default" / "players.db").exists()
 
 
+def test_players_route_shows_count_only_when_roster_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_current_cache, player_sources
+
+    player_current_cache.clear_current_roster_cache()
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _count_only_roster(7),
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get("/players", follow_redirects=False)
+    html = response.text
+
+    assert response.status_code == 200
+    assert "Roster unavailable; A2S reports 7 current player(s)." in html
+    assert "Showing 0 of 7 current player(s)" in html
+    assert "Showing 0 of 0 current player(s)" not in html
+    assert ">No current players online.<" not in html
+    assert not (tmp_path / "default" / "players.db").exists()
+
+
+def test_players_current_json_returns_count_only_fields_without_player_db_writes(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_current_cache, player_sources
+
+    player_current_cache.clear_current_roster_cache()
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _count_only_roster(7),
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+    response = client.get("/players/current.json", follow_redirects=False)
+    db_path = tmp_path / "default" / "players.db"
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["available"] is True
+    assert payload["observed_count"] == 7
+    assert payload["total_count"] == 7
+    assert payload["filtered_count"] == 0
+    assert payload["count_source"] == "a2s"
+    assert payload["roster_available"] is False
+    assert payload["roster_configured"] is True
+    assert payload["players"] == []
+    persistent = player_current_cache.get_persistent_current_roster_snapshot(
+        "default",
+        data_root=tmp_path,
+    )
+    assert persistent is not None
+    assert persistent.observed_count == 7
+    assert persistent.total_count == 7
+    assert persistent.players == ()
+    assert persistent.roster_available is False
+    assert not db_path.exists()
+    assert _player_session_count(db_path) == 0
+
+
 def test_current_players_polling_hook_only_on_current_page(
     tmp_path: Path,
     monkeypatch,
@@ -1225,6 +1308,9 @@ def test_current_players_polling_js_uses_no_store_and_preserves_search():
     assert "DEFAULT_POLL_INTERVAL_MS = 60000" in script
     assert "cache: \"no-store\"" in script
     assert "url.searchParams.set(\"player_search\", query)" in script
+    assert "currentPlayersCountOnlyTemplate" in script
+    assert "data.observed_count" in script
+    assert "data.roster_available === false" in script
     assert "window.setInterval(refreshCurrentPlayers, intervalMs)" in script
 
 

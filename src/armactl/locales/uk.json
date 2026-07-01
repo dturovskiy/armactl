@@ -1137,6 +1137,7 @@
     "No current players match search.": "Поточних гравців за пошуком не знайдено.",
     "No current players online.": "Зараз немає гравців онлайн.",
     "Current player list unavailable.": "Список поточних гравців недоступний.",
+    "Roster unavailable; A2S reports {count} current player(s).": "Список RCON недоступний; A2S повідомляє {count} поточних гравців.",
     "No reliable ID": "Немає надійного ID",
     "K/D": "K/D",
     "Role": "Роль",

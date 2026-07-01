@@ -208,7 +208,7 @@ def refresh_current_players(
     safe_source = _safe_source(roster.source)
     safe_status = _safe_status(roster.status, available=roster.available)
     observations = _registry_observations(roster.players)
-    observed_count = len(roster.players)
+    observed_count = max(0, int(roster.total_count))
     reliable_count = _reliable_observation_count(observations)
     ignored_count = _ignored_observation_count(observations)
 

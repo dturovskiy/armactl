@@ -35,7 +35,17 @@ def _roster(*players: CurrentPlayer) -> CurrentPlayerRoster:
         source="rcon.roster",
         status="available",
         error="",
+        observed_count=len(players),
+        count_source="rcon",
+        roster_available=True,
+        roster_configured=True,
     )
+
+
+def _cache_table_columns(db_path: Path, table: str) -> set[str]:
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(f"PRAGMA table_info({table})").fetchall()
+    return {str(row[1]) for row in rows}
 
 
 def _cache_table_count(db_path: Path, table: str) -> int:
@@ -70,6 +80,10 @@ def test_persistent_current_roster_cache_read_write_is_idempotent(tmp_path: Path
         status="available",
         error="",
         collected_at="2026-06-16T12:00:00+00:00",
+        observed_count=2,
+        count_source="rcon",
+        roster_available=True,
+        roster_configured=True,
     )
 
     player_current_cache.store_persistent_current_roster_snapshot(
@@ -90,11 +104,115 @@ def test_persistent_current_roster_cache_read_write_is_idempotent(tmp_path: Path
     assert loaded.instance == "default"
     assert loaded.source == "rcon.roster"
     assert loaded.status == "available"
+    assert loaded.observed_count == 2
+    assert loaded.total_count == 2
+    assert loaded.count_source == "rcon"
+    assert loaded.roster_available is True
+    assert loaded.roster_configured is True
     assert loaded.collected_at == "2026-06-16T12:00:00+00:00"
     assert loaded.updated_at
     assert [player.display_name for player in loaded.players] == ["Alpha"]
     assert _cache_table_count(db_path, "web_current_roster_cache") == 1
     assert _cache_table_count(db_path, "web_current_roster_cache_players") == 1
+
+
+def test_persistent_current_roster_cache_migrates_v11_count_fields(tmp_path: Path):
+    from armactl.web.runtime import ensure_web_db
+    from armactl.web.runtime.db import WEB_SCHEMA_VERSION
+    from armactl.web.services import player_current_cache
+
+    db_path = tmp_path / "web" / "web.db"
+    db_path.parent.mkdir(parents=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE web_schema_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO web_schema_meta(key, value)
+            VALUES ('schema_version', '11')
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE web_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL,
+                instance TEXT NOT NULL DEFAULT 'default',
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE web_current_roster_cache (
+                instance TEXT PRIMARY KEY CHECK(length(trim(instance)) > 0),
+                collected_at TEXT NOT NULL CHECK(length(collected_at) > 0),
+                updated_at TEXT NOT NULL CHECK(length(updated_at) > 0),
+                source TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT '',
+                error TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE web_current_roster_cache_players (
+                instance TEXT NOT NULL CHECK(length(trim(instance)) > 0),
+                ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+                display_name TEXT NOT NULL DEFAULT '',
+                reliable_id TEXT NOT NULL DEFAULT '',
+                source TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY(instance, ordinal)
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO web_current_roster_cache(
+                instance, collected_at, updated_at, source, status, error
+            )
+            VALUES (
+                'default', '2026-06-16T12:00:00+00:00',
+                '2026-06-16T12:00:01+00:00', 'rcon.roster', 'available', ''
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO web_current_roster_cache_players(
+                instance, ordinal, display_name, reliable_id, source
+            )
+            VALUES ('default', 0, 'Migrated Alpha', ?, 'rcon.guid')
+            """,
+            (PLAYER_ALPHA_ID,),
+        )
+
+    ensure_web_db(db_path)
+    loaded = player_current_cache.get_persistent_current_roster_snapshot(
+        "default",
+        data_root=tmp_path,
+    )
+
+    assert "observed_count" in _cache_table_columns(db_path, "web_current_roster_cache")
+    assert "count_source" in _cache_table_columns(db_path, "web_current_roster_cache")
+    assert loaded is not None
+    assert loaded.observed_count == 1
+    assert loaded.total_count == 1
+    assert loaded.count_source == "unknown"
+    assert loaded.roster_available is True
+    assert [player.display_name for player in loaded.players] == ["Migrated Alpha"]
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT value FROM web_schema_meta WHERE key = 'schema_version'"
+        ).fetchone()
+    assert row == (WEB_SCHEMA_VERSION,)
 
 
 def test_persistent_current_roster_cache_stores_no_raw_path_ip_or_secret(

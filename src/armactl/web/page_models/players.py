@@ -100,8 +100,12 @@ class CurrentPlayersPage:
     age_seconds: int | None
     is_stale: bool
     cache_status: str
+    observed_count: int
     total_count: int
     filtered_count: int
+    count_source: str
+    roster_available: bool
+    roster_configured: bool
     players: tuple[CurrentPlayerTableRow, ...]
 
 
@@ -235,8 +239,12 @@ def load_current_players_page(
         age_seconds=result.age_seconds,
         is_stale=result.is_stale,
         cache_status=safe_player_text(result.cache_status, max_length=40),
+        observed_count=snapshot.total_count,
         total_count=snapshot.total_count,
         filtered_count=len(filtered),
+        count_source=safe_player_text(snapshot.count_source, max_length=80) or "unknown",
+        roster_available=bool(snapshot.roster_available),
+        roster_configured=bool(snapshot.roster_configured),
         players=filtered,
     )
 

@@ -85,8 +85,12 @@ def _current_players_json_payload(
         "age_seconds": page.age_seconds,
         "is_stale": page.is_stale,
         "cache_status": page.cache_status,
+        "observed_count": page.observed_count,
         "total_count": page.total_count,
         "filtered_count": page.filtered_count,
+        "count_source": page.count_source,
+        "roster_available": page.roster_available,
+        "roster_configured": page.roster_configured,
         "players": [
             {
                 "display_name": player.display_name,

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from armactl.web.runtime.job_store_maintenance import repair_duplicate_active_jobs
 
-WEB_SCHEMA_VERSION = "11"
+WEB_SCHEMA_VERSION = "12"
 PRIVATE_FILE_MODE = 0o600
 _LEGACY_DEFAULT_TIMESTAMP = "1970-01-01T00:00:00+00:00"
 
@@ -362,7 +362,13 @@ def _ensure_web_current_roster_cache_schema(connection: sqlite3.Connection) -> N
             updated_at TEXT NOT NULL CHECK(length(updated_at) > 0),
             source TEXT NOT NULL DEFAULT '',
             status TEXT NOT NULL DEFAULT '',
-            error TEXT NOT NULL DEFAULT ''
+            error TEXT NOT NULL DEFAULT '',
+            observed_count INTEGER,
+            count_source TEXT NOT NULL DEFAULT '',
+            roster_available INTEGER NOT NULL DEFAULT 0
+                CHECK(roster_available IN (0, 1)),
+            roster_configured INTEGER NOT NULL DEFAULT 0
+                CHECK(roster_configured IN (0, 1))
         )
         """
     )
@@ -388,6 +394,22 @@ def _ensure_web_current_roster_cache_schema(connection: sqlite3.Connection) -> N
             ("source", "source TEXT NOT NULL DEFAULT ''"),
             ("status", "status TEXT NOT NULL DEFAULT ''"),
             ("error", "error TEXT NOT NULL DEFAULT ''"),
+            ("observed_count", "observed_count INTEGER"),
+            ("count_source", "count_source TEXT NOT NULL DEFAULT ''"),
+            (
+                "roster_available",
+                (
+                    "roster_available INTEGER NOT NULL DEFAULT 0 "
+                    "CHECK(roster_available IN (0, 1))"
+                ),
+            ),
+            (
+                "roster_configured",
+                (
+                    "roster_configured INTEGER NOT NULL DEFAULT 0 "
+                    "CHECK(roster_configured IN (0, 1))"
+                ),
+            ),
         ),
     )
     connection.execute(
@@ -739,6 +761,22 @@ def _migration_11_current_roster_cache(connection: sqlite3.Connection) -> None:
     _ensure_web_current_roster_cache_schema(connection)
 
 
+def _migration_12_current_roster_cache_counts(connection: sqlite3.Connection) -> None:
+    _ensure_web_current_roster_cache_schema(connection)
+    connection.execute(
+        """
+        UPDATE web_current_roster_cache
+        SET observed_count = (
+            SELECT COUNT(*)
+            FROM web_current_roster_cache_players
+            WHERE web_current_roster_cache_players.instance =
+                web_current_roster_cache.instance
+        )
+        WHERE observed_count IS NULL
+        """
+    )
+
+
 _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (1, _migration_1_auth_schema),
     (2, _migration_2_jobs_schema),
@@ -751,6 +789,7 @@ _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (9, _migration_9_pending_work_fingerprints),
     (10, _migration_10_server_version_checks),
     (11, _migration_11_current_roster_cache),
+    (12, _migration_12_current_roster_cache_counts),
 )
 
 def _read_schema_version(connection: sqlite3.Connection) -> int:

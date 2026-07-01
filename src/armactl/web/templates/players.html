@@ -24,7 +24,7 @@
   </p>
 </section>
 {% endif %}
-<section class="panel full-width" data-current-players-root data-current-players-endpoint="/players/current.json" data-current-players-interval-ms="60000" data-current-players-count-template="{{ t("Showing {count} of {total} current player(s)") }}" data-current-players-age-template="{{ t("{seconds}s ago") }}" data-current-players-empty-search-label="{{ t("No current players match search.") }}" data-current-players-empty-online-label="{{ t("No current players online.") }}" data-current-players-empty-unavailable-label="{{ t("Current player list unavailable.") }}" data-current-players-no-reliable-id-label="{{ t("No reliable ID") }}" data-current-players-unknown-label="{{ t("Unknown") }}" data-current-players-unavailable-label="{{ t("unavailable") }}" data-current-players-stale-label="{{ t("Stale") }}">
+<section class="panel full-width" data-current-players-root data-current-players-endpoint="/players/current.json" data-current-players-interval-ms="60000" data-current-players-count-template="{{ t("Showing {count} of {total} current player(s)") }}" data-current-players-age-template="{{ t("{seconds}s ago") }}" data-current-players-empty-search-label="{{ t("No current players match search.") }}" data-current-players-empty-online-label="{{ t("No current players online.") }}" data-current-players-empty-unavailable-label="{{ t("Current player list unavailable.") }}" data-current-players-count-only-template="{{ t("Roster unavailable; A2S reports {count} current player(s).") }}" data-current-players-no-reliable-id-label="{{ t("No reliable ID") }}" data-current-players-unknown-label="{{ t("Unknown") }}" data-current-players-unavailable-label="{{ t("unavailable") }}" data-current-players-stale-label="{{ t("Stale") }}">
   <nav class="player-section-tabs" aria-label="{{ t('Player sections') }}">
     <a class="player-section-tab active" href="/players">{{ t("Current Players") }}</a>
     <a class="player-section-tab" href="/players/known">{{ t("Known Players") }}</a>
@@ -84,7 +84,8 @@
       </tbody>
     </table>
   </div>
-  <p class="muted" data-current-players-empty{% if players %} hidden{% endif %}>{% if query %}{{ t("No current players match search.") }}{% elif page.available %}{{ t("No current players online.") }}{% else %}{{ t("Current player list unavailable.") }}{% endif %}</p>
+  {% set count_only_unavailable = page.observed_count > 0 and not page.roster_available %}
+  <p class="muted" data-current-players-empty{% if players %} hidden{% endif %}>{% if count_only_unavailable %}{{ tr("Roster unavailable; A2S reports {count} current player(s).", count=page.observed_count) }}{% elif query %}{{ t("No current players match search.") }}{% elif page.available %}{{ t("No current players online.") }}{% else %}{{ t("Current player list unavailable.") }}{% endif %}</p>
   <p class="muted">{{ t("Joined time, role, and current-session K/D need session tracking before they can be shown reliably.") }}</p>
 </section>
 {% endblock %}

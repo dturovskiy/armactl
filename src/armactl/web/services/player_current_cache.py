@@ -47,6 +47,10 @@ class CurrentRosterSnapshot:
     error: str
     collected_at: str
     updated_at: str = ""
+    observed_count: int | None = None
+    count_source: str = "unknown"
+    roster_available: bool = False
+    roster_configured: bool = False
 
     @property
     def available(self) -> bool:
@@ -54,6 +58,8 @@ class CurrentRosterSnapshot:
 
     @property
     def total_count(self) -> int:
+        if self.observed_count is not None:
+            return self.observed_count
         return len(self.players)
 
 
@@ -167,6 +173,20 @@ def _safe_snapshot_text(
     return text or default
 
 
+def _safe_observed_count(
+    value: object,
+    *,
+    fallback: int | None = None,
+) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    if parsed < 0:
+        return fallback
+    return parsed
+
+
 def _snapshot_player(
     player: player_sources.CurrentPlayer,
 ) -> CurrentRosterPlayerSnapshot:
@@ -187,6 +207,20 @@ def snapshot_from_roster(
     players = tuple(_snapshot_player(player) for player in roster.players)
     status_default = 'available' if roster.available else _STATUS_UNAVAILABLE
     observed_at = collected_at or _utc_now_text()
+    observed_count = _safe_observed_count(
+        roster.observed_count,
+        fallback=roster.total_count,
+    )
+    if observed_count is None:
+        observed_count = len(players)
+    roster_available = bool(roster.roster_available or players)
+    count_source = _safe_snapshot_text(
+        roster.count_source,
+        max_length=80,
+        default='unknown',
+    )
+    if count_source == 'unknown' and roster_available:
+        count_source = 'rcon'
     return CurrentRosterSnapshot(
         instance=_safe_instance(instance),
         players=players,
@@ -195,6 +229,10 @@ def snapshot_from_roster(
         error=_safe_snapshot_text(roster.error, max_length=240),
         collected_at=observed_at,
         updated_at=observed_at,
+        observed_count=observed_count,
+        count_source=count_source,
+        roster_available=roster_available,
+        roster_configured=bool(roster.roster_configured or roster_available),
     )
 
 
@@ -214,6 +252,10 @@ def unavailable_snapshot_from_error(
         error=_safe_snapshot_text(error, max_length=240),
         collected_at=observed_at,
         updated_at=observed_at,
+        observed_count=0,
+        count_source=_SOURCE_UNAVAILABLE,
+        roster_available=False,
+        roster_configured=False,
     )
 
 
@@ -246,14 +288,26 @@ def _safe_current_roster_snapshot(
     collected_at = _safe_timestamp_text(snapshot.collected_at)
     updated_at_value = updated_at or snapshot.updated_at or collected_at
     safe_updated_at = _safe_timestamp_text(updated_at_value)
+    players = tuple(_safe_cached_player(player) for player in snapshot.players)
     return CurrentRosterSnapshot(
         instance=_safe_instance(snapshot.instance),
-        players=tuple(_safe_cached_player(player) for player in snapshot.players),
+        players=players,
         source=_safe_snapshot_text(snapshot.source, max_length=80, default=_SOURCE_UNAVAILABLE),
         status=_safe_snapshot_text(snapshot.status, max_length=80, default=_STATUS_UNKNOWN),
         error=_safe_snapshot_text(snapshot.error, max_length=240),
         collected_at=collected_at,
         updated_at=safe_updated_at,
+        observed_count=_safe_observed_count(
+            snapshot.observed_count,
+            fallback=len(players),
+        ),
+        count_source=_safe_snapshot_text(
+            snapshot.count_source,
+            max_length=80,
+            default='unknown',
+        ),
+        roster_available=bool(snapshot.roster_available or players),
+        roster_configured=bool(snapshot.roster_configured or snapshot.roster_available),
     )
 
 
@@ -346,7 +400,9 @@ def get_persistent_current_roster_snapshot(
         with connection:
             row = connection.execute(
                 """
-                SELECT instance, collected_at, updated_at, source, status, error
+                SELECT
+                    instance, collected_at, updated_at, source, status, error,
+                    observed_count, count_source, roster_available, roster_configured
                 FROM web_current_roster_cache
                 WHERE instance = ?
                 """,
@@ -385,6 +441,10 @@ def get_persistent_current_roster_snapshot(
             error=str(row["error"] or ""),
             collected_at=str(row["collected_at"] or ""),
             updated_at=str(row["updated_at"] or ""),
+            observed_count=row["observed_count"],
+            count_source=str(row["count_source"] or ""),
+            roster_available=bool(row["roster_available"]),
+            roster_configured=bool(row["roster_configured"]),
         )
     )
 
@@ -402,15 +462,20 @@ def store_persistent_current_roster_snapshot(
             connection.execute(
                 """
                 INSERT INTO web_current_roster_cache(
-                    instance, collected_at, updated_at, source, status, error
+                    instance, collected_at, updated_at, source, status, error,
+                    observed_count, count_source, roster_available, roster_configured
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(instance) DO UPDATE SET
                     collected_at = excluded.collected_at,
                     updated_at = excluded.updated_at,
                     source = excluded.source,
                     status = excluded.status,
-                    error = excluded.error
+                    error = excluded.error,
+                    observed_count = excluded.observed_count,
+                    count_source = excluded.count_source,
+                    roster_available = excluded.roster_available,
+                    roster_configured = excluded.roster_configured
                 """,
                 (
                     safe_snapshot.instance,
@@ -419,6 +484,10 @@ def store_persistent_current_roster_snapshot(
                     safe_snapshot.source,
                     safe_snapshot.status,
                     safe_snapshot.error,
+                    safe_snapshot.observed_count,
+                    safe_snapshot.count_source,
+                    int(safe_snapshot.roster_available),
+                    int(safe_snapshot.roster_configured),
                 ),
             )
             connection.execute(

@@ -550,6 +550,7 @@
     "No current players match search.": "No current players match search.",
     "No current players online.": "No current players online.",
     "Current player list unavailable.": "Current player list unavailable.",
+    "Roster unavailable; A2S reports {count} current player(s).": "Roster unavailable; A2S reports {count} current player(s).",
     "No reliable ID": "No reliable ID",
     "K/D": "K/D",
     "Role": "Role",

@@ -187,6 +187,49 @@ def test_player_moderation_uses_full_roster_timeout(monkeypatch):
 
     assert calls == {"timeout": 0.35, "roster_timeout": 1.5}
 
+
+def test_current_player_roster_preserves_a2s_count_without_roster(monkeypatch):
+    from armactl.web.services import player_sources
+
+    monkeypatch.setattr(
+        player_sources.discovery,
+        "discover",
+        lambda instance, save=False: _state(),
+    )
+    monkeypatch.setattr(
+        player_sources.player_view,
+        "query_player_view",
+        lambda *args, **kwargs: PlayerView(
+            available=True,
+            current=7,
+            max_players=64,
+            entries=(),
+            count_source="a2s",
+            a2s_available=True,
+            a2s_count=7,
+            roster_available=False,
+            roster_configured=True,
+            roster_error=(
+                "RCON failed token=raw-roster-secret from 198.51.100.9 "
+                "using /home/deus/private.log"
+            ),
+        ),
+    )
+
+    roster = player_sources.load_current_player_roster()
+
+    assert roster.available is True
+    assert roster.players == ()
+    assert roster.observed_count == 7
+    assert roster.total_count == 7
+    assert roster.count_source == "a2s"
+    assert roster.source == "a2s"
+    assert roster.roster_available is False
+    assert roster.roster_configured is True
+    for forbidden in ("raw-roster-secret", "198.51.100.9", "/home/deus/private.log"):
+        assert forbidden not in roster.error
+
+
 def test_player_moderation_dto_uses_only_reliable_guid(monkeypatch):
     from armactl.web.page_models import players as players_page_model
     from armactl.web.services import player_sources

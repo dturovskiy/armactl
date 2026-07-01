@@ -36,6 +36,18 @@ class CurrentPlayerRoster:
     source: str
     status: str
     error: str = ""
+    observed_count: int | None = None
+    count_source: str = "unknown"
+    roster_available: bool = False
+    roster_configured: bool = False
+
+
+def _safe_count(value: object, *, fallback: int = 0) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = fallback
+    return max(0, parsed)
 
 
 def _current_player(entry: PlayerEntry) -> CurrentPlayer:
@@ -64,13 +76,19 @@ def load_current_player_roster(
     )
 
     players = tuple(_current_player(entry) for entry in view.entries)
+    observed_count = _safe_count(view.current, fallback=len(players))
+    count_source = safe_player_text(view.count_source, max_length=80) or "unknown"
     source = "rcon.roster" if view.roster_available else view.count_source
     error = view.roster_error or view.a2s_error
     return CurrentPlayerRoster(
         available=view.available,
         players=players,
-        total_count=len(players),
-        source=safe_player_text(source),
+        total_count=observed_count,
+        source=safe_player_text(source, max_length=80),
         status="available" if view.available else "unavailable",
         error=safe_player_text(error),
+        observed_count=observed_count,
+        count_source=count_source,
+        roster_available=bool(view.roster_available),
+        roster_configured=bool(view.roster_configured),
     )

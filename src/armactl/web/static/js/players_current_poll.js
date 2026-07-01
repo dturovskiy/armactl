@@ -19,6 +19,9 @@
     countTemplate:
       root.dataset.currentPlayersCountTemplate ||
       "Showing {count} of {total} current player(s)",
+    countOnlyTemplate:
+      root.dataset.currentPlayersCountOnlyTemplate ||
+      "Roster unavailable; A2S reports {count} current player(s).",
     emptyOnline: root.dataset.currentPlayersEmptyOnlineLabel || "No current players online.",
     emptySearch:
       root.dataset.currentPlayersEmptySearchLabel || "No current players match search.",
@@ -59,21 +62,34 @@
     return url;
   }
 
-  function boundedCount(value) {
+  function numericCount(value) {
     const number = Number(value);
     if (!Number.isFinite(number) || number < 0) {
-      return "0";
+      return 0;
     }
-    return String(Math.trunc(number));
+    return Math.trunc(number);
+  }
+
+  function boundedCount(value) {
+    return String(numericCount(value));
+  }
+
+  function observedCount(data) {
+    if (data && data.observed_count !== undefined) {
+      return numericCount(data.observed_count);
+    }
+    return numericCount(data ? data.total_count : 0);
   }
 
   function updateCountSummary(data) {
     if (!countSummary) {
       return;
     }
+    const totalCount =
+      data.total_count !== undefined ? data.total_count : data.observed_count;
     countSummary.textContent = labels.countTemplate
       .replace("{count}", boundedCount(data.filtered_count))
-      .replace("{total}", boundedCount(data.total_count));
+      .replace("{total}", boundedCount(totalCount));
   }
 
   function ageText(value) {
@@ -148,6 +164,10 @@
   }
 
   function emptyMessage(data) {
+    const count = observedCount(data);
+    if (count > 0 && data.roster_available === false) {
+      return labels.countOnlyTemplate.replace("{count}", String(count));
+    }
     if (currentSearchQuery().trim()) {
       return labels.emptySearch;
     }
