@@ -13,7 +13,10 @@ from armactl.player_view import PlayerView
 from armactl.state import ServerState
 
 
-def _patch_public_stats_sources(monkeypatch) -> None:
+def _patch_public_stats_sources(
+    monkeypatch,
+    player_names: tuple[str, ...] = ("@here Player", "Normal Player"),
+) -> None:
     state = ServerState(
         server_installed=True,
         config_exists=True,
@@ -53,13 +56,10 @@ def _patch_public_stats_sources(monkeypatch) -> None:
         "query_player_view",
         lambda *args, **kwargs: PlayerView(
             available=True,
-            current=2,
+            current=len(player_names),
             max_players=64,
             map_name="ARM-Campaign_ScenarioName_Everon",
-            entries=(
-                types.SimpleNamespace(name="@here Player"),
-                types.SimpleNamespace(name="Normal Player"),
-            ),
+            entries=tuple(types.SimpleNamespace(name=name) for name in player_names),
             roster_available=True,
         ),
     )
@@ -107,7 +107,25 @@ def test_render_discord_stats_message_is_public_and_mention_safe(monkeypatch) ->
     assert "/srv/secret" not in text
 
 
-def test_stats_public_cli_renders_discord_message(monkeypatch) -> None:
+def test_render_discord_stats_message_includes_nine_roster_names(monkeypatch) -> None:
+    player_names = tuple(f"Player {index}" for index in range(1, 10))
+    _patch_public_stats_sources(monkeypatch, player_names=player_names)
+
+    snapshot = public_stats.load_public_stats("default")
+    text = public_stats.render_discord_stats_message(snapshot)
+
+    assert "👥 Players: 9/64" in text
+    for name in player_names:
+        assert f"- {name}" in text
+    assert "not shown due to Discord message limit" not in text
+    assert len(text) <= public_stats.MAX_DISCORD_MESSAGE_LENGTH
+
+
+def test_discord_stats_message_marks_roster_truncation_for_message_limit() -> None:
+    player_names = tuple(
+        f"VeryLongPlayerName{index:03d}-" + ("X" * 28)
+        for index in range(1, 80)
+    )
     snapshot = public_stats.PublicStatsSnapshot(
         instance="default",
         generated_at="2026-06-26T10:00:00+00:00",
@@ -118,9 +136,53 @@ def test_stats_public_cli_renders_discord_message(monkeypatch) -> None:
         scenario_id="{ECC61978EDCC2B5A}Missions/23_Campaign.conf",
         map_name="#AR-Campaign_ScenarioName_Everon",
         players_available=True,
-        player_count=3,
+        player_count=len(player_names),
+        max_players=128,
+        player_names=player_names,
+        roster_available=True,
+        fps_available=True,
+        fps_stale=False,
+        fps_text="60.0",
+        telemetry_age_text="5s",
+        mods_available=True,
+        mod_count=12,
+        mod_preview=("Weapons",),
+        remaining_mod_count=11,
+    )
+
+    text = public_stats.render_discord_stats_message(snapshot)
+
+    marker_lines = [
+        line
+        for line in text.splitlines()
+        if "not shown due to Discord message limit" in line
+    ]
+    assert len(marker_lines) == 1
+    marker = marker_lines[0]
+    hidden_count = int(marker.split("...and ", 1)[1].split(" more", 1)[0])
+    visible_count = sum(f"- {name}" in text for name in player_names)
+    assert marker.startswith("- ...and ")
+    assert hidden_count == len(player_names) - visible_count
+    assert 0 < visible_count < len(player_names)
+    assert "🕒 Last heartbeat:" in text
+    assert len(text) <= public_stats.MAX_DISCORD_MESSAGE_LENGTH
+
+
+def test_stats_public_cli_renders_discord_message(monkeypatch) -> None:
+    player_names = tuple(f"Player {index}" for index in range(1, 10))
+    snapshot = public_stats.PublicStatsSnapshot(
+        instance="default",
+        generated_at="2026-06-26T10:00:00+00:00",
+        lifecycle="running",
+        running=True,
+        service_state="active",
+        server_name="Public Server",
+        scenario_id="{ECC61978EDCC2B5A}Missions/23_Campaign.conf",
+        map_name="#AR-Campaign_ScenarioName_Everon",
+        players_available=True,
+        player_count=len(player_names),
         max_players=64,
-        player_names=("Denis", "Vova"),
+        player_names=player_names,
         roster_available=True,
         fps_available=True,
         fps_stale=False,
@@ -140,7 +202,7 @@ def test_stats_public_cli_renders_discord_message(monkeypatch) -> None:
     assert "📊 Server statistics" in result.output
     expected_row = (
         "🟢 Status: Online  🗺️ Map: Everon  "
-        "👥 Players: 3/64  🎯 FPS: 60.0  🧩 Mods: 12 mods"
+        "👥 Players: 9/64  🎯 FPS: 60.0  🧩 Mods: 12 mods"
     )
     assert "🟢 Status: Online" in result.output
     assert expected_row in result.output
@@ -148,8 +210,8 @@ def test_stats_public_cli_renders_discord_message(monkeypatch) -> None:
     assert "Map: Conflict" not in result.output
     assert "Status    Map" not in result.output
     assert "👥 Online:" in result.output
-    assert "- Denis" in result.output
-    assert "- Vova" in result.output
+    for name in player_names:
+        assert f"- {name}" in result.output
     assert "`(running)`" not in result.output
 
 

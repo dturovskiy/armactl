@@ -16,7 +16,9 @@ PLAYER_QUERY_TIMEOUT_SECONDS = 0.75
 ROSTER_QUERY_TIMEOUT_SECONDS = 0.75
 MAX_TEXT_LENGTH = 160
 MAX_DISCORD_MESSAGE_LENGTH = 1900
-MAX_PLAYER_PREVIEW = 8
+DISCORD_PLAYER_LIMIT_MARKER = (
+    "...and {count} more not shown due to Discord message limit"
+)
 KNOWN_SCENARIO_MAPS = {
     "23_Campaign": "Everon",
 }
@@ -156,6 +158,55 @@ def _discord_player_lines(snapshot: PublicStatsSnapshot) -> list[str]:
     return [f"- {_player_list_text(snapshot)}"]
 
 
+def _discord_player_limit_line(hidden_count: int) -> str:
+    return f"- {DISCORD_PLAYER_LIMIT_MARKER.format(count=hidden_count)}"
+
+
+def _discord_message_lines(
+    snapshot: PublicStatsSnapshot,
+    player_lines: list[str],
+) -> list[str]:
+    return [
+        f"**{snapshot.server_name}**",
+        "📊 Server statistics",
+        "```text",
+        _discord_stats_row(snapshot),
+        "```",
+        "👥 Online:",
+        "```text",
+        *player_lines,
+        "```",
+        f"🕒 Last heartbeat: {_discord_timestamp(snapshot.generated_at)}",
+        "_If the heartbeat is old, this status may be stale._",
+    ]
+
+
+def _discord_message_text(
+    snapshot: PublicStatsSnapshot,
+    player_lines: list[str],
+) -> str:
+    return "\n".join(_discord_message_lines(snapshot, player_lines))
+
+
+def _discord_player_lines_within_limit(snapshot: PublicStatsSnapshot) -> list[str]:
+    player_lines = _discord_player_lines(snapshot)
+    if not snapshot.player_names:
+        return player_lines
+    if len(_discord_message_text(snapshot, player_lines)) <= MAX_DISCORD_MESSAGE_LENGTH:
+        return player_lines
+
+    for visible_count in range(len(player_lines) - 1, -1, -1):
+        hidden_count = len(player_lines) - visible_count
+        candidate = [
+            *player_lines[:visible_count],
+            _discord_player_limit_line(hidden_count),
+        ]
+        if len(_discord_message_text(snapshot, candidate)) <= MAX_DISCORD_MESSAGE_LENGTH:
+            return candidate
+
+    return [_discord_player_limit_line(len(player_lines))]
+
+
 def _parse_generated_at(value: str) -> datetime | None:
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
@@ -230,9 +281,7 @@ def load_public_stats(instance: str = paths.DEFAULT_INSTANCE_NAME) -> PublicStat
         fps = metrics.ServerFpsMetrics(False)
 
     mod_preview = tuple(_safe_text(item.label, max_length=80) for item in mods.preview[:3])
-    player_names = tuple(
-        _safe_text(name, max_length=48) for name in players.player_lines[:MAX_PLAYER_PREVIEW]
-    )
+    player_names = tuple(_safe_text(name, max_length=48) for name in players.player_lines)
 
     return PublicStatsSnapshot(
         instance=_safe_text(instance, "default", max_length=64),
@@ -279,12 +328,6 @@ def render_public_stats_text(snapshot: PublicStatsSnapshot) -> str:
     return "\n".join(lines)
 
 
-def _truncate_discord_message(message: str) -> str:
-    if len(message) <= MAX_DISCORD_MESSAGE_LENGTH:
-        return message
-    return message[: MAX_DISCORD_MESSAGE_LENGTH - 3].rstrip() + "..."
-
-
 def _discord_mods_label(snapshot: PublicStatsSnapshot) -> str:
     mods = _mods_text(snapshot)
     if mods == "1":
@@ -308,20 +351,7 @@ def _discord_stats_row(snapshot: PublicStatsSnapshot) -> str:
 
 def render_discord_stats_message(snapshot: PublicStatsSnapshot) -> str:
     """Render public stats as a Discord-safe markdown message."""
-    lines = [
-        f"**{snapshot.server_name}**",
-        "📊 Server statistics",
-        "```text",
-        _discord_stats_row(snapshot),
-        "```",
-        "👥 Online:",
-        "```text",
-        *_discord_player_lines(snapshot),
-        "```",
-        f"🕒 Last heartbeat: {_discord_timestamp(snapshot.generated_at)}",
-        "_If the heartbeat is old, this status may be stale._",
-    ]
-    return _truncate_discord_message("\n".join(lines))
+    return _discord_message_text(snapshot, _discord_player_lines_within_limit(snapshot))
 
 
 def render_public_stats_json(snapshot: PublicStatsSnapshot) -> str:
