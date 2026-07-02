@@ -410,7 +410,7 @@ def test_dashboard_snapshot_uses_fast_player_probe(monkeypatch):
     assert calls[0]["state"] is state
     assert calls[0]["timeout"] == facade.DASHBOARD_PLAYER_TIMEOUT_SECONDS
     assert calls[0]["roster_timeout"] == facade.DASHBOARD_ROSTER_TIMEOUT_SECONDS
-    assert calls[0]["include_roster"] is False
+    assert calls[0]["include_roster"] is True
 
 
 def test_dashboard_snapshot_includes_safe_web_runtime(monkeypatch, tmp_path: Path):

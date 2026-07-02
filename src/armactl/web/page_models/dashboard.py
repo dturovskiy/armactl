@@ -473,7 +473,7 @@ def load_dashboard_snapshot(
                 timeout=DASHBOARD_PLAYER_TIMEOUT_SECONDS,
                 roster_timeout=DASHBOARD_ROSTER_TIMEOUT_SECONDS,
                 state=state,
-                include_roster=False,
+                include_roster=True,
             )
         )
     else:
