@@ -200,3 +200,145 @@ Before treating the web dashboard as the primary free/local operator UI, run one
 - player history, moderation, and banlist scope with reliable identity rules;
 - lightweight file-editing scope, if any, separated from broad destructive file management;
 - architecture, security, dead-code, source-of-truth, and public-docs drift checks.
+
+## Post Phase 4 Hardening Audit Plan
+
+This audit snapshot follows the Phase 4 player/session foundation. Keep the next implementation slices narrow: prefer VM smoke, operator feedback, and small hardening fixes over new feature surface.
+
+Do not commit private hostnames, IP addresses, provider details, or router rules to this public repo. Production-host smoke targets belong in private operator notes.
+
+### Priorities
+
+P0 before merge:
+
+- Run final VM smoke across login, dashboard, config, mods, admins, schedule, files, logs/report, jobs, updates, service actions, players/session pages, and public status.
+- Verify production hardening assumptions: localhost-first binding, HTTPS-required cookies behind TLS, exposure warnings, redacted logs/reports/job output, and `web.db` job integrity diagnostics.
+- Re-smoke update check/update behavior on every production host from private ops notes before treating `/updates` as primary.
+- Keep future user-affecting mutation flows behind the transaction/recovery pattern below; do not add moderation, banlist, broad config, or file editing before that pattern exists.
+
+P1 next slices:
+
+- Server update UX after VM feedback: clearer retry/failure states, stale active-job guidance, and a safe queued-job cancellation decision if needed.
+- Production readiness polish for health/readiness checks and startup/runtime warnings without widening dashboard exposure.
+- Safe config control expansion only for fields with proven validation, backup/restart behavior, and recovery.
+- Mod cleanup recovery: preflight manifest, stronger partial-failure messaging, and a restore/quarantine design before more deletion behavior.
+- Lightweight file editing design with allowlists, size limits, diff preview, backups, validation, audit, and recovery.
+
+P2 later:
+
+- Full automatic player-session scheduler/service enablement, richer session UI, and retention scheduling.
+- Audited banlist/moderation manager after identity, rollback, source-of-truth, and recovery rules are settled.
+- Broader web/TUI parity where operators prove it matters.
+- Rich Discord/player statistics after reliable player history/session data is stable enough.
+
+Out of scope:
+
+- Direct public dashboard exposure without VPN, firewall, identity-aware proxy, or HTTPS reverse proxy.
+- General-purpose web file manager, recursive delete/move, overwrite upload, or arbitrary path editing.
+- Web editing for secrets, RCON exposure policy, game/public/RCON bind/port changes, or network/firewall changes without dedicated recovery.
+- Ban/kick/banlist mutations, Discord K/D enrichment, and current-session K/D, role, faction, or playtime truth claims.
+- Pulling web-primary player/session views back into TUI before an operator need is demonstrated.
+
+### Findings
+
+#### 1. Production Hardening For Local Dashboard
+
+- Current state: auth has owner setup, session-token digests, CSRF, login throttling, runtime-scoped cookies, `HttpOnly`, `SameSite=Lax`, and optional `Secure` cookies through `ARMACTL_WEB_HTTPS_REQUIRED`. Exposure warnings exist for non-local binds. `/healthz` is minimal liveness only. Logs, reports, previews, audit details, and job tails are bounded and redacted. `web.db` has migrations, active-job dedupe, duplicate-active repair diagnostics, and pending-work fallback sidecar storage.
+- Risk: HTTPS/proxy/firewall guarantees are still operator deployment assumptions. `/healthz` does not prove DB, auth, template, job-store, or filesystem readiness. Background jobs run in daemon threads inside the web process, so interrupted `running` jobs may need operator-visible recovery.
+- Proposed slice: keep `/healthz` as liveness, then add a small authenticated runtime/readiness diagnostic or CLI status if VM smoke shows a need. Confirm secure cookies and exposure warnings on local, LAN, and reverse-proxy paths.
+- Files/modules likely touched: `src/armactl/web/routes/health.py`, `src/armactl/web/page_models/dashboard.py`, `src/armactl/web/security/exposure.py`, `src/armactl/web/runtime/db.py`, `src/armactl/web/jobs/store.py`, `src/armactl/web/services/job_integrity.py`, `docs/web-deployment.md`.
+- Validation/smoke needed: `curl -fsS http://127.0.0.1:8765/healthz`; login/logout; bad password; CSRF failure; secure-cookie flag with `--https-required`; `/dashboard`, `/logs`, `/report`, `/jobs`; real `journalctl` redaction review; focused auth/exposure/logs/jobs/runtime/pending-work tests.
+- Stop condition: operators can tell whether the web process is alive, runtime state is degraded, dashboard exposure is intentionally protected, and stale jobs have a recovery path.
+
+#### 2. Server Update UX After VM Smoke
+
+- Current state: `/updates` shows installed/latest build state, cached check reuse, failure reason, active update/check job links, and a server-running block before update. Update checks and updates run as deduped background jobs with redacted output. Job cancellation exists in store/maintenance code, but not as a normal operator-facing update workflow.
+- Risk: after a failed or interrupted update, operators may not know whether to retry, wait, inspect `/jobs`, stop the game server, or fall back to CLI/TUI. SteamCMD/network behavior is host-specific.
+- Proposed slice: run VM smoke first. Add only small UI/state changes proven necessary: retry check, retry update after failure, stale active-job notice, and safe cancel limited to queued/stale metadata unless a real worker-cancel model exists.
+- Files/modules likely touched: `src/armactl/web/routes/updates.py`, `src/armactl/web/views/updates.py`, `src/armactl/web/templates/updates.html`, `src/armactl/web/routes/jobs.py`, `src/armactl/web/templates/jobs.html`, `src/armactl/web/services/server_job_actions.py`, `src/armactl/web/jobs/server.py`.
+- Validation/smoke needed: fresh update check, cached check reuse, failed check, update available while server running, update queued while stopped, active job links, failed job details, retry behavior. On production hosts from private notes, smoke the default instance unless private notes name another instance.
+- Stop condition: an operator can see the active job, understand why update is blocked or failed, retry safely, and know when to use CLI/TUI fallback. Do not add live SteamCMD cancellation unless it can be proven safe.
+
+#### 3. Safe Config Controls After Field Behavior
+
+- Current state: basic web config editing is limited to non-secret fields: `name`, `scenario_id`, `max_players`, `visible`, `disable_third_person`, `battleye`, `server_max_view_distance`, and `server_min_grass_distance`. The guarded raw JSON editor validates JSON/config shape, blocks secret changes, creates backups, preserves safe error input, and updates pending restart tracking.
+- Risk: advanced network fields can break reachability or expose services. Secrets must not be echoed, diffed, or changed through generic web editors. Raw JSON remains powerful even with validation and backups.
+- Proposed slice: expand only one field group at a time after real server behavior is verified. Each new field needs schema metadata, UI copy, validation, backup, pending restart behavior, and rollback/recovery instructions. Keep bind addresses, public address/ports, RCON address/permission/password, generated secrets, and game passwords out of normal web editing.
+- Files/modules likely touched: `src/armactl/server_config_schema.py`, `src/armactl/web/services/config_edit.py`, `src/armactl/web/page_models/config.py`, `src/armactl/web/templates/config.html`, `tests/test_server_config_schema.py`, `tests/test_web_config_edit.py`.
+- Validation/smoke needed: unit tests for validation, secret rejection, backups, pending restart, no-op saves, raw reset/error UX; VM save/restart/verify/revert smoke for each new field.
+- Stop condition: the new field can be changed, validated, backed up, reverted, and restarted without hiding secrets or requiring SSH-only repair for expected mistakes.
+
+#### 4. Mod Cleanup Edge-Case Recovery
+
+- Current state: unused-addon cleanup is constrained to canonical `<instance>/config/addons`, rejects symlinks and unsafe paths, supports dry-run, requires confirmation, and reports bounded redacted summaries. Disabled mods are preserved. Config/disabled-sidecar updates have rollback helpers.
+- Risk: cleanup deletion is not rollbackable after a directory is removed. Partial failure can delete some addon directories and fail others. Local Workshop files may contain operator-added content under the allowed addon directory.
+- Proposed slice: add a cleanup recovery design before changing deletion behavior: dry-run manifest, confirmation bound to that manifest, optional quarantine/move first, restore command or documented restore path, and clearer partial-failure UI.
+- Files/modules likely touched: `src/armactl/addon_cleanup.py`, `src/armactl/mods_manager.py`, `src/armactl/web/services/mod_actions.py`, `src/armactl/web/routes/mods.py`, `src/armactl/web/templates/mods.html`, `tests/test_addon_cleanup.py`, `tests/test_web_mod_actions.py`.
+- Validation/smoke needed: dry-run no delete, confirmed cleanup, symlink refusal, invalid path refusal, disabled mod preservation, partial `rmtree` failure, and restore/quarantine behavior if implemented.
+- Stop condition: a partial cleanup failure leaves an operator-visible manifest and a clear recovery path. Do not expand cleanup beyond instance `config/addons`.
+
+#### 5. Safe File Editing Scope
+
+- Current state: the file browser has fixed roots, containment checks, source/system path denial, bounded redacted previews, single-file download, and no-overwrite upload only under the `server` root. Config editing is handled separately by config-specific services.
+- Risk: general web editing could become an accidental arbitrary file manager. Editing server files without validation can break installs, overwrite Workshop content, or leak secrets in previews/diffs.
+- Proposed slice: keep broad file editing out of scope. If lightweight editing is added, allow only small text files under a narrow allowlist, with max bytes, UTF-8/text detection, diff preview, backup, atomic write, validation hook, intent/outcome audit, and recovery handle. Leave logs/backups read-only and keep uploads no-overwrite.
+- Files/modules likely touched: `src/armactl/web/services/filesystem_roots.py`, `src/armactl/web/services/filesystem_paths.py`, `src/armactl/web/services/filesystem_preview.py`, `src/armactl/web/services/filesystem_transfer.py`, `src/armactl/web/routes/files.py`, `src/armactl/web/templates/files.html`, `tests/test_web_files.py`.
+- Validation/smoke needed: path traversal, symlink, source tree/system path denial, binary/oversize refusal, backup creation, diff preview, validation failure, no-overwrite upload, and failed-write recovery.
+- Stop condition: operators can edit only explicitly allowed small text targets and can inspect, validate, back up, and recover every change.
+
+#### 6. TUI/Web Parity Gaps
+
+- Current state: TUI covers install, repair, structured/raw config, mods, schedule, logs, cleanup, bot settings/service, host tests, and some port workflows. Web covers authenticated dashboard, config, mods, admins, schedule, files, logs/report, jobs, updates, public status, bot, and player/session surfaces.
+- Risk: chasing full parity can bloat the merge and duplicate workflows that should remain CLI/TUI fallback. Some web-primary features, especially player/session views, should not be pulled into TUI without operator demand.
+- Proposed slice: decide only operator-critical gaps before merge: install/repair/update status clarity, logs/report access, bot/Discord operational controls, ports/exposure visibility, and host-test guidance. Keep players/session UI web-primary for now.
+- Files/modules likely touched: `docs/web-interface-plan.md`, `docs/checklist.md`, `src/armactl/tui/screens.py`, `src/armactl/web/routes/*.py`, `src/armactl/web/templates/*.html`.
+- Validation/smoke needed: operator walkthrough comparing CLI/TUI/web for install, repair, update, config, mods, logs, bot, and host-test workflows.
+- Stop condition: each gap is marked web-needed, TUI-needed, CLI-only fallback, or deferred. No parity work is done only because another adapter has a feature.
+
+#### 7. Final VM Smoke And Merge Review
+
+- Current state: deployment, architecture, checklist, and hardening runbook docs exist. Public docs intentionally do not store production hostnames, IP addresses, or provider/router details.
+- Risk: a code-complete dashboard can still fail on real service state, proxy state, SteamCMD behavior, cookie settings, or logs/report redaction. Merge gates can drift unless exact commands and pages are named.
+- Proposed slice: run final smoke on each production host/instance from private operator notes. Use private notes for hostnames and IPs; keep this repo generic.
+- Files/modules likely touched: mostly docs and any small fixes found during smoke. If failures appear, touch only the owning route/service/template/test module.
+- Validation/smoke needed:
+
+```bash
+git status -sb
+git diff --check
+.venv/bin/ruff check .
+.venv/bin/pytest
+./armactl status
+./armactl web service status
+curl -fsS http://127.0.0.1:8765/healthz
+curl -fsS http://127.0.0.1:8765/public/server-status.json
+systemctl status armactl-web.service armareforger.service armareforger-restart.timer --no-pager
+sudo journalctl -u armactl-web.service -n 200 --no-pager
+```
+
+Also check optional services when configured: `armactl-bot.service` and `armactl-discord-stats.service`.
+
+Pages to smoke: `/login`, `/dashboard`, `/config`, `/mods`, `/admins`, `/schedule`, `/files`, `/logs`, `/report`, `/jobs`, `/updates`, `/bot`, `/players`, `/players/known`, `/players/history`, `/players/sessions`, and `/public/server-status.json`.
+
+- Stop condition: no P0 smoke failures remain; any P1/P2 findings are documented with owner, risk, and stop condition.
+
+#### 8. Rollback And Transaction Boundaries For Future Mutation Flows
+
+- Current state: config saves use intent audit, backup, apply, outcome audit, and pending-work marking with fallback sidecar. Server job enqueue audits intent before queueing and cancels a newly created job if outcome audit fails. File upload stages bytes and audits intent before publish, but if outcome audit fails after publish, the file remains. Admin/mod/service/schedule/player-session actions audit intent before mutation and outcome after mutation; some completed mutations can still surface as failures if outcome audit fails. Player registry writes use SQLite transactions and idempotent helpers, but job outcome audit happens after DB mutation.
+- Risk: a backend mutation can happen before an exception returns to the route or job runner, leaving state changed without a guaranteed operator recovery handle. This is tolerable for current observation/session jobs and some external service actions, but it is not acceptable for future moderation, banlist, broad config, or file-edit flows.
+- Proposed slice: create a shared mutation checklist/helper before adding new user-affecting mutation features. Required pattern: validate request/permissions/CSRF/allowlist/size; write intent audit; create backup/snapshot/stage/manifest; apply through one narrow service-layer API; verify from disk/DB/service; mark pending work when restart/review/retry/recovery is required; write outcome audit with recovery identifiers; rollback when safe or leave a visible recovery marker with a controlled message.
+- Files/modules likely touched: future shared helper under `src/armactl/web/services/`, `src/armactl/web/services/config_edit.py`, `src/armactl/web/services/file_uploads.py`, `src/armactl/web/services/mod_actions.py`, `src/armactl/web/services/admin_actions.py`, and future moderation/banlist modules/tests.
+- Validation/smoke needed: tests for intent-audit failure before mutation, backup/stage creation, apply failure rollback or recovery marker, verify failure, pending-work fallback, outcome-audit failure after mutation, redacted details, and operator-visible recovery messages.
+- Stop condition: no future user-affecting mutation can return an ambiguous failure after a partial backend change; it either rolls back or leaves a documented recovery handle visible to the operator.
+
+Flows that must use the pattern before implementation:
+
+- Banlist and moderation actions, including ban, unban, kick, reason editing, and source-of-truth sync.
+- Any config expansion beyond the current safe field set and guarded raw editor.
+- Any file edit, overwrite, rename, delete, or bulk upload flow.
+- Any future player identity merge/split or moderation state attached to player records.
+- Any mod cleanup behavior that moves beyond current confirmed cleanup or starts deleting outside the instance `config/addons` scope.
+
+### Recommended Next Implementation Slice
+
+Start with the P0 final VM smoke and update-flow UX review. It has the highest merge value, exercises the real production assumptions, and should decide whether `/updates` needs only copy/state polish or a deeper stale-job recovery slice before merge.
