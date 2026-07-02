@@ -1070,6 +1070,28 @@ button.danger {
   margin-bottom: 16px;
 }
 
+.player-session-summary-grid {
+  margin-bottom: 18px;
+}
+
+.player-session-active-jobs {
+  margin-bottom: 18px;
+}
+
+.player-session-active-job-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.player-session-active-job {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .player-session-operator-panel {
   display: grid;
   gap: 12px;

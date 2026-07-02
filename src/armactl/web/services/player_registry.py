@@ -141,6 +141,10 @@ PLAYER_SESSION_END_REASONS = (
     PLAYER_SESSION_END_REASON_IMPORT_WINDOW,
     PLAYER_SESSION_END_REASON_UNKNOWN,
 )
+PLAYER_SESSION_INFERRED_OR_STALE_END_REASONS = tuple(
+    reason for reason in PLAYER_SESSION_END_REASONS
+    if reason != PLAYER_SESSION_END_REASON_DISCONNECT
+)
 
 
 @dataclass(frozen=True)
@@ -282,6 +286,16 @@ class PlayerSessionRecord:
     scanner_checkpoint_at: str
     created_at: str
     updated_at: str
+
+
+@dataclass(frozen=True)
+class PlayerSessionSummary:
+    """Counts-only read model for stored player sessions."""
+
+    open_sessions: int = 0
+    closed_sessions: int = 0
+    inferred_or_stale_closes: int = 0
+    latest_observed_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -1578,6 +1592,73 @@ def get_open_player_session(
     finally:
         connection.close()
     return _player_session_record_from_row(row) if row is not None else None
+
+
+def summarize_player_sessions(db_path: Path) -> PlayerSessionSummary:
+    """Return counts-only player-session summary without mutating storage."""
+    connection = _connect_existing_readonly(db_path)
+    if connection is None:
+        return PlayerSessionSummary()
+    if not _table_exists(connection, "player_sessions"):
+        connection.close()
+        return PlayerSessionSummary()
+
+    inferred_reason_placeholders = ", ".join(
+        "?" for _reason in PLAYER_SESSION_INFERRED_OR_STALE_END_REASONS
+    )
+    try:
+        counts_row = connection.execute(
+            f"""
+            SELECT
+                COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0)
+                    AS open_sessions,
+                COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0)
+                    AS closed_sessions,
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN status = ?
+                             AND COALESCE(end_reason, '') IN ({inferred_reason_placeholders})
+                            THEN 1 ELSE 0
+                        END
+                    ),
+                    0
+                ) AS inferred_or_stale_closes
+            FROM player_sessions
+            """,
+            (
+                PLAYER_SESSION_STATUS_OPEN,
+                PLAYER_SESSION_STATUS_CLOSED,
+                PLAYER_SESSION_STATUS_CLOSED,
+                *PLAYER_SESSION_INFERRED_OR_STALE_END_REASONS,
+            ),
+        ).fetchone()
+        latest_row = connection.execute(
+            """
+            SELECT MAX(observed_at) AS latest_observed_at
+            FROM (
+                SELECT open_observed_at AS observed_at FROM player_sessions
+                UNION ALL
+                SELECT last_seen_at AS observed_at FROM player_sessions
+                UNION ALL
+                SELECT close_observed_at AS observed_at FROM player_sessions
+            )
+            WHERE observed_at IS NOT NULL
+              AND observed_at != ''
+            """
+        ).fetchone()
+    finally:
+        connection.close()
+
+    return PlayerSessionSummary(
+        open_sessions=int(counts_row["open_sessions"] or 0),
+        closed_sessions=int(counts_row["closed_sessions"] or 0),
+        inferred_or_stale_closes=int(counts_row["inferred_or_stale_closes"] or 0),
+        latest_observed_at=_safe_session_text(
+            latest_row["latest_observed_at"],
+            max_length=80,
+        ),
+    )
 
 
 def list_open_player_sessions(db_path: Path) -> list[PlayerSessionRecord]:

@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from armactl import paths, player_log_events
+from armactl.web.jobs import models as job_models
+from armactl.web.jobs import player_sessions as player_session_jobs
+from armactl.web.jobs import store as job_store
 from armactl.web.services import player_current_cache, player_registry, player_sources
 from armactl.web.services.player_identity import normalize_player_query, safe_player_text
 
@@ -86,6 +89,19 @@ PLAYER_SESSION_CONFIDENCE_LABELS = {
     player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM: "Medium",
     player_registry.PLAYER_SESSION_CONFIDENCE_LOW: "Low",
 }
+PLAYER_SESSION_OPERATOR_JOB_KINDS = frozenset(
+    {
+        player_session_jobs.PLAYER_LIVE_SESSION_SCAN_JOB_KIND,
+        player_session_jobs.PLAYER_LOG_SESSIONIZATION_JOB_KIND,
+        player_session_jobs.PLAYER_SESSION_MAINTENANCE_JOB_KIND,
+    }
+)
+PLAYER_SESSION_ACTIVE_JOB_STATUSES = frozenset(
+    {
+        job_models.JOB_STATUS_QUEUED,
+        job_models.JOB_STATUS_RUNNING,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -177,6 +193,16 @@ class PlayerHistoryPage:
 
 
 @dataclass(frozen=True)
+class PlayerSessionJobIndicator:
+    """Safe active job indicator for player-session operator UX."""
+
+    job_id: int
+    kind: str
+    status: str
+    jobs_url: str = "/jobs#background-jobs"
+
+
+@dataclass(frozen=True)
 class PlayerSessionsPage:
     """Read-only stored player sessions page model."""
 
@@ -188,6 +214,8 @@ class PlayerSessionsPage:
     source: str
     limit: int
     sessions: tuple[player_registry.PlayerSessionRecord, ...]
+    summary: player_registry.PlayerSessionSummary
+    active_jobs: tuple[PlayerSessionJobIndicator, ...]
     status_options: tuple[tuple[str, str], ...]
     status_labels: dict[str, str]
     end_reason_options: tuple[tuple[str, str], ...]
@@ -429,6 +457,33 @@ def load_player_history_page(
     )
 
 
+def _player_session_job_indicator(
+    job: job_models.JobRecord,
+) -> PlayerSessionJobIndicator | None:
+    if job.kind not in PLAYER_SESSION_OPERATOR_JOB_KINDS:
+        return None
+    if job.status not in PLAYER_SESSION_ACTIVE_JOB_STATUSES:
+        return None
+    return PlayerSessionJobIndicator(
+        job_id=int(job.id),
+        kind=job.kind,
+        status=job.status,
+    )
+
+
+def _load_active_player_session_jobs(
+    web_db_path: Path | None,
+) -> tuple[PlayerSessionJobIndicator, ...]:
+    if web_db_path is None:
+        return ()
+    try:
+        active_jobs = job_store.list_active_jobs(web_db_path, limit=25)
+    except job_store.JobStoreError:
+        return ()
+    indicators = (_player_session_job_indicator(job) for job in active_jobs)
+    return tuple(indicator for indicator in indicators if indicator is not None)
+
+
 def load_player_sessions_page(
     instance: str = paths.DEFAULT_INSTANCE_NAME,
     *,
@@ -439,6 +494,7 @@ def load_player_sessions_page(
     end_reason: str = "",
     source: str = "",
     limit: object = player_registry.DEFAULT_PLAYER_SESSION_LIST_LIMIT,
+    web_db_path: Path | None = None,
 ) -> PlayerSessionsPage:
     """Return stored player sessions without mutating persistent state."""
     normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
@@ -478,6 +534,8 @@ def load_player_sessions_page(
                 source=normalized_source,
             )
         ),
+        summary=player_registry.summarize_player_sessions(registry_path),
+        active_jobs=_load_active_player_session_jobs(web_db_path),
         status_options=PLAYER_SESSION_STATUS_OPTIONS,
         status_labels=PLAYER_SESSION_STATUS_LABELS,
         end_reason_options=PLAYER_SESSION_END_REASON_OPTIONS,

@@ -1989,6 +1989,7 @@ def test_player_sessions_route_is_read_only_and_does_not_load_current_cache(
     from armactl.web.services import (
         player_current_cache,
         player_live_session_scanner,
+        player_registry,
         player_sources,
     )
 
@@ -2013,6 +2014,13 @@ def test_player_sessions_route_is_read_only_and_does_not_load_current_cache(
             AssertionError("sessions page must not query current roster")
         ),
     )
+    monkeypatch.setattr(
+        player_registry,
+        "ensure_player_registry_db",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("sessions page must not create players.db")
+        ),
+    )
     client = _authed_client(tmp_path, monkeypatch)
     db_path = tmp_path / "default" / "players.db"
 
@@ -2020,7 +2028,86 @@ def test_player_sessions_route_is_read_only_and_does_not_load_current_cache(
 
     assert response.status_code == 200
     assert "No player sessions recorded yet." in response.text
+    assert 'data-player-session-summary' in response.text
+    assert 'data-summary-open-count="0"' in response.text
+    assert 'data-summary-closed-count="0"' in response.text
+    assert 'data-summary-inferred-stale-count="0"' in response.text
+    assert 'data-summary-latest-observed=""' in response.text
     assert not db_path.exists()
+
+
+def test_player_sessions_summary_counts_existing_sessions_read_only(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_BRAVO_ID,
+        display_name="Bravo One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T12:05:00+00:00",
+    )
+    player_registry.close_player_session(
+        db_path,
+        reliable_id=PLAYER_BRAVO_ID,
+        close_observed_at="2026-06-16T12:10:00+00:00",
+        source=player_registry.PLAYER_SESSION_SOURCE_NETWORK_PLAYER_UPDATE,
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM,
+        end_reason=player_registry.PLAYER_SESSION_END_REASON_DISCONNECT,
+    )
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_CHARLIE_ID,
+        display_name="Charlie One",
+        source=player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER,
+        observed_at="2026-06-16T12:20:00+00:00",
+    )
+    player_registry.close_player_session(
+        db_path,
+        reliable_id=PLAYER_CHARLIE_ID,
+        close_observed_at="2026-06-16T12:30:00+00:00",
+        source=player_registry.PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_LOW,
+        end_reason=player_registry.PLAYER_SESSION_END_REASON_STALE_ABSENCE,
+    )
+    with sqlite3.connect(db_path) as connection:
+        before_rows = connection.execute(
+            """
+            SELECT session_id, status, end_reason, updated_at
+            FROM player_sessions
+            ORDER BY session_id
+            """
+        ).fetchall()
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get("/players/sessions", follow_redirects=False)
+
+    with sqlite3.connect(db_path) as connection:
+        after_rows = connection.execute(
+            """
+            SELECT session_id, status, end_reason, updated_at
+            FROM player_sessions
+            ORDER BY session_id
+            """
+        ).fetchall()
+    assert response.status_code == 200
+    html = response.text
+    assert 'data-summary-open-count="1"' in html
+    assert 'data-summary-closed-count="2"' in html
+    assert 'data-summary-inferred-stale-count="1"' in html
+    assert 'data-summary-latest-observed="2026-06-16T12:30:00+00:00"' in html
+    assert 'datetime="2026-06-16T12:30:00+00:00"' in html
+    assert after_rows == before_rows
 
 
 def test_player_sessions_route_renders_filtered_sanitized_session_fields(

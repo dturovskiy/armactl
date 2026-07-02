@@ -368,6 +368,7 @@ def _render_player_sessions_page(
         end_reason=request.query_params.get("end_reason", ""),
         source=request.query_params.get("source", ""),
         limit=request.query_params.get("limit", ""),
+        web_db_path=current.config.db_path,
     )
     form_csrf = get_form_csrf_token(request, current)
     response = request.app.state.templates.TemplateResponse(

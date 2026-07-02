@@ -335,6 +335,79 @@ def test_session_get_pages_render_controls_without_enqueueing_jobs(
     assert list_recent_jobs(tmp_path / "web" / "web.db") == []
 
 
+def test_session_page_renders_active_job_indicators_with_safe_fields(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from armactl.web.jobs import (
+        append_job_output,
+        create_job,
+        mark_job_running,
+        mark_job_succeeded,
+    )
+
+    _patch_session_workers(monkeypatch)
+    client = _setup_owner_client(tmp_path)
+    db_path = tmp_path / "web" / "web.db"
+    running_job = create_job(
+        db_path,
+        kind="players:scan-live-sessions",
+        requested_by_username="owner",
+        current_step="scan raw-secret /home/deus/private.log",
+    )
+    mark_job_running(
+        db_path,
+        running_job.id,
+        current_step="running raw-secret 198.51.100.44",
+    )
+    append_job_output(
+        db_path,
+        running_job.id,
+        stdout="stdout raw-secret /home/deus/private.log",
+        stderr="stderr token=raw-token",
+    )
+    queued_job = create_job(
+        db_path,
+        kind="players:sessionize-log-events",
+        requested_by_username="owner",
+    )
+    finished_job = create_job(
+        db_path,
+        kind="players:session-maintenance",
+        requested_by_username="owner",
+    )
+    mark_job_running(db_path, finished_job.id)
+    mark_job_succeeded(db_path, finished_job.id, result_message="done raw-secret")
+    create_job(
+        db_path,
+        kind="players:refresh-current",
+        requested_by_username="owner",
+    )
+
+    response = client.get("/players/sessions", follow_redirects=False)
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Active session jobs" in html
+    assert 'href="/jobs#background-jobs"' in html
+    assert f'data-active-session-job-id="{running_job.id}"' in html
+    assert f'data-active-session-job-id="{queued_job.id}"' in html
+    assert f">#{running_job.id}</a>" in html
+    assert f">#{queued_job.id}</a>" in html
+    assert "players:scan-live-sessions" in html
+    assert "players:sessionize-log-events" in html
+    assert "players:session-maintenance" not in html
+    assert "players:refresh-current" not in html
+    assert "running" in html
+    assert "queued" in html
+    assert "raw-secret" not in html
+    assert "raw-token" not in html
+    assert "198.51.100.44" not in html
+    assert "/home/deus" not in html
+    assert "Last stdout lines" not in html
+    assert "Current step" not in html
+
+
 def test_jobs_page_labels_player_session_jobs_human_readable(tmp_path: Path) -> None:
     from armactl.web.app import create_app
     from armactl.web.jobs import create_job
