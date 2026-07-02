@@ -14,6 +14,22 @@ from armactl.web.auth.users import get_user_by_username
 from armactl.web.i18n import LANGUAGE_COOKIE_NAME
 
 
+def test_hidden_attribute_has_global_css_rule() -> None:
+    css_path = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "armactl"
+        / "web"
+        / "static"
+        / "css"
+        / "app.css"
+    )
+    css = css_path.read_text()
+
+    assert "[hidden]" in css
+    assert "display: none !important;" in css
+
+
 def _management_state(*, has_config: bool = True) -> ServerState:
     if not has_config:
         return ServerState()
