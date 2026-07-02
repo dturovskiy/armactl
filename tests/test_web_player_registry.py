@@ -1946,6 +1946,65 @@ def test_player_get_routes_do_not_write_player_sessions(
     assert _player_session_count(db_path) == 0
 
 
+def test_player_read_routes_do_not_start_session_scanner_sessionizer_or_maintenance(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.jobs import player_sessions
+    from armactl.web.services import (
+        player_live_session_scanner,
+        player_registry,
+        player_sessionizer,
+        player_sources,
+    )
+
+    def fail_session_job(*args, **kwargs):
+        raise AssertionError("GET routes must not start session jobs")
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _roster(_current_player("Live Alpha", PLAYER_ALPHA_ID)),
+    )
+    monkeypatch.setattr(
+        player_live_session_scanner,
+        "scan_live_player_sessions_once",
+        fail_session_job,
+    )
+    monkeypatch.setattr(
+        player_sessionizer,
+        "sessionize_stored_player_log_events",
+        fail_session_job,
+    )
+    monkeypatch.setattr(
+        player_registry,
+        "close_stale_open_player_sessions",
+        fail_session_job,
+    )
+    monkeypatch.setattr(
+        player_registry,
+        "cleanup_player_sessions_by_retention",
+        fail_session_job,
+    )
+    for worker_attr in (
+        "start_player_live_session_scan_worker",
+        "start_player_log_sessionization_worker",
+        "start_player_session_maintenance_worker",
+    ):
+        monkeypatch.setattr(player_sessions, worker_attr, fail_session_job)
+
+    client = _authed_client(tmp_path, monkeypatch)
+
+    current_response = client.get("/players", follow_redirects=False)
+    current_json_response = client.get("/players/current.json", follow_redirects=False)
+    sessions_response = client.get("/players/sessions", follow_redirects=False)
+
+    assert current_response.status_code == 200
+    assert current_json_response.status_code == 200
+    assert sessions_response.status_code == 200
+    assert _player_session_count(tmp_path / "default" / "players.db") == 0
+
+
 def test_player_get_routes_do_not_close_existing_player_sessions(
     tmp_path: Path,
     monkeypatch,
