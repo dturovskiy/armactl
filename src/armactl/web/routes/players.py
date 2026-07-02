@@ -24,7 +24,13 @@ from armactl.web.auth.dependencies import (
 )
 from armactl.web.auth.permissions import PLAYERS_VIEW
 from armactl.web.page_models import players as players_page_model
-from armactl.web.services import player_current_refresh, player_log_collection
+from armactl.web.services import (
+    player_current_refresh,
+    player_live_session_scan,
+    player_log_collection,
+    player_log_sessionization,
+    player_session_maintenance,
+)
 
 router = APIRouter()
 
@@ -173,6 +179,133 @@ def _collection_notice_from_query(request: Request) -> dict[str, str] | None:
     return None
 
 
+_SESSION_JOB_NOTICES = {
+    "live-scan": {
+        "queued": {
+            "level": "success",
+            "title": "Live player session scan queued.",
+            "message": "Current roster will be scanned once in the background.",
+        },
+        "active": {
+            "level": "warning",
+            "title": "Live player session scan already running.",
+            "message": (
+                "No duplicate job was created; the active scan is already queued or running."
+            ),
+        },
+        "failed": {
+            "level": "error",
+            "title": "Live player session scan was not queued.",
+            "message": "Audit logging failed before the job could be queued.",
+        },
+    },
+    "log-sessionization": {
+        "queued": {
+            "level": "success",
+            "title": "Player log sessionization queued.",
+            "message": "Stored player log events will be sessionized in the background.",
+        },
+        "active": {
+            "level": "warning",
+            "title": "Player log sessionization already running.",
+            "message": (
+                "No duplicate job was created; the active sessionization job "
+                "is already queued or running."
+            ),
+        },
+        "failed": {
+            "level": "error",
+            "title": "Player log sessionization was not queued.",
+            "message": "Audit logging failed before the job could be queued.",
+        },
+    },
+    "maintenance": {
+        "queued": {
+            "level": "success",
+            "title": "Player session maintenance queued.",
+            "message": "Stale-close and retention maintenance will run in the background.",
+        },
+        "active": {
+            "level": "warning",
+            "title": "Player session maintenance already running.",
+            "message": (
+                "No duplicate job was created; active session maintenance "
+                "is already queued or running."
+            ),
+        },
+        "failed": {
+            "level": "error",
+            "title": "Player session maintenance was not queued.",
+            "message": "Audit logging failed before the job could be queued.",
+        },
+    },
+}
+
+
+def _player_session_job_notice_url(
+    action: str,
+    notice_type: str,
+    *,
+    job_id: int | None = None,
+) -> str:
+    location = f"/players/sessions?session_job={action}&job_status={notice_type}"
+    if job_id is not None:
+        location = f"{location}&job_id={job_id}"
+    return location
+
+
+def _session_job_notice_from_query(request: Request) -> dict[str, str] | None:
+    action = request.query_params.get("session_job", "")
+    notice_type = request.query_params.get("job_status", "")
+    return _SESSION_JOB_NOTICES.get(action, {}).get(notice_type)
+
+
+def _enqueue_session_operator_job(
+    request: Request,
+    csrf_token: str,
+    *,
+    action: str,
+    enqueue,
+) -> Response:
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, PLAYERS_VIEW):
+        return permission_denied_response()
+    if not validate_csrf_token(current.config.db_path, current.session.id, csrf_token):
+        return PlainTextResponse(
+            "Invalid CSRF token.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+    try:
+        result = enqueue(
+            current.config.db_path,
+            audit_log_path=current.config.audit_log_path,
+            username=current.user.username,
+            user_id=current.user.id,
+        )
+    except (
+        player_live_session_scan.PlayerLiveSessionScanActionAuditError,
+        player_log_sessionization.PlayerLogSessionizationActionAuditError,
+        player_session_maintenance.PlayerSessionMaintenanceActionAuditError,
+    ):
+        return RedirectResponse(
+            _player_session_job_notice_url(action, "failed"),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    notice_type = "queued" if result.created else "active"
+    return RedirectResponse(
+        _player_session_job_notice_url(
+            action,
+            notice_type,
+            job_id=result.job.id,
+        ),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 def _render_player_history_page(
     request: Request,
     current: CurrentSession,
@@ -251,6 +384,7 @@ def _render_player_sessions_page(
             "source": page.source,
             "limit": page.limit,
             "sessions": page.sessions,
+            "session_job_notice": _session_job_notice_from_query(request),
         },
         status_code=status_code,
     )
@@ -395,4 +529,46 @@ def collect_player_history_logs(
     return RedirectResponse(
         f"/players/history?log_collection={notice}&job_id={result.job.id}",
         status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/players/sessions/scan-live", response_class=HTMLResponse)
+def scan_live_player_sessions(
+    request: Request,
+    csrf_token: str = Form(default=""),
+) -> Response:
+    """Queue one explicit live player-session scan."""
+    return _enqueue_session_operator_job(
+        request,
+        csrf_token,
+        action="live-scan",
+        enqueue=player_live_session_scan.request_player_live_session_scan_and_start,
+    )
+
+
+@router.post("/players/sessions/sessionize-log-events", response_class=HTMLResponse)
+def sessionize_player_log_events(
+    request: Request,
+    csrf_token: str = Form(default=""),
+) -> Response:
+    """Queue stored-log player-session sessionization."""
+    return _enqueue_session_operator_job(
+        request,
+        csrf_token,
+        action="log-sessionization",
+        enqueue=player_log_sessionization.request_player_log_sessionization_and_start,
+    )
+
+
+@router.post("/players/sessions/maintenance", response_class=HTMLResponse)
+def maintain_player_sessions(
+    request: Request,
+    csrf_token: str = Form(default=""),
+) -> Response:
+    """Queue explicit player-session stale-close and retention maintenance."""
+    return _enqueue_session_operator_job(
+        request,
+        csrf_token,
+        action="maintenance",
+        enqueue=player_session_maintenance.request_player_session_maintenance_and_start,
     )

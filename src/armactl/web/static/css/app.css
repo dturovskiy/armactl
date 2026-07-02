@@ -1066,6 +1066,27 @@ button.danger {
   margin-bottom: 16px;
 }
 
+.player-session-job-notice {
+  margin-bottom: 16px;
+}
+
+.player-session-operator-panel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.player-session-job-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.player-session-job-form {
+  display: flex;
+  margin: 0;
+}
+
 .player-history-action-row {
   display: flex;
   flex-wrap: wrap;

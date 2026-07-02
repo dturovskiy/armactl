@@ -31,6 +31,15 @@
 {% endblock %}
 {% block content %}
 <section class="panel full-width player-history-panel">
+  {% if session_job_notice %}
+    <section class="notice-panel notice-{{ session_job_notice.level }} full-width player-session-job-notice">
+      <h2>{{ t(session_job_notice.title) }}</h2>
+      <p>{{ t(session_job_notice.message) }}</p>
+      <p>
+        <a class="button-link secondary-link" href="/jobs">{{ t("Open background jobs") }}</a>
+      </p>
+    </section>
+  {% endif %}
   <nav class="player-section-tabs" aria-label="{{ t('Player sections') }}">
     <a class="player-section-tab" href="/players">{{ t("Current Players") }}</a>
     <a class="player-section-tab" href="/players/known">{{ t("Known Players") }}</a>
@@ -38,6 +47,27 @@
     <a class="player-section-tab" href="/players/history">{{ t("Player Events") }}</a>
     <span class="player-section-tab disabled">{{ t("Ban list") }} · {{ t("Planned") }}</span>
   </nav>
+
+  <section class="player-session-operator-panel" aria-labelledby="player-session-operator-heading">
+    <div class="section-heading-row">
+      <h2 id="player-session-operator-heading">{{ t("Manual session jobs") }}</h2>
+      <a class="button-link secondary-link" href="/jobs">{{ t("Open background jobs") }}</a>
+    </div>
+    <div class="player-session-job-actions">
+      <form method="post" action="/players/sessions/scan-live" class="player-session-job-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">{{ t("Scan live player sessions") }}</button>
+      </form>
+      <form method="post" action="/players/sessions/sessionize-log-events" class="player-session-job-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">{{ t("Sessionize player log events") }}</button>
+      </form>
+      <form method="post" action="/players/sessions/maintenance" class="player-session-job-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">{{ t("Run session maintenance") }}</button>
+      </form>
+    </div>
+  </section>
 
   <div class="section-heading-row">
     <h2>{{ t("Player sessions") }}</h2>
