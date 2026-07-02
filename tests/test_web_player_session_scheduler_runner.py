@@ -37,6 +37,10 @@ def _table_count(db_path: Path, table: str) -> int:
     return int(row[0])
 
 
+def _job_count(db_path: Path) -> int:
+    return _table_count(db_path, "web_jobs")
+
+
 def _scheduler_db_text(db_path: Path) -> str:
     with sqlite3.connect(db_path) as connection:
         rows = connection.execute(f"SELECT * FROM {STATE_TABLE}").fetchall()
@@ -248,6 +252,171 @@ def test_scheduler_state_stores_no_raw_sensitive_fields(
         "token=",
     ):
         assert forbidden not in stored_text
+
+
+def test_players_sessions_scheduler_status_cli_missing_and_empty_state_is_read_only(
+    tmp_path: Path,
+) -> None:
+    missing_root = tmp_path / "missing"
+
+    missing = CliRunner().invoke(
+        main,
+        [
+            "players",
+            "sessions",
+            "scheduler",
+            "status",
+            "--data-root",
+            str(missing_root),
+        ],
+    )
+
+    assert missing.exit_code == 0
+    assert "Player session scheduler status (read-only)." in missing.output
+    assert "empty (web_db_missing)" in missing.output
+    assert "no service, timer, or daemon is installed/enabled" in missing.output
+    for job_kind in policy.AUTOMATIC_SESSION_JOB_KINDS:
+        assert job_kind in missing.output
+    assert not (missing_root / "web" / "web.db").exists()
+    assert not (missing_root / "default" / "players.db").exists()
+
+    empty_root = tmp_path / "empty"
+    empty_db_path = _web_db(empty_root)
+    ensure_web_db(empty_db_path)
+
+    empty = CliRunner().invoke(
+        main,
+        [
+            "players",
+            "sessions",
+            "scheduler",
+            "status",
+            "--data-root",
+            str(empty_root),
+        ],
+    )
+
+    assert empty.exit_code == 0
+    assert "empty (no_rows)" in empty.output
+    assert "State rows:     0" in empty.output
+    assert _job_count(empty_db_path) == 0
+    assert not (empty_root / "default" / "players.db").exists()
+
+
+def test_players_sessions_scheduler_status_cli_after_run_once_does_not_enqueue(
+    tmp_path: Path,
+) -> None:
+    run_result = CliRunner().invoke(
+        main,
+        [
+            "players",
+            "sessions",
+            "scheduler",
+            "run",
+            "--once",
+            "--data-root",
+            str(tmp_path),
+        ],
+    )
+    assert run_result.exit_code == 0
+
+    db_path = _web_db(tmp_path)
+    before_count = _job_count(db_path)
+    status_result = CliRunner().invoke(
+        main,
+        [
+            "players",
+            "sessions",
+            "scheduler",
+            "status",
+            "--data-root",
+            str(tmp_path),
+        ],
+    )
+
+    assert status_result.exit_code == 0
+    assert "available (ok)" in status_result.output
+    assert f"State rows:     {len(policy.AUTOMATIC_SESSION_JOB_KINDS)}" in status_result.output
+    for job_kind in policy.AUTOMATIC_SESSION_JOB_KINDS:
+        assert job_kind in status_result.output
+    assert "not due" in status_result.output
+    assert _job_count(db_path) == before_count
+
+    second_status = CliRunner().invoke(
+        main,
+        [
+            "players",
+            "sessions",
+            "scheduler",
+            "status",
+            "--data-root",
+            str(tmp_path),
+        ],
+    )
+
+    assert second_status.exit_code == 0
+    assert _job_count(db_path) == before_count
+
+
+def test_players_sessions_scheduler_status_cli_outputs_only_safe_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path = _web_db(tmp_path)
+
+    def fail_enqueue(_db_path: Path, _instance: str):
+        raise RuntimeError(
+            "raw line token=raw-secret 198.51.100.9 /home/deus/private.log raw_rcon_row"
+        )
+
+    monkeypatch.setitem(
+        runner._ENQUEUE_BY_KIND,
+        "players:scan-live-sessions",
+        fail_enqueue,
+    )
+    runner.run_player_session_scheduler_once(db_path, now=NOW)
+
+    text_result = CliRunner().invoke(
+        main,
+        [
+            "players",
+            "sessions",
+            "scheduler",
+            "status",
+            "--data-root",
+            str(tmp_path),
+        ],
+    )
+    json_result = CliRunner().invoke(
+        main,
+        [
+            "--json-output",
+            "players",
+            "sessions",
+            "scheduler",
+            "status",
+            "--data-root",
+            str(tmp_path),
+        ],
+    )
+
+    assert text_result.exit_code == 0
+    assert json_result.exit_code == 0
+    for output in (text_result.output, json_result.output):
+        for forbidden in (
+            "raw-secret",
+            "198.51.100.9",
+            "/home/deus/private.log",
+            "raw_rcon_row",
+            "token=",
+            "source_ref",
+            "public_player_id",
+            "job_id",
+            "stdout",
+            "stderr",
+            "error_message",
+        ):
+            assert forbidden not in output
 
 
 def test_players_sessions_scheduler_run_once_cli_is_explicit_opt_in(

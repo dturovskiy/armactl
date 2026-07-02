@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Final
+from urllib.parse import quote
 
 from armactl import paths
 from armactl.web.jobs.models import JobRecord
@@ -51,6 +52,56 @@ class PlayerSessionSchedulerState:
             "next_due_at": self.next_due_at,
             "failure_count": self.failure_count,
             "updated_at": self.updated_at,
+        }
+
+
+@dataclass(frozen=True)
+class PlayerSessionSchedulerStatusJob:
+    """Read-only scheduler status for one allowed job kind."""
+
+    job_kind: str
+    last_attempt_at: str
+    last_success_at: str
+    last_failure_at: str
+    next_due_at: str
+    failure_count: int
+    due: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "job_kind": self.job_kind,
+            "last_attempt_at": self.last_attempt_at,
+            "last_success_at": self.last_success_at,
+            "last_failure_at": self.last_failure_at,
+            "next_due_at": self.next_due_at,
+            "failure_count": self.failure_count,
+            "due": self.due,
+        }
+
+
+@dataclass(frozen=True)
+class PlayerSessionSchedulerStatus:
+    """Safe read-only scheduler status for operator visibility."""
+
+    instance: str
+    checked_at: str
+    state: str
+    reason: str
+    state_row_count: int
+    jobs: tuple[PlayerSessionSchedulerStatusJob, ...]
+    automatic_scheduler_enabled: bool = False
+    service_timer_daemon_enabled: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "instance": self.instance,
+            "checked_at": self.checked_at,
+            "state": self.state,
+            "reason": self.reason,
+            "state_row_count": self.state_row_count,
+            "automatic_scheduler_enabled": self.automatic_scheduler_enabled,
+            "service_timer_daemon_enabled": self.service_timer_daemon_enabled,
+            "jobs": [job.to_dict() for job in self.jobs],
         }
 
 
@@ -233,6 +284,165 @@ def list_player_session_scheduler_state(
             (normalized_instance,),
         ).fetchall()
     return tuple(_state_from_row(row) for row in rows)
+
+
+def _readonly_db_uri(db_path: Path) -> str:
+    quoted_path = quote(str(db_path), safe="/")
+    return f"file:{quoted_path}?mode=ro"
+
+
+def _status_job_from_state(
+    job_policy: player_session_scheduler_policy.AutomaticSessionJobPolicy,
+    state: PlayerSessionSchedulerState | None,
+    *,
+    now: datetime,
+) -> PlayerSessionSchedulerStatusJob:
+    return PlayerSessionSchedulerStatusJob(
+        job_kind=job_policy.job_kind,
+        last_attempt_at=state.last_attempt_at if state is not None else "",
+        last_success_at=state.last_success_at if state is not None else "",
+        last_failure_at=state.last_failure_at if state is not None else "",
+        next_due_at=state.next_due_at if state is not None else "",
+        failure_count=state.failure_count if state is not None else 0,
+        due=_is_due(state, now=now),
+    )
+
+
+def _status_from_states(
+    *,
+    instance: str,
+    checked_at: datetime,
+    states_by_kind: dict[str, PlayerSessionSchedulerState],
+    reason: str,
+) -> PlayerSessionSchedulerStatus:
+    allowed_kinds = set(player_session_scheduler_policy.AUTOMATIC_SESSION_JOB_KINDS)
+    filtered_states = {
+        job_kind: state
+        for job_kind, state in states_by_kind.items()
+        if job_kind in allowed_kinds
+    }
+    state_row_count = len(filtered_states)
+    state_name = "available" if state_row_count else "empty"
+    status_reason = reason
+    if reason == "ok" and not state_row_count:
+        status_reason = "no_rows"
+    jobs = tuple(
+        _status_job_from_state(
+            job_policy,
+            filtered_states.get(job_policy.job_kind),
+            now=checked_at,
+        )
+        for job_policy in player_session_scheduler_policy.AUTOMATIC_SESSION_JOB_POLICIES
+    )
+    return PlayerSessionSchedulerStatus(
+        instance=instance,
+        checked_at=_datetime_text(checked_at),
+        state=state_name,
+        reason=status_reason,
+        state_row_count=state_row_count,
+        automatic_scheduler_enabled=bool(
+            player_session_scheduler_policy.AUTOMATIC_SESSION_SCHEDULER_ENABLED
+        ),
+        service_timer_daemon_enabled=False,
+        jobs=jobs,
+    )
+
+
+def _empty_status(
+    *,
+    instance: str,
+    checked_at: datetime,
+    reason: str,
+    state: str = "empty",
+) -> PlayerSessionSchedulerStatus:
+    status = _status_from_states(
+        instance=instance,
+        checked_at=checked_at,
+        states_by_kind={},
+        reason=reason,
+    )
+    return PlayerSessionSchedulerStatus(
+        instance=status.instance,
+        checked_at=status.checked_at,
+        state=state,
+        reason=reason,
+        state_row_count=0,
+        automatic_scheduler_enabled=status.automatic_scheduler_enabled,
+        service_timer_daemon_enabled=status.service_timer_daemon_enabled,
+        jobs=status.jobs,
+    )
+
+
+def read_player_session_scheduler_status(
+    db_path: Path,
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    now: datetime | None = None,
+) -> PlayerSessionSchedulerStatus:
+    """Return safe scheduler status without creating or mutating web.db."""
+    normalized_instance = _safe_instance(instance)
+    checked_at = now.astimezone(timezone.utc) if now is not None else _utc_now()
+    try:
+        db_exists = db_path.is_file()
+    except OSError:
+        db_exists = False
+    if not db_exists:
+        return _empty_status(
+            instance=normalized_instance,
+            checked_at=checked_at,
+            reason="web_db_missing",
+        )
+
+    try:
+        connection = sqlite3.connect(_readonly_db_uri(db_path), uri=True)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA query_only = ON")
+        table_row = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = ? AND name = ?",
+            ("table", _STATE_TABLE),
+        ).fetchone()
+        if table_row is None:
+            return _empty_status(
+                instance=normalized_instance,
+                checked_at=checked_at,
+                reason="state_table_missing",
+            )
+        placeholders = ", ".join(
+            "?" for _ in player_session_scheduler_policy.AUTOMATIC_SESSION_JOB_KINDS
+        )
+        rows = connection.execute(
+            f"""
+            SELECT instance, job_kind, last_attempt_at, last_success_at,
+                   last_failure_at, next_due_at, failure_count, updated_at
+            FROM {_STATE_TABLE}
+            WHERE instance = ? AND job_kind IN ({placeholders})
+            ORDER BY job_kind ASC
+            """,
+            (
+                normalized_instance,
+                *player_session_scheduler_policy.AUTOMATIC_SESSION_JOB_KINDS,
+            ),
+        ).fetchall()
+    except (OSError, RuntimeError, sqlite3.Error):
+        return _empty_status(
+            instance=normalized_instance,
+            checked_at=checked_at,
+            reason="state_unavailable",
+            state="unavailable",
+        )
+    finally:
+        try:
+            connection.close()
+        except (NameError, sqlite3.Error):
+            pass
+
+    states_by_kind = {str(row["job_kind"] or ""): _state_from_row(row) for row in rows}
+    return _status_from_states(
+        instance=normalized_instance,
+        checked_at=checked_at,
+        states_by_kind=states_by_kind,
+        reason="ok",
+    )
 
 
 def _write_state(

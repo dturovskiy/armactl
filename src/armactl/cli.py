@@ -1122,6 +1122,34 @@ def _format_player_session_scheduler_run_result(result) -> str:
     return "\n".join(lines)
 
 
+def _format_player_session_scheduler_status(status) -> str:
+    def timestamp(value: str) -> str:
+        return value or "-"
+
+    lines = [
+        "Player session scheduler status (read-only).",
+        f"  Instance:       {status.instance}",
+        f"  Checked at:     {status.checked_at}",
+        f"  State:          {status.state} ({status.reason})",
+        f"  State rows:     {status.state_row_count}",
+        "  Auto scheduler: disabled"
+        if not status.automatic_scheduler_enabled
+        else "  Auto scheduler: enabled",
+        "  Service mode:   no service, timer, or daemon is installed/enabled.",
+    ]
+    for job in status.jobs:
+        due_text = "due" if job.due else "not due"
+        lines.append(
+            f"  - {job.job_kind}: {due_text}; "
+            f"last attempt {timestamp(job.last_attempt_at)}; "
+            f"last success {timestamp(job.last_success_at)}; "
+            f"last failure {timestamp(job.last_failure_at)}; "
+            f"next due {timestamp(job.next_due_at)}; "
+            f"failures {job.failure_count}"
+        )
+    return "\n".join(lines)
+
+
 @players.group("sessions")
 def players_sessions() -> None:
     """Manage explicit player-session tools."""
@@ -1130,6 +1158,36 @@ def players_sessions() -> None:
 @players_sessions.group("scheduler")
 def players_sessions_scheduler() -> None:
     """Manage the opt-in player-session scheduler runner."""
+
+
+@players_sessions_scheduler.command("status")
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Optional armactl data root containing web.db.",
+)
+@click.pass_context
+def players_sessions_scheduler_status(
+    ctx: click.Context,
+    data_root: Path | None,
+) -> None:
+    """Show read-only player-session scheduler state."""
+    from armactl.web.runtime import web_db_file
+    from armactl.web.services.player_session_scheduler_runner import (
+        read_player_session_scheduler_status,
+    )
+
+    root = data_root or paths.DEFAULT_DATA_ROOT
+    status = read_player_session_scheduler_status(
+        web_db_file(root),
+        instance=ctx.obj["instance"],
+    )
+
+    if ctx.obj["json"]:
+        click.echo(json.dumps(status.to_dict(), indent=2))
+    else:
+        click.echo(_format_player_session_scheduler_status(status))
 
 
 @players_sessions_scheduler.command("run")
