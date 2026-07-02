@@ -1,0 +1,151 @@
+{% extends "layout.html" %}
+{% macro local_time(timestamp) -%}
+  {% if timestamp %}
+    <time data-local-time datetime="{{ timestamp }}" title="{{ timestamp }}">{{ timestamp[:16]|replace("T", " ") }}</time>
+  {% else %}
+    <span class="muted">-</span>
+  {% endif %}
+{%- endmacro %}
+{% macro source_line(label, source, confidence) -%}
+  {% if source %}
+    <span class="player-diagnostic-line">
+      <strong>{{ t(label) }}:</strong>
+      <span>{{ t(page.source_labels.get(source, source)) }}</span>
+      {% if confidence %}
+        <span class="muted">({{ t(page.confidence_labels.get(confidence, confidence)) }})</span>
+      {% endif %}
+    </span>
+  {% endif %}
+{%- endmacro %}
+{% block title %}{{ t("Players - armactl web") }}{% endblock %}
+{% block heading %}{{ t("Players") }}{% endblock %}
+{% block extra_scripts %}<script defer src="{{ url_for('static', path='/js/player_times.js') }}?v={{ web_static_version }}"></script>{% endblock %}
+{% block topbar_actions %}
+<a class="button-link secondary-link" href="/admins">{{ t("Admins") }}</a>
+<a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
+<form method="post" action="/logout" class="logout-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <span class="user-label">{{ current_user.username }}</span>
+  <button type="submit">{{ t("Log out") }}</button>
+</form>
+{% endblock %}
+{% block content %}
+<section class="panel full-width player-history-panel">
+  <nav class="player-section-tabs" aria-label="{{ t('Player sections') }}">
+    <a class="player-section-tab" href="/players">{{ t("Current Players") }}</a>
+    <a class="player-section-tab" href="/players/known">{{ t("Known Players") }}</a>
+    <a class="player-section-tab active" href="/players/sessions">{{ t("Player Sessions") }}</a>
+    <a class="player-section-tab" href="/players/history">{{ t("Player Events") }}</a>
+    <span class="player-section-tab disabled">{{ t("Ban list") }} · {{ t("Planned") }}</span>
+  </nav>
+
+  <div class="section-heading-row">
+    <h2>{{ t("Player sessions") }}</h2>
+    <span class="muted">{{ tr("Showing {count} session(s)", count=sessions|length) }}</span>
+  </div>
+
+  <form method="get" action="/players/sessions" class="player-search-form player-history-filter-form">
+    <div class="player-history-filter-grid">
+      <label>
+        <span>{{ t("Status") }}</span>
+        <select name="status">
+          {% for option_value, option_label in page.status_options %}
+            <option value="{{ option_value }}"{% if option_value == status %} selected{% endif %}>{{ t(option_label) }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>{{ t("End reason") }}</span>
+        <select name="end_reason">
+          {% for option_value, option_label in page.end_reason_options %}
+            <option value="{{ option_value }}"{% if option_value == end_reason %} selected{% endif %}>{{ t(option_label) }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>{{ t("Source") }}</span>
+        <select name="source">
+          {% for option_value, option_label in page.source_options %}
+            <option value="{{ option_value }}"{% if option_value == source %} selected{% endif %}>{{ t(option_label) }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>{{ t("Player ID") }}</span>
+        <input type="search" name="player_id" value="{{ player_id }}" autocomplete="off">
+      </label>
+      <label>
+        <span>{{ t("Name") }}</span>
+        <input type="search" name="q" value="{{ query }}" autocomplete="off">
+      </label>
+      <label>
+        <span>{{ t("Limit") }}</span>
+        <input type="number" name="limit" value="{{ limit }}" min="1" max="250" step="1">
+      </label>
+    </div>
+    <div class="form-actions">
+      <button type="submit">{{ t("Apply filters") }}</button>
+      <a class="button-link secondary-link" href="/players/sessions">{{ t("Clear") }}</a>
+    </div>
+  </form>
+
+  {% if sessions %}
+    <div class="player-table-wrap">
+      <table class="player-sessions-table">
+        <thead>
+          <tr>
+            <th>{{ t("Player") }}</th>
+            <th>{{ t("Player ID") }}</th>
+            <th>{{ t("Status") }}</th>
+            <th>{{ t("Observed") }}</th>
+            <th>{{ t("Last observed") }}</th>
+            <th>{{ t("Inferred close") }}</th>
+            <th>{{ t("Source") }}</th>
+            <th>{{ t("End reason") }}</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for session in sessions %}
+          <tr>
+            <td>
+              <strong class="wrap-value">{{ session.name_last }}</strong>
+              {% if session.name_at_open and session.name_at_open != session.name_last %}
+                <span class="player-row-subtle wrap-value">{{ t("First observed as") }}: {{ session.name_at_open }}</span>
+              {% endif %}
+            </td>
+            <td><span class="player-id-cell player-id-clip" title="{{ session.reliable_id }}">{{ session.reliable_id[:8] }}...{{ session.reliable_id[-5:] }}</span></td>
+            <td>
+              {% set status_label = page.status_labels.get(session.status, session.status or "Unknown") %}
+              <span class="status-pill {% if session.status == 'open' %}status-pill-ok{% else %}status-pill-warning{% endif %}">{{ t(status_label) }}</span>
+            </td>
+            <td>{{ local_time(session.open_observed_at) }}</td>
+            <td>{{ local_time(session.last_seen_at) }}</td>
+            <td>{{ local_time(session.close_observed_at) }}</td>
+            <td>
+              <div class="player-session-evidence-cell">
+                {{ source_line("Observed", session.open_source, session.open_confidence) }}
+                {{ source_line("Last observed", session.last_seen_source, session.last_seen_confidence) }}
+                {{ source_line("Inferred close", session.close_source, session.close_confidence) }}
+              </div>
+            </td>
+            <td>
+              {% if session.end_reason %}
+                <span class="wrap-value">{{ t(page.end_reason_labels.get(session.end_reason, session.end_reason)) }}</span>
+              {% else %}
+                <span class="muted">-</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% elif query or player_id or status or end_reason or source %}
+    <p class="muted">{{ t("No player sessions match filters.") }}</p>
+  {% else %}
+    <div class="notice-panel notice-unavailable">
+      <strong>{{ t("No player sessions recorded yet.") }}</strong>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

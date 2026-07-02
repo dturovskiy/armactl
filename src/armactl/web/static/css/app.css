@@ -1122,6 +1122,20 @@ button.danger {
 .player-registry-table th:nth-child(4) { width: 16%; }
 .player-registry-table th:nth-child(5) { width: 16%; }
 
+.player-sessions-table {
+  min-width: 1180px;
+  table-layout: fixed;
+}
+
+.player-sessions-table th:nth-child(1) { width: 18%; }
+.player-sessions-table th:nth-child(2) { width: 18%; }
+.player-sessions-table th:nth-child(3) { width: 9%; }
+.player-sessions-table th:nth-child(4),
+.player-sessions-table th:nth-child(5),
+.player-sessions-table th:nth-child(6) { width: 12%; }
+.player-sessions-table th:nth-child(7) { width: 25%; }
+.player-sessions-table th:nth-child(8) { width: 10%; }
+
 .player-current-table th:nth-child(4),
 .player-current-table th:nth-child(5),
 .player-current-table th:nth-child(6),
@@ -1200,6 +1214,12 @@ button.danger {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.player-session-evidence-cell {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
 }
 
 .player-event-detail-field,

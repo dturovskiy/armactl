@@ -36,6 +36,57 @@ PLAYER_HISTORY_MODE_OPTIONS = (
 )
 PLAYER_HISTORY_MODE_VALUES = frozenset(value for value, _label in PLAYER_HISTORY_MODE_OPTIONS)
 
+PLAYER_SESSION_STATUS_LABELS = {
+    player_registry.PLAYER_SESSION_STATUS_OPEN: "Open",
+    player_registry.PLAYER_SESSION_STATUS_CLOSED: "Closed",
+}
+PLAYER_SESSION_STATUS_OPTIONS = (
+    ("", "All statuses"),
+    *PLAYER_SESSION_STATUS_LABELS.items(),
+)
+PLAYER_SESSION_STATUS_VALUES = frozenset(
+    status for status, _label in PLAYER_SESSION_STATUS_OPTIONS if status
+)
+PLAYER_SESSION_END_REASON_LABELS = {
+    player_registry.PLAYER_SESSION_END_REASON_DISCONNECT: "Disconnect",
+    player_registry.PLAYER_SESSION_END_REASON_SERVER_BOUNDARY: "Server boundary",
+    player_registry.PLAYER_SESSION_END_REASON_STALE_TIMEOUT: "Stale timeout",
+    player_registry.PLAYER_SESSION_END_REASON_STALE_ABSENCE: "Stale absence",
+    player_registry.PLAYER_SESSION_END_REASON_SCANNER_CHECKPOINT: "Scanner checkpoint",
+    player_registry.PLAYER_SESSION_END_REASON_IMPORT_WINDOW: "Import window",
+    player_registry.PLAYER_SESSION_END_REASON_UNKNOWN: "Unknown",
+}
+PLAYER_SESSION_END_REASON_OPTIONS = (
+    ("", "All end reasons"),
+    *PLAYER_SESSION_END_REASON_LABELS.items(),
+)
+PLAYER_SESSION_END_REASON_VALUES = frozenset(
+    reason for reason, _label in PLAYER_SESSION_END_REASON_OPTIONS if reason
+)
+PLAYER_SESSION_SOURCE_LABELS = {
+    player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH: "Backend auth",
+    player_registry.PLAYER_SESSION_SOURCE_NETWORK_PLAYER_UPDATE: "Network player update",
+    player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER: "RCON roster",
+    player_registry.PLAYER_SESSION_SOURCE_SCRIPT_FACTION_JOIN: "Faction event",
+    player_registry.PLAYER_SESSION_SOURCE_SCRIPT_KILL: "Combat event",
+    player_registry.PLAYER_SESSION_SOURCE_SERVER_ADMIN_TOOLS_KILL: "ServerAdminTools event",
+    player_registry.PLAYER_SESSION_SOURCE_SERVICE_LIFECYCLE: "Service lifecycle",
+    player_registry.PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT: "Scanner checkpoint",
+    player_registry.PLAYER_SESSION_SOURCE_MANUAL_IMPORT: "Manual import",
+}
+PLAYER_SESSION_SOURCE_OPTIONS = (
+    ("", "All sources"),
+    *PLAYER_SESSION_SOURCE_LABELS.items(),
+)
+PLAYER_SESSION_SOURCE_VALUES = frozenset(
+    source for source, _label in PLAYER_SESSION_SOURCE_OPTIONS if source
+)
+PLAYER_SESSION_CONFIDENCE_LABELS = {
+    player_registry.PLAYER_SESSION_CONFIDENCE_HIGH: "High",
+    player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM: "Medium",
+    player_registry.PLAYER_SESSION_CONFIDENCE_LOW: "Low",
+}
+
 
 @dataclass(frozen=True)
 class ModerationPlayer:
@@ -123,6 +174,27 @@ class PlayerHistoryPage:
     event_type_options: tuple[tuple[str, str], ...]
     event_type_labels: dict[str, str]
     mode_options: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True)
+class PlayerSessionsPage:
+    """Read-only stored player sessions page model."""
+
+    instance: str
+    query: str
+    reliable_id: str
+    status: str
+    end_reason: str
+    source: str
+    limit: int
+    sessions: tuple[player_registry.PlayerSessionRecord, ...]
+    status_options: tuple[tuple[str, str], ...]
+    status_labels: dict[str, str]
+    end_reason_options: tuple[tuple[str, str], ...]
+    end_reason_labels: dict[str, str]
+    source_options: tuple[tuple[str, str], ...]
+    source_labels: dict[str, str]
+    confidence_labels: dict[str, str]
 
 
 def _moderation_player(player: player_sources.CurrentPlayer) -> ModerationPlayer:
@@ -291,6 +363,27 @@ def _normalize_history_mode(value: object) -> str:
     return PLAYER_HISTORY_MODE_PLAYER_EVENTS
 
 
+def _normalize_session_status(value: object) -> str:
+    candidate = safe_player_text(value, max_length=40)
+    if candidate in PLAYER_SESSION_STATUS_VALUES:
+        return candidate
+    return ""
+
+
+def _normalize_session_end_reason(value: object) -> str:
+    candidate = safe_player_text(value, max_length=80)
+    if candidate in PLAYER_SESSION_END_REASON_VALUES:
+        return candidate
+    return ""
+
+
+def _normalize_session_source(value: object) -> str:
+    candidate = safe_player_text(value, max_length=80)
+    if candidate in PLAYER_SESSION_SOURCE_VALUES:
+        return candidate
+    return ""
+
+
 def load_player_history_page(
     instance: str = paths.DEFAULT_INSTANCE_NAME,
     *,
@@ -333,4 +426,63 @@ def load_player_history_page(
         event_type_options=PLAYER_HISTORY_EVENT_TYPES,
         event_type_labels=PLAYER_HISTORY_EVENT_TYPE_LABELS,
         mode_options=PLAYER_HISTORY_MODE_OPTIONS,
+    )
+
+
+def load_player_sessions_page(
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    *,
+    data_root: Path = paths.DEFAULT_DATA_ROOT,
+    query: str = "",
+    reliable_id: str = "",
+    status: str = "",
+    end_reason: str = "",
+    source: str = "",
+    limit: object = player_registry.DEFAULT_PLAYER_SESSION_LIST_LIMIT,
+) -> PlayerSessionsPage:
+    """Return stored player sessions without mutating persistent state."""
+    normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
+    normalized_query = normalize_player_query(query)
+    normalized_reliable_id = safe_player_text(reliable_id, max_length=120)
+    normalized_status = _normalize_session_status(status)
+    normalized_end_reason = _normalize_session_end_reason(end_reason)
+    normalized_source = _normalize_session_source(source)
+    try:
+        normalized_limit = int(limit)
+    except (TypeError, ValueError):
+        normalized_limit = player_registry.DEFAULT_PLAYER_SESSION_LIST_LIMIT
+    normalized_limit = max(
+        1,
+        min(normalized_limit, player_registry.MAX_PLAYER_SESSION_LIST_LIMIT),
+    )
+    registry_path = player_registry.player_registry_db_path(
+        normalized_instance,
+        data_root=data_root,
+    )
+    return PlayerSessionsPage(
+        instance=normalized_instance,
+        query=normalized_query,
+        reliable_id=normalized_reliable_id,
+        status=normalized_status,
+        end_reason=normalized_end_reason,
+        source=normalized_source,
+        limit=normalized_limit,
+        sessions=tuple(
+            player_registry.list_player_sessions(
+                registry_path,
+                limit=normalized_limit,
+                reliable_id=normalized_reliable_id,
+                query=normalized_query,
+                status=normalized_status,
+                end_reason=normalized_end_reason,
+                source=normalized_source,
+            )
+        ),
+        status_options=PLAYER_SESSION_STATUS_OPTIONS,
+        status_labels=PLAYER_SESSION_STATUS_LABELS,
+        end_reason_options=PLAYER_SESSION_END_REASON_OPTIONS,
+        end_reason_labels=PLAYER_SESSION_END_REASON_LABELS,
+        source_options=PLAYER_SESSION_SOURCE_OPTIONS,
+        source_labels=PLAYER_SESSION_SOURCE_LABELS,
+        confidence_labels=PLAYER_SESSION_CONFIDENCE_LABELS,
     )

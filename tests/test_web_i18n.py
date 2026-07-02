@@ -80,3 +80,34 @@ def test_web_template_literal_translation_keys_exist_in_locales():
     assert template_keys
     assert missing_en == [], missing_en
     assert missing_uk == [], missing_uk
+
+
+def test_player_session_dynamic_translation_keys_exist_in_locales():
+    keys = {
+        "All statuses",
+        "Open",
+        "Closed",
+        "All end reasons",
+        "Disconnect",
+        "Server boundary",
+        "Stale timeout",
+        "Stale absence",
+        "Scanner checkpoint",
+        "Import window",
+        "Unknown",
+        "All sources",
+        "Backend auth",
+        "Network player update",
+        "RCON roster",
+        "Faction event",
+        "Combat event",
+        "ServerAdminTools event",
+        "Service lifecycle",
+        "Manual import",
+        "High",
+        "Medium",
+        "Low",
+    }
+
+    assert sorted(keys - _locale_keys("en")) == []
+    assert sorted(keys - _locale_keys("uk")) == []

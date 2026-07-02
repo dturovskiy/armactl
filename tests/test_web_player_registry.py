@@ -1226,6 +1226,66 @@ def test_list_player_summaries_aggregates_event_stats(tmp_path: Path):
     assert summaries[PLAYER_BRAVO_ID].death_count == 1
 
 
+def test_list_player_sessions_filters_read_only_surface(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha First",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_HIGH,
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha Last",
+        source=player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER,
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM,
+        observed_at="2026-06-16T12:05:00+00:00",
+    )
+    player_registry.close_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        close_observed_at="2026-06-16T12:10:00+00:00",
+        source=player_registry.PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_LOW,
+        end_reason=player_registry.PLAYER_SESSION_END_REASON_STALE_ABSENCE,
+    )
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_BRAVO_ID,
+        display_name="Bravo One",
+        source=player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER,
+        observed_at="2026-06-16T12:12:00+00:00",
+    )
+
+    sessions = player_registry.list_player_sessions(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        query="Last",
+        status=player_registry.PLAYER_SESSION_STATUS_CLOSED,
+        end_reason=player_registry.PLAYER_SESSION_END_REASON_STALE_ABSENCE,
+        source=player_registry.PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
+        limit=5,
+    )
+
+    assert [session.reliable_id for session in sessions] == [PLAYER_ALPHA_ID]
+    assert sessions[0].name_at_open == "Alpha First"
+    assert sessions[0].name_last == "Alpha Last"
+    assert sessions[0].status == player_registry.PLAYER_SESSION_STATUS_CLOSED
+    assert sessions[0].end_reason == player_registry.PLAYER_SESSION_END_REASON_STALE_ABSENCE
+    assert player_registry.list_player_sessions(
+        db_path,
+        reliable_id="not-a-reliable-id",
+    ) == []
+    assert player_registry.list_player_sessions(
+        tmp_path / "default" / "missing.db",
+    ) == []
+
+
 def test_players_route_requires_authentication(tmp_path: Path):
     from armactl.web.app import create_app
 
@@ -1234,6 +1294,7 @@ def test_players_route_requires_authentication(tmp_path: Path):
     get_response = client.get("/players", follow_redirects=False)
     known_response = client.get("/players/known", follow_redirects=False)
     history_response = client.get("/players/history", follow_redirects=False)
+    sessions_response = client.get("/players/sessions", follow_redirects=False)
     current_json_response = client.get("/players/current.json", follow_redirects=False)
     post_response = client.post("/players/refresh", data={}, follow_redirects=False)
     current_post_response = client.post(
@@ -1248,6 +1309,8 @@ def test_players_route_requires_authentication(tmp_path: Path):
     assert known_response.headers["location"] == "/login"
     assert history_response.status_code == 303
     assert history_response.headers["location"] == "/login"
+    assert sessions_response.status_code == 303
+    assert sessions_response.headers["location"] == "/login"
     assert current_json_response.status_code == 303
     assert current_json_response.headers["location"] == "/login"
     assert post_response.status_code == 303
@@ -1278,6 +1341,7 @@ def test_players_route_requires_players_view_permission(
     response = client.get("/players", follow_redirects=False)
     known_response = client.get("/players/known", follow_redirects=False)
     history_response = client.get("/players/history", follow_redirects=False)
+    sessions_response = client.get("/players/sessions", follow_redirects=False)
     current_json_response = client.get("/players/current.json", follow_redirects=False)
     post_response = client.post(
         "/players/refresh",
@@ -1296,6 +1360,8 @@ def test_players_route_requires_players_view_permission(
     assert known_response.text == "Permission denied."
     assert history_response.status_code == 403
     assert history_response.text == "Permission denied."
+    assert sessions_response.status_code == 403
+    assert sessions_response.text == "Permission denied."
     assert current_json_response.status_code == 403
     assert current_json_response.text == "Permission denied."
     assert post_response.status_code == 403
@@ -1860,11 +1926,13 @@ def test_player_get_routes_do_not_write_player_sessions(
     current_json_response = client.get("/players/current.json", follow_redirects=False)
     known_response = client.get("/players/known", follow_redirects=False)
     history_response = client.get("/players/history", follow_redirects=False)
+    sessions_response = client.get("/players/sessions", follow_redirects=False)
 
     assert current_response.status_code == 200
     assert current_json_response.status_code == 200
     assert known_response.status_code == 200
     assert history_response.status_code == 200
+    assert sessions_response.status_code == 200
     assert "Live Alpha" in current_response.text
     assert PLAYER_ALPHA_ID in current_response.text
     assert current_json_response.json()["players"] == [
@@ -1902,14 +1970,158 @@ def test_player_get_routes_do_not_close_existing_player_sessions(
     current_response = client.get("/players", follow_redirects=False)
     known_response = client.get("/players/known", follow_redirects=False)
     history_response = client.get("/players/history", follow_redirects=False)
+    sessions_response = client.get("/players/sessions", follow_redirects=False)
     session = player_registry.get_open_player_session(db_path, PLAYER_ALPHA_ID)
 
     assert current_response.status_code == 200
     assert known_response.status_code == 200
     assert history_response.status_code == 200
+    assert sessions_response.status_code == 200
     assert session is not None
     assert session.status == player_registry.PLAYER_SESSION_STATUS_OPEN
     assert _player_session_count(db_path) == 1
+
+
+def test_player_sessions_route_is_read_only_and_does_not_load_current_cache(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import (
+        player_current_cache,
+        player_live_session_scanner,
+        player_sources,
+    )
+
+    monkeypatch.setattr(
+        player_current_cache,
+        "load_current_roster_snapshot",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("sessions page must not load current cache")
+        ),
+    )
+    monkeypatch.setattr(
+        player_live_session_scanner,
+        "scan_live_player_sessions_once",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("sessions page must not scan live sessions")
+        ),
+    )
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("sessions page must not query current roster")
+        ),
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+    db_path = tmp_path / "default" / "players.db"
+
+    response = client.get("/players/sessions", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "No player sessions recorded yet." in response.text
+    assert not db_path.exists()
+
+
+def test_player_sessions_route_renders_filtered_sanitized_session_fields(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    raw_path = "/home/deus/armactl-data/default/config/logs/run/console.log"
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha token=raw-player-secret 198.51.100.9",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        source_ref=f"{raw_path}:1 token=raw-source-secret",
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_HIGH,
+        observed_at="2026-06-16T12:00:00+00:00",
+        rpl_identity="42",
+        connection_id="conn-17",
+        session_player_id="7",
+        be_slot="23",
+        faction="US",
+        side="BLUFOR",
+    )
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha Later",
+        source=player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER,
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM,
+        observed_at="2026-06-16T12:05:00+00:00",
+    )
+    player_registry.close_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        close_observed_at="2026-06-16T12:10:00+00:00",
+        source=player_registry.PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
+        source_ref=f"{raw_path}:2 token=raw-close-secret",
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_LOW,
+        end_reason=player_registry.PLAYER_SESSION_END_REASON_STALE_ABSENCE,
+    )
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_BRAVO_ID,
+        display_name="Bravo One",
+        source=player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER,
+        observed_at="2026-06-16T12:15:00+00:00",
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get(
+        "/players/sessions"
+        f"?player_id={PLAYER_ALPHA_ID}"
+        "&q=Alpha"
+        "&status=closed"
+        "&end_reason=stale_absence"
+        "&source=scanner.checkpoint"
+        "&limit=5",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'href="/players/sessions">Player Sessions</a>' in html
+    assert 'value="closed" selected' in html
+    assert 'value="stale_absence" selected' in html
+    assert 'value="scanner.checkpoint" selected' in html
+    assert "Alpha Later" in html
+    assert "Alpha token=*** ***" in html
+    assert PLAYER_ALPHA_ID in html
+    assert "Bravo One" not in html
+    assert "Observed" in html
+    assert "Last observed" in html
+    assert "Inferred close" in html
+    assert "Backend auth" in html
+    assert "RCON roster" in html
+    assert "Scanner checkpoint" in html
+    assert "High" in html
+    assert "Medium" in html
+    assert "Low" in html
+    assert "Stale absence" in html
+    for forbidden in (
+        raw_path,
+        "/home/deus",
+        "armactl-data",
+        "raw-player-secret",
+        "raw-source-secret",
+        "raw-close-secret",
+        "198.51.100.9",
+        "conn-17",
+        "rplIdentity",
+        "BLUFOR",
+        "K/D",
+        "Role",
+        "Joined",
+        "playtime",
+        "Discord",
+        "ban/kick",
+    ):
+        assert forbidden not in html
 
 
 def test_player_history_route_renders_empty_state_and_migrates_v1_db(

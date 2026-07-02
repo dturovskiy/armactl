@@ -12,6 +12,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 from armactl import paths
 from armactl.player_log_events import (
@@ -41,6 +42,8 @@ PRIVATE_PLAYER_REGISTRY_FILE_MODE = 0o600
 DEFAULT_PLAYER_HISTORY_EVENT_LIMIT = 100
 MAX_PLAYER_HISTORY_EVENT_LIMIT = 250
 DEFAULT_PLAYER_LIST_LIMIT = 100
+DEFAULT_PLAYER_SESSION_LIST_LIMIT = 100
+MAX_PLAYER_SESSION_LIST_LIMIT = 250
 DEFAULT_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT = 500
 MAX_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT = 5000
 DEFAULT_PLAYER_SESSION_ABSENCE_CONFIRMATION_SCANS = 2
@@ -336,6 +339,14 @@ def _bounded_player_session_maintenance_limit(value: object) -> int:
     except (TypeError, ValueError):
         return DEFAULT_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT
     return max(1, min(parsed, MAX_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT))
+
+
+def _bounded_player_session_list_limit(value: object) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_PLAYER_SESSION_LIST_LIMIT
+    return max(1, min(parsed, MAX_PLAYER_SESSION_LIST_LIMIT))
 
 
 def _bounded_player_session_absence_confirmation_scans(value: object) -> int:
@@ -958,6 +969,15 @@ def _connect_existing(db_path: Path) -> sqlite3.Connection | None:
     return connection
 
 
+def _connect_existing_readonly(db_path: Path) -> sqlite3.Connection | None:
+    if not db_path.is_file():
+        return None
+    quoted_path = quote(str(db_path), safe="/:")
+    connection = sqlite3.connect(f"file:{quoted_path}?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
 def _player_from_row(row: sqlite3.Row) -> KnownPlayer:
     return KnownPlayer(
         reliable_id=str(row["reliable_id"]),
@@ -1575,6 +1595,90 @@ def list_open_player_sessions(db_path: Path) -> list[PlayerSessionRecord]:
             """,
             (PLAYER_SESSION_STATUS_OPEN,),
         ).fetchall()
+    finally:
+        connection.close()
+    return [_player_session_record_from_row(row) for row in rows]
+
+
+def _normalize_session_status_filter(value: object) -> str:
+    candidate = _safe_session_text(value, max_length=40)
+    if candidate in PLAYER_SESSION_STATUSES:
+        return candidate
+    return ""
+
+
+def _normalize_session_end_reason_filter(value: object) -> str:
+    candidate = _safe_session_text(value, max_length=80)
+    if candidate in PLAYER_SESSION_END_REASONS:
+        return candidate
+    return ""
+
+
+def list_player_sessions(
+    db_path: Path,
+    *,
+    limit: object = DEFAULT_PLAYER_SESSION_LIST_LIMIT,
+    reliable_id: object = "",
+    query: object = "",
+    status: object = "",
+    end_reason: object = "",
+    source: object = "",
+) -> list[PlayerSessionRecord]:
+    """List sanitized player sessions newest first without mutating storage."""
+    connection = _connect_existing_readonly(db_path)
+    if connection is None:
+        return []
+    if not _table_exists(connection, "player_sessions"):
+        connection.close()
+        return []
+
+    normalized_limit = _bounded_player_session_list_limit(limit)
+    raw_reliable_id = safe_player_text(reliable_id, max_length=120)
+    normalized_reliable_id = normalize_reliable_player_id(raw_reliable_id)
+    if raw_reliable_id and not normalized_reliable_id:
+        connection.close()
+        return []
+    normalized_query = safe_player_text(query, max_length=120)
+    normalized_status = _normalize_session_status_filter(status)
+    normalized_end_reason = _normalize_session_end_reason_filter(end_reason)
+    normalized_source = _safe_session_source(source, default="")
+
+    where_clauses: list[str] = []
+    params: list[object] = []
+    if normalized_reliable_id:
+        where_clauses.append("reliable_id = ?")
+        params.append(normalized_reliable_id)
+    if normalized_query:
+        where_clauses.append("(name_at_open LIKE ? OR name_last LIKE ?)")
+        pattern = f"%{normalized_query}%"
+        params.extend((pattern, pattern))
+    if normalized_status:
+        where_clauses.append("status = ?")
+        params.append(normalized_status)
+    if normalized_end_reason:
+        where_clauses.append("COALESCE(end_reason, '') = ?")
+        params.append(normalized_end_reason)
+    if normalized_source:
+        where_clauses.append(
+            "("
+            "open_source = ? OR "
+            "last_seen_source = ? OR "
+            "COALESCE(close_source, '') = ?"
+            ")"
+        )
+        params.extend((normalized_source, normalized_source, normalized_source))
+
+    sql = "SELECT * FROM player_sessions"
+    if where_clauses:
+        sql += " WHERE " + " AND ".join(where_clauses)
+    sql += (
+        " ORDER BY COALESCE(close_observed_at, last_seen_at, open_observed_at) "
+        "DESC, session_id DESC LIMIT ?"
+    )
+    params.append(normalized_limit)
+
+    try:
+        rows = connection.execute(sql, tuple(params)).fetchall()
     finally:
         connection.close()
     return [_player_session_record_from_row(row) for row in rows]
