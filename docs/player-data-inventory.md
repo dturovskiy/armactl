@@ -132,7 +132,7 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 - Admin add/update/remove is audited as `admin.add`, `admin.update`, or `admin.remove`; it records the target admin reference and changed status. Admin changes also mark pending restart/work when needed.
 - Discord stats configuration, publish, and service actions have secret-safe audit paths. Webhook URLs are masked or omitted from operator-facing output.
 - Logs/report views are allowlisted, line-limited, byte-bounded, and redacted for common secrets, session/CSRF values, and Argon2 password hashes.
-- Public status fails closed with a generic error. Unknown log sources and permission failures return controlled responses without tracebacks.
+- Public status fails closed with a generic error. Discord roster output labels count-only or partial-roster states explicitly instead of creating synthetic player rows. Unknown log sources and permission failures return controlled responses without tracebacks.
 - Player IDs/names are visible on authenticated moderation pages and stored in `players.db`; treat them as moderation data. Public website status does not publish names or IDs. Discord stats publishes sanitized current roster names by design, bounded only by Discord message safety with an explicit truncation marker.
 - No code currently adds IP storage for players. Tests assert player registry/event tables do not contain `ip`, `ip_address`, or raw-line columns, event ingest redacts address-like values before storage, and `/players/history` does not render raw source paths, IPs, or raw log lines.
 - Existing RCON code reads the configured password to query the roster but does not persist it and does not implement ban/kick commands.

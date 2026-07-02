@@ -140,21 +140,70 @@ def _map_text(snapshot: PublicStatsSnapshot) -> str:
     return _clean_map_label(snapshot.map_name or snapshot.scenario_id)
 
 
+def _safe_player_count(snapshot: PublicStatsSnapshot) -> int | None:
+    if isinstance(snapshot.player_count, int) and snapshot.player_count >= 0:
+        return snapshot.player_count
+    return None
+
+
+def _player_word(count: int) -> str:
+    return "player" if count == 1 else "players"
+
+
+def _count_only_note_text(snapshot: PublicStatsSnapshot) -> str:
+    player_count = _safe_player_count(snapshot)
+    if player_count is None:
+        return ""
+
+    named_count = len(snapshot.player_names)
+    if player_count <= named_count:
+        return ""
+
+    if named_count:
+        missing_count = player_count - named_count
+        return (
+            "count-only remainder: "
+            f"{missing_count} {_player_word(missing_count)} without roster names"
+        )
+
+    if not snapshot.roster_available:
+        return f"count-only: {player_count} {_player_word(player_count)}; roster unavailable"
+
+    return f"count-only: {player_count} {_player_word(player_count)}; roster names unavailable"
+
+
 def _player_list_text(snapshot: PublicStatsSnapshot) -> str:
     if snapshot.player_names:
-        return ", ".join(snapshot.player_names)
+        names_text = ", ".join(snapshot.player_names)
+        note = _count_only_note_text(snapshot)
+        if note:
+            return f"{names_text}; {note}"
+        return names_text
     if not snapshot.players_available:
         return "unavailable"
     if snapshot.player_count == 0:
         return "none"
+    note = _count_only_note_text(snapshot)
+    if note:
+        return note
     if not snapshot.roster_available:
         return "roster unavailable"
     return "unavailable"
 
 
+def _discord_player_name_lines(snapshot: PublicStatsSnapshot) -> list[str]:
+    return [f"- {name}" for name in snapshot.player_names]
+
+
+def _discord_player_count_note_lines(snapshot: PublicStatsSnapshot) -> list[str]:
+    note = _count_only_note_text(snapshot)
+    return [f"- {note}"] if note else []
+
+
 def _discord_player_lines(snapshot: PublicStatsSnapshot) -> list[str]:
-    if snapshot.player_names:
-        return [f"- {name}" for name in snapshot.player_names]
+    name_lines = _discord_player_name_lines(snapshot)
+    if name_lines:
+        return [*name_lines, *_discord_player_count_note_lines(snapshot)]
     return [f"- {_player_list_text(snapshot)}"]
 
 
@@ -189,22 +238,29 @@ def _discord_message_text(
 
 
 def _discord_player_lines_within_limit(snapshot: PublicStatsSnapshot) -> list[str]:
-    player_lines = _discord_player_lines(snapshot)
-    if not snapshot.player_names:
-        return player_lines
+    player_name_lines = _discord_player_name_lines(snapshot)
+    count_note_lines = _discord_player_count_note_lines(snapshot)
+    if not player_name_lines:
+        return _discord_player_lines(snapshot)
+
+    player_lines = [*player_name_lines, *count_note_lines]
     if len(_discord_message_text(snapshot, player_lines)) <= MAX_DISCORD_MESSAGE_LENGTH:
         return player_lines
 
-    for visible_count in range(len(player_lines) - 1, -1, -1):
-        hidden_count = len(player_lines) - visible_count
+    for visible_count in range(len(player_name_lines) - 1, -1, -1):
+        hidden_count = len(player_name_lines) - visible_count
         candidate = [
-            *player_lines[:visible_count],
+            *player_name_lines[:visible_count],
             _discord_player_limit_line(hidden_count),
+            *count_note_lines,
         ]
         if len(_discord_message_text(snapshot, candidate)) <= MAX_DISCORD_MESSAGE_LENGTH:
             return candidate
 
-    return [_discord_player_limit_line(len(player_lines))]
+    candidate = [_discord_player_limit_line(len(player_name_lines)), *count_note_lines]
+    if len(_discord_message_text(snapshot, candidate)) <= MAX_DISCORD_MESSAGE_LENGTH:
+        return candidate
+    return [_discord_player_limit_line(len(player_name_lines))]
 
 
 def _parse_generated_at(value: str) -> datetime | None:

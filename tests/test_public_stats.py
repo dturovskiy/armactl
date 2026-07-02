@@ -121,6 +121,72 @@ def test_render_discord_stats_message_includes_nine_roster_names(monkeypatch) ->
     assert len(text) <= public_stats.MAX_DISCORD_MESSAGE_LENGTH
 
 
+def test_discord_stats_message_marks_count_only_without_roster_rows() -> None:
+    snapshot = public_stats.PublicStatsSnapshot(
+        instance="default",
+        generated_at="2026-06-26T10:00:00+00:00",
+        lifecycle="running",
+        running=True,
+        service_state="active",
+        server_name="Public Server",
+        scenario_id="{A72E000B7728A414}Missions/DOE_Chervonopilia.conf",
+        map_name="[S.G.L.] Chervonopilia - Conflict",
+        players_available=True,
+        player_count=5,
+        max_players=128,
+        player_names=(),
+        roster_available=False,
+        fps_available=True,
+        fps_stale=False,
+        fps_text="60.0",
+        telemetry_age_text="0s",
+        mods_available=True,
+        mod_count=112,
+        mod_preview=("Where Am I",),
+        remaining_mod_count=111,
+    )
+
+    text = public_stats.render_discord_stats_message(snapshot)
+
+    assert "👥 Players: 5/128" in text
+    assert "- count-only: 5 players; roster unavailable" in text
+    assert "Unknown player" not in text
+    assert "not shown due to Discord message limit" not in text
+
+
+def test_discord_stats_message_marks_count_mismatch_without_synthetic_rows() -> None:
+    snapshot = public_stats.PublicStatsSnapshot(
+        instance="default",
+        generated_at="2026-06-26T10:00:00+00:00",
+        lifecycle="running",
+        running=True,
+        service_state="active",
+        server_name="Public Server",
+        scenario_id="{A72E000B7728A414}Missions/DOE_Chervonopilia.conf",
+        map_name="[S.G.L.] Chervonopilia - Conflict",
+        players_available=True,
+        player_count=3,
+        max_players=128,
+        player_names=("SGL_Taran",),
+        roster_available=True,
+        fps_available=True,
+        fps_stale=False,
+        fps_text="60.0",
+        telemetry_age_text="0s",
+        mods_available=True,
+        mod_count=112,
+        mod_preview=("Where Am I",),
+        remaining_mod_count=111,
+    )
+
+    text = public_stats.render_discord_stats_message(snapshot)
+
+    assert "👥 Players: 3/128" in text
+    assert "- SGL_Taran" in text
+    assert "- count-only remainder: 2 players without roster names" in text
+    assert "Unknown player" not in text
+
+
 def test_discord_stats_message_marks_roster_truncation_for_message_limit() -> None:
     player_names = tuple(
         f"VeryLongPlayerName{index:03d}-" + ("X" * 28)
