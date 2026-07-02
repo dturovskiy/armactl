@@ -29,11 +29,17 @@ from armactl.web.jobs.player_logs import (
 )
 from armactl.web.jobs.player_sessions import (
     PLAYER_LOG_SESSIONIZATION_JOB_KIND,
+    PLAYER_SESSION_MAINTENANCE_JOB_KIND,
     create_player_log_sessionization_dispatcher,
+    create_player_session_maintenance_dispatcher,
     dispatch_player_log_sessionization_job,
+    dispatch_player_session_maintenance_job,
     ensure_player_log_sessionization_job,
+    ensure_player_session_maintenance_job,
     handle_player_log_sessionization,
+    handle_player_session_maintenance,
     start_player_log_sessionization_worker,
+    start_player_session_maintenance_worker,
 )
 from armactl.web.jobs.runner import (
     JobContext,
@@ -85,6 +91,7 @@ __all__ = [
     "SERVER_UPDATE_JOB_KIND",
     "PLAYER_LOG_COLLECTION_JOB_KIND",
     "PLAYER_LOG_SESSIONIZATION_JOB_KIND",
+    "PLAYER_SESSION_MAINTENANCE_JOB_KIND",
     "PLAYER_CURRENT_REFRESH_JOB_KIND",
     "create_player_current_refresh_dispatcher",
     "dispatch_player_current_refresh_job",
@@ -102,6 +109,11 @@ __all__ = [
     "ensure_player_log_sessionization_job",
     "handle_player_log_sessionization",
     "start_player_log_sessionization_worker",
+    "create_player_session_maintenance_dispatcher",
+    "dispatch_player_session_maintenance_job",
+    "ensure_player_session_maintenance_job",
+    "handle_player_session_maintenance",
+    "start_player_session_maintenance_worker",
     "create_server_job_dispatcher",
     "dispatch_server_job",
     "enqueue_server_install",

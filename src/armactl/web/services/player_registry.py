@@ -36,11 +36,13 @@ from armactl.web.services.player_identity import (
 )
 
 PLAYER_REGISTRY_DB_NAME = "players.db"
-PLAYER_REGISTRY_SCHEMA_VERSION = "5"
+PLAYER_REGISTRY_SCHEMA_VERSION = "6"
 PRIVATE_PLAYER_REGISTRY_FILE_MODE = 0o600
 DEFAULT_PLAYER_HISTORY_EVENT_LIMIT = 100
 MAX_PLAYER_HISTORY_EVENT_LIMIT = 250
 DEFAULT_PLAYER_LIST_LIMIT = 100
+DEFAULT_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT = 500
+MAX_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT = 5000
 _LEGACY_DEFAULT_TIMESTAMP = "1970-01-01T00:00:00+00:00"
 PLAYER_LOG_EVENT_TEXT_MAX_LENGTH = 240
 PLAYER_LOG_EVENT_REF_MAX_LENGTH = 240
@@ -120,6 +122,7 @@ PLAYER_SESSION_SOURCES = (
 )
 PLAYER_SESSION_END_REASON_DISCONNECT = "disconnect"
 PLAYER_SESSION_END_REASON_SERVER_BOUNDARY = "server_boundary"
+PLAYER_SESSION_END_REASON_STALE_TIMEOUT = "stale_timeout"
 PLAYER_SESSION_END_REASON_STALE_ABSENCE = "stale_absence"
 PLAYER_SESSION_END_REASON_SCANNER_CHECKPOINT = "scanner_checkpoint"
 PLAYER_SESSION_END_REASON_IMPORT_WINDOW = "import_window"
@@ -127,6 +130,7 @@ PLAYER_SESSION_END_REASON_UNKNOWN = "unknown"
 PLAYER_SESSION_END_REASONS = (
     PLAYER_SESSION_END_REASON_DISCONNECT,
     PLAYER_SESSION_END_REASON_SERVER_BOUNDARY,
+    PLAYER_SESSION_END_REASON_STALE_TIMEOUT,
     PLAYER_SESSION_END_REASON_STALE_ABSENCE,
     PLAYER_SESSION_END_REASON_SCANNER_CHECKPOINT,
     PLAYER_SESSION_END_REASON_IMPORT_WINDOW,
@@ -287,12 +291,39 @@ class PlayerSessionWriteResult:
     session: PlayerSessionRecord | None = None
 
 
+@dataclass(frozen=True)
+class PlayerSessionStaleCloseResult:
+    """Counts-only summary for explicit stale open-session closing."""
+
+    open_sessions_scanned: int = 0
+    sessions_overdue: int = 0
+    sessions_closed: int = 0
+    sessions_skipped: int = 0
+
+
+@dataclass(frozen=True)
+class PlayerSessionRetentionCleanupResult:
+    """Counts-only summary for explicit player-session retention cleanup."""
+
+    sessions_scanned: int = 0
+    sessions_deleted: int = 0
+    sessions_skipped: int = 0
+
+
 def _bounded_player_history_limit(value: object) -> int:
     try:
         parsed = int(value)
     except (TypeError, ValueError):
         return DEFAULT_PLAYER_HISTORY_EVENT_LIMIT
     return max(1, min(parsed, MAX_PLAYER_HISTORY_EVENT_LIMIT))
+
+
+def _bounded_player_session_maintenance_limit(value: object) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT
+    return max(1, min(parsed, MAX_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT))
 
 
 def _utc_now() -> str:
@@ -682,6 +713,63 @@ def _ensure_player_sessions_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+def _drop_player_session_indexes(connection: sqlite3.Connection) -> None:
+    for index_name in (
+        "idx_player_sessions_reliable_id",
+        "idx_player_sessions_status",
+        "idx_player_sessions_open_observed_at",
+        "idx_player_sessions_last_seen_at",
+        "idx_player_sessions_close_observed_at",
+        "idx_player_sessions_open_source",
+        "idx_player_sessions_last_seen_source",
+        "idx_player_sessions_close_source",
+        "idx_player_sessions_scanner_checkpoint",
+        "idx_player_sessions_one_open_per_reliable_id",
+    ):
+        connection.execute(f"DROP INDEX IF EXISTS {_quote_identifier(index_name)}")
+
+
+def _player_sessions_schema_allows_stale_timeout(
+    connection: sqlite3.Connection,
+) -> bool:
+    row = connection.execute(
+        """
+        SELECT sql
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name = 'player_sessions'
+        """
+    ).fetchone()
+    return row is not None and PLAYER_SESSION_END_REASON_STALE_TIMEOUT in str(row[0])
+
+
+def _rebuild_player_sessions_schema_for_v6(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "player_sessions"):
+        _ensure_player_sessions_schema(connection)
+        return
+    if _player_sessions_schema_allows_stale_timeout(connection):
+        _ensure_player_sessions_schema(connection)
+        return
+
+    legacy_table = "player_sessions_migration_v6"
+    if _table_exists(connection, legacy_table):
+        raise RuntimeError("player_sessions migration workspace already exists.")
+
+    connection.execute(
+        f"ALTER TABLE player_sessions RENAME TO {_quote_identifier(legacy_table)}"
+    )
+    _drop_player_session_indexes(connection)
+    _ensure_player_sessions_schema(connection)
+    columns_sql = ", ".join(
+        _quote_identifier(column) for column in PlayerSessionRecord.__dataclass_fields__
+    )
+    connection.execute(
+        f"INSERT INTO player_sessions ({columns_sql}) "
+        f"SELECT {columns_sql} FROM {_quote_identifier(legacy_table)}"
+    )
+    connection.execute(f"DROP TABLE {_quote_identifier(legacy_table)}")
+
+
 def _ensure_current_player_registry_schema(connection: sqlite3.Connection) -> None:
     _ensure_player_registry_meta_schema(connection)
     _ensure_players_schema(connection)
@@ -746,6 +834,9 @@ def _run_player_registry_migrations(connection: sqlite3.Connection) -> None:
     if current_version < 5:
         _ensure_player_log_events_schema(connection)
         _write_player_registry_schema_version(connection, 5)
+    if current_version < 6:
+        _rebuild_player_sessions_schema_for_v6(connection)
+        _write_player_registry_schema_version(connection, 6)
 
 
 def ensure_player_registry_db(db_path: Path) -> Path:
@@ -943,6 +1034,35 @@ def _safe_session_source_ref(value: object) -> str:
 
 def _safe_session_timestamp(value: object, *, fallback: str) -> str:
     return _safe_session_text(value, max_length=80) or fallback
+
+
+def _parse_session_timestamp(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _is_session_timestamp_before(value: str, cutoff: str) -> bool:
+    value_dt = _parse_session_timestamp(value)
+    cutoff_dt = _parse_session_timestamp(cutoff)
+    if value_dt is not None and cutoff_dt is not None:
+        return value_dt < cutoff_dt
+    if value and cutoff:
+        return value < cutoff
+    return False
+
+
+def _session_has_reliable_last_seen(session: PlayerSessionRecord) -> bool:
+    return session.last_seen_confidence in {
+        PLAYER_SESSION_CONFIDENCE_HIGH,
+        PLAYER_SESSION_CONFIDENCE_MEDIUM,
+    }
 
 
 def _safe_session_confidence(value: object, *, default: str) -> str:
@@ -1386,6 +1506,116 @@ def list_player_sessions_for_reliable_id(
     finally:
         connection.close()
     return [_player_session_record_from_row(row) for row in rows]
+
+
+def close_stale_open_player_sessions(
+    db_path: Path,
+    *,
+    last_seen_before: str,
+    close_observed_at: str | None = None,
+    source: object = PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
+    source_ref: object = "stale-timeout",
+    confidence: object = PLAYER_SESSION_CONFIDENCE_LOW,
+    limit: int = DEFAULT_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT,
+) -> PlayerSessionStaleCloseResult:
+    """Close overdue open sessions from an explicit stale-close caller.
+
+    The caller must provide the policy cutoff. This helper does not read live
+    rosters, infer absence from failed queries, or run from GET routes.
+    """
+    cutoff = _safe_session_timestamp(last_seen_before, fallback="")
+    if not cutoff:
+        raise ValueError("last_seen_before is required.")
+
+    batch_limit = _bounded_player_session_maintenance_limit(limit)
+    close_timestamp = _safe_session_timestamp(close_observed_at, fallback=_utc_now())
+    sessions = list_open_player_sessions(db_path)
+    overdue_sessions: list[PlayerSessionRecord] = []
+    skipped_count = 0
+    for session in sessions:
+        if not _session_has_reliable_last_seen(session):
+            skipped_count += 1
+            continue
+        if not _is_session_timestamp_before(session.last_seen_at, cutoff):
+            skipped_count += 1
+            continue
+        overdue_sessions.append(session)
+
+    closed_count = 0
+    for session in overdue_sessions[:batch_limit]:
+        result = close_player_session(
+            db_path,
+            reliable_id=session.reliable_id,
+            close_observed_at=close_timestamp,
+            source=source,
+            source_ref=source_ref,
+            confidence=confidence,
+            end_reason=PLAYER_SESSION_END_REASON_STALE_TIMEOUT,
+        )
+        if result.closed:
+            closed_count += 1
+        else:
+            skipped_count += 1
+
+    skipped_count += max(len(overdue_sessions) - batch_limit, 0)
+    return PlayerSessionStaleCloseResult(
+        open_sessions_scanned=len(sessions),
+        sessions_overdue=len(overdue_sessions),
+        sessions_closed=closed_count,
+        sessions_skipped=skipped_count,
+    )
+
+
+def cleanup_player_sessions_by_retention(
+    db_path: Path,
+    *,
+    closed_before: str,
+    limit: int = DEFAULT_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT,
+) -> PlayerSessionRetentionCleanupResult:
+    """Delete old closed player session rows using an explicit retention cutoff.
+
+    This intentionally touches only `player_sessions`. It does not delete
+    players, player_names, or player_log_events evidence rows.
+    """
+    cutoff = _safe_session_timestamp(closed_before, fallback="")
+    if not cutoff:
+        raise ValueError("closed_before is required.")
+
+    connection = _connect_existing(db_path)
+    if connection is None:
+        return PlayerSessionRetentionCleanupResult()
+
+    batch_limit = _bounded_player_session_maintenance_limit(limit)
+    try:
+        with connection:
+            rows = connection.execute(
+                """
+                SELECT session_id
+                FROM player_sessions
+                WHERE status = ?
+                  AND close_observed_at IS NOT NULL
+                  AND close_observed_at < ?
+                ORDER BY close_observed_at ASC, session_id ASC
+                LIMIT ?
+                """,
+                (PLAYER_SESSION_STATUS_CLOSED, cutoff, batch_limit),
+            ).fetchall()
+            session_ids = [int(row["session_id"]) for row in rows]
+            if not session_ids:
+                return PlayerSessionRetentionCleanupResult()
+            placeholders = ", ".join("?" for _ in session_ids)
+            cursor = connection.execute(
+                f"DELETE FROM player_sessions WHERE session_id IN ({placeholders})",
+                session_ids,
+            )
+            deleted_count = cursor.rowcount if cursor.rowcount >= 0 else len(session_ids)
+            return PlayerSessionRetentionCleanupResult(
+                sessions_scanned=len(session_ids),
+                sessions_deleted=deleted_count,
+                sessions_skipped=max(len(session_ids) - deleted_count, 0),
+            )
+    finally:
+        connection.close()
 
 
 def ingest_player_log_events(

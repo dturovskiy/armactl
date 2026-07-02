@@ -289,6 +289,133 @@ def test_registry_db_migrates_v4_history_indexes_idempotently(tmp_path: Path):
     assert second_schema == first_schema
 
 
+def test_registry_db_migrates_v5_sessions_schema_to_stale_timeout(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.ensure_player_registry_db(db_path)
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T10:00:00+00:00",
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(
+            """
+            UPDATE player_registry_schema_meta
+            SET value = ?
+            WHERE key = ?
+            """,
+            ("5", "schema_version"),
+        )
+
+    player_registry.ensure_player_registry_db(db_path)
+    result = player_registry.close_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        close_observed_at="2026-06-16T11:00:00+00:00",
+        source=player_registry.PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
+        end_reason=player_registry.PLAYER_SESSION_END_REASON_STALE_TIMEOUT,
+    )
+
+    assert result.closed is True
+    assert result.session is not None
+    assert result.session.end_reason == (
+        player_registry.PLAYER_SESSION_END_REASON_STALE_TIMEOUT
+    )
+    assert _registry_schema_version(db_path) == player_registry.PLAYER_REGISTRY_SCHEMA_VERSION
+
+
+def test_registry_db_rebuilds_legacy_v5_session_end_reason_check(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.ensure_player_registry_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO players(
+                reliable_id,
+                current_name,
+                first_seen_at,
+                last_seen_at,
+                seen_count,
+                last_source
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                PLAYER_ALPHA_ID,
+                "Alpha",
+                "2026-06-16T10:00:00+00:00",
+                "2026-06-16T10:00:00+00:00",
+                1,
+                "test",
+            ),
+        )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        row = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = ? AND name = ?",
+            ("table", "player_sessions"),
+        ).fetchone()
+        assert row is not None
+        legacy_sql = str(row[0]).replace(
+            chr(39) + "stale_timeout" + chr(39) + ", ",
+            "",
+        )
+        assert "stale_timeout" not in legacy_sql
+        connection.execute("DROP TABLE player_sessions")
+        connection.execute(legacy_sql)
+        insert_session_sql = (
+            "INSERT INTO player_sessions("
+            "reliable_id, name_at_open, name_last, open_observed_at, "
+            "last_seen_at, status, open_source, last_seen_source, "
+            "open_confidence, last_seen_confidence, created_at, updated_at"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        connection.execute(
+            insert_session_sql,
+            (
+                PLAYER_ALPHA_ID,
+                "Alpha",
+                "Alpha",
+                "2026-06-16T10:00:00+00:00",
+                "2026-06-16T10:00:00+00:00",
+                player_registry.PLAYER_SESSION_STATUS_OPEN,
+                player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+                player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+                player_registry.PLAYER_SESSION_CONFIDENCE_HIGH,
+                player_registry.PLAYER_SESSION_CONFIDENCE_HIGH,
+                "2026-06-16T10:00:00+00:00",
+                "2026-06-16T10:00:00+00:00",
+            ),
+        )
+        connection.execute(
+            "UPDATE player_registry_schema_meta SET value = ? WHERE key = ?",
+            ("5", "schema_version"),
+        )
+
+    player_registry.ensure_player_registry_db(db_path)
+    result = player_registry.close_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        close_observed_at="2026-06-16T11:00:00+00:00",
+        source=player_registry.PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
+        end_reason=player_registry.PLAYER_SESSION_END_REASON_STALE_TIMEOUT,
+    )
+
+    assert result.closed is True
+    assert result.session is not None
+    assert result.session.end_reason == (
+        player_registry.PLAYER_SESSION_END_REASON_STALE_TIMEOUT
+    )
+    assert _registry_schema_version(db_path) == player_registry.PLAYER_REGISTRY_SCHEMA_VERSION
+
+
 def test_registry_db_migrates_v2_to_player_sessions_schema(tmp_path: Path):
     from armactl.web.services import player_registry
 
