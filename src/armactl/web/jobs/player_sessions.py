@@ -284,12 +284,17 @@ def live_session_scan_count_details(
         "reliable_rows_seen": "0",
         "unreliable_rows_ignored": "0",
         "duplicate_rows_ignored": "0",
+        "scans_considered": "0",
         "observations_considered": "0",
         "observations_applied": "0",
         "observations_not_applied": "0",
         "observations_ignored": "0",
+        "absent_sessions_considered": "0",
+        "absent_sessions_confirmed": "0",
         "sessions_created": "0",
         "sessions_updated": "0",
+        "sessions_closed": "0",
+        "sessions_not_closed": "0",
         "source_failures": "0",
         "roster_unavailable": "0",
     }
@@ -301,12 +306,17 @@ def live_session_scan_count_details(
                 "reliable_rows_seen": str(summary.reliable_rows_seen),
                 "unreliable_rows_ignored": str(summary.unreliable_rows_ignored),
                 "duplicate_rows_ignored": str(summary.duplicate_rows_ignored),
+                "scans_considered": str(summary.scans_considered),
                 "observations_considered": str(summary.observations_considered),
                 "observations_applied": str(summary.observations_applied),
                 "observations_not_applied": str(summary.observations_skipped),
                 "observations_ignored": str(summary.observations_ignored),
+                "absent_sessions_considered": str(summary.absent_sessions_considered),
+                "absent_sessions_confirmed": str(summary.absent_sessions_confirmed),
                 "sessions_created": str(summary.sessions_created),
                 "sessions_updated": str(summary.sessions_updated),
+                "sessions_closed": str(summary.sessions_closed),
+                "sessions_not_closed": str(summary.sessions_skipped),
                 "source_failures": str(summary.source_failures),
                 "roster_unavailable": str(summary.roster_unavailable),
             }
@@ -319,7 +329,7 @@ def _live_scan_summary_message(
 ) -> str:
     if not summary.success:
         return "Live player session scan failed."
-    if summary.observations_applied == 0:
+    if summary.observations_applied == 0 and summary.sessions_closed == 0:
         return "No reliable live player session observations found."
     return "Live player session scan completed."
 
@@ -334,12 +344,17 @@ def _live_scan_summary_output(
         f"reliable_rows_seen={summary.reliable_rows_seen}; "
         f"unreliable_rows_ignored={summary.unreliable_rows_ignored}; "
         f"duplicate_rows_ignored={summary.duplicate_rows_ignored}; "
+        f"scans_considered={summary.scans_considered}; "
         f"observations_considered={summary.observations_considered}; "
         f"observations_applied={summary.observations_applied}; "
         f"observations_not_applied={summary.observations_skipped}; "
         f"observations_ignored={summary.observations_ignored}; "
+        f"absent_sessions_considered={summary.absent_sessions_considered}; "
+        f"absent_sessions_confirmed={summary.absent_sessions_confirmed}; "
         f"sessions_created={summary.sessions_created}; "
         f"sessions_updated={summary.sessions_updated}; "
+        f"sessions_closed={summary.sessions_closed}; "
+        f"sessions_not_closed={summary.sessions_skipped}; "
         f"source_failures={summary.source_failures}; "
         f"roster_unavailable={summary.roster_unavailable}"
     )

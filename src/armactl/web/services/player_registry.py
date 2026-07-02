@@ -36,13 +36,15 @@ from armactl.web.services.player_identity import (
 )
 
 PLAYER_REGISTRY_DB_NAME = "players.db"
-PLAYER_REGISTRY_SCHEMA_VERSION = "6"
+PLAYER_REGISTRY_SCHEMA_VERSION = "7"
 PRIVATE_PLAYER_REGISTRY_FILE_MODE = 0o600
 DEFAULT_PLAYER_HISTORY_EVENT_LIMIT = 100
 MAX_PLAYER_HISTORY_EVENT_LIMIT = 250
 DEFAULT_PLAYER_LIST_LIMIT = 100
 DEFAULT_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT = 500
 MAX_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT = 5000
+DEFAULT_PLAYER_SESSION_ABSENCE_CONFIRMATION_SCANS = 2
+MAX_PLAYER_SESSION_ABSENCE_CONFIRMATION_SCANS = 20
 _LEGACY_DEFAULT_TIMESTAMP = "1970-01-01T00:00:00+00:00"
 PLAYER_LOG_EVENT_TEXT_MAX_LENGTH = 240
 PLAYER_LOG_EVENT_REF_MAX_LENGTH = 240
@@ -310,6 +312,16 @@ class PlayerSessionRetentionCleanupResult:
     sessions_skipped: int = 0
 
 
+@dataclass(frozen=True)
+class PlayerSessionAbsenceWindowResult:
+    """Counts-only result for one live absence-window update."""
+
+    advanced: bool = False
+    confirmation_reached: bool = False
+    ignored_count: int = 0
+    absent_scan_count: int = 0
+
+
 def _bounded_player_history_limit(value: object) -> int:
     try:
         parsed = int(value)
@@ -324,6 +336,17 @@ def _bounded_player_session_maintenance_limit(value: object) -> int:
     except (TypeError, ValueError):
         return DEFAULT_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT
     return max(1, min(parsed, MAX_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT))
+
+
+def _bounded_player_session_absence_confirmation_scans(value: object) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_PLAYER_SESSION_ABSENCE_CONFIRMATION_SCANS
+    return max(
+        2,
+        min(parsed, MAX_PLAYER_SESSION_ABSENCE_CONFIRMATION_SCANS),
+    )
 
 
 def _utc_now() -> str:
@@ -713,6 +736,55 @@ def _ensure_player_sessions_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+def _ensure_player_session_live_scan_windows_schema(
+    connection: sqlite3.Connection,
+) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS player_session_live_scan_windows (
+            window_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            reliable_id TEXT NOT NULL,
+            window_source TEXT NOT NULL,
+            window_ref TEXT NOT NULL DEFAULT '',
+            first_absent_at TEXT NOT NULL,
+            last_absent_at TEXT NOT NULL,
+            last_scan_at TEXT NOT NULL,
+            absent_scan_count INTEGER NOT NULL CHECK(absent_scan_count >= 1),
+            confirmed_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(session_id, window_source, window_ref),
+            CHECK(length(reliable_id) > 0),
+            CHECK(length(window_source) > 0),
+            CHECK(length(first_absent_at) > 0),
+            CHECK(length(last_absent_at) > 0),
+            CHECK(length(last_scan_at) > 0),
+            FOREIGN KEY (session_id) REFERENCES player_sessions(session_id)
+                ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_session_live_scan_windows_reliable_id
+        ON player_session_live_scan_windows(reliable_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_session_live_scan_windows_source
+        ON player_session_live_scan_windows(window_source, window_ref)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_session_live_scan_windows_confirmed
+        ON player_session_live_scan_windows(confirmed_at)
+        """
+    )
+
+
 def _drop_player_session_indexes(connection: sqlite3.Connection) -> None:
     for index_name in (
         "idx_player_sessions_reliable_id",
@@ -729,8 +801,9 @@ def _drop_player_session_indexes(connection: sqlite3.Connection) -> None:
         connection.execute(f"DROP INDEX IF EXISTS {_quote_identifier(index_name)}")
 
 
-def _player_sessions_schema_allows_stale_timeout(
+def _player_sessions_schema_allows_end_reason(
     connection: sqlite3.Connection,
+    end_reason: str,
 ) -> bool:
     row = connection.execute(
         """
@@ -740,18 +813,21 @@ def _player_sessions_schema_allows_stale_timeout(
           AND name = 'player_sessions'
         """
     ).fetchone()
-    return row is not None and PLAYER_SESSION_END_REASON_STALE_TIMEOUT in str(row[0])
+    return row is not None and end_reason in str(row[0])
 
 
-def _rebuild_player_sessions_schema_for_v6(connection: sqlite3.Connection) -> None:
+def _rebuild_player_sessions_schema_for_end_reason(
+    connection: sqlite3.Connection,
+    *,
+    end_reason: str,
+    legacy_table: str,
+) -> None:
     if not _table_exists(connection, "player_sessions"):
         _ensure_player_sessions_schema(connection)
         return
-    if _player_sessions_schema_allows_stale_timeout(connection):
+    if _player_sessions_schema_allows_end_reason(connection, end_reason):
         _ensure_player_sessions_schema(connection)
         return
-
-    legacy_table = "player_sessions_migration_v6"
     if _table_exists(connection, legacy_table):
         raise RuntimeError("player_sessions migration workspace already exists.")
 
@@ -768,6 +844,22 @@ def _rebuild_player_sessions_schema_for_v6(connection: sqlite3.Connection) -> No
         f"SELECT {columns_sql} FROM {_quote_identifier(legacy_table)}"
     )
     connection.execute(f"DROP TABLE {_quote_identifier(legacy_table)}")
+
+
+def _rebuild_player_sessions_schema_for_v6(connection: sqlite3.Connection) -> None:
+    _rebuild_player_sessions_schema_for_end_reason(
+        connection,
+        end_reason=PLAYER_SESSION_END_REASON_STALE_TIMEOUT,
+        legacy_table="player_sessions_migration_v6",
+    )
+
+
+def _rebuild_player_sessions_schema_for_v7(connection: sqlite3.Connection) -> None:
+    _rebuild_player_sessions_schema_for_end_reason(
+        connection,
+        end_reason=PLAYER_SESSION_END_REASON_STALE_ABSENCE,
+        legacy_table="player_sessions_migration_v7",
+    )
 
 
 def _ensure_current_player_registry_schema(connection: sqlite3.Connection) -> None:
@@ -834,9 +926,15 @@ def _run_player_registry_migrations(connection: sqlite3.Connection) -> None:
     if current_version < 5:
         _ensure_player_log_events_schema(connection)
         _write_player_registry_schema_version(connection, 5)
+        current_version = 5
     if current_version < 6:
         _rebuild_player_sessions_schema_for_v6(connection)
         _write_player_registry_schema_version(connection, 6)
+        current_version = 6
+    if current_version < 7:
+        _rebuild_player_sessions_schema_for_v7(connection)
+        _ensure_player_session_live_scan_windows_schema(connection)
+        _write_player_registry_schema_version(connection, 7)
 
 
 def ensure_player_registry_db(db_path: Path) -> Path:
@@ -1480,6 +1578,227 @@ def list_open_player_sessions(db_path: Path) -> list[PlayerSessionRecord]:
     finally:
         connection.close()
     return [_player_session_record_from_row(row) for row in rows]
+
+
+def clear_player_session_live_absence_windows(
+    db_path: Path,
+    *,
+    reliable_ids: Iterable[object],
+    source: object = PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
+    source_ref: object = None,
+) -> int:
+    """Clear pending live absence windows for players seen in a reliable scan."""
+    normalized_ids: set[str] = set()
+    for reliable_id in reliable_ids:
+        normalized_id = normalize_reliable_player_id(reliable_id)
+        if normalized_id:
+            normalized_ids.add(normalized_id)
+    if not normalized_ids:
+        return 0
+
+    safe_source = _safe_session_source(source)
+    safe_source_ref = _safe_session_source_ref(source_ref)
+    connection = _connect_existing(db_path)
+    if connection is None:
+        return 0
+
+    placeholders = ", ".join("?" for _ in normalized_ids)
+    parameters: tuple[object, ...] = (
+        safe_source,
+        safe_source_ref,
+        *sorted(normalized_ids),
+    )
+    try:
+        with connection:
+            cursor = connection.execute(
+                f"""
+                DELETE FROM player_session_live_scan_windows
+                WHERE window_source = ?
+                  AND window_ref = ?
+                  AND reliable_id IN ({placeholders})
+                """,
+                parameters,
+            )
+            return max(int(cursor.rowcount or 0), 0)
+    finally:
+        connection.close()
+
+
+def record_player_session_live_absence(
+    db_path: Path,
+    *,
+    session: PlayerSessionRecord,
+    observed_at: str | None = None,
+    source: object = PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
+    source_ref: object = None,
+    confirmation_scans: object = DEFAULT_PLAYER_SESSION_ABSENCE_CONFIRMATION_SCANS,
+) -> PlayerSessionAbsenceWindowResult:
+    """Advance one open session's reliable live absence window.
+
+    The caller must already have established reliable RCON roster semantics for
+    this scan. Repeated runs with the same or an older scan timestamp are
+    idempotent and do not advance the absence counter.
+    """
+    normalized_id = normalize_reliable_player_id(session.reliable_id)
+    if not normalized_id:
+        return PlayerSessionAbsenceWindowResult(ignored_count=1)
+
+    try:
+        session_id = int(session.session_id)
+    except (TypeError, ValueError):
+        return PlayerSessionAbsenceWindowResult(ignored_count=1)
+    if session_id <= 0:
+        return PlayerSessionAbsenceWindowResult(ignored_count=1)
+
+    threshold = _bounded_player_session_absence_confirmation_scans(
+        confirmation_scans,
+    )
+    timestamp = _safe_session_timestamp(observed_at, fallback=_utc_now())
+    safe_source = _safe_session_source(source)
+    safe_source_ref = _safe_session_source_ref(source_ref)
+    connection = _connect_existing(db_path)
+    if connection is None:
+        return PlayerSessionAbsenceWindowResult(ignored_count=1)
+
+    try:
+        with connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = _fetch_player_session_by_id(connection, session_id)
+            if row is None:
+                return PlayerSessionAbsenceWindowResult(ignored_count=1)
+            row_reliable_id = normalize_reliable_player_id(row["reliable_id"])
+            if row_reliable_id != normalized_id:
+                return PlayerSessionAbsenceWindowResult(ignored_count=1)
+            if str(row["status"] or "") != PLAYER_SESSION_STATUS_OPEN:
+                return PlayerSessionAbsenceWindowResult(ignored_count=1)
+
+            window = connection.execute(
+                """
+                SELECT *
+                FROM player_session_live_scan_windows
+                WHERE session_id = ?
+                  AND window_source = ?
+                  AND window_ref = ?
+                """,
+                (session_id, safe_source, safe_source_ref),
+            ).fetchone()
+            if window is None:
+                connection.execute(
+                    """
+                    INSERT INTO player_session_live_scan_windows(
+                        session_id,
+                        reliable_id,
+                        window_source,
+                        window_ref,
+                        first_absent_at,
+                        last_absent_at,
+                        last_scan_at,
+                        absent_scan_count,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                    """,
+                    (
+                        session_id,
+                        normalized_id,
+                        safe_source,
+                        safe_source_ref,
+                        timestamp,
+                        timestamp,
+                        timestamp,
+                        timestamp,
+                        timestamp,
+                    ),
+                )
+                return PlayerSessionAbsenceWindowResult(
+                    advanced=True,
+                    confirmation_reached=threshold <= 1,
+                    absent_scan_count=1,
+                )
+
+            try:
+                current_count = int(window["absent_scan_count"])
+            except (TypeError, ValueError):
+                current_count = 1
+            current_count = max(1, current_count)
+            last_scan_at = _safe_session_text(window["last_scan_at"], max_length=80)
+            if timestamp == last_scan_at or _is_session_timestamp_before(
+                timestamp,
+                last_scan_at,
+            ):
+                return PlayerSessionAbsenceWindowResult(
+                    absent_scan_count=current_count,
+                )
+
+            new_count = current_count + 1
+            confirmed_at = _safe_session_text(window["confirmed_at"], max_length=80)
+            confirmation_reached = not confirmed_at and new_count >= threshold
+            connection.execute(
+                """
+                UPDATE player_session_live_scan_windows
+                SET last_absent_at = ?,
+                    last_scan_at = ?,
+                    absent_scan_count = ?,
+                    updated_at = ?
+                WHERE window_id = ?
+                """,
+                (timestamp, timestamp, new_count, timestamp, int(window["window_id"])),
+            )
+            return PlayerSessionAbsenceWindowResult(
+                advanced=True,
+                confirmation_reached=confirmation_reached,
+                absent_scan_count=new_count,
+            )
+    finally:
+        connection.close()
+
+
+def confirm_player_session_live_absence_window(
+    db_path: Path,
+    *,
+    session_id: object,
+    confirmed_at: str | None = None,
+    source: object = PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
+    source_ref: object = None,
+) -> bool:
+    """Mark one live absence window confirmed after its session is closed."""
+    try:
+        normalized_session_id = int(session_id)
+    except (TypeError, ValueError):
+        return False
+    if normalized_session_id <= 0:
+        return False
+
+    timestamp = _safe_session_timestamp(confirmed_at, fallback=_utc_now())
+    safe_source = _safe_session_source(source)
+    safe_source_ref = _safe_session_source_ref(source_ref)
+    connection = _connect_existing(db_path)
+    if connection is None:
+        return False
+    try:
+        with connection:
+            cursor = connection.execute(
+                """
+                UPDATE player_session_live_scan_windows
+                SET confirmed_at = ?,
+                    updated_at = ?
+                WHERE session_id = ?
+                  AND window_source = ?
+                  AND window_ref = ?
+                  AND confirmed_at IS NULL
+                """,
+                (
+                    timestamp,
+                    timestamp,
+                    normalized_session_id,
+                    safe_source,
+                    safe_source_ref,
+                ),
+            )
+            return bool(cursor.rowcount)
+    finally:
+        connection.close()
 
 
 def list_player_sessions_for_reliable_id(

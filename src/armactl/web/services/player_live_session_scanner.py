@@ -12,6 +12,10 @@ from armactl.web.services.player_identity import normalize_reliable_player_id
 
 LIVE_SESSION_SCANNER_CHECKPOINT_SOURCE = "live_current_roster"
 LIVE_SESSION_SCANNER_SOURCE_REF = "live-current-roster"
+LIVE_SESSION_SCANNER_ABSENCE_SOURCE_REF = "live-current-roster-absence"
+LIVE_SESSION_ABSENCE_CONFIRMATION_SCANS = (
+    player_registry.DEFAULT_PLAYER_SESSION_ABSENCE_CONFIRMATION_SCANS
+)
 
 
 @dataclass(frozen=True)
@@ -23,12 +27,17 @@ class LivePlayerSessionScanSummary:
     reliable_rows_seen: int = 0
     unreliable_rows_ignored: int = 0
     duplicate_rows_ignored: int = 0
+    scans_considered: int = 0
     observations_considered: int = 0
     observations_applied: int = 0
     observations_skipped: int = 0
     observations_ignored: int = 0
+    absent_sessions_considered: int = 0
+    absent_sessions_confirmed: int = 0
     sessions_created: int = 0
     sessions_updated: int = 0
+    sessions_closed: int = 0
+    sessions_skipped: int = 0
     source_failures: int = 0
     roster_unavailable: int = 0
     success: bool = True
@@ -89,6 +98,25 @@ def _reliable_roster_rows(
     )
 
 
+def _is_reliable_absence_scan(
+    roster: player_sources.CurrentPlayerRoster,
+    reliable_rows: _ReliableRosterRows,
+    *,
+    observed_count: int,
+) -> bool:
+    source = str(roster.source or "").casefold()
+    count_source = str(roster.count_source or "").casefold()
+    if not roster.available or not roster.roster_available:
+        return False
+    if source != "rcon.roster" and count_source != "rcon":
+        return False
+    if reliable_rows.unreliable_rows_ignored or reliable_rows.duplicate_rows_ignored:
+        return False
+    if observed_count != len(roster.players):
+        return False
+    return reliable_rows.reliable_rows_seen == len(roster.players)
+
+
 def _unavailable_summary(
     *,
     roster: player_sources.CurrentPlayerRoster | None = None,
@@ -108,13 +136,16 @@ def scan_live_player_sessions_once(
     *,
     data_root: Path = paths.DEFAULT_DATA_ROOT,
     observed_at: str | None = None,
+    absence_confirmation_scans: int = LIVE_SESSION_ABSENCE_CONFIRMATION_SCANS,
 ) -> LivePlayerSessionScanSummary:
     """Open/update sessions from one explicit reliable live roster observation.
 
     This helper reads the existing safe current-roster source once and writes
     session observations only through ``player_registry.observe_player_session``.
-    A2S count-only state, unreliable roster rows, source failures, and roster
-    unavailability never create synthetic sessions or close existing sessions.
+    Repeated successful reliable RCON absence can close sessions only through
+    ``player_registry.close_player_session``. A2S count-only state, unreliable
+    roster rows, source failures, and roster unavailability never create
+    synthetic sessions, close sessions, or advance absence windows.
     """
     normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
     timestamp = observed_at or _utc_now_text()
@@ -130,14 +161,20 @@ def scan_live_player_sessions_once(
     observed_count = _observed_count(roster)
     reliable_rows = _reliable_roster_rows(roster_rows)
     observations_considered = len(reliable_rows.players_by_id)
-    if observations_considered == 0:
+    absence_scan = _is_reliable_absence_scan(
+        roster,
+        reliable_rows,
+        observed_count=observed_count,
+    )
+    scans_considered = 1 if absence_scan else 0
+    if observations_considered == 0 and not absence_scan:
         return LivePlayerSessionScanSummary(
             observed_count=observed_count,
             roster_rows_seen=len(roster_rows),
             reliable_rows_seen=reliable_rows.reliable_rows_seen,
             unreliable_rows_ignored=reliable_rows.unreliable_rows_ignored,
             duplicate_rows_ignored=reliable_rows.duplicate_rows_ignored,
-            observations_considered=0,
+            scans_considered=scans_considered,
         )
 
     db_path = player_registry.player_registry_db_path(
@@ -149,6 +186,10 @@ def scan_live_player_sessions_once(
     observations_ignored = 0
     sessions_created = 0
     sessions_updated = 0
+    absent_sessions_considered = 0
+    absent_sessions_confirmed = 0
+    sessions_closed = 0
+    sessions_skipped = 0
 
     for reliable_id, player in reliable_rows.players_by_id.items():
         result = player_registry.observe_player_session(
@@ -175,6 +216,57 @@ def scan_live_player_sessions_once(
         elif result.updated:
             sessions_updated += 1
 
+    if reliable_rows.players_by_id:
+        player_registry.clear_player_session_live_absence_windows(
+            db_path,
+            reliable_ids=reliable_rows.players_by_id,
+            source=player_registry.PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
+            source_ref=LIVE_SESSION_SCANNER_ABSENCE_SOURCE_REF,
+        )
+
+    if absence_scan:
+        present_ids = set(reliable_rows.players_by_id)
+        for session in player_registry.list_open_player_sessions(db_path):
+            if session.reliable_id in present_ids:
+                continue
+            absent_sessions_considered += 1
+            absence = player_registry.record_player_session_live_absence(
+                db_path,
+                session=session,
+                observed_at=timestamp,
+                source=player_registry.PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
+                source_ref=LIVE_SESSION_SCANNER_ABSENCE_SOURCE_REF,
+                confirmation_scans=absence_confirmation_scans,
+            )
+            if absence.ignored_count:
+                sessions_skipped += absence.ignored_count
+                continue
+            if not absence.confirmation_reached:
+                sessions_skipped += 1
+                continue
+
+            absent_sessions_confirmed += 1
+            close_result = player_registry.close_player_session(
+                db_path,
+                reliable_id=session.reliable_id,
+                close_observed_at=timestamp,
+                source=player_registry.PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
+                source_ref=LIVE_SESSION_SCANNER_ABSENCE_SOURCE_REF,
+                confidence=player_registry.PLAYER_SESSION_CONFIDENCE_LOW,
+                end_reason=player_registry.PLAYER_SESSION_END_REASON_STALE_ABSENCE,
+            )
+            if close_result.closed:
+                sessions_closed += 1
+                player_registry.confirm_player_session_live_absence_window(
+                    db_path,
+                    session_id=session.session_id,
+                    confirmed_at=timestamp,
+                    source=player_registry.PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
+                    source_ref=LIVE_SESSION_SCANNER_ABSENCE_SOURCE_REF,
+                )
+            else:
+                sessions_skipped += 1
+
     return LivePlayerSessionScanSummary(
         observed_count=observed_count,
         roster_rows_seen=len(roster_rows),
@@ -182,9 +274,14 @@ def scan_live_player_sessions_once(
         unreliable_rows_ignored=reliable_rows.unreliable_rows_ignored,
         duplicate_rows_ignored=reliable_rows.duplicate_rows_ignored,
         observations_considered=observations_considered,
+        scans_considered=scans_considered,
         observations_applied=observations_applied,
         observations_skipped=observations_skipped,
         observations_ignored=observations_ignored,
+        absent_sessions_considered=absent_sessions_considered,
+        absent_sessions_confirmed=absent_sessions_confirmed,
         sessions_created=sessions_created,
         sessions_updated=sessions_updated,
+        sessions_closed=sessions_closed,
+        sessions_skipped=sessions_skipped,
     )

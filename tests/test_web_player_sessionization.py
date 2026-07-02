@@ -119,6 +119,21 @@ def _count_only_roster(count: int = 7) -> CurrentPlayerRoster:
     )
 
 
+def _unavailable_roster() -> CurrentPlayerRoster:
+    return CurrentPlayerRoster(
+        available=False,
+        players=(),
+        total_count=0,
+        source="unavailable",
+        status="unavailable",
+        error="roster unavailable",
+        observed_count=0,
+        count_source="unavailable",
+        roster_available=False,
+        roster_configured=True,
+    )
+
+
 def test_sessionizer_opens_from_stored_auth_and_update_events(tmp_path: Path):
     from armactl.web.services import player_registry, player_sessionizer
 
@@ -594,6 +609,182 @@ def test_live_session_scanner_reliable_roster_opens_and_updates_session(
     assert session.scanner_checkpoint_at == "2026-06-16T12:05:00+00:00"
 
 
+def test_live_session_scanner_repeated_reliable_absence_closes_after_threshold(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import (
+        player_live_session_scanner,
+        player_registry,
+        player_sources,
+    )
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+    rosters = iter(
+        (
+            _roster(_current_player("Bravo", PLAYER_BRAVO_ID)),
+            _roster(_current_player("Bravo", PLAYER_BRAVO_ID)),
+            _roster(_current_player("Bravo", PLAYER_BRAVO_ID)),
+        )
+    )
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: next(rosters),
+    )
+
+    first = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:05:00+00:00",
+    )
+    second = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:10:00+00:00",
+    )
+    third = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:15:00+00:00",
+    )
+    closed_session = player_registry.list_player_sessions_for_reliable_id(
+        db_path,
+        PLAYER_ALPHA_ID,
+    )[0]
+
+    assert first.success is True
+    assert first.scans_considered == 1
+    assert first.absent_sessions_considered == 1
+    assert first.absent_sessions_confirmed == 0
+    assert first.sessions_closed == 0
+    assert first.sessions_skipped == 1
+    assert second.absent_sessions_considered == 1
+    assert second.absent_sessions_confirmed == 1
+    assert second.sessions_closed == 1
+    assert third.absent_sessions_considered == 0
+    assert third.sessions_closed == 0
+    assert closed_session.status == player_registry.PLAYER_SESSION_STATUS_CLOSED
+    assert closed_session.close_observed_at == "2026-06-16T12:10:00+00:00"
+    assert closed_session.close_source == (
+        player_registry.PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT
+    )
+    assert closed_session.close_source_ref == (
+        player_live_session_scanner.LIVE_SESSION_SCANNER_ABSENCE_SOURCE_REF
+    )
+    assert closed_session.close_confidence == (
+        player_registry.PLAYER_SESSION_CONFIDENCE_LOW
+    )
+    assert closed_session.end_reason == (
+        player_registry.PLAYER_SESSION_END_REASON_STALE_ABSENCE
+    )
+
+
+def test_live_session_scanner_single_reliable_absence_does_not_close(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import (
+        player_live_session_scanner,
+        player_registry,
+        player_sources,
+    )
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _roster(),
+    )
+
+    summary = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:05:00+00:00",
+    )
+    session = player_registry.get_open_player_session(db_path, PLAYER_ALPHA_ID)
+
+    assert summary.success is True
+    assert summary.scans_considered == 1
+    assert summary.observations_considered == 0
+    assert summary.absent_sessions_considered == 1
+    assert summary.absent_sessions_confirmed == 0
+    assert summary.sessions_closed == 0
+    assert summary.sessions_skipped == 1
+    assert session is not None
+    assert session.status == player_registry.PLAYER_SESSION_STATUS_OPEN
+
+
+def test_live_session_scanner_same_timestamp_absence_is_idempotent(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import (
+        player_live_session_scanner,
+        player_registry,
+        player_sources,
+    )
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+    rosters = iter(
+        (
+            _roster(_current_player("Bravo", PLAYER_BRAVO_ID)),
+            _roster(_current_player("Bravo", PLAYER_BRAVO_ID)),
+            _roster(_current_player("Bravo", PLAYER_BRAVO_ID)),
+        )
+    )
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: next(rosters),
+    )
+
+    first = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:05:00+00:00",
+    )
+    second = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:05:00+00:00",
+    )
+    third = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:10:00+00:00",
+    )
+
+    assert first.sessions_closed == 0
+    assert second.absent_sessions_considered == 1
+    assert second.absent_sessions_confirmed == 0
+    assert second.sessions_closed == 0
+    assert third.absent_sessions_confirmed == 1
+    assert third.sessions_closed == 1
+    assert player_registry.get_open_player_session(db_path, PLAYER_ALPHA_ID) is None
+
+
 def test_live_session_scanner_ignores_unreliable_roster_rows(
     tmp_path: Path,
     monkeypatch,
@@ -617,6 +808,139 @@ def test_live_session_scanner_ignores_unreliable_roster_rows(
     assert summary.unreliable_rows_ignored == 1
     assert summary.sessions_created == 0
     assert not (tmp_path / "default" / "players.db").exists()
+
+
+def test_live_session_scanner_unreliable_rows_do_not_close_or_advance_absence(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import (
+        player_live_session_scanner,
+        player_registry,
+        player_sources,
+    )
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+    rosters = iter(
+        (
+            _roster(_unreliable_current_player("Slot Only")),
+            _roster(_unreliable_current_player("Slot Only")),
+            _roster(_current_player("Bravo", PLAYER_BRAVO_ID)),
+        )
+    )
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: next(rosters),
+    )
+
+    first = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:05:00+00:00",
+    )
+    second = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:10:00+00:00",
+    )
+    assert _session_count(db_path) == 1
+    third = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:15:00+00:00",
+    )
+
+    assert first.unreliable_rows_ignored == 1
+    assert first.scans_considered == 0
+    assert second.sessions_closed == 0
+    assert third.absent_sessions_considered == 1
+    assert third.absent_sessions_confirmed == 0
+    assert third.sessions_closed == 0
+    assert player_registry.get_open_player_session(db_path, PLAYER_ALPHA_ID) is not None
+
+
+def test_live_session_scanner_mixed_or_mismatched_roster_does_not_advance_absence(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import (
+        player_live_session_scanner,
+        player_registry,
+        player_sources,
+    )
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+    count_mismatch_roster = CurrentPlayerRoster(
+        available=True,
+        players=(_current_player("Bravo", PLAYER_BRAVO_ID),),
+        total_count=2,
+        source="rcon.roster",
+        status="available",
+        error="",
+        observed_count=2,
+        count_source="rcon",
+        roster_available=True,
+        roster_configured=True,
+    )
+    rosters = iter(
+        (
+            _roster(
+                _current_player("Bravo", PLAYER_BRAVO_ID),
+                _unreliable_current_player("Slot Only"),
+            ),
+            count_mismatch_roster,
+            _roster(_current_player("Bravo", PLAYER_BRAVO_ID)),
+        )
+    )
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: next(rosters),
+    )
+
+    mixed = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:05:00+00:00",
+    )
+    mismatched = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:10:00+00:00",
+    )
+    reliable_absence = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:15:00+00:00",
+    )
+
+    assert mixed.unreliable_rows_ignored == 1
+    assert mixed.scans_considered == 0
+    assert mixed.sessions_closed == 0
+    assert mismatched.observed_count == 2
+    assert mismatched.roster_rows_seen == 1
+    assert mismatched.scans_considered == 0
+    assert mismatched.sessions_closed == 0
+    assert reliable_absence.scans_considered == 1
+    assert reliable_absence.absent_sessions_considered == 1
+    assert reliable_absence.absent_sessions_confirmed == 0
+    assert reliable_absence.sessions_closed == 0
+    assert player_registry.get_open_player_session(db_path, PLAYER_ALPHA_ID) is not None
 
 
 def test_live_session_scanner_does_not_create_sessions_from_count_only_a2s(
@@ -645,6 +969,66 @@ def test_live_session_scanner_does_not_create_sessions_from_count_only_a2s(
     assert not (tmp_path / "default" / "players.db").exists()
 
 
+def test_live_session_scanner_unavailable_and_a2s_do_not_advance_absence(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import (
+        player_live_session_scanner,
+        player_registry,
+        player_sources,
+    )
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+    rosters = iter(
+        (
+            _unavailable_roster(),
+            _count_only_roster(7),
+            _roster(_current_player("Bravo", PLAYER_BRAVO_ID)),
+        )
+    )
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: next(rosters),
+    )
+
+    unavailable = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:05:00+00:00",
+    )
+    count_only = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:10:00+00:00",
+    )
+    reliable_absence = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:15:00+00:00",
+    )
+
+    assert unavailable.success is False
+    assert unavailable.roster_unavailable == 1
+    assert unavailable.sessions_closed == 0
+    assert count_only.success is True
+    assert count_only.observed_count == 7
+    assert count_only.scans_considered == 0
+    assert count_only.sessions_closed == 0
+    assert reliable_absence.absent_sessions_considered == 1
+    assert reliable_absence.absent_sessions_confirmed == 0
+    assert reliable_absence.sessions_closed == 0
+    assert player_registry.get_open_player_session(db_path, PLAYER_ALPHA_ID) is not None
+
+
 def test_live_session_scanner_source_failure_does_not_close_sessions(
     tmp_path: Path,
     monkeypatch,
@@ -664,17 +1048,28 @@ def test_live_session_scanner_source_failure_does_not_close_sessions(
         observed_at="2026-06-16T12:00:00+00:00",
     )
 
+    rosters = iter(("fail", "reliable_absence"))
+
     def fail_roster(instance):
-        raise RuntimeError(
-            "failed token=raw-roster-secret from 198.51.100.9 "
-            "using /home/deus/private.log"
-        )
+        action = next(rosters)
+        if action == "fail":
+            raise RuntimeError(
+                "failed token=raw-roster-secret from 198.51.100.9 "
+                "using /home/deus/private.log"
+            )
+        return _roster(_current_player("Bravo", PLAYER_BRAVO_ID))
 
     monkeypatch.setattr(player_sources, "load_current_player_roster", fail_roster)
 
     summary = player_live_session_scanner.scan_live_player_sessions_once(
         "default",
         data_root=tmp_path,
+        observed_at="2026-06-16T12:05:00+00:00",
+    )
+    after_failure_absence = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:10:00+00:00",
     )
     session = player_registry.get_open_player_session(db_path, PLAYER_ALPHA_ID)
 
@@ -683,8 +1078,11 @@ def test_live_session_scanner_source_failure_does_not_close_sessions(
     assert summary.sessions_created == 0
     assert summary.sessions_updated == 0
     assert session is not None
+    assert after_failure_absence.absent_sessions_considered == 1
+    assert after_failure_absence.absent_sessions_confirmed == 0
+    assert after_failure_absence.sessions_closed == 0
     assert session.status == player_registry.PLAYER_SESSION_STATUS_OPEN
-    assert _session_count(db_path) == 1
+    assert _session_count(db_path) == 2
 
 
 def test_live_session_scanner_sanitizes_forbidden_values_and_columns(
@@ -819,7 +1217,11 @@ def test_live_session_scan_job_dedupes_and_audits_counts_only(
     assert job.status == "succeeded"
     assert "observed_count=1" in job.stdout_tail
     assert "reliable_rows_seen=1" in job.stdout_tail
+    assert "scans_considered=1" in job.stdout_tail
+    assert "absent_sessions_considered=0" in job.stdout_tail
     assert "sessions_created=1" in job.stdout_tail
+    assert "sessions_closed=0" in job.stdout_tail
+    assert "sessions_not_closed=0" in job.stdout_tail
     assert [event["details"]["phase"] for event in events] == [
         "intent",
         "intent",
@@ -829,6 +1231,9 @@ def test_live_session_scan_job_dedupes_and_audits_counts_only(
     assert outcome["action"] == player_sessions.PLAYER_LIVE_SESSION_SCAN_ACTION
     assert outcome["target"] == player_sessions.PLAYER_LIVE_SESSION_SCAN_JOB_KIND
     assert outcome["details"]["sessions_created"] == "1"
+    assert outcome["details"]["scans_considered"] == "1"
+    assert outcome["details"]["absent_sessions_confirmed"] == "0"
+    assert outcome["details"]["sessions_closed"] == "0"
     assert outcome["details"]["source_failures"] == "0"
     for rendered in (job.stdout_tail, audit_text):
         assert "Alpha" not in rendered

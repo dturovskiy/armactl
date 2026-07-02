@@ -261,6 +261,8 @@ def test_registry_db_creation_has_schema_metadata(tmp_path: Path):
     assert "idx_player_names_name" in _sqlite_indexes(db_path)
     assert "player_sessions" in _sqlite_tables(db_path)
     assert "idx_player_sessions_one_open_per_reliable_id" in _sqlite_indexes(db_path)
+    assert "player_session_live_scan_windows" in _sqlite_tables(db_path)
+    assert "idx_player_session_live_scan_windows_source" in _sqlite_indexes(db_path)
 
 
 def test_registry_db_migrates_v4_history_indexes_idempotently(tmp_path: Path):
@@ -327,6 +329,64 @@ def test_registry_db_migrates_v5_sessions_schema_to_stale_timeout(tmp_path: Path
         player_registry.PLAYER_SESSION_END_REASON_STALE_TIMEOUT
     )
     assert _registry_schema_version(db_path) == player_registry.PLAYER_REGISTRY_SCHEMA_VERSION
+
+
+def test_registry_db_migrates_v6_live_scan_windows_schema(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.ensure_player_registry_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("DROP TABLE player_session_live_scan_windows")
+        row = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = ? AND name = ?",
+            ("table", "player_sessions"),
+        ).fetchone()
+        assert row is not None
+        legacy_sql = str(row[0]).replace(
+            chr(39) + "stale_absence" + chr(39) + ", ",
+            "",
+        )
+        assert "stale_absence" not in legacy_sql
+        connection.execute("DROP TABLE player_sessions")
+        connection.execute(legacy_sql)
+        connection.execute(
+            """
+            UPDATE player_registry_schema_meta
+            SET value = ?
+            WHERE key = ?
+            """,
+            ("6", "schema_version"),
+        )
+
+    player_registry.ensure_player_registry_db(db_path)
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T10:00:00+00:00",
+    )
+    result = player_registry.close_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        close_observed_at="2026-06-16T11:00:00+00:00",
+        source=player_registry.PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
+        end_reason=player_registry.PLAYER_SESSION_END_REASON_STALE_ABSENCE,
+    )
+
+    assert result.closed is True
+    assert result.session is not None
+    assert result.session.end_reason == (
+        player_registry.PLAYER_SESSION_END_REASON_STALE_ABSENCE
+    )
+    assert _registry_schema_version(db_path) == player_registry.PLAYER_REGISTRY_SCHEMA_VERSION
+    assert "player_session_live_scan_windows" in _sqlite_tables(db_path)
+    assert "idx_player_session_live_scan_windows_reliable_id" in _sqlite_indexes(
+        db_path,
+    )
+    assert "idx_player_session_live_scan_windows_source" in _sqlite_indexes(db_path)
 
 
 def test_registry_db_rebuilds_legacy_v5_session_end_reason_check(tmp_path: Path):
