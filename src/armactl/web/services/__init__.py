@@ -17,6 +17,7 @@ __all__ = [
     "player_live_session_scanner",
     "player_registry",
     "player_session_scheduler_policy",
+    "player_session_scheduler_runner",
     "player_sources",
     "schedule_actions",
     "server_job_actions",

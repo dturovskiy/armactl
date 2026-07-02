@@ -9,7 +9,7 @@ from pathlib import Path
 
 from armactl.web.runtime.job_store_maintenance import repair_duplicate_active_jobs
 
-WEB_SCHEMA_VERSION = "12"
+WEB_SCHEMA_VERSION = "13"
 PRIVATE_FILE_MODE = 0o600
 _LEGACY_DEFAULT_TIMESTAMP = "1970-01-01T00:00:00+00:00"
 
@@ -649,6 +649,61 @@ def _ensure_web_pending_work_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+def _ensure_web_player_session_scheduler_schema(
+    connection: sqlite3.Connection,
+) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS web_player_session_scheduler_state (
+            instance TEXT NOT NULL CHECK(length(trim(instance)) > 0),
+            job_kind TEXT NOT NULL CHECK(length(trim(job_kind)) > 0),
+            last_attempt_at TEXT NOT NULL DEFAULT '',
+            last_success_at TEXT NOT NULL DEFAULT '',
+            last_failure_at TEXT NOT NULL DEFAULT '',
+            next_due_at TEXT NOT NULL DEFAULT '',
+            failure_count INTEGER NOT NULL DEFAULT 0 CHECK(failure_count >= 0),
+            updated_at TEXT NOT NULL CHECK(length(updated_at) > 0),
+            PRIMARY KEY(instance, job_kind)
+        )
+        """
+    )
+    _ensure_columns(
+        connection,
+        "web_player_session_scheduler_state",
+        (
+            (
+                "instance",
+                (
+                    "instance TEXT NOT NULL DEFAULT 'default' "
+                    "CHECK(length(trim(instance)) > 0)"
+                ),
+            ),
+            (
+                "job_kind",
+                "job_kind TEXT NOT NULL DEFAULT 'legacy' CHECK(length(trim(job_kind)) > 0)",
+            ),
+            ("last_attempt_at", "last_attempt_at TEXT NOT NULL DEFAULT ''"),
+            ("last_success_at", "last_success_at TEXT NOT NULL DEFAULT ''"),
+            ("last_failure_at", "last_failure_at TEXT NOT NULL DEFAULT ''"),
+            ("next_due_at", "next_due_at TEXT NOT NULL DEFAULT ''"),
+            (
+                "failure_count",
+                "failure_count INTEGER NOT NULL DEFAULT 0 CHECK(failure_count >= 0)",
+            ),
+            (
+                "updated_at",
+                f"updated_at TEXT NOT NULL DEFAULT '{_LEGACY_DEFAULT_TIMESTAMP}'",
+            ),
+        ),
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_web_player_session_scheduler_due
+        ON web_player_session_scheduler_state(instance, next_due_at, job_kind)
+        """
+    )
+
+
 def _backfill_pending_work_from_restarts(connection: sqlite3.Connection) -> None:
     if not (
         _table_exists(connection, "web_pending_restarts")
@@ -711,6 +766,7 @@ def _ensure_current_web_schema(connection: sqlite3.Connection) -> None:
     _ensure_web_login_rate_limits_schema(connection)
     _ensure_web_pending_restarts_schema(connection)
     _ensure_web_pending_work_schema(connection)
+    _ensure_web_player_session_scheduler_schema(connection)
     _backfill_pending_work_from_restarts(connection)
 
 
@@ -777,6 +833,12 @@ def _migration_12_current_roster_cache_counts(connection: sqlite3.Connection) ->
     )
 
 
+def _migration_13_player_session_scheduler_state(
+    connection: sqlite3.Connection,
+) -> None:
+    _ensure_web_player_session_scheduler_schema(connection)
+
+
 _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (1, _migration_1_auth_schema),
     (2, _migration_2_jobs_schema),
@@ -790,6 +852,7 @@ _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (10, _migration_10_server_version_checks),
     (11, _migration_11_current_roster_cache),
     (12, _migration_12_current_roster_cache_counts),
+    (13, _migration_13_player_session_scheduler_state),
 )
 
 def _read_schema_version(connection: sqlite3.Connection) -> int:

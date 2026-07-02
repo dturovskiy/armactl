@@ -1099,6 +1099,83 @@ def players() -> None:
     """Player cache and registry tools."""
 
 
+def _format_player_session_scheduler_run_result(result) -> str:
+    lines = [
+        "Player session scheduler checked due jobs.",
+        f"  Instance:       {result.instance}",
+        f"  Checked at:     {result.checked_at}",
+        f"  Checked:        {result.checked_count}",
+        f"  Due:            {result.due_count}",
+        f"  Enqueued:       {result.enqueued_count}",
+        f"  Active:         {result.active_count}",
+        f"  Failed:         {result.failed_count}",
+        (
+            "  Runner mode:    explicit --once only; no service, timer, "
+            "or daemon is installed/enabled."
+        ),
+    ]
+    for job in result.jobs:
+        job_id = f" job=#{job.job_id}" if job.job_id is not None else ""
+        lines.append(
+            f"  - {job.job_kind}: {job.outcome}{job_id}; next due {job.next_due_at or 'unknown'}"
+        )
+    return "\n".join(lines)
+
+
+@players.group("sessions")
+def players_sessions() -> None:
+    """Manage explicit player-session tools."""
+
+
+@players_sessions.group("scheduler")
+def players_sessions_scheduler() -> None:
+    """Manage the opt-in player-session scheduler runner."""
+
+
+@players_sessions_scheduler.command("run")
+@click.option("--once", is_flag=True, help="Check due jobs once and exit.")
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Optional armactl data root containing web.db.",
+)
+@click.pass_context
+def players_sessions_scheduler_run(
+    ctx: click.Context,
+    once: bool,
+    data_root: Path | None,
+) -> None:
+    """Run the explicit player-session scheduler once."""
+    from armactl.web.runtime import web_db_file
+    from armactl.web.services.player_session_scheduler_runner import (
+        PlayerSessionSchedulerRunnerError,
+        run_player_session_scheduler_once,
+    )
+
+    if not once:
+        raise click.ClickException(
+            "Only --once is supported; no scheduler service, timer, daemon, "
+            "or background thread is installed or enabled."
+        )
+
+    root = data_root or paths.DEFAULT_DATA_ROOT
+    try:
+        result = run_player_session_scheduler_once(
+            web_db_file(root),
+            instance=ctx.obj["instance"],
+        )
+    except PlayerSessionSchedulerRunnerError as error:
+        raise click.ClickException(str(error)) from error
+
+    if ctx.obj["json"]:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+    else:
+        click.echo(_format_player_session_scheduler_run_result(result))
+    if not result.success:
+        sys.exit(result.exit_code)
+
+
 @players.group("current-cache")
 def players_current_cache() -> None:
     """Manage the automatic current-roster cache."""

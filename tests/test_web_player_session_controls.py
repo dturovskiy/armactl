@@ -316,8 +316,17 @@ def test_session_get_pages_render_controls_without_enqueueing_jobs(
     monkeypatch,
 ) -> None:
     from armactl.web.jobs import list_recent_jobs
+    from armactl.web.services import player_session_scheduler_runner
+
+    def fail_scheduler(*_args, **_kwargs):
+        raise AssertionError("GET routes must not run the session scheduler")
 
     _patch_session_workers(monkeypatch)
+    monkeypatch.setattr(
+        player_session_scheduler_runner,
+        "run_player_session_scheduler_once",
+        fail_scheduler,
+    )
     client = _setup_owner_client(tmp_path)
 
     sessions = client.get("/players/sessions", follow_redirects=False)
