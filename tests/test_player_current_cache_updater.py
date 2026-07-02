@@ -260,11 +260,19 @@ def test_players_current_cache_run_once_writes_only_current_roster_cache(
     monkeypatch,
 ):
     from armactl import player_current_cache_updater
+    from armactl.web.services import player_live_session_scanner
 
     monkeypatch.setattr(
         player_current_cache_updater.player_sources,
         "load_current_player_roster",
         lambda instance: _roster(_current_player("CLI Alpha", PLAYER_ALPHA_ID)),
+    )
+    monkeypatch.setattr(
+        player_live_session_scanner,
+        "scan_live_player_sessions_once",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("current-cache updater must not scan sessions")
+        ),
     )
 
     result = CliRunner().invoke(

@@ -80,6 +80,15 @@ def _current_player(
     )
 
 
+def _unreliable_current_player(name: str = "Slot Only") -> CurrentPlayer:
+    return CurrentPlayer(
+        display_name=name,
+        reliable_id="",
+        admin_reference="",
+        source="rcon.roster",
+    )
+
+
 def _roster(*players: CurrentPlayer) -> CurrentPlayerRoster:
     return CurrentPlayerRoster(
         available=True,
@@ -88,6 +97,25 @@ def _roster(*players: CurrentPlayer) -> CurrentPlayerRoster:
         source="rcon.roster",
         status="available",
         error="",
+        observed_count=len(players),
+        count_source="rcon",
+        roster_available=True,
+        roster_configured=True,
+    )
+
+
+def _count_only_roster(count: int = 7) -> CurrentPlayerRoster:
+    return CurrentPlayerRoster(
+        available=True,
+        players=(),
+        total_count=count,
+        source="a2s",
+        status="available",
+        error="",
+        observed_count=count,
+        count_source="a2s",
+        roster_available=False,
+        roster_configured=True,
     )
 
 
@@ -503,6 +531,314 @@ def test_current_roster_refresh_does_not_close_existing_sessions(
     assert session is not None
     assert session.status == player_registry.PLAYER_SESSION_STATUS_OPEN
     assert _session_count(db_path) == 1
+
+
+def test_live_session_scanner_reliable_roster_opens_and_updates_session(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import (
+        player_live_session_scanner,
+        player_registry,
+        player_sources,
+    )
+
+    rosters = iter(
+        (
+            _roster(_current_player("Live Alpha", PLAYER_ALPHA_ID)),
+            _roster(_current_player("Live Alpha Later", PLAYER_ALPHA_ID)),
+        )
+    )
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: next(rosters),
+    )
+    db_path = tmp_path / "default" / "players.db"
+
+    first = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+    second = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:05:00+00:00",
+    )
+    session = player_registry.get_open_player_session(db_path, PLAYER_ALPHA_ID)
+
+    assert first.success is True
+    assert first.observed_count == 1
+    assert first.reliable_rows_seen == 1
+    assert first.sessions_created == 1
+    assert first.sessions_updated == 0
+    assert second.success is True
+    assert second.sessions_created == 0
+    assert second.sessions_updated == 1
+    assert _session_count(db_path) == 1
+    assert session is not None
+    assert session.name_at_open == "Live Alpha"
+    assert session.name_last == "Live Alpha Later"
+    assert session.open_source == player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER
+    assert session.last_seen_source == player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER
+    assert session.open_confidence == player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM
+    assert session.last_seen_confidence == player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM
+    assert session.last_seen_at == "2026-06-16T12:05:00+00:00"
+    assert session.scanner_checkpoint_source == (
+        player_live_session_scanner.LIVE_SESSION_SCANNER_CHECKPOINT_SOURCE
+    )
+    assert session.scanner_checkpoint_ref == (
+        player_live_session_scanner.LIVE_SESSION_SCANNER_SOURCE_REF
+    )
+    assert session.scanner_checkpoint_at == "2026-06-16T12:05:00+00:00"
+
+
+def test_live_session_scanner_ignores_unreliable_roster_rows(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_live_session_scanner, player_sources
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _roster(_unreliable_current_player("Slot Only")),
+    )
+
+    summary = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+    )
+
+    assert summary.success is True
+    assert summary.roster_rows_seen == 1
+    assert summary.reliable_rows_seen == 0
+    assert summary.unreliable_rows_ignored == 1
+    assert summary.sessions_created == 0
+    assert not (tmp_path / "default" / "players.db").exists()
+
+
+def test_live_session_scanner_does_not_create_sessions_from_count_only_a2s(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_live_session_scanner, player_sources
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _count_only_roster(7),
+    )
+
+    summary = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+    )
+
+    assert summary.success is True
+    assert summary.observed_count == 7
+    assert summary.roster_rows_seen == 0
+    assert summary.reliable_rows_seen == 0
+    assert summary.sessions_created == 0
+    assert _session_count(tmp_path / "default" / "players.db") == 0
+    assert not (tmp_path / "default" / "players.db").exists()
+
+
+def test_live_session_scanner_source_failure_does_not_close_sessions(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import (
+        player_live_session_scanner,
+        player_registry,
+        player_sources,
+    )
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+
+    def fail_roster(instance):
+        raise RuntimeError(
+            "failed token=raw-roster-secret from 198.51.100.9 "
+            "using /home/deus/private.log"
+        )
+
+    monkeypatch.setattr(player_sources, "load_current_player_roster", fail_roster)
+
+    summary = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+    )
+    session = player_registry.get_open_player_session(db_path, PLAYER_ALPHA_ID)
+
+    assert summary.success is False
+    assert summary.source_failures == 1
+    assert summary.sessions_created == 0
+    assert summary.sessions_updated == 0
+    assert session is not None
+    assert session.status == player_registry.PLAYER_SESSION_STATUS_OPEN
+    assert _session_count(db_path) == 1
+
+
+def test_live_session_scanner_sanitizes_forbidden_values_and_columns(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_live_session_scanner, player_sources
+
+    raw_path = "/home/deus/armactl-data/default/config/logs/run/console.log"
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: CurrentPlayerRoster(
+            available=True,
+            players=(
+                CurrentPlayer(
+                    display_name="Alpha token=raw-player-secret 198.51.100.9",
+                    reliable_id=PLAYER_ALPHA_ID,
+                    admin_reference=PLAYER_ALPHA_ID,
+                    source=f"{raw_path} token=raw-source-secret",
+                ),
+            ),
+            total_count=1,
+            source=f"rcon.roster {raw_path}",
+            status="available",
+            error="",
+            observed_count=1,
+            count_source="rcon",
+            roster_available=True,
+            roster_configured=True,
+        ),
+    )
+
+    summary = player_live_session_scanner.scan_live_player_sessions_once(
+        "default",
+        data_root=tmp_path,
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+    db_path = tmp_path / "default" / "players.db"
+    encoded_sessions = json.dumps(_session_rows(db_path), sort_keys=True)
+
+    assert summary.sessions_created == 1
+    assert "Alpha token=*** ***" in encoded_sessions
+    assert not {"ip", "address", "raw_line", "raw_path"} & _table_columns(
+        db_path,
+        "player_sessions",
+    )
+    for forbidden in (
+        raw_path,
+        "/home/deus",
+        "armactl-data",
+        "raw-player-secret",
+        "raw-source-secret",
+        "198.51.100.9",
+    ):
+        assert forbidden not in encoded_sessions
+
+
+def test_live_session_scan_job_dedupes_and_audits_counts_only(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.jobs import get_job, list_active_jobs, player_sessions
+    from armactl.web.services import (
+        player_live_session_scan,
+        player_sources,
+    )
+
+    db_path = tmp_path / "web" / "web.db"
+    raw_path = "/home/deus/armactl-data/default/config/logs/run/console.log"
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: CurrentPlayerRoster(
+            available=True,
+            players=(
+                CurrentPlayer(
+                    display_name="Alpha token=raw-player-secret 198.51.100.9",
+                    reliable_id=PLAYER_ALPHA_ID,
+                    admin_reference=PLAYER_ALPHA_ID,
+                    source=f"{raw_path} token=raw-source-secret",
+                ),
+            ),
+            total_count=1,
+            source=f"rcon.roster {raw_path}",
+            status="available",
+            error="",
+            observed_count=1,
+            count_source="rcon",
+            roster_available=True,
+            roster_configured=True,
+        ),
+    )
+    started_jobs: list[int] = []
+    monkeypatch.setattr(
+        player_sessions,
+        "start_player_live_session_scan_worker",
+        lambda db_path, job_id: started_jobs.append(job_id),
+    )
+
+    first = player_live_session_scan.request_player_live_session_scan_and_start(
+        db_path,
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+        user_id=None,
+    )
+    second = player_live_session_scan.request_player_live_session_scan_and_start(
+        db_path,
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+        user_id=None,
+    )
+
+    assert first.created is True
+    assert second.created is False
+    assert first.job.id == second.job.id
+    assert started_jobs == [first.job.id]
+    assert [job.id for job in list_active_jobs(db_path)] == [first.job.id]
+
+    dispatch = player_sessions.dispatch_player_live_session_scan_job(
+        db_path,
+        first.job.id,
+    )
+    job = get_job(db_path, first.job.id)
+    audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(
+        encoding="utf-8"
+    )
+    events = _audit_events(tmp_path)
+
+    assert dispatch.ran is True
+    assert job is not None
+    assert job.status == "succeeded"
+    assert "observed_count=1" in job.stdout_tail
+    assert "reliable_rows_seen=1" in job.stdout_tail
+    assert "sessions_created=1" in job.stdout_tail
+    assert [event["details"]["phase"] for event in events] == [
+        "intent",
+        "intent",
+        "outcome",
+    ]
+    outcome = events[-1]
+    assert outcome["action"] == player_sessions.PLAYER_LIVE_SESSION_SCAN_ACTION
+    assert outcome["target"] == player_sessions.PLAYER_LIVE_SESSION_SCAN_JOB_KIND
+    assert outcome["details"]["sessions_created"] == "1"
+    assert outcome["details"]["source_failures"] == "0"
+    for rendered in (job.stdout_tail, audit_text):
+        assert "Alpha" not in rendered
+        assert PLAYER_ALPHA_ID not in rendered
+        assert raw_path not in rendered
+        assert "raw-player-secret" not in rendered
+        assert "raw-source-secret" not in rendered
+        assert "198.51.100.9" not in rendered
+        for forbidden_key in ("ip", "address", "raw_line", "raw_path"):
+            assert forbidden_key not in rendered.casefold()
 
 
 def test_sessionization_job_dedupes_and_audits_counts_only(

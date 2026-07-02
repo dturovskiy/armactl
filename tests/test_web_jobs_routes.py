@@ -120,6 +120,11 @@ def test_authenticated_owner_sees_jobs_page(tmp_path: Path):
     setup_owner_user(tmp_path, "owner", password)
     db_path = tmp_path / "web" / "web.db"
     job = create_job(db_path, kind="safe:test", requested_by_username="owner")
+    create_job(
+        db_path,
+        kind="players:scan-live-sessions",
+        requested_by_username="owner",
+    )
     mark_job_running(db_path, job.id, current_step="Working", progress_current=1, progress_total=2)
     append_job_output(db_path, job.id, stdout="step output")
     mark_job_succeeded(db_path, job.id, result_message="Job completed.", current_step="Done")
@@ -136,6 +141,8 @@ def test_authenticated_owner_sees_jobs_page(tmp_path: Path):
     assert "No pending operator work." in response.text
     assert "safe:test" in response.text
     assert "Other jobs" in response.text
+    assert "Player data" in response.text
+    assert "Scan live player sessions" in response.text
     assert "job-row-summary" in response.text
     assert "Job details" in response.text
     assert f'data-job-details-id="{job.id}"' in response.text

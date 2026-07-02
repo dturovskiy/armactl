@@ -711,6 +711,7 @@
     "Player data": "Player data",
     "Collect player log events": "Collect player log events",
     "Sessionize player log events": "Sessionize player log events",
+    "Scan live player sessions": "Scan live player sessions",
     "Queued player log collection": "Queued player log collection",
     "Collection complete": "Collection complete",
     "Player log collection completed.": "Player log collection completed.",

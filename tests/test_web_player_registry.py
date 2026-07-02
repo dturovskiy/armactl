@@ -1779,25 +1779,41 @@ def test_player_get_routes_do_not_write_player_sessions(
     tmp_path: Path,
     monkeypatch,
 ):
-    from armactl.web.services import player_sources
+    from armactl.web.services import player_live_session_scanner, player_sources
 
     monkeypatch.setattr(
         player_sources,
         "load_current_player_roster",
         lambda instance: _roster(_current_player("Live Alpha", PLAYER_ALPHA_ID)),
     )
+    monkeypatch.setattr(
+        player_live_session_scanner,
+        "scan_live_player_sessions_once",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("GET routes must not scan live sessions")
+        ),
+    )
     client = _authed_client(tmp_path, monkeypatch)
     db_path = tmp_path / "default" / "players.db"
 
     current_response = client.get("/players", follow_redirects=False)
+    current_json_response = client.get("/players/current.json", follow_redirects=False)
     known_response = client.get("/players/known", follow_redirects=False)
     history_response = client.get("/players/history", follow_redirects=False)
 
     assert current_response.status_code == 200
+    assert current_json_response.status_code == 200
     assert known_response.status_code == 200
     assert history_response.status_code == 200
     assert "Live Alpha" in current_response.text
     assert PLAYER_ALPHA_ID in current_response.text
+    assert current_json_response.json()["players"] == [
+        {
+            "display_name": "Live Alpha",
+            "reliable_id": PLAYER_ALPHA_ID,
+            "source": "rcon.guid",
+        }
+    ]
     assert not db_path.exists()
     assert _player_session_count(db_path) == 0
 

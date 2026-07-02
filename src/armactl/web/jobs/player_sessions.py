@@ -16,7 +16,11 @@ from armactl.web.jobs.runner import (
     dispatch_job,
 )
 from armactl.web.jobs.store import get_or_create_active_job
-from armactl.web.services import player_registry, player_sessionizer
+from armactl.web.services import (
+    player_live_session_scanner,
+    player_registry,
+    player_sessionizer,
+)
 from armactl.web.services.audit import AuditLogError, append_audit_event
 from armactl.web.services.player_identity import safe_player_text
 
@@ -26,6 +30,9 @@ PLAYER_LOG_SESSIONIZATION_SCOPE = "stored_player_log_events"
 PLAYER_SESSION_MAINTENANCE_JOB_KIND = "players:session-maintenance"
 PLAYER_SESSION_MAINTENANCE_ACTION = "players.sessions.maintenance"
 PLAYER_SESSION_MAINTENANCE_SCOPE = "player_sessions"
+PLAYER_LIVE_SESSION_SCAN_JOB_KIND = "players:scan-live-sessions"
+PLAYER_LIVE_SESSION_SCAN_ACTION = "players.sessions.scan-live"
+PLAYER_LIVE_SESSION_SCAN_SCOPE = "live_current_roster"
 DEFAULT_PLAYER_SESSION_STALE_TIMEOUT = timedelta(hours=24)
 DEFAULT_CLOSED_PLAYER_SESSION_RETENTION = timedelta(days=90)
 
@@ -35,7 +42,11 @@ class PlayerLogSessionizationAuditError(RuntimeError):
 
 
 class PlayerSessionMaintenanceAuditError(RuntimeError):
-    """Raised when session maintenance completes but audit cannot be written."""
+    """Raised when player session maintenance completes but audit cannot be written."""
+
+
+class PlayerLiveSessionScanAuditError(RuntimeError):
+    """Raised when live session scan completes but audit cannot be written."""
 
 
 @dataclass(frozen=True)
@@ -94,6 +105,24 @@ def ensure_player_session_maintenance_job(
         requested_by_user_id=requested_by_user_id,
         instance=_safe_instance(instance),
         current_step="Queued player session maintenance",
+    )
+
+
+def ensure_player_live_session_scan_job(
+    db_path,
+    *,
+    requested_by_username: str,
+    requested_by_user_id: int | None = None,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> tuple[JobRecord, bool]:
+    """Return an active live session scan job, creating one if needed."""
+    return get_or_create_active_job(
+        db_path,
+        kind=PLAYER_LIVE_SESSION_SCAN_JOB_KIND,
+        requested_by_username=requested_by_username,
+        requested_by_user_id=requested_by_user_id,
+        instance=_safe_instance(instance),
+        current_step="Queued live player session scan",
     )
 
 
@@ -238,6 +267,84 @@ def _maintenance_summary_output(summary: PlayerSessionMaintenanceSummary) -> str
     )
 
 
+def live_session_scan_count_details(
+    summary: player_live_session_scanner.LivePlayerSessionScanSummary | None,
+    *,
+    phase: str,
+    job_id: int | None,
+) -> dict[str, object]:
+    """Return counts-only audit details for explicit live session scans."""
+    details: dict[str, object] = {
+        "phase": phase,
+        "job_kind": PLAYER_LIVE_SESSION_SCAN_JOB_KIND,
+        "job_id": str(job_id or ""),
+        "scope": PLAYER_LIVE_SESSION_SCAN_SCOPE,
+        "observed_count": "0",
+        "roster_rows_seen": "0",
+        "reliable_rows_seen": "0",
+        "unreliable_rows_ignored": "0",
+        "duplicate_rows_ignored": "0",
+        "observations_considered": "0",
+        "observations_applied": "0",
+        "observations_not_applied": "0",
+        "observations_ignored": "0",
+        "sessions_created": "0",
+        "sessions_updated": "0",
+        "source_failures": "0",
+        "roster_unavailable": "0",
+    }
+    if summary is not None:
+        details.update(
+            {
+                "observed_count": str(summary.observed_count),
+                "roster_rows_seen": str(summary.roster_rows_seen),
+                "reliable_rows_seen": str(summary.reliable_rows_seen),
+                "unreliable_rows_ignored": str(summary.unreliable_rows_ignored),
+                "duplicate_rows_ignored": str(summary.duplicate_rows_ignored),
+                "observations_considered": str(summary.observations_considered),
+                "observations_applied": str(summary.observations_applied),
+                "observations_not_applied": str(summary.observations_skipped),
+                "observations_ignored": str(summary.observations_ignored),
+                "sessions_created": str(summary.sessions_created),
+                "sessions_updated": str(summary.sessions_updated),
+                "source_failures": str(summary.source_failures),
+                "roster_unavailable": str(summary.roster_unavailable),
+            }
+        )
+    return details
+
+
+def _live_scan_summary_message(
+    summary: player_live_session_scanner.LivePlayerSessionScanSummary,
+) -> str:
+    if not summary.success:
+        return "Live player session scan failed."
+    if summary.observations_applied == 0:
+        return "No reliable live player session observations found."
+    return "Live player session scan completed."
+
+
+def _live_scan_summary_output(
+    summary: player_live_session_scanner.LivePlayerSessionScanSummary,
+) -> str:
+    return (
+        "Live player session scan counts: "
+        f"observed_count={summary.observed_count}; "
+        f"roster_rows_seen={summary.roster_rows_seen}; "
+        f"reliable_rows_seen={summary.reliable_rows_seen}; "
+        f"unreliable_rows_ignored={summary.unreliable_rows_ignored}; "
+        f"duplicate_rows_ignored={summary.duplicate_rows_ignored}; "
+        f"observations_considered={summary.observations_considered}; "
+        f"observations_applied={summary.observations_applied}; "
+        f"observations_not_applied={summary.observations_skipped}; "
+        f"observations_ignored={summary.observations_ignored}; "
+        f"sessions_created={summary.sessions_created}; "
+        f"sessions_updated={summary.sessions_updated}; "
+        f"source_failures={summary.source_failures}; "
+        f"roster_unavailable={summary.roster_unavailable}"
+    )
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -379,6 +486,56 @@ def _maintenance_audit_failure_or_raise(
     except AuditLogError as audit_error:
         raise PlayerSessionMaintenanceAuditError(
             "Player session maintenance failed, and audit logging also failed."
+        ) from audit_error
+
+
+def _append_live_scan_outcome_audit(
+    audit_log_path: Path,
+    *,
+    username: str,
+    instance: str,
+    job_id: int,
+    summary: player_live_session_scanner.LivePlayerSessionScanSummary | None,
+    success: bool,
+    message: str,
+) -> None:
+    append_audit_event(
+        audit_log_path,
+        username=username,
+        action=PLAYER_LIVE_SESSION_SCAN_ACTION,
+        instance=instance,
+        target=PLAYER_LIVE_SESSION_SCAN_JOB_KIND,
+        success=success,
+        message=message,
+        exit_code=0 if success else 1,
+        details=live_session_scan_count_details(
+            summary,
+            phase="outcome",
+            job_id=job_id,
+        ),
+    )
+
+
+def _live_scan_audit_failure_or_raise(
+    audit_log_path: Path,
+    *,
+    username: str,
+    instance: str,
+    job_id: int,
+) -> None:
+    try:
+        _append_live_scan_outcome_audit(
+            audit_log_path,
+            username=username,
+            instance=instance,
+            job_id=job_id,
+            summary=None,
+            success=False,
+            message="Live player session scan failed.",
+        )
+    except AuditLogError as audit_error:
+        raise PlayerLiveSessionScanAuditError(
+            "Live player session scan failed, and audit logging also failed."
         ) from audit_error
 
 
@@ -548,6 +705,85 @@ def start_player_session_maintenance_worker(db_path, job_id: int) -> threading.T
         target=_run_player_session_maintenance_worker,
         args=(Path(db_path), job_id),
         name=f"armactl-web-player-session-maintenance-job-{job_id}",
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
+def handle_player_live_session_scan(context: JobContext) -> JobHandlerResult:
+    """Scan one live current roster snapshot into session observations."""
+    instance = _safe_instance(context.job.instance)
+    data_root = _data_root_from_web_db_path(context.db_path)
+    audit_log_path = paths.web_audit_log_file(data_root)
+
+    try:
+        summary = player_live_session_scanner.scan_live_player_sessions_once(
+            instance,
+            data_root=data_root,
+        )
+    except Exception as error:
+        _live_scan_audit_failure_or_raise(
+            audit_log_path,
+            username=context.job.requested_by_username,
+            instance=instance,
+            job_id=context.job.id,
+        )
+        raise RuntimeError("Live player session scan failed.") from error
+
+    context.append_output(stdout=_live_scan_summary_output(summary))
+    message = _live_scan_summary_message(summary)
+    try:
+        _append_live_scan_outcome_audit(
+            audit_log_path,
+            username=context.job.requested_by_username,
+            instance=instance,
+            job_id=context.job.id,
+            summary=summary,
+            success=summary.success,
+            message=message,
+        )
+    except AuditLogError as error:
+        raise PlayerLiveSessionScanAuditError(
+            "Live player session scan completed, but audit logging failed."
+        ) from error
+
+    if not summary.success:
+        raise RuntimeError(message)
+
+    return JobHandlerResult(
+        result_message=message,
+        current_step="Live player session scan complete",
+        progress_current=summary.observations_considered,
+        progress_total=summary.observations_considered,
+    )
+
+
+def create_player_live_session_scan_dispatcher() -> JobDispatcher:
+    """Return the explicit dispatcher for live session scan jobs."""
+    return JobDispatcher(
+        {PLAYER_LIVE_SESSION_SCAN_JOB_KIND: handle_player_live_session_scan}
+    )
+
+
+def dispatch_player_live_session_scan_job(db_path, job_id: int):
+    """Dispatch one queued live session scan job through the safe handler."""
+    return dispatch_job(db_path, job_id, create_player_live_session_scan_dispatcher())
+
+
+def _run_player_live_session_scan_worker(db_path: Path, job_id: int) -> None:
+    try:
+        dispatch_player_live_session_scan_job(db_path, job_id)
+    except Exception:
+        return
+
+
+def start_player_live_session_scan_worker(db_path, job_id: int) -> threading.Thread:
+    """Start one queued live session scan job in a background thread."""
+    thread = threading.Thread(
+        target=_run_player_live_session_scan_worker,
+        args=(Path(db_path), job_id),
+        name=f"armactl-web-player-live-session-scan-job-{job_id}",
         daemon=True,
     )
     thread.start()
