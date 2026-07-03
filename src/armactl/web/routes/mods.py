@@ -18,7 +18,7 @@ from armactl.web.auth.dependencies import (
 from armactl.web.auth.permissions import MODS_MANAGE, MODS_VIEW
 from armactl.web.page_models import mods as mods_page_model
 from armactl.web.routes._common import redirect_to_login
-from armactl.web.services import mod_actions
+from armactl.web.services import mod_actions, mod_profile_cleanup
 
 router = APIRouter()
 
@@ -263,6 +263,26 @@ def dedupe_mods_page(
     assert current is not None
 
     result = mod_actions.run_dedupe_and_audit(
+        instance=paths.DEFAULT_INSTANCE_NAME,
+        audit_log_path=current.config.audit_log_path,
+        username=current.user.username,
+        db_path=current.config.db_path,
+    )
+    return _render_action_result(request, current, result)
+
+
+@router.post("/mods/profile-settings-cleanup", response_class=HTMLResponse)
+def cleanup_profile_settings_page(
+    request: Request,
+    csrf_token: str = Form(default=""),
+) -> Response:
+    """Clean stale profile settings module references for disabled mods."""
+    current, error_response = _require_manage_post(request, csrf_token)
+    if error_response is not None:
+        return error_response
+    assert current is not None
+
+    result = mod_profile_cleanup.cleanup_profile_settings_and_audit(
         instance=paths.DEFAULT_INSTANCE_NAME,
         audit_log_path=current.config.audit_log_path,
         username=current.user.username,

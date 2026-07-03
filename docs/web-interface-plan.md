@@ -270,7 +270,7 @@ Out of scope:
 
 #### 4. Mod Cleanup Edge-Case Recovery
 
-- Current state: unused-addon cleanup is constrained to canonical `<instance>/config/addons`, rejects symlinks and unsafe paths, supports dry-run, requires confirmation, and reports bounded redacted summaries. Disabled mods are preserved. Config/disabled-sidecar updates have rollback helpers.
+- Current state: unused-addon cleanup is constrained to canonical `<instance>/config/addons`, rejects symlinks and unsafe paths, supports dry-run, requires confirmation, and reports bounded redacted summaries. Disabled mods are preserved. Config/disabled-sidecar updates have rollback helpers. `/mods` also has a separate narrow stale profile settings cleanup for allowlisted disabled-mod module blocks only; it backs up changed profile settings files, audits counts only, marks pending restart, and does not delete addon dirs, remove disabled sidecar entries, change active `game.mods`, or expose broad file editing.
 - Risk: cleanup deletion is not rollbackable after a directory is removed. Partial failure can delete some addon directories and fail others. Local Workshop files may contain operator-added content under the allowed addon directory.
 - Proposed slice: add a cleanup recovery design before changing deletion behavior: dry-run manifest, confirmation bound to that manifest, optional quarantine/move first, restore command or documented restore path, and clearer partial-failure UI.
 - Files/modules likely touched: `src/armactl/addon_cleanup.py`, `src/armactl/mods_manager.py`, `src/armactl/web/services/mod_actions.py`, `src/armactl/web/routes/mods.py`, `src/armactl/web/templates/mods.html`, `tests/test_addon_cleanup.py`, `tests/test_web_mod_actions.py`.

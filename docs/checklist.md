@@ -57,6 +57,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [ ] Continue polishing server update check/update UX after VM smoke feedback, keeping expired running-job recovery diagnostics-only unless a future explicit recovery path proves worker death without killing processes.
 - [ ] Expand safe config controls after field behavior is verified.
 - [x] Improve mod cleanup/mod mutation edge-case recovery workflows with controlled partial-change results, audit-safe diagnostics, and pending-work recovery markers.
+- [x] Add narrow `/mods` stale profile settings cleanup for allowlisted disabled-mod module blocks only, with backup, counts-only audit, pending restart tracking, and no addon deletion, sidecar removal, active `game.mods` change, or generic file editing.
 - [x] Build slice 2 read-only players page / improved players view from existing sources.
 - [ ] Continue live session tracking with automatic poller/scheduler decisions, full session UI/detail/API beyond the read-only list and manual controls, remaining retention scheduling, richer truth labels, and broader conflict-policy hardening from the Phase 4a design, with no IP storage by default.
 - [ ] Add slice 4 player search/filter over reliable IDs, names, and session metadata.

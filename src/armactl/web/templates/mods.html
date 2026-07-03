@@ -158,6 +158,18 @@
         <li class="wrap-value">{{ item.name or t("unknown") }} ({{ item.mod_id }}): {{ item.module_name }} in {{ t(item.source) }}</li>
       {% endfor %}
     </ul>
+    <p class="muted">{{ t("This cleanup removes only known stale profile settings module blocks for mods currently in the disabled sidecar.") }}</p>
+    <p class="muted">{{ t("It does not delete disabled addon directories or change game.mods.") }}</p>
+    {% if can_manage_mods %}
+      <form method="post" action="/mods/profile-settings-cleanup" class="config-edit-form mod-edit-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-actions">
+          <button type="submit" class="secondary">{{ t("Cleanup stale profile settings references") }}</button>
+        </div>
+      </form>
+    {% else %}
+      <p class="muted">{{ t("Profile settings cleanup requires mods:manage.") }}</p>
+    {% endif %}
   {% endif %}
   {% set disabled_dirs = diagnostics.disabled_addon_dirs_present|default([]) %}
   {% if disabled_dirs %}

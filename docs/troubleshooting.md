@@ -234,10 +234,19 @@ The `/mods` diagnostics panel reports:
 Do not treat disabled addon directories as cleanup candidates by default. The
 unused-addon cleanup protects active and disabled IDs, and it must not delete
 disabled addon files unless the operator explicitly removes that disabled mod.
-If diagnostics show only stale profile settings references, clean them in a
-separate safe workflow: back up the allowlisted profile settings file first,
-edit only the known stale settings block, audit intent and outcome, avoid raw
-paths or secrets in logs, and do not perform broad file deletion.
+
+If diagnostics show stale profile settings references, use the `/mods` action
+`Cleanup stale profile settings references`. This is a narrow POST-only cleanup
+for the allowlisted profile settings candidates. It backs up each changed file
+under instance backups, removes only exact known disabled-mod module blocks with
+balanced braces, audits counts only, and marks restart-pending work when it
+changes a file. It does not delete disabled addon directories, remove disabled
+mods from the sidecar, change active `game.mods`, or provide a generic profile
+or config editor.
+
+If the action reports skipped ambiguous references, no partial block is written
+for that ambiguous stanza. Inspect the profile settings file manually before
+retrying.
 
 Profile settings residue can explain game log warnings about unknown module
 keywords after a mod is disabled. It is not evidence by itself that the mod is

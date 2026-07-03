@@ -411,6 +411,11 @@ def test_mods_routes_require_authentication(tmp_path: Path):
     get_response = client.get("/mods", follow_redirects=False)
     add_response = client.post("/mods/add", data={}, follow_redirects=False)
     disable_response = client.post("/mods/disable", data={}, follow_redirects=False)
+    profile_cleanup_response = client.post(
+        "/mods/profile-settings-cleanup",
+        data={},
+        follow_redirects=False,
+    )
 
     assert get_response.status_code == 303
     assert get_response.headers["location"] == "/login"
@@ -418,19 +423,26 @@ def test_mods_routes_require_authentication(tmp_path: Path):
     assert add_response.headers["location"] == "/login"
     assert disable_response.status_code == 303
     assert disable_response.headers["location"] == "/login"
+    assert profile_cleanup_response.status_code == 303
+    assert profile_cleanup_response.headers["location"] == "/login"
 
 
 def test_mods_post_requires_manage_permission(
     tmp_path: Path, monkeypatch, set_web_owner_permissions
 ):
     from armactl.web.app import create_app
-    from armactl.web.services import mod_actions
+    from armactl.web.services import mod_actions, mod_profile_cleanup
 
     setup_owner_user(tmp_path, "owner", "owner mods password")
     set_web_owner_permissions({MODS_VIEW})
     app = create_app(data_root=tmp_path)
     _patch_mods_page(monkeypatch)
     monkeypatch.setattr(mod_actions, "run_mod_action_and_audit", AssertionError)
+    monkeypatch.setattr(
+        mod_profile_cleanup,
+        "cleanup_profile_settings_and_audit",
+        AssertionError,
+    )
     client = _client(app)
     _login(client, "owner", "owner mods password")
     csrf_token = _mods_csrf_token(client)
@@ -445,15 +457,28 @@ def test_mods_post_requires_manage_permission(
         follow_redirects=False,
     )
 
+    profile_cleanup_response = client.post(
+        "/mods/profile-settings-cleanup",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
     assert response.status_code == 403
     assert response.text == "Permission denied."
+    assert profile_cleanup_response.status_code == 403
+    assert profile_cleanup_response.text == "Permission denied."
 
 
 def test_mods_post_requires_valid_csrf(tmp_path: Path, monkeypatch):
-    from armactl.web.services import mod_actions
+    from armactl.web.services import mod_actions, mod_profile_cleanup
 
     client = _authed_client(tmp_path, monkeypatch)
     monkeypatch.setattr(mod_actions, "run_mod_action_and_audit", AssertionError)
+    monkeypatch.setattr(
+        mod_profile_cleanup,
+        "cleanup_profile_settings_and_audit",
+        AssertionError,
+    )
 
     response = client.post(
         "/mods/add",
@@ -465,8 +490,62 @@ def test_mods_post_requires_valid_csrf(tmp_path: Path, monkeypatch):
         follow_redirects=False,
     )
 
+    profile_cleanup_response = client.post(
+        "/mods/profile-settings-cleanup",
+        data={"csrf_token": "wrong-token"},
+        follow_redirects=False,
+    )
+
     assert response.status_code == 403
     assert response.text == "Invalid CSRF token."
+    assert profile_cleanup_response.status_code == 403
+    assert profile_cleanup_response.text == "Invalid CSRF token."
+
+
+def test_mods_profile_cleanup_post_runs_service(tmp_path: Path, monkeypatch):
+    from armactl.web.services import mod_actions, mod_profile_cleanup
+
+    client = _authed_client(tmp_path, monkeypatch)
+    calls: list[dict[str, object]] = []
+
+    def run_cleanup(**kwargs):
+        calls.append(kwargs)
+        return mod_actions.ModActionResult(
+            action=mod_profile_cleanup.ACTION_PROFILE_SETTINGS_CLEANUP,
+            instance="default",
+            target="profile settings",
+            success=True,
+            changed=True,
+            message="Profile settings cleanup removed stale references.",
+            exit_code=0,
+            details={
+                "files_considered": "1",
+                "files_changed": "1",
+                "modules_removed": "1",
+                "skipped_ambiguous": "0",
+                "skipped_missing": "0",
+            },
+        )
+
+    monkeypatch.setattr(
+        mod_profile_cleanup,
+        "cleanup_profile_settings_and_audit",
+        run_cleanup,
+    )
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/profile-settings-cleanup",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "Profile settings cleanup removed stale references." in response.text
+    assert "Restart the server to apply mod changes." in response.text
+    assert calls
+    assert calls[0]["username"] == "owner"
+    assert calls[0]["db_path"] == tmp_path / "web" / "web.db"
 
 
 def test_mods_get_does_not_show_restart_notice(tmp_path: Path, monkeypatch):
@@ -478,6 +557,37 @@ def test_mods_get_does_not_show_restart_notice(tmp_path: Path, monkeypatch):
     assert "Active Alpha" in response.text
     assert "Disabled Bravo" in response.text
     assert "Restart the server to apply mod changes." not in response.text
+
+
+def test_mods_get_does_not_run_profile_cleanup(tmp_path: Path, monkeypatch):
+    from armactl.web.services import mod_profile_cleanup
+
+    page = _mods_page()
+    page["diagnostics"]["stale_profile_settings_references"] = [
+        {
+            "mod_id": "65AD7C75826B46C6",
+            "name": "ACE Radio Dev",
+            "module_name": "ACE_Radio_SettingsModule",
+            "source": "profile/.save/settings/ReforgerGameSettings.conf",
+        }
+    ]
+
+    def fail_cleanup(*args, **kwargs):
+        raise AssertionError("GET /mods must remain read-only")
+
+    monkeypatch.setattr(
+        mod_profile_cleanup,
+        "cleanup_profile_settings_and_audit",
+        fail_cleanup,
+    )
+    client = _authed_client(tmp_path, monkeypatch, page)
+
+    response = client.get("/mods", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Cleanup stale profile settings references" in response.text
+    assert "/mods/profile-settings-cleanup" in response.text
+    assert not (tmp_path / "logs" / "web" / "audit.log").exists()
 
 
 def test_mods_add_success_writes_safe_audit(tmp_path: Path, monkeypatch):
@@ -1504,6 +1614,10 @@ def test_mods_page_shows_disabled_mod_diagnostics(tmp_path: Path, monkeypatch):
     assert "ACE Weather Dev (667B230F9505C8BA)" in response.text
     assert "ACE_Radio_SettingsModule" in response.text
     assert "ACE_Radio_65AD7C75826B46C6" in response.text
+    assert "Cleanup stale profile settings references" in response.text
+    assert "/mods/profile-settings-cleanup" in response.text
+    assert "does not delete disabled addon directories" in response.text
+    assert "change game.mods" in response.text
 
 
 def test_mods_cleanup_check_dry_run_does_not_delete(
