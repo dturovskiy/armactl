@@ -64,7 +64,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [ ] Add richer read-only Discord player columns only after reliable player history/session data exists.
 - [x] Improve schedule timezone UX with browser-local input/display and UTC backend normalization.
 - [x] Add config-focused editor phase 2 with validation, backups, audit, recovery, and reset/error UX.
-- [ ] Decide and document safe scope for lightweight file editing beyond config.
+- [x] Add narrow safe replacement foundation for allowlisted /files/config config/profile files, including AdminServerSettings and CMPlayerStatsHUD profile JSON, with no broad editing, delete, rename, or arbitrary file-manager scope.
 - [ ] Close remaining TUI/Web parity gaps that should be web-primary.
 - [ ] Run final VM smoke, architecture/security/dead-code/docs review before main merge.
 

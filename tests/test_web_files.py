@@ -904,3 +904,555 @@ def test_upload_form_hidden_without_files_write(tmp_path: Path, set_web_owner_pe
     assert response.status_code == 200
     assert 'action="/files/server/upload"' not in response.text
     assert 'name="upload"' not in response.text
+
+
+def _sample_server_config() -> dict:
+    return {
+        "bindAddress": "0.0.0.0",
+        "bindPort": 2001,
+        "publicAddress": "",
+        "publicPort": 2001,
+        "a2s": {"address": "0.0.0.0", "port": 17777},
+        "rcon": {
+            "address": "0.0.0.0",
+            "port": 19999,
+            "password": "raw-rcon-secret",
+            "permission": "admin",
+        },
+        "game": {
+            "name": "Original Server",
+            "password": "",
+            "passwordAdmin": "raw-admin-secret",
+            "admins": [],
+            "scenarioId": "Scenario.conf",
+            "maxPlayers": 32,
+            "visible": True,
+            "gameProperties": {
+                "serverMaxViewDistance": 1600,
+                "serverMinGrassDistance": 30,
+                "disableThirdPerson": True,
+                "battlEye": False,
+            },
+        },
+    }
+
+
+def _write_default_config_json(config_root: Path, config: dict | None = None) -> Path:
+    path = config_root / "config.json"
+    path.write_text(json.dumps(config or _sample_server_config(), indent=2), encoding="utf-8")
+    return path
+
+
+def _replace_token(client) -> str:
+    return _files_csrf_token(client, "/files/config")
+
+
+def _post_replace(
+    client,
+    csrf_token: str,
+    relative_path: str,
+    content: bytes,
+    *,
+    filename: str = "replacement.txt",
+    root_id: str = "config",
+):
+    return client.post(
+        f"/files/{root_id}/replace",
+        data={"path": relative_path, "csrf_token": csrf_token},
+        files={"replacement": (filename, content, "text/plain")},
+        follow_redirects=False,
+    )
+
+
+def _replacement_backups(data_root: Path) -> list[Path]:
+    backup_root = data_root / "default" / "backups" / "file-replacements"
+    return sorted(backup_root.glob("*.bak"))
+
+
+def test_replace_form_visible_only_for_safe_config_candidates(tmp_path: Path):
+    config = _config_root(tmp_path)
+    (config / "profile.cfg").write_text("original", encoding="utf-8")
+    (config / "logs" / "run").mkdir(parents=True)
+    (config / "logs" / "run" / "console.log").write_text("log", encoding="utf-8")
+    _write_default_config_json(config)
+    _server_root(tmp_path).joinpath("ArmaReforgerServer").write_bytes(b"\x7fELF")
+    backups = tmp_path / "default" / "backups"
+    backups.mkdir(parents=True)
+    (backups / "config.json.old.bak").write_text("backup", encoding="utf-8")
+    client = _login_owner(tmp_path)
+
+    config_response = client.get("/files/config", follow_redirects=False)
+    logs_response = client.get("/files/config?path=logs/run", follow_redirects=False)
+    server_response = client.get("/files/server", follow_redirects=False)
+    backups_response = client.get("/files/backups", follow_redirects=False)
+
+    assert config_response.status_code == 200
+    assert "action=\"/files/config/replace?path=profile.cfg#file-browser\"" in config_response.text
+    assert "action=\"/files/config/replace?path=config.json#file-browser\"" in config_response.text
+    assert "delete" in config_response.text.lower()
+    assert "action=\"/files/config/delete" not in config_response.text
+    assert "name=\"delete\"" not in config_response.text
+    assert "action=\"/files/config/replace?path=logs" not in logs_response.text
+    assert "action=\"/files/server/replace" not in server_response.text
+    assert "action=\"/files/backups/replace" not in backups_response.text
+
+
+def test_replace_profile_text_file_creates_backup_audit_and_pending_restart(
+    tmp_path: Path,
+):
+    config = _config_root(tmp_path)
+    target = config / "profile.cfg"
+    target.write_text("original profile\n", encoding="utf-8")
+    client = _login_owner(tmp_path)
+    token = _replace_token(client)
+
+    response = _post_replace(
+        client,
+        token,
+        "profile.cfg",
+        b"updated profile\n",
+        filename="profile.cfg",
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/files/config"
+    assert target.read_text(encoding="utf-8") == "updated profile\n"
+    backups = _replacement_backups(tmp_path)
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == "original profile\n"
+    assert backups[0].is_relative_to(tmp_path / "default" / "backups")
+
+    events = _audit_events(tmp_path)[-2:]
+    assert [event["details"]["phase"] for event in events] == ["intent", "outcome"]
+    assert [event["action"] for event in events] == ["file.replace", "file.replace"]
+    assert events[0]["target"] == "config:profile.cfg"
+    assert events[1]["details"]["backup_name"] == backups[0].name
+    audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(encoding="utf-8")
+    assert str(target) not in audit_text
+    assert str(backups[0]) not in audit_text
+
+    from armactl.web.services.pending_work import KIND_CONFIG, get_pending_work
+
+    item = get_pending_work(tmp_path / "web" / "web.db", kind=KIND_CONFIG)
+    assert item is not None
+    assert item.source_action == "file.replace"
+    assert item.source_path == "/files/config"
+    assert item.title == "Config/profile file changes"
+    assert item.details == "profile_file"
+
+
+def test_replace_nested_cm_player_stats_profile_json_file(
+    tmp_path: Path,
+):
+    config = _config_root(tmp_path)
+    stats_dir = config / "profile" / "CMPlayerStatsHUD"
+    stats_dir.mkdir(parents=True)
+    target = stats_dir / "0109fcf5-a861-4002-881e-8a497c59797c_playerstats.json"
+    target.write_text('{"kills": 1}\n', encoding="utf-8")
+    client = _login_owner(tmp_path)
+
+    listing = client.get(
+        "/files/config?path=profile%2FCMPlayerStatsHUD",
+        follow_redirects=False,
+    )
+    token = _replace_token(client)
+    response = _post_replace(
+        client,
+        token,
+        "profile/CMPlayerStatsHUD/0109fcf5-a861-4002-881e-8a497c59797c_playerstats.json",
+        b'{"kills": 2}\n',
+        filename="0109fcf5-a861-4002-881e-8a497c59797c_playerstats.json",
+    )
+
+    assert listing.status_code == 200
+    assert (
+        'action="/files/config/replace?path='
+        "profile%2FCMPlayerStatsHUD%2F0109fcf5-a861-4002-881e-8a497c59797c_playerstats.json"
+        '#file-browser"'
+    ) in listing.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/files/config?path=profile%2FCMPlayerStatsHUD"
+    assert json.loads(target.read_text(encoding="utf-8")) == {"kills": 2}
+    backups = _replacement_backups(tmp_path)
+    assert len(backups) == 1
+    assert json.loads(backups[0].read_text(encoding="utf-8")) == {"kills": 1}
+    assert "profile__CMPlayerStatsHUD" in backups[0].name
+    events = _audit_events(tmp_path)[-2:]
+    assert events[0]["target"] == (
+        "config:profile/CMPlayerStatsHUD/"
+        "0109fcf5-a861-4002-881e-8a497c59797c_playerstats.json"
+    )
+    assert events[1]["details"]["file_kind"] == "profile-file"
+
+
+def test_replace_admin_server_settings_json_file(
+    tmp_path: Path,
+):
+    config = _config_root(tmp_path)
+    settings_dir = config / "AdminServerSettings"
+    settings_dir.mkdir(parents=True)
+    target = settings_dir / "admins.json"
+    target.write_text('{"admins": []}\n', encoding="utf-8")
+    client = _login_owner(tmp_path)
+
+    listing = client.get(
+        "/files/config?path=AdminServerSettings",
+        follow_redirects=False,
+    )
+    token = _replace_token(client)
+    response = _post_replace(
+        client,
+        token,
+        "AdminServerSettings/admins.json",
+        b'{"admins": ["76561198000000001"]}\n',
+        filename="admins.json",
+    )
+
+    assert listing.status_code == 200
+    assert (
+        'action="/files/config/replace?path=AdminServerSettings%2Fadmins.json'
+        '#file-browser"'
+    ) in listing.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/files/config?path=AdminServerSettings"
+    assert json.loads(target.read_text(encoding="utf-8")) == {
+        "admins": ["76561198000000001"]
+    }
+    backups = _replacement_backups(tmp_path)
+    assert len(backups) == 1
+    assert json.loads(backups[0].read_text(encoding="utf-8")) == {"admins": []}
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "profile/OtherTool/state.json",
+        "profile/CMPlayerStatsHUD/nested/state.json",
+        "AdminServerSettings/nested/admins.json",
+    ],
+)
+def test_replace_rejects_unknown_or_too_deep_nested_config_paths(
+    tmp_path: Path,
+    relative_path: str,
+):
+    config = _config_root(tmp_path)
+    target = config.joinpath(*relative_path.split("/"))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text('{"before": true}\n', encoding="utf-8")
+    client = _login_owner(tmp_path)
+    token = _replace_token(client)
+
+    response = _post_replace(client, token, relative_path, b'{"after": true}\n')
+
+    assert response.status_code == 400
+    assert response.text == "File replacement unavailable."
+    assert json.loads(target.read_text(encoding="utf-8")) == {"before": True}
+    assert _replacement_backups(tmp_path) == []
+
+
+def test_replace_config_json_reuses_secret_protection_and_preserves_original(
+    tmp_path: Path,
+):
+    config_root = _config_root(tmp_path)
+    original = _sample_server_config()
+    config_path = _write_default_config_json(config_root, original)
+    changed = json.loads(json.dumps(original))
+    changed["game"]["name"] = "Changed"
+    changed["rcon"]["password"] = "changed-secret"
+    client = _login_owner(tmp_path)
+    token = _replace_token(client)
+
+    response = _post_replace(
+        client,
+        token,
+        "config.json",
+        json.dumps(changed).encode("utf-8"),
+        filename="config.json",
+    )
+
+    assert response.status_code == 400
+    assert "Secret fields cannot be changed in the web config editor." in response.text
+    assert "changed-secret" not in response.text
+    assert json.loads(config_path.read_text(encoding="utf-8")) == original
+    assert _replacement_backups(tmp_path) == []
+
+
+def test_replace_config_json_allows_valid_non_secret_change_and_tracks_pending(
+    tmp_path: Path,
+):
+    config_root = _config_root(tmp_path)
+    original = _sample_server_config()
+    config_path = _write_default_config_json(config_root, original)
+    changed = json.loads(json.dumps(original))
+    changed["game"]["name"] = "Changed"
+    client = _login_owner(tmp_path)
+    token = _replace_token(client)
+
+    response = _post_replace(
+        client,
+        token,
+        "config.json",
+        json.dumps(changed).encode("utf-8"),
+        filename="config.json",
+    )
+
+    assert response.status_code == 303
+    assert json.loads(config_path.read_text(encoding="utf-8"))["game"]["name"] == "Changed"
+    backups = _replacement_backups(tmp_path)
+    assert len(backups) == 1
+    assert json.loads(backups[0].read_text(encoding="utf-8")) == original
+    events = _audit_events(tmp_path)[-2:]
+    assert events[1]["details"]["file_kind"] == "config-json"
+    assert events[1]["details"]["changed_fields"] == ["game.name"]
+
+
+def test_replace_rejects_read_only_roots_and_server_binaries(tmp_path: Path):
+    server = _server_root(tmp_path)
+    server_binary = server / "ArmaReforgerServer"
+    server_binary.write_bytes(b"\x7fELF")
+    backups = tmp_path / "default" / "backups"
+    backups.mkdir(parents=True)
+    backup_file = backups / "config.json.1.bak"
+    backup_file.write_text("backup", encoding="utf-8")
+    logs = tmp_path / "logs" / "instances" / "default"
+    logs.mkdir(parents=True)
+    log_file = logs / "web.log"
+    log_file.write_text("log", encoding="utf-8")
+    _config_root(tmp_path)
+    client = _login_owner(tmp_path)
+    token = _replace_token(client)
+
+    server_response = _post_replace(
+        client,
+        token,
+        "ArmaReforgerServer",
+        b"text",
+        root_id="server",
+    )
+    backups_response = _post_replace(
+        client,
+        token,
+        "config.json.1.bak",
+        b"text",
+        root_id="backups",
+    )
+    logs_response = _post_replace(client, token, "web.log", b"text", root_id="logs")
+
+    assert server_response.status_code == 400
+    assert backups_response.status_code == 400
+    assert logs_response.status_code == 400
+    assert server_binary.read_bytes() == b"\x7fELF"
+    assert backup_file.read_text(encoding="utf-8") == "backup"
+    assert log_file.read_text(encoding="utf-8") == "log"
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    ["../server/evil.cfg", "/etc/passwd", ".git/secret.txt", ".venv/secret.txt"],
+)
+def test_replace_rejects_traversal_absolute_git_and_venv_paths(
+    tmp_path: Path,
+    relative_path: str,
+):
+    config = _config_root(tmp_path)
+    target = config / "profile.cfg"
+    target.write_text("original", encoding="utf-8")
+    client = _login_owner(tmp_path)
+    token = _replace_token(client)
+
+    response = _post_replace(client, token, relative_path, b"updated")
+
+    assert response.status_code == 400
+    assert "Traceback" not in response.text
+    assert target.read_text(encoding="utf-8") == "original"
+    assert _replacement_backups(tmp_path) == []
+
+
+def test_replace_rejects_symlink_target(tmp_path: Path):
+    config = _config_root(tmp_path)
+    outside = tmp_path / "outside.cfg"
+    outside.write_text("outside", encoding="utf-8")
+    try:
+        (config / "profile.cfg").symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+    client = _login_owner(tmp_path)
+    token = _replace_token(client)
+
+    response = _post_replace(client, token, "profile.cfg", b"updated")
+
+    assert response.status_code == 400
+    assert response.text in {"File replacement unavailable.", "Unsafe file path."}
+    assert outside.read_text(encoding="utf-8") == "outside"
+    assert _replacement_backups(tmp_path) == []
+
+
+def test_replace_invalid_json_binary_and_oversize_preserve_original(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import file_replacements
+
+    config = _config_root(tmp_path)
+    json_target = config / "profile.json"
+    json_target.write_text("{\"ok\": true}\n", encoding="utf-8")
+    binary_target = config / "profile.cfg"
+    binary_target.write_text("original cfg", encoding="utf-8")
+    large_target = config / "profile.ini"
+    large_target.write_text("small", encoding="utf-8")
+    client = _login_owner(tmp_path)
+    token = _replace_token(client)
+
+    json_response = _post_replace(client, token, "profile.json", b"{\"ok\":")
+    binary_response = _post_replace(client, token, "profile.cfg", b"abc\x00def")
+    monkeypatch.setattr(file_replacements, "MAX_REPLACEMENT_BYTES", 4)
+    large_response = _post_replace(client, token, "profile.ini", b"12345")
+
+    assert json_response.status_code == 400
+    assert "Invalid JSON replacement" in json_response.text
+    assert binary_response.status_code == 400
+    assert binary_response.text == "Replacement file must be UTF-8 text."
+    assert large_response.status_code == 413
+    assert large_response.text == "Replacement file too large."
+    assert json_target.read_text(encoding="utf-8") == "{\"ok\": true}\n"
+    assert binary_target.read_text(encoding="utf-8") == "original cfg"
+    assert large_target.read_text(encoding="utf-8") == "small"
+    assert _replacement_backups(tmp_path) == []
+    assert not any(path.name.startswith(".armactl-replace-") for path in config.iterdir())
+
+
+def test_replace_audits_intent_before_mutation_and_outcome_after(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import file_replacements
+
+    config = _config_root(tmp_path)
+    target = config / "profile.cfg"
+    target.write_text("before", encoding="utf-8")
+    client = _login_owner(tmp_path)
+    token = _replace_token(client)
+    snapshots: list[tuple[str, str]] = []
+
+    def record_audit(audit_log_path, *, details, **kwargs):
+        snapshots.append((str(details["phase"]), target.read_text(encoding="utf-8")))
+
+    monkeypatch.setattr(file_replacements, "append_audit_event", record_audit)
+
+    response = _post_replace(client, token, "profile.cfg", b"after")
+
+    assert response.status_code == 303
+    assert snapshots == [("intent", "before"), ("outcome", "after")]
+
+
+def test_replace_pending_restart_fallback_after_successful_publish(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import pending_work
+
+    config = _config_root(tmp_path)
+    target = config / "profile.cfg"
+    target.write_text("before", encoding="utf-8")
+    client = _login_owner(tmp_path)
+    token = _replace_token(client)
+
+    def fail_primary_pending(*args, **kwargs):
+        raise RuntimeError("web.db locked token=raw-pending-secret")
+
+    monkeypatch.setattr(pending_work, "mark_restart_pending", fail_primary_pending)
+
+    response = _post_replace(client, token, "profile.cfg", b"after")
+
+    assert response.status_code == 500
+    assert response.text == (
+        "File replacement was published but restart tracking used fallback storage."
+    )
+    assert "raw-pending-secret" not in response.text
+    assert target.read_text(encoding="utf-8") == "after"
+    fallback = pending_work.get_fallback_pending_work(
+        tmp_path / "web" / "web.db",
+        kind=pending_work.KIND_CONFIG,
+    )
+    assert fallback is not None
+    assert fallback.source_action == "file.replace"
+    sidecar_text = pending_work.fallback_pending_work_path(
+        tmp_path / "web" / "web.db"
+    ).read_text(encoding="utf-8")
+    assert "raw-pending-secret" not in sidecar_text
+
+
+def test_replace_outcome_audit_failure_reports_published_without_raw_secret(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import file_replacements
+    from armactl.web.services.audit import AuditLogError
+
+    config = _config_root(tmp_path)
+    target = config / "profile.cfg"
+    target.write_text("before", encoding="utf-8")
+    client = _login_owner(tmp_path)
+    token = _replace_token(client)
+
+    def fail_outcome(audit_log_path, *, details, **kwargs):
+        if details["phase"] == "outcome":
+            raise AuditLogError("disk full token=raw-audit-secret")
+
+    monkeypatch.setattr(file_replacements, "append_audit_event", fail_outcome)
+
+    response = _post_replace(
+        client,
+        token,
+        "profile.cfg",
+        b"after password=raw-content-secret",
+    )
+
+    assert response.status_code == 500
+    assert response.text == "File replacement was published but audit logging failed."
+    assert target.read_text(encoding="utf-8") == "after password=raw-content-secret"
+    assert "raw-audit-secret" not in response.text
+    assert "raw-content-secret" not in response.text
+
+
+def test_replace_auth_csrf_and_permission_guards(
+    tmp_path: Path,
+    set_web_owner_permissions,
+):
+    from armactl.web.app import create_app
+    from armactl.web.auth.permissions import FILES_READ
+
+    config = _config_root(tmp_path)
+    target = config / "profile.cfg"
+    target.write_text("before", encoding="utf-8")
+
+    unauthenticated = _client(create_app(data_root=tmp_path))
+    unauth_response = _post_replace(unauthenticated, "missing", "profile.cfg", b"after")
+
+    client = _login_owner(tmp_path)
+    csrf_response = _post_replace(client, "bad-token", "profile.cfg", b"after")
+
+    password = "read only files password"
+    other_root = tmp_path / "readonly"
+    other_config = _config_root(other_root)
+    other_config.joinpath("profile.cfg").write_text("before", encoding="utf-8")
+    setup_owner_user(other_root, "owner", password)
+    set_web_owner_permissions({FILES_READ})
+    read_only_client = _client(create_app(data_root=other_root))
+    _login(read_only_client, "owner", password)
+    read_only_token = _files_csrf_token(read_only_client, "/files/config")
+    permission_response = _post_replace(
+        read_only_client,
+        read_only_token,
+        "profile.cfg",
+        b"after",
+    )
+
+    assert unauth_response.status_code == 303
+    assert unauth_response.headers["location"] == "/login"
+    assert csrf_response.status_code == 403
+    assert csrf_response.text == "Invalid CSRF token."
+    assert permission_response.status_code == 403
+    assert permission_response.text == "Permission denied."
+    assert target.read_text(encoding="utf-8") == "before"
+    assert other_config.joinpath("profile.cfg").read_text(encoding="utf-8") == "before"

@@ -1480,6 +1480,8 @@
     "Teamkill": "TK",
     "Other death": "Інша смерть",
     "Combat hint": "Бій",
-    "Join time and role need session tracking before they can be shown reliably.": "Час входу і роль потребують відстеження сесій, щоб показувати їх надійно."
+    "Join time and role need session tracking before they can be shown reliably.": "Час входу і роль потребують відстеження сесій, щоб показувати їх надійно.",
+    "Replacement file": "Файл заміни",
+    "Single-file download is available; upload is limited to server files. Replacement is limited to allowlisted config/profile files; delete/rename actions are not available.": "Доступне завантаження окремих файлів; upload обмежено файлами сервера. Заміна обмежена allowlist для config/profile файлів; delete/rename недоступні."
   }
 }

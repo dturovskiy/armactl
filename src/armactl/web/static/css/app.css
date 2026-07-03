@@ -2239,6 +2239,29 @@ th {
   font-weight: 400;
 }
 
+.replace-form {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+}
+
+.replace-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+}
+
+.replace-form input[type="file"] {
+  max-width: 220px;
+}
+
+.replace-form button {
+  min-height: 36px;
+}
+
 .file-preview-block {
   margin-top: 18px;
   padding-top: 16px;

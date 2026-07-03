@@ -22,7 +22,7 @@ from armactl.web.auth.dependencies import (
     require_permission,
 )
 from armactl.web.auth.permissions import FILES_READ, FILES_WRITE
-from armactl.web.services import file_uploads
+from armactl.web.services import file_replacements, file_uploads
 from armactl.web.services.filesystem_errors import (
     FileBrowserError,
     UnknownFileRootError,
@@ -106,6 +106,11 @@ def _render_files(
                 directory is not None
                 and can_write_files
                 and root_allows_upload(directory.root)
+            ),
+            "can_replace": (
+                directory is not None
+                and can_write_files
+                and any(entry.replace_href for entry in directory.entries)
             ),
         },
         status_code=status_code,
@@ -209,6 +214,55 @@ def files_upload(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
     return RedirectResponse(uploaded.directory_href, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/files/{root_id}/replace", response_class=HTMLResponse)
+def files_replace(
+    request: Request,
+    root_id: str,
+    path: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+    replacement: UploadFile | None = File(default=None),
+) -> Response:
+    """Replace one allowlisted config/profile file through the safe publish flow."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, FILES_WRITE):
+        return permission_denied_response()
+    if not validate_csrf_token(current.config.db_path, current.session.id, csrf_token):
+        return PlainTextResponse(
+            "Invalid CSRF token.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+    if replacement is None:
+        return PlainTextResponse(
+            "File replacement unavailable.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        replaced = file_replacements.replace_file_and_audit(
+            current.config.data_root,
+            root_id,
+            path,
+            replacement.file,
+            audit_log_path=current.config.audit_log_path,
+            username=current.user.username,
+            db_path=current.config.db_path,
+        )
+    except FileBrowserError as exc:
+        return _controlled_file_error(exc)
+    except (
+        file_replacements.FileReplaceAuditError,
+        file_replacements.FileReplacePublishError,
+        file_replacements.FileReplaceTrackingError,
+    ) as exc:
+        return PlainTextResponse(
+            str(exc),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    return RedirectResponse(replaced.directory_href, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/files/{root_id}/download")

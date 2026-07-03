@@ -17,7 +17,7 @@
   <div class="section-heading-row">
     <div>
       <h2>{{ t("File browser") }}</h2>
-      <p class="muted">{{ t("Single-file download is available; upload is limited to server files. Overwrite/delete/rename actions are not available yet.") }}</p>
+      <p class="muted">{{ t("Single-file download is available; upload is limited to server files. Replacement is limited to allowlisted config/profile files; delete/rename actions are not available.") }}</p>
     </div>
   </div>
 
@@ -80,6 +80,9 @@
             <th>{{ t("Modified") }}</th>
             <th>{{ t("Preview") }}</th>
             <th>{{ t("Download") }}</th>
+            {% if can_replace %}
+              <th>{{ t("Replace") }}</th>
+            {% endif %}
           </tr>
         </thead>
         <tbody>
@@ -109,6 +112,21 @@
                   <span class="muted">{{ t("Download unavailable") }}</span>
                 {% endif %}
               </td>
+              {% if can_replace %}
+                <td>
+                  {% if entry.replace_href %}
+                    <form method="post" action="{{ entry.replace_href }}#file-browser" enctype="multipart/form-data" class="inline-form replace-form">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="path" value="{{ entry.relative_path }}">
+                      <label>
+                        <span>{{ t("Replacement file") }}</span>
+                        <input type="file" name="replacement" required>
+                      </label>
+                      <button type="submit">{{ t("Replace") }}</button>
+                    </form>
+                  {% endif %}
+                </td>
+              {% endif %}
             </tr>
           {% endfor %}
         </tbody>

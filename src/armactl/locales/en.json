@@ -898,6 +898,8 @@
     "Teamkill": "Teamkill",
     "Other death": "Other death",
     "Combat hint": "Combat hint",
-    "Join time and role need session tracking before they can be shown reliably.": "Join time and role need session tracking before they can be shown reliably."
+    "Join time and role need session tracking before they can be shown reliably.": "Join time and role need session tracking before they can be shown reliably.",
+    "Replacement file": "Replacement file",
+    "Single-file download is available; upload is limited to server files. Replacement is limited to allowlisted config/profile files; delete/rename actions are not available.": "Single-file download is available; upload is limited to server files. Replacement is limited to allowlisted config/profile files; delete/rename actions are not available."
   }
 }

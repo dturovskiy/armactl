@@ -279,12 +279,12 @@ Out of scope:
 
 #### 5. Safe File Editing Scope
 
-- Current state: the file browser has fixed roots, containment checks, source/system path denial, bounded redacted previews, single-file download, and no-overwrite upload only under the `server` root. Config editing is handled separately by config-specific services.
+- Current state: the file browser has fixed roots, containment checks, source/system path denial, bounded redacted previews, single-file download, no-overwrite upload only under the server root, and explicit replacement only for allowlisted small UTF-8 text/JSON config/profile files under /files/config, including top-level config text files, AdminServerSettings/*.json, and profile/CMPlayerStatsHUD/*.json. config.json replacement reuses the existing raw-config secret and shape protections. Logs, backups, server binaries, source-tree paths, system paths, traversal, and symlinks remain read-only or rejected.
 - Risk: general web editing could become an accidental arbitrary file manager. Editing server files without validation can break installs, overwrite Workshop content, or leak secrets in previews/diffs.
-- Proposed slice: keep broad file editing out of scope. If lightweight editing is added, allow only small text files under a narrow allowlist, with max bytes, UTF-8/text detection, diff preview, backup, atomic write, validation hook, intent/outcome audit, and recovery handle. Leave logs/backups read-only and keep uploads no-overwrite.
-- Files/modules likely touched: `src/armactl/web/services/filesystem_roots.py`, `src/armactl/web/services/filesystem_paths.py`, `src/armactl/web/services/filesystem_preview.py`, `src/armactl/web/services/filesystem_transfer.py`, `src/armactl/web/routes/files.py`, `src/armactl/web/templates/files.html`, `tests/test_web_files.py`.
-- Validation/smoke needed: path traversal, symlink, source tree/system path denial, binary/oversize refusal, backup creation, diff preview, validation failure, no-overwrite upload, and failed-write recovery.
-- Stop condition: operators can edit only explicitly allowed small text targets and can inspect, validate, back up, and recover every change.
+- Proposed slice: keep broad file editing out of scope. Future expansion should add only one narrow target class at a time, with diff preview if text editing is introduced. Do not add recursive delete/move, arbitrary path editing, server-root overwrites, or generic backup/log mutation.
+- Files/modules touched by the replacement foundation: src/armactl/web/services/file_replacements.py, src/armactl/web/services/filesystem_listing.py, src/armactl/web/routes/files.py, src/armactl/web/templates/files.html, tests/test_web_files.py.
+- Validation/smoke needed: path traversal, symlink, source tree/system path denial, logs/backups/server-binary rejection, binary/oversize refusal, backup creation, JSON/config validation failure, no-overwrite upload preservation, audit/pending fallback, and failed-write recovery.
+- Stop condition: operators can replace only explicitly allowed small existing config/profile text targets through backup, validation, atomic publish, audit, pending restart, and controlled recovery. Broad editing and delete remain out of scope.
 
 #### 6. TUI/Web Parity Gaps
 

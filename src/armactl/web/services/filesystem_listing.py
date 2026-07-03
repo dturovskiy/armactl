@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from armactl import paths as armactl_paths
+from armactl.web.services.file_replacements import is_replacement_candidate
 from armactl.web.services.filesystem_errors import PathUnavailableError
 from armactl.web.services.filesystem_paths import (
     FORBIDDEN_PATH_NAMES,
@@ -19,7 +20,12 @@ from armactl.web.services.filesystem_paths import (
     resolved_path,
 )
 from armactl.web.services.filesystem_roots import FileRoot
-from armactl.web.services.filesystem_urls import download_href, files_href, preview_href
+from armactl.web.services.filesystem_urls import (
+    download_href,
+    files_href,
+    preview_href,
+    replace_href,
+)
 
 PREVIEW_TEXT_SUFFIXES = frozenset(
     {
@@ -77,6 +83,7 @@ class FileMetadata:
     href: str
     preview_href: str = ""
     download_href: str = ""
+    replace_href: str = ""
 
 
 @dataclass(frozen=True)
@@ -143,6 +150,11 @@ def _metadata_from_path(root: FileRoot, path: Path, relative_path: str) -> FileM
             else ""
         ),
         download_href=download_href(root.root_id, relative_path) if is_file else "",
+        replace_href=(
+            replace_href(root.root_id, relative_path)
+            if is_file and is_replacement_candidate(root, relative_path, path)
+            else ""
+        ),
     )
 
 

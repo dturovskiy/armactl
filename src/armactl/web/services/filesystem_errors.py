@@ -9,6 +9,11 @@ class FileBrowserError(RuntimeError):
     public_message = "Unsafe file path."
     status_code = 400
 
+    def __init__(self, message: str | None = None) -> None:
+        public_message = message or self.public_message
+        super().__init__(public_message)
+        self.public_message = public_message
+
 
 class UnknownFileRootError(FileBrowserError):
     """Raised when a requested root id is not allowlisted."""
@@ -71,3 +76,24 @@ class UploadTargetExistsError(FileBrowserError):
 
     public_message = "File already exists."
     status_code = 409
+
+
+class ReplacementUnavailableError(FileBrowserError):
+    """Raised when a file replacement is not allowed for a safe location."""
+
+    public_message = "File replacement unavailable."
+    status_code = 400
+
+
+class ReplacementTooLargeError(FileBrowserError):
+    """Raised when a replacement upload exceeds the configured streaming limit."""
+
+    public_message = "Replacement file too large."
+    status_code = 413
+
+
+class ReplacementInvalidContentError(FileBrowserError):
+    """Raised when replacement bytes are not valid for the target file."""
+
+    public_message = "Replacement file is not valid for this target."
+    status_code = 400

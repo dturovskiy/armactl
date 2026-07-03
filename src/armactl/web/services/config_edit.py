@@ -68,6 +68,15 @@ class _PreparedConfigEdit:
     baseline_fingerprint: str = ""
     current_fingerprint: str = ""
 
+@dataclass(frozen=True)
+class RawConfigReplacementValidation:
+    """Validated raw config replacement payload with existing secret guards applied."""
+
+    replacement_text: str
+    changed_fields: tuple[str, ...]
+    baseline_fingerprint: str = ""
+    current_fingerprint: str = ""
+
 
 _STRING_LIMIT = 512
 CONFIG_SAVE_ACTION = "config.save"
@@ -428,6 +437,16 @@ def _prepare_raw_config_edit(config_path, raw_config):
         changed_fields=changed_fields,
         baseline_fingerprint=_config_restart_fingerprint(data),
         current_fingerprint=_config_restart_fingerprint(updated),
+    )
+
+def validate_raw_config_replacement(config_path, raw_config: str):
+    """Validate uploaded config.json content without bypassing web secret guards."""
+    prepared = _prepare_raw_config_edit(config_path, raw_config)
+    return RawConfigReplacementValidation(
+        replacement_text=json.dumps(prepared.updated_config, indent=4),
+        changed_fields=prepared.changed_fields,
+        baseline_fingerprint=prepared.baseline_fingerprint,
+        current_fingerprint=prepared.current_fingerprint,
     )
 
 
