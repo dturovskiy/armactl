@@ -210,6 +210,39 @@ If the game logs show script shutdown exceptions, treat that as a game/mod
 shutdown problem. The helper limits the operational fallout, but the script/mod
 error still needs separate investigation.
 
+## Disabled Mods Still Appear In Local Files Or Profile Settings
+
+When armactl disables a Workshop mod, it removes that mod from server-facing
+`game.mods` in `config.json` and stores the reversible disabled entry in
+`mods-state.json`. The dedicated server should not receive disabled sidecar
+entries through `config.json`.
+
+Local addon directories may remain under the managed `config/addons` cache.
+That is expected: disabled mods can be re-enabled without another full download,
+and addon files on disk are informational unless the mod is still listed in
+`game.mods` or required by the selected scenario/world.
+
+The `/mods` diagnostics panel reports:
+
+- active `config.json` mod count;
+- disabled sidecar count and list;
+- overlap between active and disabled IDs;
+- installed addon directory count;
+- disabled addon directories still present on disk;
+- allowlisted profile settings references to known disabled mod module names.
+
+Do not treat disabled addon directories as cleanup candidates by default. The
+unused-addon cleanup protects active and disabled IDs, and it must not delete
+disabled addon files unless the operator explicitly removes that disabled mod.
+If diagnostics show only stale profile settings references, clean them in a
+separate safe workflow: back up the allowlisted profile settings file first,
+edit only the known stale settings block, audit intent and outcome, avoid raw
+paths or secrets in logs, and do not perform broad file deletion.
+
+Profile settings residue can explain game log warnings about unknown module
+keywords after a mod is disabled. It is not evidence by itself that the mod is
+still present in server-facing `game.mods`.
+
 ## Existing Service Is Found But Config Or Binary Is Wrong
 
 Use:

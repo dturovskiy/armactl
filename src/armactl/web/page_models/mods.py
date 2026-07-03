@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from armactl import mods_manager, mods_state
+from armactl import mods_diagnostics, mods_manager, mods_state
 from armactl.web.page_models.common import (
     DISABLED_MODS_STATE_DISPLAY,
     UNAVAILABLE_LABEL,
@@ -39,6 +39,8 @@ def load_mods_page(instance: str) -> dict[str, Any]:
     disabled_mods_state = UNAVAILABLE_LABEL
     disabled_mods: list[dict[str, str]] = []
     disabled_mods_error = ""
+    diagnostics: dict[str, Any] = {}
+    diagnostics_error = ""
     try:
         raw_mods = mods_manager.get_mods(state.config_path)
         if not isinstance(raw_mods, list):
@@ -56,6 +58,16 @@ def load_mods_page(instance: str) -> dict[str, Any]:
         disabled_mods = [_mod_entry(raw) for raw in raw_disabled_mods]
     except Exception as error:
         disabled_mods_error = _safe_error_message(error)
+        raw_disabled_mods = []
+
+    try:
+        diagnostics = mods_diagnostics.collect_mod_diagnostics(
+            state.config_path,
+            active_mods=raw_mods,
+            disabled_mods=raw_disabled_mods,
+        ).to_dict()
+    except Exception as error:
+        diagnostics_error = _safe_error_message(error)
 
     return {
         "instance": instance,
@@ -70,4 +82,6 @@ def load_mods_page(instance: str) -> dict[str, Any]:
         "disabled_mods_state": disabled_mods_state,
         "disabled_mods_state_display": disabled_mods_state,
         "disabled_mods_error": disabled_mods_error,
+        "diagnostics": diagnostics,
+        "diagnostics_error": diagnostics_error,
     }

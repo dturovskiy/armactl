@@ -9,6 +9,7 @@ import pytest
 import armactl.mods_manager as mods_manager
 from armactl.addon_cleanup import cleanup_unconfigured_addons
 from armactl.config_manager import ConfigError
+from armactl.mods_diagnostics import collect_mod_diagnostics
 from armactl.mods_manager import dedupe_mods, disable_mod, enable_mod, import_mods_detailed
 from armactl.mods_state import load_disabled_mods, save_disabled_mods
 
@@ -155,3 +156,94 @@ def test_import_reactivates_disabled_mod(tmp_path: Path) -> None:
     ]
     assert "disabledMods" not in saved["game"]
     assert load_disabled_mods(config_path) == []
+
+
+def test_disabled_mod_diagnostics_active_111_disabled_2_without_overlap_ok(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    active_mods = [
+        {"modId": f"{index:016X}", "name": f"Active {index}"}
+        for index in range(1, 112)
+    ]
+    disabled_mods = [
+        {"modId": "667B230F9505C8BA", "name": "ACE Weather Dev"},
+        {"modId": "65AD7C75826B46C6", "name": "ACE Radio Dev"},
+    ]
+    _write_config(config_path, mods=active_mods, disabled_mods=disabled_mods)
+
+    diagnostics = collect_mod_diagnostics(config_path)
+
+    assert diagnostics.active_config_count == 111
+    assert diagnostics.disabled_sidecar_count == 2
+    assert diagnostics.overlap_active_disabled == ()
+    assert diagnostics.warnings == ()
+
+
+def test_disabled_mod_diagnostics_warns_on_active_disabled_overlap(tmp_path: Path) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    _write_config(
+        config_path,
+        mods=[{"modId": "AAAAAAAAAAAAAAAA", "name": "Active"}],
+        disabled_mods=[{"modId": "aaaaaaaaaaaaaaaa", "name": "Disabled duplicate"}],
+    )
+
+    diagnostics = collect_mod_diagnostics(config_path)
+
+    assert [item.mod_id for item in diagnostics.overlap_active_disabled] == [
+        "AAAAAAAAAAAAAAAA"
+    ]
+    assert [item.code for item in diagnostics.warnings] == ["active_disabled_overlap"]
+
+
+def test_disabled_mod_diagnostics_warns_on_profile_settings_module_reference(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    settings_path = (
+        config_path.parent / "profile" / ".save" / "settings" / "ReforgerGameSettings.conf"
+    )
+    _write_config(
+        config_path,
+        disabled_mods=[{"modId": "65AD7C75826B46C6", "name": "ACE Radio Dev"}],
+    )
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        "GameSettings {\n ACE_Radio_SettingsModule {}\n}\n",
+        encoding="utf-8",
+    )
+
+    diagnostics = collect_mod_diagnostics(config_path)
+
+    assert [item.code for item in diagnostics.warnings] == [
+        "disabled_profile_settings_reference"
+    ]
+    assert diagnostics.stale_profile_settings_references[0].module_name == (
+        "ACE_Radio_SettingsModule"
+    )
+    assert diagnostics.stale_profile_settings_references[0].source == (
+        "profile/.save/settings/ReforgerGameSettings.conf"
+    )
+    assert str(tmp_path) not in diagnostics.stale_profile_settings_references[0].source
+
+
+def test_disabled_mod_diagnostics_treats_disabled_addon_dir_as_info(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    addons = tmp_path / "instance" / "config" / "addons"
+    _write_config(
+        config_path,
+        disabled_mods=[{"modId": "65AD7C75826B46C6", "name": "ACE Radio Dev"}],
+    )
+    _create_addon_dir(addons, "ACE_Radio_65AD7C75826B46C6")
+
+    diagnostics = collect_mod_diagnostics(config_path)
+
+    assert diagnostics.active_config_count == 0
+    assert diagnostics.installed_addon_dirs_count == 1
+    assert diagnostics.disabled_addon_dirs_present[0].addon_dir == (
+        "ACE_Radio_65AD7C75826B46C6"
+    )
+    assert [item.code for item in diagnostics.info] == ["disabled_addon_dir_present"]
+    assert diagnostics.warnings == ()

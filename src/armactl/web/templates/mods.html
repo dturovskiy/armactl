@@ -119,6 +119,76 @@
 
 {% if page.available %}
 <section class="panel full-width">
+  <h2>{{ t("Mod Diagnostics") }}</h2>
+  {% set diagnostics = page.diagnostics|default({}) %}
+  {% if page.diagnostics_error|default("") %}
+    <p class="error">{{ t(page.diagnostics_error) }}</p>
+  {% endif %}
+  <dl>
+    <dt>{{ t("Active config mods") }}</dt><dd>{{ diagnostics.active_config_count|default(page.count) }}</dd>
+    <dt>{{ t("Disabled sidecar mods") }}</dt><dd>{{ diagnostics.disabled_sidecar_count|default(page.disabled_count|default(0)) }}</dd>
+    <dt>{{ t("Installed addon dirs") }}</dt><dd>{{ diagnostics.installed_addon_dirs_count|default(0) }}</dd>
+    <dt>{{ t("Active/disabled overlap") }}</dt><dd>{{ diagnostics.overlap_active_disabled|default([])|length }}</dd>
+    <dt>{{ t("Disabled addon dirs on disk") }}</dt><dd>{{ diagnostics.disabled_addon_dirs_present|default([])|length }}</dd>
+    <dt>{{ t("Profile settings references") }}</dt><dd>{{ diagnostics.stale_profile_settings_references|default([])|length }}</dd>
+  </dl>
+  {% set disabled_sidecar = diagnostics.disabled_sidecar|default([]) %}
+  {% if disabled_sidecar %}
+    <h3>{{ t("Disabled sidecar list") }}</h3>
+    <ul class="muted">
+      {% for mod in disabled_sidecar %}
+        <li class="wrap-value">{{ mod.name or t("unknown") }} ({{ mod.mod_id or t("unknown") }})</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  {% set diagnostic_warnings = diagnostics.warnings|default([]) %}
+  {% if diagnostic_warnings %}
+    <h3>{{ t("Warnings") }}</h3>
+    <ul>
+      {% for item in diagnostic_warnings %}
+        <li class="wrap-value">{{ t(item.message) }} {% if item.mod_id %}{{ item.name or t("unknown") }} ({{ item.mod_id }}){% endif %}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  {% set profile_refs = diagnostics.stale_profile_settings_references|default([]) %}
+  {% if profile_refs %}
+    <h3>{{ t("Profile settings references") }}</h3>
+    <ul class="muted">
+      {% for item in profile_refs %}
+        <li class="wrap-value">{{ item.name or t("unknown") }} ({{ item.mod_id }}): {{ item.module_name }} in {{ t(item.source) }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  {% set disabled_dirs = diagnostics.disabled_addon_dirs_present|default([]) %}
+  {% if disabled_dirs %}
+    <h3>{{ t("Disabled addon dirs on disk") }}</h3>
+    <ul class="muted">
+      {% for item in disabled_dirs %}
+        <li class="wrap-value">{{ item.name or t("unknown") }} ({{ item.mod_id }}): {{ item.addon_dir }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  {% set diagnostic_info = diagnostics.info|default([]) %}
+  {% if diagnostic_info %}
+    <h3>{{ t("Info") }}</h3>
+    <ul class="muted">
+      {% for item in diagnostic_info %}
+        <li class="wrap-value">{{ t(item.message) }} {% if item.mod_id %}{{ item.name or t("unknown") }} ({{ item.mod_id }}){% endif %}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  {% set diagnostic_errors = diagnostics.errors|default([]) %}
+  {% if diagnostic_errors %}
+    <h3>{{ t("Diagnostics notes") }}</h3>
+    <ul class="muted">
+      {% for item in diagnostic_errors %}
+        <li class="wrap-value">{{ t(item.message) }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+</section>
+
+<section class="panel full-width">
   <h2>{{ t("Disabled Mods") }}</h2>
   {% set disabled_mods = page.disabled_mods|default([]) %}
   {% if disabled_mods %}

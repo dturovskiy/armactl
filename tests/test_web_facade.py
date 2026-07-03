@@ -709,6 +709,8 @@ def test_management_page_snapshots_are_safe_read_only(monkeypatch):
         "name": "Mod A",
         "version": "1.0",
     }
+    assert mods_page["diagnostics"]["active_config_count"] == 2
+    assert mods_page["diagnostics"]["disabled_sidecar_count"] == 0
     assert admins_page["official_admins"] == [
         {"identity_id": "ABC123", "name": "Local Captain", "source": "local"}
     ]

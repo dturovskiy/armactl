@@ -72,6 +72,25 @@ def _mods_page() -> dict:
         "disabled_mods_state": "disabled mods state",
         "disabled_mods_state_display": "disabled mods state",
         "disabled_mods_error": "",
+        "diagnostics": {
+            "active_config_count": 1,
+            "disabled_sidecar_count": 1,
+            "disabled_sidecar": [
+                {
+                    "mod_id": "BBBBBBBBBBBBBBBB",
+                    "name": "Disabled Bravo",
+                    "version": "",
+                }
+            ],
+            "overlap_active_disabled": [],
+            "installed_addon_dirs_count": 0,
+            "disabled_addon_dirs_present": [],
+            "stale_profile_settings_references": [],
+            "warnings": [],
+            "info": [],
+            "errors": [],
+        },
+        "diagnostics_error": "",
     }
 
 
@@ -1418,6 +1437,73 @@ def test_mods_page_shows_cleanup_visibility(tmp_path: Path, monkeypatch):
     assert "config.json" in response.text
     assert "disabled-mods sidecar" in response.text
     assert "general file deletion" in response.text
+
+
+def test_mods_page_shows_disabled_mod_diagnostics(tmp_path: Path, monkeypatch):
+    page = _mods_page()
+    page["diagnostics"] = {
+        "active_config_count": 111,
+        "disabled_sidecar_count": 2,
+        "disabled_sidecar": [
+            {
+                "mod_id": "667B230F9505C8BA",
+                "name": "ACE Weather Dev",
+                "version": "",
+            },
+            {
+                "mod_id": "65AD7C75826B46C6",
+                "name": "ACE Radio Dev",
+                "version": "",
+            },
+        ],
+        "overlap_active_disabled": [],
+        "installed_addon_dirs_count": 113,
+        "disabled_addon_dirs_present": [
+            {
+                "mod_id": "65AD7C75826B46C6",
+                "name": "ACE Radio Dev",
+                "addon_dir": "ACE_Radio_65AD7C75826B46C6",
+            }
+        ],
+        "stale_profile_settings_references": [
+            {
+                "mod_id": "65AD7C75826B46C6",
+                "name": "ACE Radio Dev",
+                "module_name": "ACE_Radio_SettingsModule",
+                "source": "profile/.save/settings/ReforgerGameSettings.conf",
+            }
+        ],
+        "warnings": [
+            {
+                "level": "warning",
+                "code": "disabled_profile_settings_reference",
+                "message": "Profile settings still reference a known module from a disabled mod.",
+                "mod_id": "65AD7C75826B46C6",
+                "name": "ACE Radio Dev",
+            }
+        ],
+        "info": [
+            {
+                "level": "info",
+                "code": "disabled_addon_dir_present",
+                "message": "Local addon files for a disabled mod are present on disk.",
+                "mod_id": "65AD7C75826B46C6",
+                "name": "ACE Radio Dev",
+            }
+        ],
+        "errors": [],
+    }
+    client = _authed_client(tmp_path, monkeypatch, page)
+
+    response = client.get("/mods", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Mod Diagnostics" in response.text
+    assert "Active config mods" in response.text
+    assert "111" in response.text
+    assert "ACE Weather Dev (667B230F9505C8BA)" in response.text
+    assert "ACE_Radio_SettingsModule" in response.text
+    assert "ACE_Radio_65AD7C75826B46C6" in response.text
 
 
 def test_mods_cleanup_check_dry_run_does_not_delete(
