@@ -744,6 +744,7 @@ def load_server_version_state(
             failure_reason=cached.failure_reason,
             last_checked=last_checked or cached.checked_at,
             server_running=server_running,
+            check_job_id=cached.job_id,
             source=cached.source,
         )
     return _version_state_from_values(

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from armactl.web.services import server_job_actions, server_versions
 from armactl.web.time_format import format_web_timestamp
+
+STALE_ACTIVE_JOB_SECONDS = 6 * 60 * 60
 
 
 def _text(value: Any, default: str = "unknown") -> str:
@@ -28,6 +31,151 @@ def _positive_int(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return number if number > 0 else None
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _timestamp(value: Any) -> datetime | None:
+    text = _text(value, "")
+    if not text or text == "never":
+        return None
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _timestamp_is_older_than(value: Any, seconds: int) -> bool:
+    parsed = _timestamp(value)
+    if parsed is None:
+        return False
+    age = datetime.now(timezone.utc) - parsed
+    return timedelta(0) <= age and age >= timedelta(seconds=seconds)
+
+
+def _job_timestamp(job: Mapping[str, Any]) -> Any:
+    return (
+        job.get("updated_at")
+        or job.get("updatedAt")
+        or job.get("started_at")
+        or job.get("startedAt")
+        or job.get("created_at")
+        or job.get("createdAt")
+    )
+
+
+def _job_may_be_stale(job: Mapping[str, Any]) -> bool:
+    status = _text(job.get("status"), "")
+    if status not in {"queued", "running"}:
+        return False
+    return _timestamp_is_older_than(_job_timestamp(job), STALE_ACTIVE_JOB_SECONDS)
+
+
+def _job_link(job_id: int, label: str) -> dict[str, Any]:
+    return {"id": job_id, "label": label, "jobs_url": "/jobs#background-jobs"}
+
+
+def _active_job_view(
+    *,
+    check_state: str,
+    check_job_id: int | None,
+    update_job_id: int | None,
+    job: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    job_id = _positive_int(job.get("id"))
+    if check_state == server_versions.SERVER_VERSION_CHECK_UPDATING:
+        active_id = update_job_id or job_id
+        label = "Active update job"
+    elif check_state == server_versions.SERVER_VERSION_CHECK_CHECKING:
+        active_id = check_job_id or job_id
+        label = "Active update check job"
+    else:
+        return None
+    if active_id is None:
+        return None
+
+    active_job = _job_link(active_id, label)
+    active_job["may_be_stale"] = _job_may_be_stale(job)
+    active_job["stale_guidance"] = (
+        "This job may be stale. Open Jobs to review the active row; "
+        "use the CLI fallback if the web worker is no longer running."
+    )
+    return active_job
+
+
+def _failed_update_job_view(job: Mapping[str, Any]) -> dict[str, Any] | None:
+    job_id = _positive_int(job.get("id"))
+    if job_id is None:
+        return None
+    return _job_link(job_id, "Last failed update job")
+
+
+def _check_action_label(
+    *,
+    check_state: str,
+    can_request_check: bool,
+    last_checked: str,
+) -> str:
+    if not can_request_check:
+        return "Check for updates"
+    if check_state == server_versions.SERVER_VERSION_CHECK_FAILED:
+        return "Check again"
+    if _timestamp_is_older_than(
+        last_checked,
+        server_versions.SERVER_VERSION_CHECK_CACHE_TTL_SECONDS,
+    ):
+        return "Check again"
+    return "Check for updates"
+
+
+def _failure_guidance(check_state: str, check_job_id: int | None) -> str:
+    if check_state != server_versions.SERVER_VERSION_CHECK_FAILED:
+        return ""
+    if check_job_id:
+        return (
+            "Check again to refresh latest build metadata. Open Jobs for the failed "
+            "check; use the CLI fallback if SteamCMD keeps failing."
+        )
+    return (
+        "Check again to refresh latest build metadata. Use the CLI fallback if "
+        "SteamCMD keeps failing."
+    )
+
+
+def _failed_update_guidance(
+    *,
+    failed_update_job: dict[str, Any] | None,
+    backend_allows_update: bool,
+    server_running: bool,
+    checking_or_updating: bool,
+) -> str:
+    if failed_update_job is None:
+        return ""
+    if backend_allows_update:
+        return (
+            "The last update job failed. Retry update is available because the game "
+            "server appears stopped and no update job is active. Open Jobs for details; "
+            "use the CLI fallback if the web retry fails."
+        )
+    if server_running:
+        return (
+            "The last update job failed. Stop the game server before retrying. Open "
+            "Jobs for details; use the CLI fallback if needed."
+        )
+    if checking_or_updating:
+        return (
+            "The last update job failed. Wait for the active job to finish, then open "
+            "Jobs for details or use the CLI fallback if needed."
+        )
+    return (
+        "The last update job failed. Run a build check before retrying. Open Jobs for "
+        "details; use the CLI fallback if needed."
+    )
 
 
 def _version(page: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -151,11 +299,18 @@ def build_updates_view(
     update_job_id = _positive_int(
         version.get("update_job_id") or version.get("updateJobId")
     )
-    active_job = None
-    if check_state == server_versions.SERVER_VERSION_CHECK_UPDATING and update_job_id:
-        active_job = {"id": update_job_id, "label": "Active update job"}
-    elif check_state == server_versions.SERVER_VERSION_CHECK_CHECKING and check_job_id:
-        active_job = {"id": check_job_id, "label": "Active update check job"}
+    active_job = _active_job_view(
+        check_state=check_state,
+        check_job_id=check_job_id,
+        update_job_id=update_job_id,
+        job=_mapping(version.get("active_job") or version.get("activeJob")),
+    )
+    failed_update_job = _failed_update_job_view(
+        _mapping(version.get("failed_update_job") or version.get("failedUpdateJob"))
+    )
+    failed_check_job = None
+    if check_state == server_versions.SERVER_VERSION_CHECK_FAILED and check_job_id:
+        failed_check_job = _job_link(check_job_id, "Failed update check job")
 
     return dict(
         instance=_text(page.get("instance"), "default"),
@@ -189,12 +344,29 @@ def build_updates_view(
         ],
         server_running=server_running,
         can_request_check=can_request_check,
+        check_action_label=_check_action_label(
+            check_state=check_state,
+            can_request_check=can_request_check,
+            last_checked=last_checked,
+        ),
         check_disabled=not can_request_check,
         check_disabled_reason="" if can_request_check else note,
         can_update_server=can_update_server,
         backend_allows_update=backend_allows_update,
+        update_action_label=(
+            "Retry update" if failed_update_job and backend_allows_update else "Update server"
+        ),
         update_note=note,
         failure_reason=failure_reason,
+        failure_guidance=_failure_guidance(check_state, check_job_id),
+        failed_check_job=failed_check_job,
+        failed_update_job=failed_update_job,
+        failed_update_guidance=_failed_update_guidance(
+            failed_update_job=failed_update_job,
+            backend_allows_update=backend_allows_update,
+            server_running=server_running,
+            checking_or_updating=checking_or_updating,
+        ),
         action_notice=_text(action_notice, ""),
         active_job=active_job,
     )

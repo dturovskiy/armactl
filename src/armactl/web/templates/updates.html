@@ -25,11 +25,23 @@
   {% if page.active_job %}
     <p class="notice-inline">
       <strong>{{ t(page.active_job.label) }}:</strong>
-      <a class="text-link" href="/jobs#background-jobs">#{{ page.active_job.id }} · {{ t("Open background jobs") }}</a>
+      <a class="text-link" href="{{ page.active_job.jobs_url }}">#{{ page.active_job.id }} · {{ t("Open background jobs") }}</a>
+    </p>
+    {% if page.active_job.may_be_stale %}
+      <p class="notice-inline notice-warning">{{ t(page.active_job.stale_guidance) }}</p>
+    {% endif %}
+  {% endif %}
+  {% if page.failed_check_job %}
+    <p class="notice-inline">
+      <strong>{{ t(page.failed_check_job.label) }}:</strong>
+      <a class="text-link" href="{{ page.failed_check_job.jobs_url }}">#{{ page.failed_check_job.id }} · {{ t("Open background jobs") }}</a>
     </p>
   {% endif %}
   {% if page.failure_reason %}
     <p class="notice-inline notice-error">{{ page.failure_reason }}</p>
+  {% endif %}
+  {% if page.failure_guidance %}
+    <p class="notice-inline notice-warning">{{ t(page.failure_guidance) }}</p>
   {% endif %}
 </section>
 
@@ -41,10 +53,19 @@
   {% if page.update_note %}
     <p class="notice-inline {% if page.server_running %}notice-warning{% else %}notice-unavailable{% endif %}">{{ t(page.update_note) }}</p>
   {% endif %}
+  {% if page.failed_update_job %}
+    <p class="notice-inline notice-error">
+      <strong>{{ t(page.failed_update_job.label) }}:</strong>
+      <a class="text-link" href="{{ page.failed_update_job.jobs_url }}">#{{ page.failed_update_job.id }} · {{ t("Open background jobs") }}</a>
+    </p>
+  {% endif %}
+  {% if page.failed_update_guidance %}
+    <p class="notice-inline notice-warning">{{ t(page.failed_update_guidance) }}</p>
+  {% endif %}
   <div class="action-grid">
     <form method="post" action="/updates/check" class="action-form action-tile">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button type="submit"{% if page.check_disabled %} disabled aria-disabled="true"{% endif %}>{{ t("Check for updates") }}</button>
+      <button type="submit"{% if page.check_disabled %} disabled aria-disabled="true"{% endif %}>{{ t(page.check_action_label) }}</button>
       {% if page.check_disabled_reason %}
         <span class="muted">{{ t(page.check_disabled_reason) }}</span>
       {% endif %}
@@ -52,7 +73,7 @@
     {% if page.backend_allows_update %}
       <form method="post" action="/updates/update" class="action-form action-tile">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit">{{ t("Update server") }}</button>
+        <button type="submit">{{ t(page.update_action_label) }}</button>
       </form>
     {% endif %}
   </div>

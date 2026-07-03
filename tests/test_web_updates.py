@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -107,6 +108,7 @@ def _updates_csrf_token(client) -> str:
     assert response.status_code == 200
     return _form_token(response.text)
 
+
 @pytest.mark.parametrize(
     ("check_state", "message", "state_label", "check_disabled", "shows_update"),
     [
@@ -201,6 +203,191 @@ def test_updates_page_renders_build_states(
     assert "game version" not in response.text.lower()
 
 
+def test_failed_update_check_renders_retry_and_jobs_guidance(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner updates password"
+    setup_owner_user(tmp_path, "owner", password)
+    page = _updates_page(server_versions.SERVER_VERSION_CHECK_FAILED)
+    page["version"]["check_job_id"] = 17
+    page["version"]["checkJobId"] = 17
+    _install_updates_page(monkeypatch, page)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/updates", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Build check failed" in response.text
+    assert "probe failed" in response.text
+    assert "Check again" in response.text
+    assert "Failed update check job" in response.text
+    assert 'href="/jobs#background-jobs"' in response.text
+    assert "#17" in response.text
+    assert "use the CLI fallback" in response.text
+    assert 'action="/updates/update"' not in response.text
+
+
+def test_failed_update_renders_retry_only_when_stopped_without_active_job(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner updates password"
+    setup_owner_user(tmp_path, "owner", password)
+    page = _updates_page(server_versions.SERVER_VERSION_CHECK_AVAILABLE)
+    page["version"]["failed_update_job"] = {
+        "id": 23,
+        "kind": "server:update",
+        "status": "failed",
+        "updated_at": "2026-06-21T00:00:00+00:00",
+    }
+    _install_updates_page(monkeypatch, page)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/updates", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Last failed update job" in response.text
+    assert "#23" in response.text
+    assert 'href="/jobs#background-jobs"' in response.text
+    assert "Retry update" in response.text
+    assert 'action="/updates/update"' in response.text
+    assert "server appears stopped and no update job is active" in response.text
+    assert "use the CLI fallback" in response.text
+
+
+def test_failed_update_does_not_render_retry_when_server_running(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner updates password"
+    setup_owner_user(tmp_path, "owner", password)
+    page = _updates_page(
+        server_versions.SERVER_VERSION_CHECK_AVAILABLE,
+        running=True,
+    )
+    page["version"]["failed_update_job"] = {
+        "id": 24,
+        "kind": "server:update",
+        "status": "failed",
+        "updated_at": "2026-06-21T00:00:00+00:00",
+    }
+    _install_updates_page(monkeypatch, page)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/updates", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Last failed update job" in response.text
+    assert "Stop the game server before retrying" in response.text
+    assert "Retry update" not in response.text
+    assert 'action="/updates/update"' not in response.text
+
+
+def test_active_update_job_renders_background_jobs_link(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner updates password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_updates_page(
+        monkeypatch,
+        _updates_page(server_versions.SERVER_VERSION_CHECK_UPDATING),
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/updates", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Active update job" in response.text
+    assert "#9" in response.text
+    assert 'href="/jobs#background-jobs"' in response.text
+
+
+def test_stale_active_job_metadata_renders_guidance_without_cancelling(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import (
+        SERVER_UPDATE_JOB_KIND,
+        create_job,
+        get_job,
+        list_recent_jobs,
+        mark_job_running,
+    )
+    from armactl.web.page_models import updates as updates_page_model
+    from armactl.web.runtime import ensure_web_db
+
+    password = "owner updates password"
+    setup_owner_user(tmp_path, "owner", password)
+    state = ServerState(
+        server_installed=True,
+        binary_exists=True,
+        config_exists=True,
+        server_running=False,
+        install_dir=str(tmp_path / "default" / "server"),
+    )
+    save_state(state, tmp_path / "default" / "state.json")
+    db_path = tmp_path / "web" / "web.db"
+    ensure_web_db(db_path)
+    queued = create_job(
+        db_path,
+        kind=SERVER_UPDATE_JOB_KIND,
+        requested_by_username="owner",
+    )
+    running = mark_job_running(db_path, queued.id, current_step="Updating")
+    stale_at = "2026-06-20T00:00:00+00:00"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE web_jobs
+            SET created_at = ?, started_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (stale_at, stale_at, stale_at, running.id),
+        )
+
+    class FakeServiceAdapter:
+        def get_service_status(self, service_name):
+            del service_name
+            return {"active_state": "inactive", "sub_state": "dead"}
+
+    monkeypatch.setattr(
+        updates_page_model,
+        "get_service_adapter",
+        lambda: FakeServiceAdapter(),
+    )
+    before = get_job(db_path, running.id)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/updates", follow_redirects=False)
+
+    after = get_job(db_path, running.id)
+    assert response.status_code == 200
+    assert "This job may be stale" in response.text
+    assert "use the CLI fallback" in response.text
+    assert 'href="/jobs#background-jobs"' in response.text
+    assert before is not None
+    assert after is not None
+    assert before.status == "running"
+    assert after.status == "running"
+    assert [job.id for job in list_recent_jobs(db_path)] == [running.id]
+
+
 def test_updates_page_blocks_update_action_when_server_running(
     tmp_path: Path,
     monkeypatch,
@@ -226,14 +413,37 @@ def test_updates_page_blocks_update_action_when_server_running(
     assert "name=\"confirm\" value=\"running-update\"" not in response.text
 
 
-def test_updates_get_does_not_run_discovery_or_steamcmd(tmp_path: Path, monkeypatch):
+def test_updates_get_does_not_run_discovery_steamcmd_or_mutate_jobs(
+    tmp_path: Path,
+    monkeypatch,
+):
     from armactl.web.app import create_app
+    from armactl.web.jobs import (
+        SERVER_UPDATE_JOB_KIND,
+        create_job,
+        get_job,
+        mark_job_failed,
+        mark_job_running,
+    )
 
     def fail_backend(*args, **kwargs):
         raise AssertionError("updates GET must not run SteamCMD or discovery")
 
     password = "owner updates password"
     setup_owner_user(tmp_path, "owner", password)
+    db_path = tmp_path / "web" / "web.db"
+    queued = create_job(
+        db_path,
+        kind=SERVER_UPDATE_JOB_KIND,
+        requested_by_username="owner",
+    )
+    running = mark_job_running(db_path, queued.id, current_step="Updating")
+    failed = mark_job_failed(
+        db_path,
+        running.id,
+        error_message="update failed",
+        result_message="Server update failed.",
+    )
     monkeypatch.setattr(server_versions.installer, "fetch_steam_app_info", fail_backend)
     monkeypatch.setattr(server_versions.discovery, "discover", fail_backend)
     client = _client(create_app(data_root=tmp_path))
@@ -241,8 +451,10 @@ def test_updates_get_does_not_run_discovery_or_steamcmd(tmp_path: Path, monkeypa
 
     response = client.get("/updates", follow_redirects=False)
 
+    after = get_job(db_path, failed.id)
     assert response.status_code == 200
     assert "Latest build unknown" in response.text
+    assert after == failed
 
 
 def test_unauthenticated_updates_redirects_to_login(tmp_path: Path):

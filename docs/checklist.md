@@ -51,8 +51,8 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Phase 4e/4f automatic session tracking planning/prep, with side-effect-free scheduler policy constants, safe automatic job cadence/backoff/close-scope rules, GET no-start tests, and docs that the automatic scheduler remains disabled.
 - [x] Phase 4e/4f explicit opt-in session scheduler runner foundation, with `armactl players sessions scheduler run --once`, read-only `armactl players sessions scheduler status`, safe `web.db` scheduler state, allowed-job enqueue through existing dedupe, bounded failure backoff, missing-state empty/disabled status, and no service/timer/daemon/app-start/GET/JS trigger.
 - [ ] Continue production hardening for the local dashboard.
-- [x] Polish server update browser flow with controlled post-action notices and active job links.
-- [ ] Continue polishing server update check/update UX after VM smoke feedback.
+- [x] Polish server update browser flow with controlled post-action notices, active job links, retry/failure guidance, and stale active-job notices.
+- [ ] Continue polishing server update check/update UX after VM smoke feedback, including any safe queued/stale metadata cancellation decision.
 - [ ] Expand safe config controls after field behavior is verified.
 - [ ] Improve mod cleanup edge-case recovery workflows.
 - [x] Build slice 2 read-only players page / improved players view from existing sources.

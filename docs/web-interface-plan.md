@@ -72,7 +72,7 @@ Routes should stay thin. Services own validation, backend calls, backups, pendin
 - `/players/sessions` - authenticated read-only stored player sessions list with bounded filters, compact stored-session summary counts, safe active session-job links to `/jobs`, and truth-safe observed/last observed/inferred close labels.
 - `POST /players/refresh-current` - authenticated current-roster registry refresh job; accepts CSRF only, not paths.
 - `POST /players/history/collect-logs` - authenticated manual background collection from allowlisted instance config logs; accepts CSRF only, not paths.
-- `/updates` - server version/update views, controlled post-action notices, fresh-check reuse feedback, and active update/check job links to `/jobs`.
+- `/updates` - server version/update views, controlled post-action notices, fresh-check reuse feedback, active update/check job links to `/jobs`, retry/failure guidance, and stale active-job guidance.
 
 ## Auth And Safety
 
@@ -252,9 +252,9 @@ Out of scope:
 
 #### 2. Server Update UX After VM Smoke
 
-- Current state: `/updates` shows installed/latest build state, cached check reuse, failure reason, active update/check job links, and a server-running block before update. Update checks and updates run as deduped background jobs with redacted output. Job cancellation exists in store/maintenance code, but not as a normal operator-facing update workflow.
+- Current state: `/updates` shows installed/latest build state, cached check reuse, failure reason, safe retry labels, failed update/check job guidance, stale active-job guidance, active update/check job links, and a server-running block before update. Update checks and updates run as deduped background jobs with redacted output. Job cancellation exists in store/maintenance code, but not as a normal operator-facing update workflow.
 - Risk: after a failed or interrupted update, operators may not know whether to retry, wait, inspect `/jobs`, stop the game server, or fall back to CLI/TUI. SteamCMD/network behavior is host-specific.
-- Proposed slice: run VM smoke first. Add only small UI/state changes proven necessary: retry check, retry update after failure, stale active-job notice, and safe cancel limited to queued/stale metadata unless a real worker-cancel model exists.
+- Remaining slice: continue VM smoke and operator feedback. Any cancellation should stay limited to a proven safe queued/stale metadata model unless a real worker-cancel model exists.
 - Files/modules likely touched: `src/armactl/web/routes/updates.py`, `src/armactl/web/views/updates.py`, `src/armactl/web/templates/updates.html`, `src/armactl/web/routes/jobs.py`, `src/armactl/web/templates/jobs.html`, `src/armactl/web/services/server_job_actions.py`, `src/armactl/web/jobs/server.py`.
 - Validation/smoke needed: fresh update check, cached check reuse, failed check, update available while server running, update queued while stopped, active job links, failed job details, retry behavior. On production hosts from private notes, smoke the default instance unless private notes name another instance.
 - Stop condition: an operator can see the active job, understand why update is blocked or failed, retry safely, and know when to use CLI/TUI fallback. Do not add live SteamCMD cancellation unless it can be proven safe.
