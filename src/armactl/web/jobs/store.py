@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from armactl import paths
@@ -32,10 +32,13 @@ MAX_JOB_MESSAGE_LENGTH = 1000
 MAX_JOB_ERROR_CLASS_LENGTH = 200
 MAX_JOB_OUTPUT_CHARS = 8000
 TRUNCATED_JOB_OUTPUT_PREFIX = "... output truncated ...\n"
+MAX_WORKER_ID_LENGTH = 120
+DEFAULT_WORKER_LEASE_SECONDS = 120
 DEFAULT_RECENT_JOB_LIMIT = 20
 MAX_RECENT_JOB_LIMIT = 100
 
 _KIND_RE = re.compile(r"^[a-z][a-z0-9:_-]{0,79}$")
+_WORKER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,120}$")
 _SECRET_ASSIGNMENT_RE = re.compile(
     r"(?im)\b((?:ARMACTL_WEB_SESSION_SECRET|session_secret|secret|api_key)\s*[=:]\s*)([^\s,;]+)"
 )
@@ -53,8 +56,16 @@ class JobTransitionError(JobStoreError):
     """Raised when a web job status transition is invalid."""
 
 
+def _utc_now_dt() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return _utc_now_dt().isoformat()
+
+
+def _worker_lease_expires_at(now: datetime, lease_seconds: int) -> str:
+    return (now + timedelta(seconds=lease_seconds)).isoformat()
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
@@ -89,6 +100,10 @@ def _record_from_row(row: sqlite3.Row) -> JobRecord:
         updated_at=row["updated_at"],
         started_at=row["started_at"],
         finished_at=row["finished_at"],
+        worker_id=row["worker_id"],
+        worker_started_at=row["worker_started_at"],
+        worker_heartbeat_at=row["worker_heartbeat_at"],
+        worker_lease_expires_at=row["worker_lease_expires_at"],
     )
 
 
@@ -176,6 +191,27 @@ def _normalize_requested_by_user_id(value: object | None) -> int | None:
     return value
 
 
+def _normalize_worker_id(value: object) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise JobStoreError("worker_id is invalid.")
+    normalized = value.strip()
+    if not normalized:
+        return ""
+    if len(normalized) > MAX_WORKER_ID_LENGTH or not _WORKER_ID_RE.fullmatch(
+        normalized
+    ):
+        raise JobStoreError("worker_id is invalid.")
+    return normalized
+
+
+def _normalize_worker_lease_seconds(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 30 or value > 3600:
+        raise JobStoreError("worker lease seconds must be between 30 and 3600.")
+    return value
+
+
 def _normalize_status(status: str) -> str:
     if not isinstance(status, str):
         raise JobStoreError("Job status is required.")
@@ -217,7 +253,11 @@ def _fetch_job(connection: sqlite3.Connection, job_id: int) -> JobRecord:
                created_at,
                updated_at,
                started_at,
-               finished_at
+               finished_at,
+               worker_id,
+               worker_started_at,
+               worker_heartbeat_at,
+               worker_lease_expires_at
         FROM web_jobs
         WHERE id = ?
         """,
@@ -253,7 +293,11 @@ def _fetch_active_job(
                created_at,
                updated_at,
                started_at,
-               finished_at
+               finished_at,
+               worker_id,
+               worker_started_at,
+               worker_heartbeat_at,
+               worker_lease_expires_at
         FROM web_jobs
         WHERE kind = ?
           AND instance = ?
@@ -560,7 +604,11 @@ def list_recent_jobs(
                        created_at,
                        updated_at,
                        started_at,
-                       finished_at
+                       finished_at,
+                       worker_id,
+                       worker_started_at,
+                       worker_heartbeat_at,
+                       worker_lease_expires_at
                 FROM web_jobs
                 {where}
                 ORDER BY created_at DESC, id DESC
@@ -603,7 +651,11 @@ def list_active_jobs(
                        created_at,
                        updated_at,
                        started_at,
-                       finished_at
+                       finished_at,
+                       worker_id,
+                       worker_started_at,
+                       worker_heartbeat_at,
+                       worker_lease_expires_at
                 FROM web_jobs
                 WHERE status IN (?, ?)
                 ORDER BY created_at DESC, id DESC
@@ -624,6 +676,8 @@ def mark_job_running(
     current_step: str = "",
     progress_current: int = 0,
     progress_total: int = 0,
+    worker_id: str = "",
+    worker_lease_seconds: int = DEFAULT_WORKER_LEASE_SECONDS,
 ) -> JobRecord:
     """Mark a queued job as running."""
     normalized_job_id = _normalize_job_id(job_id)
@@ -633,7 +687,17 @@ def mark_job_running(
         "progress_current",
     )
     normalized_progress_total = _normalize_non_negative_int(progress_total, "progress_total")
-    now = _utc_now()
+    normalized_worker_id = _normalize_worker_id(worker_id)
+    normalized_lease_seconds = _normalize_worker_lease_seconds(worker_lease_seconds)
+    now_dt = _utc_now_dt()
+    now = now_dt.isoformat()
+    worker_started_at = now if normalized_worker_id else None
+    worker_heartbeat_at = now if normalized_worker_id else None
+    worker_lease_expires_at = (
+        _worker_lease_expires_at(now_dt, normalized_lease_seconds)
+        if normalized_worker_id
+        else None
+    )
 
     try:
         with _connect(db_path) as connection:
@@ -645,7 +709,11 @@ def mark_job_running(
                     progress_current = ?,
                     progress_total = ?,
                     started_at = COALESCE(started_at, ?),
-                    updated_at = ?
+                    updated_at = ?,
+                    worker_id = ?,
+                    worker_started_at = ?,
+                    worker_heartbeat_at = ?,
+                    worker_lease_expires_at = ?
                 WHERE id = ?
                   AND status = ?
                 """,
@@ -656,6 +724,10 @@ def mark_job_running(
                     normalized_progress_total,
                     now,
                     now,
+                    normalized_worker_id,
+                    worker_started_at,
+                    worker_heartbeat_at,
+                    worker_lease_expires_at,
                     normalized_job_id,
                     JOB_STATUS_QUEUED,
                 ),
@@ -673,29 +745,105 @@ def append_job_output(
     *,
     stdout: str = "",
     stderr: str = "",
+    worker_id: str = "",
+    worker_lease_seconds: int = DEFAULT_WORKER_LEASE_SECONDS,
 ) -> JobRecord:
     """Append bounded, redacted stdout/stderr tail text to a job."""
     normalized_job_id = _normalize_job_id(job_id)
-    now = _utc_now()
+    normalized_worker_id = _normalize_worker_id(worker_id)
+    normalized_lease_seconds = _normalize_worker_lease_seconds(worker_lease_seconds)
+    now_dt = _utc_now_dt()
+    now = now_dt.isoformat()
 
     try:
         with _connect(db_path) as connection:
             job = _fetch_job(connection, normalized_job_id)
+            if (
+                normalized_worker_id
+                and job.worker_id
+                and job.worker_id != normalized_worker_id
+            ):
+                raise JobTransitionError("Worker token does not match job.")
             stdout_tail = _safe_tail(job.stdout_tail, stdout)
             stderr_tail = _safe_tail(job.stderr_tail, stderr)
-            connection.execute(
-                """
-                UPDATE web_jobs
-                SET stdout_tail = ?,
-                    stderr_tail = ?,
-                    updated_at = ?
-                WHERE id = ?
-                """,
-                (stdout_tail, stderr_tail, now, normalized_job_id),
-            )
+            if normalized_worker_id and job.status == JOB_STATUS_RUNNING:
+                connection.execute(
+                    """
+                    UPDATE web_jobs
+                    SET stdout_tail = ?,
+                        stderr_tail = ?,
+                        updated_at = ?,
+                        worker_heartbeat_at = ?,
+                        worker_lease_expires_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        stdout_tail,
+                        stderr_tail,
+                        now,
+                        now,
+                        _worker_lease_expires_at(now_dt, normalized_lease_seconds),
+                        normalized_job_id,
+                    ),
+                )
+            else:
+                connection.execute(
+                    """
+                    UPDATE web_jobs
+                    SET stdout_tail = ?,
+                        stderr_tail = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (stdout_tail, stderr_tail, now, normalized_job_id),
+                )
             return _fetch_job(connection, normalized_job_id)
     except sqlite3.Error as exc:
         raise JobStoreError("Failed to append web job output.") from exc
+
+
+def refresh_job_heartbeat(
+    db_path: Path,
+    job_id: int,
+    *,
+    worker_id: str,
+    worker_lease_seconds: int = DEFAULT_WORKER_LEASE_SECONDS,
+) -> JobRecord | None:
+    """Refresh a running job worker lease when the worker token still matches."""
+    normalized_job_id = _normalize_job_id(job_id)
+    normalized_worker_id = _normalize_worker_id(worker_id)
+    if not normalized_worker_id:
+        raise JobStoreError("worker_id is required.")
+    normalized_lease_seconds = _normalize_worker_lease_seconds(worker_lease_seconds)
+    now_dt = _utc_now_dt()
+    now = now_dt.isoformat()
+
+    try:
+        with _connect(db_path) as connection:
+            cursor = connection.execute(
+                """
+                UPDATE web_jobs
+                SET worker_heartbeat_at = ?,
+                    worker_lease_expires_at = ?,
+                    updated_at = ?
+                WHERE id = ?
+                  AND status = ?
+                  AND worker_id = ?
+                """,
+                (
+                    now,
+                    _worker_lease_expires_at(now_dt, normalized_lease_seconds),
+                    now,
+                    normalized_job_id,
+                    JOB_STATUS_RUNNING,
+                    normalized_worker_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                return None
+            return _fetch_job(connection, normalized_job_id)
+    except sqlite3.Error as exc:
+        raise JobStoreError("Failed to refresh web job heartbeat.") from exc
 
 
 def mark_job_succeeded(
@@ -736,7 +884,8 @@ def mark_job_succeeded(
                     progress_total = ?,
                     result_message = ?,
                     updated_at = ?,
-                    finished_at = ?
+                    finished_at = ?,
+                    worker_lease_expires_at = NULL
                 WHERE id = ?
                 """,
                 (
@@ -789,7 +938,8 @@ def mark_job_failed(
                     error_message = ?,
                     error_class = ?,
                     updated_at = ?,
-                    finished_at = ?
+                    finished_at = ?,
+                    worker_lease_expires_at = NULL
                 WHERE id = ?
                 """,
                 (
@@ -828,7 +978,8 @@ def mark_job_cancelled(
                 SET status = ?,
                     result_message = ?,
                     updated_at = ?,
-                    finished_at = ?
+                    finished_at = ?,
+                    worker_lease_expires_at = NULL
                 WHERE id = ?
                 """,
                 (JOB_STATUS_CANCELLED, normalized_message, now, now, normalized_job_id),

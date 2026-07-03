@@ -165,7 +165,11 @@ def repair_duplicate_active_jobs(
                     error_message = '',
                     error_class = '',
                     updated_at = ?,
-                    finished_at = COALESCE(finished_at, ?)
+                    finished_at = COALESCE(finished_at, ?),
+                    worker_id = '',
+                    worker_started_at = NULL,
+                    worker_heartbeat_at = NULL,
+                    worker_lease_expires_at = NULL
                 WHERE id = ?
                   AND status = ?
                 """,

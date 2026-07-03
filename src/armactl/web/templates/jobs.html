@@ -33,7 +33,22 @@
   {%- elif kind == "server:repair" -%}{{ t("Repair server") }}
   {%- else -%}{{ kind }}
   {%- endif -%}
-{%- endmacro %}{% macro pending_action_label(action) -%}
+{%- endmacro %}
+{% macro worker_lease_label(state) -%}
+  {%- if state == "fresh" -%}{{ t("fresh lease") }}
+  {%- elif state == "expired" -%}{{ t("expired lease") }}
+  {%- elif state == "inactive" -%}{{ t("inactive lease") }}
+  {%- else -%}{{ t("lease unknown") }}
+  {%- endif -%}
+{%- endmacro %}
+{% macro worker_lease_class(state) -%}
+  {%- if state == "fresh" -%}status-pill-ok
+  {%- elif state == "expired" -%}status-pill-warning
+  {%- elif state == "inactive" -%}status-pill-inactive
+  {%- else -%}status-pill-warning
+  {%- endif -%}
+{%- endmacro %}
+{% macro pending_action_label(action) -%}
   {%- if action == "admin.add" -%}{{ t("Add admin") }}
   {%- elif action == "admin.update" -%}{{ t("Update admin") }}
   {%- elif action == "admin.remove" -%}{{ t("Remove admin") }}
@@ -65,13 +80,26 @@
       <article class="notice-panel {% if diagnostic.severity == 'warning' %}notice-warning{% else %}diagnostic-notice{% endif %}">
         {% if diagnostic.report_type == 'active_duplicate' %}
           <h3>{{ t("Duplicate active jobs detected.") }}</h3>
-          <p class="muted">{{ t("Current duplicate active jobs are still present.") }} {{ t("Queued duplicates can be repaired automatically; running rows require worker heartbeat/lease before safe metadata recovery.") }}</p>
+          <p class="muted">{{ t("Current duplicate active jobs are still present.") }} {{ t("Queued duplicates can be repaired by job-store maintenance; running rows remain visible and are not cancelled by the web UI.") }}</p>
           <dl class="key-value-list">
             <dt>{{ t("Job kind") }}</dt><dd>{{ diagnostic.job_kind }}</dd>
             <dt>{{ t("Instance") }}</dt><dd>{{ diagnostic.instance }}</dd>
             <dt>{{ t("Active job IDs") }}</dt><dd>{{ job_id_list(diagnostic.active_job_ids) }}</dd>
             <dt>{{ t("Kept job") }}</dt><dd>#{{ diagnostic.kept_job_id }}</dd>
             <dt>{{ t("Duplicate job IDs") }}</dt><dd>{{ job_id_list(diagnostic.duplicate_job_ids) }}</dd>
+          </dl>
+        {% elif diagnostic.report_type == 'running_lease_expired' %}
+          <h3>{{ t("Worker lease expired.") }}</h3>
+          <p class="muted">{{ t("The running job remains visible; the web UI did not kill a process or cancel the job.") }} {{ t("Automatic expired-lease metadata recovery is not enabled.") }}</p>
+          <dl class="key-value-list">
+            <dt>{{ t("Job ID") }}</dt><dd>#{{ diagnostic.job_id }}</dd>
+            <dt>{{ t("Job kind") }}</dt><dd>{{ diagnostic.job_kind }}</dd>
+            <dt>{{ t("Instance") }}</dt><dd>{{ diagnostic.instance }}</dd>
+            <dt>{{ t("Worker lease") }}</dt><dd><span class="status-pill status-pill-warning">{{ t("expired lease") }}</span></dd>
+            <dt>{{ t("Last heartbeat") }}</dt><dd>{% if diagnostic.worker_heartbeat_at %}{{ format_web_timestamp(diagnostic.worker_heartbeat_at) }}{% else %}{{ t("unknown") }}{% endif %}</dd>
+            <dt>{{ t("Lease expired") }}</dt><dd>{% if diagnostic.worker_lease_expires_at %}{{ format_web_timestamp(diagnostic.worker_lease_expires_at) }}{% else %}{{ t("unknown") }}{% endif %}</dd>
+            <dt>{{ t("Active in this process") }}</dt><dd>{% if diagnostic.active_worker_known %}{{ t("yes") }}{% else %}{{ t("no") }}{% endif %}</dd>
+            <dt>{{ t("Recovery") }}</dt><dd>{{ t("diagnostics only") }}</dd>
           </dl>
         {% elif diagnostic.report_type == 'maintenance_report' %}
           <h3>{{ t("Job-store maintenance completed.") }}</h3>
@@ -153,6 +181,11 @@
               <div><dt>{{ t("Started") }}</dt><dd>{% if job.started_at %}{{ format_web_timestamp(job.started_at) }}{% else %}{{ t("not started") }}{% endif %}</dd></div>
               <div><dt>{{ t("Finished") }}</dt><dd>{% if job.finished_at %}{{ format_web_timestamp(job.finished_at) }}{% else %}{{ t("not finished") }}{% endif %}</dd></div>
               <div><dt>{{ t("Current step") }}</dt><dd>{{ job.current_step or t("none") }}</dd></div>
+              <div><dt>{{ t("Worker lease") }}</dt><dd><span class="status-pill {{ worker_lease_class(job.worker_lease_state) }}">{{ worker_lease_label(job.worker_lease_state) }}</span></dd></div>
+              {% if job.worker_started_at %}<div><dt>{{ t("Worker started") }}</dt><dd>{{ format_web_timestamp(job.worker_started_at) }}</dd></div>{% endif %}
+              {% if job.worker_heartbeat_at %}<div><dt>{{ t("Last heartbeat") }}</dt><dd>{{ format_web_timestamp(job.worker_heartbeat_at) }}</dd></div>{% endif %}
+              {% if job.worker_lease_expires_at %}<div><dt>{{ t("Lease expires") }}</dt><dd>{{ format_web_timestamp(job.worker_lease_expires_at) }}</dd></div>{% endif %}
+              {% if job.status == "running" and job.worker_lease_state == "expired" %}<div><dt>{{ t("Recovery") }}</dt><dd>{{ t("diagnostics only") }}</dd></div>{% endif %}
             </dl>
             {% if job.stdout_tail or job.stderr_tail %}
               <div class="job-output-grid">

@@ -7,9 +7,7 @@ import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 
-from armactl.web.runtime.job_store_maintenance import repair_duplicate_active_jobs
-
-WEB_SCHEMA_VERSION = "13"
+WEB_SCHEMA_VERSION = "14"
 PRIVATE_FILE_MODE = 0o600
 _LEGACY_DEFAULT_TIMESTAMP = "1970-01-01T00:00:00+00:00"
 
@@ -224,6 +222,10 @@ def _ensure_web_jobs_schema(connection: sqlite3.Connection) -> None:
             updated_at TEXT NOT NULL CHECK(length(updated_at) > 0),
             started_at TEXT,
             finished_at TEXT,
+            worker_id TEXT NOT NULL DEFAULT '',
+            worker_started_at TEXT,
+            worker_heartbeat_at TEXT,
+            worker_lease_expires_at TEXT,
             FOREIGN KEY(requested_by_user_id) REFERENCES web_users(id) ON DELETE SET NULL
         )
         """
@@ -273,6 +275,10 @@ def _ensure_web_jobs_schema(connection: sqlite3.Connection) -> None:
             ),
             ("started_at", "started_at TEXT"),
             ("finished_at", "finished_at TEXT"),
+            ("worker_id", "worker_id TEXT NOT NULL DEFAULT ''"),
+            ("worker_started_at", "worker_started_at TEXT"),
+            ("worker_heartbeat_at", "worker_heartbeat_at TEXT"),
+            ("worker_lease_expires_at", "worker_lease_expires_at TEXT"),
         ),
     )
     connection.execute(
@@ -292,6 +298,13 @@ def _ensure_web_jobs_schema(connection: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_web_jobs_status
         ON web_jobs(status)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_web_jobs_running_lease
+        ON web_jobs(worker_lease_expires_at, id)
+        WHERE status = 'running'
         """
     )
 
@@ -839,6 +852,10 @@ def _migration_13_player_session_scheduler_state(
     _ensure_web_player_session_scheduler_schema(connection)
 
 
+def _migration_14_web_job_worker_lease(connection: sqlite3.Connection) -> None:
+    _ensure_web_jobs_schema(connection)
+
+
 _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (1, _migration_1_auth_schema),
     (2, _migration_2_jobs_schema),
@@ -853,6 +870,7 @@ _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (11, _migration_11_current_roster_cache),
     (12, _migration_12_current_roster_cache_counts),
     (13, _migration_13_player_session_scheduler_state),
+    (14, _migration_14_web_job_worker_lease),
 )
 
 def _read_schema_version(connection: sqlite3.Connection) -> int:
@@ -908,7 +926,6 @@ def ensure_web_db(db_path: Path) -> Path:
         connection.execute("PRAGMA foreign_keys = ON")
         _run_web_db_migrations(connection)
         _backfill_pending_work_from_restarts(connection)
-        repair_duplicate_active_jobs(connection)
 
     db_path.chmod(PRIVATE_FILE_MODE)
     return db_path

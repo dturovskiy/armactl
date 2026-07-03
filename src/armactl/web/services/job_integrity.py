@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
+from armactl.web.jobs.runner import has_active_worker_token
 from armactl.web.runtime.job_store_maintenance import (
     JOB_STORE_DUPLICATE_ACTIVE_REPAIR_AT_META_KEY,
     JOB_STORE_DUPLICATE_ACTIVE_REPAIR_COUNT_META_KEY,
@@ -35,6 +37,12 @@ class JobStoreIntegrityDiagnostic:
     duplicate_job_ids: tuple[int, ...] = ()
     repaired_count: int = 0
     repaired_at: str = ""
+    job_id: int | None = None
+    lease_state: str = ""
+    worker_heartbeat_at: str = ""
+    worker_lease_expires_at: str = ""
+    active_worker_known: bool = False
+    recovery_action: str = ""
 
 
 def find_duplicate_active_jobs(db_path: Path) -> tuple[DuplicateActiveJobGroup, ...]:
@@ -75,6 +83,67 @@ def get_duplicate_active_repair_report(db_path: Path) -> JobStoreRepairReport | 
     return JobStoreRepairReport(repaired_count=repaired_count, repaired_at=repaired_at)
 
 
+def _parse_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _running_lease_diagnostics(db_path: Path) -> tuple[JobStoreIntegrityDiagnostic, ...]:
+    db_file = Path(db_path)
+    if not db_file.exists():
+        return ()
+    try:
+        with sqlite3.connect(db_file) as connection:
+            rows = connection.execute(
+                """
+                SELECT id,
+                       kind,
+                       instance,
+                       worker_id,
+                       worker_heartbeat_at,
+                       worker_lease_expires_at
+                FROM web_jobs
+                WHERE status = 'running'
+                ORDER BY updated_at DESC, id DESC
+                LIMIT 50
+                """
+            ).fetchall()
+    except sqlite3.Error:
+        return ()
+
+    now = datetime.now(timezone.utc)
+    diagnostics: list[JobStoreIntegrityDiagnostic] = []
+    for row in rows:
+        expires_at = _parse_timestamp(row[5])
+        if expires_at is None or expires_at > now:
+            continue
+        worker_id = str(row[3] or "")
+        diagnostics.append(
+            JobStoreIntegrityDiagnostic(
+                report_type="running_lease_expired",
+                severity="warning",
+                job_id=int(row[0]),
+                job_kind=str(row[1]),
+                instance=str(row[2]),
+                lease_state="expired",
+                worker_heartbeat_at=str(row[4] or ""),
+                worker_lease_expires_at=str(row[5] or ""),
+                active_worker_known=(
+                    bool(worker_id) and has_active_worker_token(int(row[0]), worker_id)
+                ),
+                recovery_action="diagnostics_only",
+            )
+        )
+    return tuple(diagnostics)
+
+
 def job_store_integrity_diagnostics(db_path: Path) -> tuple[JobStoreIntegrityDiagnostic, ...]:
     """Return structured job-store integrity diagnostics for `/jobs`."""
     diagnostics: list[JobStoreIntegrityDiagnostic] = []
@@ -90,6 +159,8 @@ def job_store_integrity_diagnostics(db_path: Path) -> tuple[JobStoreIntegrityDia
                 duplicate_job_ids=group.duplicate_job_ids,
             )
         )
+
+    diagnostics.extend(_running_lease_diagnostics(db_path))
 
     repair_report = get_duplicate_active_repair_report(db_path)
     if repair_report is not None:

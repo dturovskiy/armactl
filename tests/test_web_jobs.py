@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Barrier, Lock
 
@@ -36,11 +36,13 @@ from armactl.web.jobs import (
     enqueue_server_update,
     enqueue_server_update_check,
     get_job,
+    has_active_worker_token,
     list_active_jobs,
     list_recent_jobs,
     mark_job_failed,
     mark_job_running,
     mark_job_succeeded,
+    refresh_job_heartbeat,
 )
 from armactl.web.jobs.store import MAX_JOB_OUTPUT_CHARS, TRUNCATED_JOB_OUTPUT_PREFIX
 from armactl.web.runtime import ensure_web_db
@@ -81,6 +83,12 @@ def _sqlite_indexes(db_path: Path) -> set[str]:
             """
         ).fetchall()
     return {row[0] for row in rows}
+
+
+def _sqlite_columns(db_path: Path, table_name: str) -> set[str]:
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return {str(row[1]) for row in rows}
 
 
 def _schema_meta(db_path: Path) -> dict[str, str]:
@@ -162,9 +170,18 @@ def test_ensure_web_db_creates_jobs_table(tmp_path: Path):
 
     assert "web_jobs" in _sqlite_tables(db_path)
     assert "idx_web_jobs_active_lookup" in _sqlite_indexes(db_path)
+    assert "idx_web_jobs_running_lease" in _sqlite_indexes(db_path)
+    assert {
+        "worker_id",
+        "worker_started_at",
+        "worker_heartbeat_at",
+        "worker_lease_expires_at",
+    }.issubset(_sqlite_columns(db_path, "web_jobs"))
+    ensure_web_db(db_path)
+    assert _schema_meta(db_path)["schema_version"] == "14"
 
 
-def test_ensure_web_db_repairs_duplicate_active_jobs_idempotently(tmp_path: Path):
+def test_enqueue_repairs_duplicate_queued_jobs_idempotently(tmp_path: Path):
     db_path = _db_path(tmp_path)
     ensure_web_db(db_path)
     kept = _insert_raw_job(
@@ -193,6 +210,12 @@ def test_ensure_web_db_repairs_duplicate_active_jobs_idempotently(tmp_path: Path
     )
 
     ensure_web_db(db_path)
+    assert _active_job_ids(db_path, kind=SERVER_INSTALL_JOB_KIND) == [
+        kept,
+        duplicate_running,
+        duplicate_queued,
+    ]
+    assert enqueue_server_install(db_path, requested_by_username="owner").id == kept
 
     with sqlite3.connect(db_path) as connection:
         rows = connection.execute(
@@ -237,7 +260,7 @@ def test_ensure_web_db_repairs_duplicate_active_jobs_idempotently(tmp_path: Path
     _assert_timestamp(meta[JOB_STORE_DUPLICATE_ACTIVE_REPAIR_AT_META_KEY])
     first_snapshot = (rows, meta)
 
-    ensure_web_db(db_path)
+    assert enqueue_server_install(db_path, requested_by_username="owner").id == kept
 
     with sqlite3.connect(db_path) as connection:
         rows_after_second_run = connection.execute(
@@ -365,6 +388,141 @@ def test_valid_job_status_transitions_set_timestamps(tmp_path: Path):
     assert succeeded.current_step == "Done"
     assert succeeded.progress_current == 4
     assert succeeded.progress_total == 4
+
+
+def test_dispatch_job_writes_worker_lease_and_clears_active_lease_on_terminal(
+    tmp_path: Path,
+):
+    db_path = _db_path(tmp_path)
+    seen_worker_ids: list[str] = []
+
+    def handler(context):
+        seen_worker_ids.append(context.worker_id)
+        running = get_job(db_path, context.job.id)
+        assert running is not None
+        assert running.status == JOB_STATUS_RUNNING
+        assert running.worker_id == context.worker_id
+        assert running.worker_started_at is not None
+        assert running.worker_heartbeat_at is not None
+        assert running.worker_lease_expires_at is not None
+        assert has_active_worker_token(context.job.id, context.worker_id)
+        context.append_output(stdout="lease heartbeat progress")
+        return JobHandlerResult(result_message="done", current_step="Done")
+
+    job = enqueue_job(db_path, kind="safe:lease", requested_by_username="owner")
+
+    result = dispatch_job(db_path, job.id, JobDispatcher({"safe:lease": handler}))
+
+    assert result.job.status == JOB_STATUS_SUCCEEDED
+    assert seen_worker_ids
+    assert result.job.worker_id == seen_worker_ids[0]
+    assert result.job.worker_started_at is not None
+    assert result.job.worker_heartbeat_at is not None
+    assert result.job.worker_lease_expires_at is None
+    assert not has_active_worker_token(job.id, seen_worker_ids[0])
+    assert "lease heartbeat progress" in result.job.stdout_tail
+
+
+def test_worker_progress_refreshes_heartbeat_and_terminal_blocks_refresh(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.jobs import store as job_store
+
+    db_path = _db_path(tmp_path)
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    timestamps = iter(
+        [
+            base,
+            base + timedelta(seconds=10),
+            base + timedelta(seconds=40),
+            base + timedelta(seconds=50),
+            base + timedelta(seconds=60),
+        ]
+    )
+    monkeypatch.setattr(job_store, "_utc_now_dt", lambda: next(timestamps))
+
+    job = create_job(db_path, kind="safe:heartbeat", requested_by_username="owner")
+    running = mark_job_running(
+        db_path,
+        job.id,
+        worker_id="worker1234",
+        worker_lease_seconds=60,
+    )
+    refreshed = append_job_output(
+        db_path,
+        job.id,
+        stdout="progress",
+        worker_id="worker1234",
+        worker_lease_seconds=60,
+    )
+
+    assert running.worker_heartbeat_at == (base + timedelta(seconds=10)).isoformat()
+    assert refreshed.worker_heartbeat_at == (base + timedelta(seconds=40)).isoformat()
+    assert refreshed.worker_lease_expires_at == (base + timedelta(seconds=100)).isoformat()
+
+    succeeded = mark_job_succeeded(db_path, job.id, result_message="done")
+
+    assert succeeded.worker_lease_expires_at is None
+    assert refresh_job_heartbeat(db_path, job.id, worker_id="worker1234") is None
+
+
+def test_expired_running_worker_lease_is_diagnostic_only(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+    job = create_job(db_path, kind="safe:expired", requested_by_username="owner")
+    running = mark_job_running(
+        db_path,
+        job.id,
+        worker_id="worker1234",
+        worker_lease_seconds=60,
+    )
+    expired_at = "2000-01-01T00:00:00+00:00"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE web_jobs
+            SET worker_heartbeat_at = ?, worker_lease_expires_at = ?
+            WHERE id = ?
+            """,
+            (expired_at, expired_at, running.id),
+        )
+
+    diagnostics = job_store_integrity_diagnostics(db_path)
+    refreshed = get_job(db_path, running.id)
+
+    assert refreshed is not None
+    assert refreshed.status == JOB_STATUS_RUNNING
+    assert refreshed.worker_lease_state == "expired"
+    assert [diagnostic.report_type for diagnostic in diagnostics] == [
+        "running_lease_expired"
+    ]
+    assert diagnostics[0].job_id == running.id
+    assert diagnostics[0].recovery_action == "diagnostics_only"
+    assert diagnostics[0].active_worker_known is False
+
+
+def test_fresh_running_worker_lease_is_not_repaired_or_reported(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+    job = create_job(db_path, kind="safe:fresh", requested_by_username="owner")
+    running = mark_job_running(
+        db_path,
+        job.id,
+        worker_id="worker1234",
+        worker_lease_seconds=60,
+    )
+    future_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE web_jobs
+            SET worker_lease_expires_at = ?
+            WHERE id = ?
+            """,
+            (future_at, running.id),
+        )
+
+    assert job_store_integrity_diagnostics(db_path) == ()
+    assert get_job(db_path, running.id).status == JOB_STATUS_RUNNING
 
 
 def test_list_active_jobs_excludes_terminal_jobs(tmp_path: Path):

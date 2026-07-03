@@ -114,7 +114,7 @@ The logs page reads fixed sources and should render bounded, redacted output.
 
 ## Background Jobs
 
-Install, repair, update checks, and other slow operations should run as background jobs. The dashboard should show status, progress, bounded output tails, and final outcomes without blocking normal HTTP requests. Job-store maintenance may move duplicate queued metadata to a controlled terminal state only while the row is still queued. Running/stale metadata must remain operator-visible; there is no safe cancel yet without a future worker heartbeat/lease model proving the worker is dead.
+Install, repair, update checks, and other slow operations should run as background jobs. The dashboard should show status, progress, bounded output tails, and final outcomes without blocking normal HTTP requests. Worker threads now write opaque worker IDs plus bounded started/heartbeat/lease timestamps when a queued job becomes running, refresh the lease from worker progress and a wrapper heartbeat, and clear the active lease when a terminal state is written. A fresh lease proves only that the web-process worker refreshed its metadata recently; an expired lease proves only that no matching heartbeat reached the store before the lease deadline. It does not kill or cancel a process/thread, prove cross-process OS liveness, or make job GET routes mutate rows. Job-store maintenance may move duplicate queued metadata to a controlled terminal state only from mutating maintenance/enqueue paths while the row is still queued. Running/stale metadata remains operator-visible on the jobs page, including expired-lease diagnostics, and automatic expired-lease metadata recovery is not enabled.
 
 ## Public Statistics
 

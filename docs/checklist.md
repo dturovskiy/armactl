@@ -52,7 +52,8 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Phase 4e/4f explicit opt-in session scheduler runner foundation, with `armactl players sessions scheduler run --once`, read-only `armactl players sessions scheduler status`, safe `web.db` scheduler state, allowed-job enqueue through existing dedupe, bounded failure backoff, missing-state empty/disabled status, and no service/timer/daemon/app-start/GET/JS trigger.
 - [ ] Continue production hardening for the local dashboard.
 - [x] Polish server update browser flow with controlled post-action notices, active job links, retry/failure guidance, and stale active-job notices.
-- [ ] Continue polishing server update check/update UX after VM smoke feedback. Decision: queued duplicate job metadata can be auto-cancelled only while still queued; running/stale metadata has no safe cancel yet and needs future worker heartbeat/lease recovery.
+- [x] Background job worker heartbeat/lease foundation, with opaque worker IDs, bounded heartbeat/lease timestamps on running jobs, heartbeat refresh from worker progress and wrapper heartbeat, terminal states clearing active leases, jobs page fresh/expired lease diagnostics, duplicate queued metadata repair only on mutating maintenance/enqueue paths, no GET job mutation, no process/thread kill, no running-job cancel action, and no automatic expired-lease metadata recovery.
+- [ ] Continue polishing server update check/update UX after VM smoke feedback, keeping expired running-job recovery diagnostics-only unless a future explicit recovery path proves worker death without killing processes.
 - [ ] Expand safe config controls after field behavior is verified.
 - [x] Improve mod cleanup/mod mutation edge-case recovery workflows with controlled partial-change results, audit-safe diagnostics, and pending-work recovery markers.
 - [x] Build slice 2 read-only players page / improved players view from existing sources.

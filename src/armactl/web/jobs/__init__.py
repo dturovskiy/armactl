@@ -56,6 +56,7 @@ from armactl.web.jobs.runner import (
     create_default_dispatcher,
     dispatch_job,
     enqueue_job,
+    has_active_worker_token,
 )
 from armactl.web.jobs.server import (
     SERVER_INSTALL_JOB_KIND,
@@ -75,6 +76,7 @@ from armactl.web.jobs.server import (
     start_server_job_worker,
 )
 from armactl.web.jobs.store import (
+    DEFAULT_WORKER_LEASE_SECONDS,
     JobNotFoundError,
     JobStoreError,
     JobTransitionError,
@@ -88,6 +90,7 @@ from armactl.web.jobs.store import (
     mark_job_failed,
     mark_job_running,
     mark_job_succeeded,
+    refresh_job_heartbeat,
 )
 
 __all__ = [
@@ -145,6 +148,7 @@ __all__ = [
     "JobContext",
     "JobDispatchResult",
     "JobDispatcher",
+    "DEFAULT_WORKER_LEASE_SECONDS",
     "JobHandlerResult",
     "JobNotFoundError",
     "JobRunnerError",
@@ -157,6 +161,7 @@ __all__ = [
     "create_job",
     "dispatch_job",
     "enqueue_job",
+    "has_active_worker_token",
     "list_active_jobs",
     "get_job",
     "get_active_job",
@@ -164,4 +169,5 @@ __all__ = [
     "mark_job_failed",
     "mark_job_running",
     "mark_job_succeeded",
+    "refresh_job_heartbeat",
 ]

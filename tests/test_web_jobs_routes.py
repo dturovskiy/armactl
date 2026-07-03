@@ -308,6 +308,118 @@ def test_jobs_page_distinguishes_empty_pending_work_and_background_jobs(tmp_path
     assert "No jobs yet." not in response.text
 
 
+def test_jobs_page_shows_fresh_worker_lease_for_running_job(tmp_path: Path):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import create_job, mark_job_running
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    db_path = tmp_path / "web" / "web.db"
+    job = create_job(db_path, kind="safe:lease", requested_by_username="owner")
+    mark_job_running(db_path, job.id, worker_id="worker1234")
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/jobs", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Worker lease" in response.text
+    assert "fresh lease" in response.text
+    assert "Last heartbeat" in response.text
+    assert "Lease expires" in response.text
+    assert "worker1234" not in response.text
+    assert "Worker lease expired." not in response.text
+
+
+def test_jobs_page_shows_expired_worker_lease_diagnostic_safely(tmp_path: Path):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import create_job, mark_job_running
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    db_path = tmp_path / "web" / "web.db"
+    job = create_job(db_path, kind="safe:expired", requested_by_username="owner")
+    running = mark_job_running(db_path, job.id, worker_id="worker1234")
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE web_jobs
+            SET worker_heartbeat_at = ?, worker_lease_expires_at = ?
+            WHERE id = ?
+            """,
+            (
+                "2000-01-01T00:00:00+00:00",
+                "2000-01-01T00:00:00+00:00",
+                running.id,
+            ),
+        )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/jobs", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Worker lease expired." in response.text
+    assert "expired lease" in response.text
+    assert "diagnostics only" in response.text
+    assert "The running job remains visible" in response.text
+    assert "worker1234" not in response.text
+    assert "Traceback" not in response.text
+    assert "ARMACTL_WEB_SESSION_SECRET" not in response.text
+
+
+def test_get_jobs_does_not_mutate_duplicate_or_expired_running_jobs(tmp_path: Path):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import SERVER_INSTALL_JOB_KIND
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    db_path = tmp_path / "web" / "web.db"
+    _insert_raw_web_job(
+        db_path,
+        kind=SERVER_INSTALL_JOB_KIND,
+        status="queued",
+        created_at="2026-01-01T00:00:00+00:00",
+    )
+    running_id = _insert_raw_web_job(
+        db_path,
+        kind=SERVER_INSTALL_JOB_KIND,
+        status="running",
+        created_at="2026-01-01T00:00:01+00:00",
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE web_jobs
+            SET worker_id = ?, worker_heartbeat_at = ?, worker_lease_expires_at = ?
+            WHERE id = ?
+            """,
+            (
+                "worker1234",
+                "2000-01-01T00:00:00+00:00",
+                "2000-01-01T00:00:00+00:00",
+                running_id,
+            ),
+        )
+        before = connection.execute(
+            "SELECT id, status, finished_at, worker_lease_expires_at FROM web_jobs ORDER BY id"
+        ).fetchall()
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/jobs", follow_redirects=False)
+
+    with sqlite3.connect(db_path) as connection:
+        after = connection.execute(
+            "SELECT id, status, finished_at, worker_lease_expires_at FROM web_jobs ORDER BY id"
+        ).fetchall()
+    assert response.status_code == 200
+    assert after == before
+    assert "Duplicate active jobs detected." in response.text
+    assert "Worker lease expired." in response.text
+    assert "Job-store maintenance completed." not in response.text
+
+
 def test_jobs_page_shows_active_duplicate_job_store_integrity_warning(
     tmp_path: Path,
     monkeypatch,
@@ -342,8 +454,8 @@ def test_jobs_page_shows_active_duplicate_job_store_integrity_warning(
     assert "Duplicate active jobs detected." in response.text
     assert "Current duplicate active jobs are still present." in response.text
     assert (
-        "Queued duplicates can be repaired automatically; running rows require "
-        "worker heartbeat/lease before safe metadata recovery."
+        "Queued duplicates can be repaired by job-store maintenance; running rows "
+        "remain visible and are not cancelled by the web UI."
         in response.text
     )
     assert "notice-panel notice-warning" in response.text
@@ -361,7 +473,7 @@ def test_jobs_page_shows_active_duplicate_job_store_integrity_warning(
 
 def test_jobs_page_shows_repaired_job_store_report_as_neutral_notice(tmp_path: Path):
     from armactl.web.app import create_app
-    from armactl.web.jobs import SERVER_INSTALL_JOB_KIND
+    from armactl.web.jobs import SERVER_INSTALL_JOB_KIND, enqueue_server_install
 
     password = "owner jobs password"
     setup_owner_user(tmp_path, "owner", password)
@@ -378,6 +490,7 @@ def test_jobs_page_shows_repaired_job_store_report_as_neutral_notice(tmp_path: P
         status="queued",
         created_at="2026-01-01T00:00:01+00:00",
     )
+    assert enqueue_server_install(db_path, requested_by_username="owner").id == kept
     client = _client(create_app(data_root=tmp_path))
     _login(client, "owner", password)
 
@@ -418,7 +531,7 @@ def test_jobs_page_localizes_job_store_integrity_diagnostics_to_ukrainian(
     tmp_path: Path,
 ):
     from armactl.web.app import create_app
-    from armactl.web.jobs import SERVER_INSTALL_JOB_KIND
+    from armactl.web.jobs import SERVER_INSTALL_JOB_KIND, enqueue_server_install
 
     password = "owner jobs password"
     setup_owner_user(tmp_path, "owner", password)
@@ -435,6 +548,7 @@ def test_jobs_page_localizes_job_store_integrity_diagnostics_to_ukrainian(
         status="queued",
         created_at="2026-01-01T00:00:01+00:00",
     )
+    enqueue_server_install(db_path, requested_by_username="owner")
     client = _client(create_app(data_root=tmp_path))
     _login(client, "owner", password)
     _set_cookie(client, LANGUAGE_COOKIE_NAME, "uk")
