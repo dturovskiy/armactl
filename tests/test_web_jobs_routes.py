@@ -341,7 +341,11 @@ def test_jobs_page_shows_active_duplicate_job_store_integrity_warning(
     assert "Job-store integrity" in response.text
     assert "Duplicate active jobs detected." in response.text
     assert "Current duplicate active jobs are still present." in response.text
-    assert "Maintenance is required to cancel duplicate active rows." in response.text
+    assert (
+        "Queued duplicates can be repaired automatically; running rows require "
+        "worker heartbeat/lease before safe metadata recovery."
+        in response.text
+    )
     assert "notice-panel notice-warning" in response.text
     assert "Job kind" in response.text
     assert "Active job IDs" in response.text
@@ -371,7 +375,7 @@ def test_jobs_page_shows_repaired_job_store_report_as_neutral_notice(tmp_path: P
     _insert_raw_web_job(
         db_path,
         kind=SERVER_INSTALL_JOB_KIND,
-        status="running",
+        status="queued",
         created_at="2026-01-01T00:00:01+00:00",
     )
     client = _client(create_app(data_root=tmp_path))
@@ -382,9 +386,12 @@ def test_jobs_page_shows_repaired_job_store_report_as_neutral_notice(tmp_path: P
     assert response.status_code == 200
     assert "Job-store integrity" in response.text
     assert "Job-store maintenance completed." in response.text
-    assert "Duplicate active jobs were repaired. Oldest active jobs were kept." in response.text
-    assert "Cancelled duplicate jobs remain visible below for audit context." in response.text
-    assert "Repaired duplicate active jobs" in response.text
+    assert "Duplicate queued jobs were repaired. Oldest active jobs were kept." in response.text
+    assert (
+        "Cancelled duplicate queued jobs remain visible below for audit context."
+        in response.text
+    )
+    assert "Repaired duplicate queued jobs" in response.text
     assert "Last repair" in response.text
     assert "notice-panel diagnostic-notice" in response.text
     assert "notice-panel notice-warning" not in response.text
@@ -392,7 +399,7 @@ def test_jobs_page_shows_repaired_job_store_report_as_neutral_notice(tmp_path: P
     assert "Web job-store maintenance cancelled duplicate active jobs." not in response.text
     assert "Review cancelled jobs below." not in response.text
     assert "Cancelled by web job-store maintenance; older active job kept." in response.text
-    assert "Duplicate active job cancelled" in response.text
+    assert "Duplicate queued job cancelled" in response.text
     with sqlite3.connect(db_path) as connection:
         active_rows = connection.execute(
             """
@@ -425,7 +432,7 @@ def test_jobs_page_localizes_job_store_integrity_diagnostics_to_ukrainian(
     _insert_raw_web_job(
         db_path,
         kind=SERVER_INSTALL_JOB_KIND,
-        status="running",
+        status="queued",
         created_at="2026-01-01T00:00:01+00:00",
     )
     client = _client(create_app(data_root=tmp_path))
@@ -437,11 +444,11 @@ def test_jobs_page_localizes_job_store_integrity_diagnostics_to_ukrainian(
     assert response.status_code == 200
     assert "Цілісність сховища завдань" in response.text
     assert "Обслуговування сховища завдань завершено." in response.text
-    assert "Дублікати активних завдань виправлено." in response.text
-    assert "Виправлені дублікати активних завдань" in response.text
+    assert "Дублікати завдань у черзі виправлено." in response.text
+    assert "Виправлені дублікати завдань у черзі" in response.text
     assert "Job-store maintenance completed." not in response.text
-    assert "Duplicate active jobs were repaired." not in response.text
-    assert "Repaired duplicate active jobs" not in response.text
+    assert "Duplicate queued jobs were repaired." not in response.text
+    assert "Repaired duplicate queued jobs" not in response.text
     assert "Review cancelled jobs below." not in response.text
 
 

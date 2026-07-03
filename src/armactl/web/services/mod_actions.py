@@ -51,6 +51,11 @@ MAX_MOD_TEXT_LENGTH = 256
 MAX_IMPORT_BYTES = 1024 * 1024
 MAX_AUDIT_IDS = 10
 MAX_CLEANUP_SUMMARY_ENTRIES = 8
+MOD_PARTIAL_FAILURE_MESSAGE = (
+    "Mod action did not complete cleanly after changing mod state. "
+    "Review the current mod list and pending restart work before retrying."
+)
+MOD_UNEXPECTED_FAILURE_MESSAGE = "Mod action failed before completing."
 
 
 class ModActionError(ValueError):
@@ -1125,13 +1130,56 @@ def _run_mod_workflow_and_audit(
         return _mod_intent_audit_failure(action, normalized_instance, safe_target)
 
     baseline_fingerprint = ""
+    baseline_config_path: Path | None = None
     if db_path is not None and mark_pending_restart:
         try:
-            baseline_fingerprint = _mods_restart_fingerprint(_config_path(normalized_instance))
+            baseline_config_path = _config_path(normalized_instance)
+            baseline_fingerprint = _mods_restart_fingerprint(baseline_config_path)
         except (ModActionError, ConfigError):
             baseline_fingerprint = ""
 
-    result = workflow()
+    try:
+        result = workflow()
+    except Exception as exc:  # noqa: BLE001 - report controlled partial mutation state.
+        changed_after_failure = False
+        if baseline_fingerprint and baseline_config_path is not None:
+            try:
+                current_fingerprint = _mods_restart_fingerprint(baseline_config_path)
+            except Exception:  # noqa: BLE001 - diagnostics must stay controlled.
+                current_fingerprint = ""
+            changed_after_failure = bool(
+                current_fingerprint and current_fingerprint != baseline_fingerprint
+            )
+
+        details: dict[str, object] = {
+            "backend_error_class": _safe_text(exc.__class__.__name__, max_length=80),
+        }
+        if changed_after_failure:
+            details.update(
+                {
+                    "pending_details": safe_target,
+                    "recovery": (
+                        "Review the current mod list and pending restart work before retrying."
+                    ),
+                }
+            )
+
+        result = ModActionResult(
+            action=action,
+            instance=normalized_instance,
+            target=safe_target,
+            success=False,
+            changed=changed_after_failure,
+            message=(
+                MOD_PARTIAL_FAILURE_MESSAGE
+                if changed_after_failure
+                else MOD_UNEXPECTED_FAILURE_MESSAGE
+            ),
+            exit_code=1,
+            backend_success=False,
+            backend_message="Unexpected backend error.",
+            details=details,
+        )
     result = audit_mod_action_result(
         result,
         audit_log_path=audit_log_path,

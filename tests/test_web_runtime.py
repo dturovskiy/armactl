@@ -24,8 +24,7 @@ from armactl.web.runtime import (
 )
 from armactl.web.runtime.db import WEB_SCHEMA_VERSION
 from armactl.web.runtime.job_store_maintenance import (
-    JOB_STORE_DUPLICATE_ACTIVE_REPAIR_MESSAGE,
-    JOB_STORE_DUPLICATE_ACTIVE_REPAIR_OUTPUT_NOTE,
+    JOB_STORE_DUPLICATE_ACTIVE_REPAIR_COUNT_META_KEY,
 )
 
 FORBIDDEN_IMPORT_PREFIXES = ("armactl.tui", "textual")
@@ -285,13 +284,10 @@ def test_ensure_web_db_migrates_v7_minimal_jobs_before_maintenance(tmp_path: Pat
             """
         ).fetchall()
     assert rows[0] == ("queued", "default", "", "", "")
-    assert rows[1][0] == "cancelled"
-    assert rows[1][1] == "default"
-    assert rows[1][2] == JOB_STORE_DUPLICATE_ACTIVE_REPAIR_MESSAGE
-    assert rows[1][3] == ""
-    assert rows[1][4] == JOB_STORE_DUPLICATE_ACTIVE_REPAIR_OUTPUT_NOTE
+    assert rows[1] == ("running", "default", "", "", "")
 
     first_meta = _schema_meta(db_path)
+    assert JOB_STORE_DUPLICATE_ACTIVE_REPAIR_COUNT_META_KEY not in first_meta
     first_rows = rows
     ensure_web_db(db_path)
 

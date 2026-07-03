@@ -218,13 +218,12 @@ def test_mod_action_helper_returns_controlled_backend_error(
     assert "raw-mod-secret" not in result.message
 
 
-def test_mods_unexpected_backend_exception_is_not_rendered_as_action_result(
+def test_mods_unexpected_backend_exception_after_mutation_reports_recovery(
     tmp_path: Path,
     monkeypatch,
 ):
     from armactl.web.app import create_app
-    from armactl.web.services import mod_actions
-    from armactl.web.services.pending_work import list_pending_work
+    from armactl.web.services import mod_actions, pending_work
 
     config_path = _write_mod_config(tmp_path, [])
     setup_owner_user(tmp_path, "owner", "owner mods password")
@@ -266,8 +265,12 @@ def test_mods_unexpected_backend_exception_is_not_rendered_as_action_result(
         follow_redirects=False,
     )
 
-    assert response.status_code == 500
-    assert "Internal Server Error" in response.text
+    assert response.status_code == 400
+    assert mod_actions.MOD_PARTIAL_FAILURE_MESSAGE in response.text
+    assert "Backend success" in response.text
+    assert "Unexpected backend error." in response.text
+    assert "RuntimeError" in response.text
+    assert "Restart the server to apply mod changes." in response.text
     assert "Mod added." not in response.text
     assert "Mod action is unavailable." not in response.text
     assert "raw-mod-secret" not in response.text
@@ -279,10 +282,16 @@ def test_mods_unexpected_backend_exception_is_not_rendered_as_action_result(
             "version": "1.2.3",
         }
     ]
-    assert list_pending_work(tmp_path / "web" / "web.db") == []
-    audit_text = (tmp_path / 'logs' / 'web' / 'audit.log').read_text(encoding='utf-8')
-    assert 'raw-mod-secret' not in audit_text
-
+    item = pending_work.get_pending_work(
+        tmp_path / "web" / "web.db",
+        kind=pending_work.KIND_MODS,
+    )
+    assert item is not None
+    assert item.source_action == "mod.add"
+    assert item.details == "CCCCCCCCCCCCCCCC"
+    audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(encoding="utf-8")
+    assert mod_actions.MOD_PARTIAL_FAILURE_MESSAGE in audit_text
+    assert "raw-mod-secret" not in audit_text
 
 def test_mods_disable_then_enable_back_clears_restart_pending(
     tmp_path: Path,

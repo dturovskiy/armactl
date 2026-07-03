@@ -279,7 +279,6 @@ def _ensure_transition(current_status: str, new_status: str) -> None:
     if current_status == JOB_STATUS_RUNNING and new_status in {
         JOB_STATUS_SUCCEEDED,
         JOB_STATUS_FAILED,
-        JOB_STATUS_CANCELLED,
     }:
         return
     raise JobTransitionError("Invalid web job status transition.")
@@ -814,7 +813,7 @@ def mark_job_cancelled(
     *,
     result_message: str = "Cancelled.",
 ) -> JobRecord:
-    """Mark a queued or running job as cancelled."""
+    """Mark a queued job as cancelled without touching running workers."""
     normalized_job_id = _normalize_job_id(job_id)
     normalized_message = _normalize_optional_text(result_message, max_length=MAX_JOB_MESSAGE_LENGTH)
     now = _utc_now()

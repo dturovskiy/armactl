@@ -65,7 +65,7 @@
       <article class="notice-panel {% if diagnostic.severity == 'warning' %}notice-warning{% else %}diagnostic-notice{% endif %}">
         {% if diagnostic.report_type == 'active_duplicate' %}
           <h3>{{ t("Duplicate active jobs detected.") }}</h3>
-          <p class="muted">{{ t("Current duplicate active jobs are still present.") }} {{ t("Maintenance is required to cancel duplicate active rows.") }}</p>
+          <p class="muted">{{ t("Current duplicate active jobs are still present.") }} {{ t("Queued duplicates can be repaired automatically; running rows require worker heartbeat/lease before safe metadata recovery.") }}</p>
           <dl class="key-value-list">
             <dt>{{ t("Job kind") }}</dt><dd>{{ diagnostic.job_kind }}</dd>
             <dt>{{ t("Instance") }}</dt><dd>{{ diagnostic.instance }}</dd>
@@ -75,9 +75,9 @@
           </dl>
         {% elif diagnostic.report_type == 'maintenance_report' %}
           <h3>{{ t("Job-store maintenance completed.") }}</h3>
-          <p class="muted">{{ t("Duplicate active jobs were repaired. Oldest active jobs were kept.") }} {{ t("Cancelled duplicate jobs remain visible below for audit context.") }}</p>
+          <p class="muted">{{ t("Duplicate queued jobs were repaired. Oldest active jobs were kept.") }} {{ t("Cancelled duplicate queued jobs remain visible below for audit context.") }}</p>
           <dl class="key-value-list">
-            <dt>{{ t("Repaired duplicate active jobs") }}</dt><dd>{{ diagnostic.repaired_count }}</dd>
+            <dt>{{ t("Repaired duplicate queued jobs") }}</dt><dd>{{ diagnostic.repaired_count }}</dd>
             <dt>{{ t("Last repair") }}</dt><dd>{{ diagnostic.repaired_at }}</dd>
           </dl>
         {% endif %}

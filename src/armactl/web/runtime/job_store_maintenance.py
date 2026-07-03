@@ -7,13 +7,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 ACTIVE_JOB_STATUSES = ("queued", "running")
+REPAIRABLE_DUPLICATE_JOB_STATUSES = ("queued",)
 JOB_STATUS_CANCELLED = "cancelled"
-JOB_STORE_DUPLICATE_ACTIVE_REPAIR_STEP = "Duplicate active job cancelled"
+JOB_STORE_DUPLICATE_ACTIVE_REPAIR_STEP = "Duplicate queued job cancelled"
 JOB_STORE_DUPLICATE_ACTIVE_REPAIR_MESSAGE = (
     "Cancelled by web job-store maintenance; older active job kept."
 )
 JOB_STORE_DUPLICATE_ACTIVE_REPAIR_OUTPUT_NOTE = (
-    "Job cancelled by web job-store maintenance because another queued/running job "
+    "Job cancelled by web job-store maintenance because another queued job "
     "already existed for this kind and instance."
 )
 JOB_STORE_DUPLICATE_ACTIVE_REPAIR_COUNT_META_KEY = "job_store_duplicate_active_repair_count"
@@ -46,7 +47,7 @@ class DuplicateActiveJobGroup:
 
     @property
     def duplicate_jobs(self) -> tuple[ActiveJobReference, ...]:
-        """Return active jobs that maintenance should move to terminal state."""
+        """Return active jobs after the oldest kept row for diagnostics/repair."""
         return self.jobs[1:]
 
     @property
@@ -146,11 +147,13 @@ def repair_duplicate_active_jobs(
     instance: str | None = None,
     repaired_at: str | None = None,
 ) -> int:
-    """Cancel duplicate active jobs, keeping the oldest active row per key."""
+    """Cancel duplicate queued jobs, keeping running rows operator-visible."""
     timestamp = repaired_at or _utc_now()
     repaired_count = 0
     for group in find_duplicate_active_job_groups(connection, kind=kind, instance=instance):
         for duplicate in group.duplicate_jobs:
+            if duplicate.status not in REPAIRABLE_DUPLICATE_JOB_STATUSES:
+                continue
             cursor = connection.execute(
                 """
                 UPDATE web_jobs
@@ -164,7 +167,7 @@ def repair_duplicate_active_jobs(
                     updated_at = ?,
                     finished_at = COALESCE(finished_at, ?)
                 WHERE id = ?
-                  AND status IN (?, ?)
+                  AND status = ?
                 """,
                 (
                     JOB_STATUS_CANCELLED,
@@ -174,7 +177,7 @@ def repair_duplicate_active_jobs(
                     timestamp,
                     timestamp,
                     duplicate.id,
-                    *ACTIVE_JOB_STATUSES,
+                    *REPAIRABLE_DUPLICATE_JOB_STATUSES,
                 ),
             )
             if cursor.rowcount and cursor.rowcount > 0:

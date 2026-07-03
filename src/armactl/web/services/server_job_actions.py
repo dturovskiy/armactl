@@ -291,10 +291,8 @@ def request_server_update_and_start(
     username: str,
     user_id: int | None,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
-    confirm_running: bool = False,
 ) -> ServerUpdateActionResult:
     """Check update state and enqueue server:update only when safely available."""
-    del confirm_running
     try:
         service_status = get_service_adapter().get_service_status()
     except Exception as exc:

@@ -117,7 +117,7 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 
 - Safe now: authenticated current roster as `current observation`, known reliable identity directory, stored event history with bounded filters, read-only stored session list with `Observed`/`Last observed`/`Inferred close` labels, registry first/last seen, source/freshness labels, and count-only public status.
 - Safe future expansion: historical session detail/API with duration only when both ends exist, confidence/source labels, stale/open warnings, source disagreement notices, and broader conflict-policy explanations.
-- Blocked until better evidence: exact joined time from roster-only data, current role/loadout, current-session faction without a recent event timestamp, current-session K/D, public reliable IDs, public session pages, Discord K/D/playtime/faction columns, ban/kick/banlist manager state, IP storage, raw source display, automatic long-running poller, and any hidden DB write from GET routes.
+- Blocked until better evidence: exact joined time from roster-only data, current role/loadout, current-session faction without a recent event timestamp, current-session K/D, public reliable IDs, public session pages, Discord K/D/playtime/faction columns, ban/kick/banlist manager state, IP storage, raw source display, automatic long-running poller, and any hidden registry/session/moderation DB write from GET routes beyond the explicit safe current-roster web.db cache refresh exception.
 
 ## Existing Storage
 

@@ -210,20 +210,30 @@ def test_ensure_web_db_repairs_duplicate_active_jobs_idempotently(tmp_path: Path
             """
         ).fetchall()
     row_by_id = {row[0]: row for row in rows}
-    assert _active_job_ids(db_path, kind=SERVER_INSTALL_JOB_KIND) == [kept]
+    assert _active_job_ids(db_path, kind=SERVER_INSTALL_JOB_KIND) == [
+        kept,
+        duplicate_running,
+    ]
     assert _active_job_ids(db_path, kind=SERVER_REPAIR_JOB_KIND) == [other_kind]
-    for duplicate_id in (duplicate_running, duplicate_queued):
-        row = row_by_id[duplicate_id]
-        assert row[1] == JOB_STATUS_CANCELLED
-        assert row[2] == JOB_STORE_DUPLICATE_ACTIVE_REPAIR_STEP
-        assert row[3] == JOB_STORE_DUPLICATE_ACTIVE_REPAIR_MESSAGE
-        assert row[4] == ""
-        assert row[5] == JOB_STORE_DUPLICATE_ACTIVE_REPAIR_OUTPUT_NOTE
-        assert row[6] is not None
-        _assert_timestamp(row[6])
+
+    running_row = row_by_id[duplicate_running]
+    assert running_row[1] == JOB_STATUS_RUNNING
+    assert running_row[2] == "legacy active row"
+    assert running_row[4] == "legacy stdout"
+    assert running_row[5] == "legacy stderr"
+    assert running_row[6] is None
+
+    queued_row = row_by_id[duplicate_queued]
+    assert queued_row[1] == JOB_STATUS_CANCELLED
+    assert queued_row[2] == JOB_STORE_DUPLICATE_ACTIVE_REPAIR_STEP
+    assert queued_row[3] == JOB_STORE_DUPLICATE_ACTIVE_REPAIR_MESSAGE
+    assert queued_row[4] == ""
+    assert queued_row[5] == JOB_STORE_DUPLICATE_ACTIVE_REPAIR_OUTPUT_NOTE
+    assert queued_row[6] is not None
+    _assert_timestamp(queued_row[6])
 
     meta = _schema_meta(db_path)
-    assert meta[JOB_STORE_DUPLICATE_ACTIVE_REPAIR_COUNT_META_KEY] == "2"
+    assert meta[JOB_STORE_DUPLICATE_ACTIVE_REPAIR_COUNT_META_KEY] == "1"
     _assert_timestamp(meta[JOB_STORE_DUPLICATE_ACTIVE_REPAIR_AT_META_KEY])
     first_snapshot = (rows, meta)
 
@@ -389,6 +399,11 @@ def test_failed_and_cancelled_jobs_are_controlled_terminal_states(tmp_path: Path
     assert cancelled_job.status == JOB_STATUS_CANCELLED
     assert cancelled_job.result_message == "Operator cancelled"
     assert cancelled_job.finished_at is not None
+
+    running_cancel = create_job(db_path, kind="repair", requested_by_username="owner")
+    mark_job_running(db_path, running_cancel.id)
+    with pytest.raises(JobTransitionError, match="Invalid web job status transition"):
+        cancel_job(db_path, running_cancel.id, result_message="too late")
 
 
 def test_invalid_job_inputs_and_transitions_fail_safely(tmp_path: Path):
@@ -932,7 +947,7 @@ def test_server_enqueue_repairs_old_duplicate_active_rows_without_creating_new_j
 
     assert job.id == kept
     assert job.status == JOB_STATUS_QUEUED
-    assert _active_job_ids(db_path, kind=SERVER_INSTALL_JOB_KIND) == [kept]
+    assert _active_job_ids(db_path, kind=SERVER_INSTALL_JOB_KIND) == [kept, duplicate]
     with sqlite3.connect(db_path) as connection:
         rows = connection.execute(
             """
@@ -944,9 +959,9 @@ def test_server_enqueue_repairs_old_duplicate_active_rows_without_creating_new_j
             (SERVER_INSTALL_JOB_KIND,),
         ).fetchall()
     assert [row[0] for row in rows] == [kept, duplicate]
-    assert rows[1][1] == JOB_STATUS_CANCELLED
-    assert rows[1][2] == JOB_STORE_DUPLICATE_ACTIVE_REPAIR_MESSAGE
-    assert rows[1][3] == JOB_STORE_DUPLICATE_ACTIVE_REPAIR_OUTPUT_NOTE
+    assert rows[1][1] == JOB_STATUS_RUNNING
+    assert rows[1][2] == ""
+    assert rows[1][3] == "legacy stderr"
 
 
 def test_server_job_audit_failure_does_not_cancel_existing_active_job(

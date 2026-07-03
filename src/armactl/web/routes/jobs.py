@@ -122,7 +122,6 @@ def _enqueue_server_update_check_job(request: Request, csrf_token: str) -> Respo
 def _enqueue_server_update_job(
     request: Request,
     csrf_token: str,
-    confirm: str,
 ) -> Response:
     current = get_current_session(request)
     if current is None:
@@ -141,7 +140,6 @@ def _enqueue_server_update_job(
             audit_log_path=current.config.audit_log_path,
             username=current.user.username,
             user_id=current.user.id,
-            confirm_running=confirm == "running-update",
         )
     except server_job_actions.ServerJobAuditError as exc:
         return PlainTextResponse(
@@ -189,10 +187,9 @@ def enqueue_server_update_check_route(
 def enqueue_server_update_route(
     request: Request,
     csrf_token: str = Form(default=""),
-    confirm: str = Form(default=""),
 ) -> Response:
     """Queue server update only after the service-layer version gate passes."""
-    return _enqueue_server_update_job(request, csrf_token, confirm)
+    return _enqueue_server_update_job(request, csrf_token)
 
 
 @router.get("/jobs", response_class=HTMLResponse)
