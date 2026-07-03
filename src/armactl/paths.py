@@ -32,6 +32,7 @@ DISCORD_STATS_SERVICE_NAME = "armactl-discord-stats.service"
 WEB_SERVICE_NAME = "armactl-web.service"
 PRIVILEGED_HELPER_NAME = "armactl-systemctl-helper"
 PRIVILEGED_SUDOERS_NAME = "armactl-systemctl-helper"
+SAFE_RESTART_HELPER_NAME = "armactl-safe-restart"
 
 
 class UnsafeServerInstallDirError(ValueError):
@@ -322,6 +323,11 @@ def web_service_file() -> Path:
 def privileged_helper_file() -> Path:
     """Path to the root-owned helper used for narrow privileged control."""
     return LOCAL_LIBEXEC_DIR / PRIVILEGED_HELPER_NAME
+
+
+def safe_restart_helper_file() -> Path:
+    """Path to the root-owned bounded restart helper used by timer services."""
+    return LOCAL_LIBEXEC_DIR / SAFE_RESTART_HELPER_NAME
 
 
 def privileged_sudoers_file() -> Path:

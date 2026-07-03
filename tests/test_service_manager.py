@@ -10,6 +10,7 @@ from armactl.service_manager import (
     ServiceResult,
     _build_systemctl_command,
     _render_privileged_helper_script,
+    _render_safe_restart_helper_script,
     _run_systemctl,
     _secure_privileged_channel_message,
     format_schedule_for_input,
@@ -197,6 +198,19 @@ def test_has_privileged_systemctl_channel_requires_helper_and_sudoers(tmp_path: 
         assert has_privileged_systemctl_channel() is False
         sudoers_path.write_text("sudoers", encoding="utf-8")
         assert has_privileged_systemctl_channel() is True
+
+
+def test_render_safe_restart_helper_is_bounded_to_armareforger_services() -> None:
+    helper = _render_safe_restart_helper_script()
+
+    compile(helper, "armactl-safe-restart", "exec")
+    assert "STOP_GRACE_SECONDS = 95" in helper
+    assert "POST_KILL_GRACE_SECONDS = 25" in helper
+    assert "START_GRACE_SECONDS = 180" in helper
+    assert "STABLE_SECONDS = 30" in helper
+    assert '"kill", "--kill-who=all", "--signal=SIGKILL", unit' in helper
+    assert 'ALLOWED_UNIT_RE = re.compile(r"^armareforger' in helper
+    assert "armactl-web.service" not in helper
 
 
 def test_get_privileged_channel_user_parses_sudoers_dropin(tmp_path: Path) -> None:

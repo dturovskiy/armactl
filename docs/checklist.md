@@ -53,6 +53,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [ ] Continue production hardening for the local dashboard.
 - [x] Polish server update browser flow with controlled post-action notices, active job links, retry/failure guidance, and stale active-job notices.
 - [x] Background job worker heartbeat/lease foundation, with opaque worker IDs, bounded heartbeat/lease timestamps on running jobs, heartbeat refresh from worker progress and wrapper heartbeat, terminal states clearing active leases, jobs page fresh/expired lease diagnostics, duplicate queued metadata repair only on mutating maintenance/enqueue paths, no GET job mutation, no process/thread kill, no running-job cancel action, and no automatic expired-lease metadata recovery.
+- [x] Harden generated scheduled restart units with an explicit root-owned bounded restart helper, service stop timeout/kill policy, SIGKILL fallback scoped to the `armareforger*.service` control group, active/running verification, and short post-start stability checking.
 - [ ] Continue polishing server update check/update UX after VM smoke feedback, keeping expired running-job recovery diagnostics-only unless a future explicit recovery path proves worker death without killing processes.
 - [ ] Expand safe config controls after field behavior is verified.
 - [x] Improve mod cleanup/mod mutation edge-case recovery workflows with controlled partial-change results, audit-safe diagnostics, and pending-work recovery markers.

@@ -14,9 +14,16 @@ def test_generate_services_writes_expected_units_and_restarts_timer(tmp_path: Pa
     systemd_dir = tmp_path / "systemd"
     systemd_dir.mkdir(parents=True)
     installed_units: dict[Path, str] = {}
+    installed_modes: dict[Path, str] = {}
 
-    def fake_install(source: Path, destination: Path) -> service_manager.ServiceResult:
+    def fake_install(
+        source: Path,
+        destination: Path,
+        *,
+        mode: str = "0644",
+    ) -> service_manager.ServiceResult:
         installed_units[destination] = source.read_text(encoding="utf-8")
+        installed_modes[destination] = mode
         return service_manager.ServiceResult(
             True,
             i18n.tr("Installed {name} to {path}", name=destination.name, path=destination.parent),
@@ -46,8 +53,11 @@ def test_generate_services_writes_expected_units_and_restarts_timer(tmp_path: Pa
     service_path = systemd_dir / "armareforger@alpha.service"
     restart_service_path = systemd_dir / "armareforger-restart@alpha.service"
     timer_path = systemd_dir / "armareforger-restart@alpha.timer"
+    helper_path = service_manager.paths.safe_restart_helper_file()
     server_dir = instance_root / "server"
     service_text = installed_units[service_path]
+    restart_service_text = installed_units[restart_service_path]
+    helper_text = installed_units[helper_path]
     start_script_text = start_script_path.read_text(encoding="utf-8")
 
     assert start_script_path.exists()
@@ -63,11 +73,19 @@ def test_generate_services_writes_expected_units_and_restarts_timer(tmp_path: Pa
     assert start_script_text.index("-logStats 10000") < start_script_text.index("-maxFPS 60")
     assert f"WorkingDirectory={server_dir}" in service_text
     assert f"ExecStart={start_script_path}" in service_text
+    assert "TimeoutStopSec=90s" in service_text
+    assert "KillMode=mixed" in service_text
+    assert "SendSIGKILL=yes" in service_text
     assert "CPUAccounting=yes" in service_text
     assert "MemoryAccounting=yes" in service_text
-    assert "ExecStart=/usr/bin/systemctl restart armareforger@alpha.service" in installed_units[
-        restart_service_path
-    ]
+    assert f"ExecStart={helper_path} armareforger@alpha.service" in restart_service_text
+    assert "/usr/bin/systemctl restart armareforger@alpha.service" not in restart_service_text
+    assert installed_modes[helper_path] == "0755"
+    assert installed_modes[restart_service_path] == "0644"
+    assert "SIGKILL" in helper_text
+    assert "STOP_GRACE_SECONDS" in helper_text
+    assert "STABLE_SECONDS" in helper_text
+    assert "armareforger(?:@[A-Za-z0-9_.-]+)?\\.service" in helper_text
     assert "OnCalendar=*-*-* 08:00:00" in installed_units[timer_path]
     assert "OnCalendar=*-*-* 20:00:00" in installed_units[timer_path]
     assert any(
@@ -92,7 +110,12 @@ def test_generate_services_stops_after_failed_unit_install(tmp_path: Path) -> No
     systemd_dir = tmp_path / "systemd"
     systemd_dir.mkdir(parents=True)
 
-    def fake_install(source: Path, destination: Path) -> service_manager.ServiceResult:
+    def fake_install(
+        source: Path,
+        destination: Path,
+        *,
+        mode: str = "0644",
+    ) -> service_manager.ServiceResult:
         return service_manager.ServiceResult(False, f"failed {destination.name}", 7)
 
     with (

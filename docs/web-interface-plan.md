@@ -322,6 +322,16 @@ Pages to smoke: `/login`, `/dashboard`, `/config`, `/mods`, `/admins`, `/schedul
 
 - Stop condition: no P0 smoke failures remain; any P1/P2 findings are documented with owner, risk, and stop condition.
 
+Post-smoke hardening found that a scheduled restart can report success while the
+game service is still unhealthy or stuck in shutdown. Generated service files now
+install a root-owned bounded restart helper and explicit service stop/kill
+policy: scheduled restarts request a non-blocking stop, wait within a bounded
+grace period, send `SIGKILL` only to the target `armareforger*.service` control
+group if needed, start the service again, and require active/running stability
+before the restart helper exits successfully. Existing deployments must rerun
+`armactl service install` or an equivalent repair/install path to receive the
+updated units.
+
 #### 8. Rollback And Transaction Boundaries For Future Mutation Flows
 
 - Current state: config saves use intent audit, backup, apply, outcome audit, and pending-work marking with fallback sidecar. Server job enqueue audits intent before queueing and cancels a newly created job if outcome audit fails. File upload stages bytes and audits intent before publish, but if outcome audit fails after publish, the file remains. Admin/mod/service/schedule/player-session actions audit intent before mutation and outcome after mutation; some completed mutations can still surface as failures if outcome audit fails. Player registry writes use SQLite transactions and idempotent helpers, but job outcome audit happens after DB mutation.

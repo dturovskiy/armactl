@@ -182,6 +182,34 @@ sudo systemctl restart armareforger.service
 ./armactl status
 ```
 
+## Scheduled Restart Hangs Or Leaves A Stale Server Process
+
+Regenerate service files after updating armactl so the installed systemd units include
+the bounded restart helper:
+
+```bash
+./armactl service install
+./armactl schedule set 06:00,18:00
+systemctl status armareforger.service armareforger-restart.timer --no-pager
+```
+
+The generated restart timer should call the root-owned
+`armactl-safe-restart` helper. It requests a non-blocking stop, waits for the
+service to become inactive/failed, sends `SIGKILL` to the service control group
+if the stop grace is exceeded, starts the service again, and verifies a short
+active/running stability window.
+
+Useful logs:
+
+```bash
+sudo journalctl -u armareforger-restart.service -n 120 --no-pager
+sudo journalctl -u armareforger.service --since "1 hour ago" --no-pager
+```
+
+If the game logs show script shutdown exceptions, treat that as a game/mod
+shutdown problem. The helper limits the operational fallout, but the script/mod
+error still needs separate investigation.
+
 ## Existing Service Is Found But Config Or Binary Is Wrong
 
 Use:

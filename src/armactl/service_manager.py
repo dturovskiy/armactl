@@ -427,6 +427,15 @@ def _render_privileged_helper_script() -> str:
     return _normalize_generated_text(rendered)
 
 
+def _render_safe_restart_helper_script() -> str:
+    """Render the root-owned bounded restart helper script text."""
+    env = _template_environment()
+    rendered = env.get_template("armactl-safe-restart.py.j2").render(
+        systemctl_bin=_resolve_systemctl_binary(),
+    )
+    return _normalize_generated_text(rendered)
+
+
 def _render_privileged_sudoers(user: str) -> str:
     """Render the sudoers drop-in text for the current Linux user."""
     env = _template_environment()
@@ -561,8 +570,13 @@ def install_privileged_systemctl_channel() -> list[ServiceResult]:
     return results
 
 
-def install_systemd_unit_file(source: Path, destination: Path) -> ServiceResult:
-    """Install a rendered systemd unit file with standard interactive sudo."""
+def install_systemd_unit_file(
+    source: Path,
+    destination: Path,
+    *,
+    mode: str = "0644",
+) -> ServiceResult:
+    """Install a rendered root-owned systemd/helper file with standard sudo."""
     command = [
         "sudo",
         _resolve_install_binary(),
@@ -572,7 +586,7 @@ def install_systemd_unit_file(source: Path, destination: Path) -> ServiceResult:
         "-g",
         "root",
         "-m",
-        "0644",
+        mode,
         str(source),
         str(destination),
     ]
@@ -1097,6 +1111,7 @@ def generate_services(
     service_path = paths.SYSTEMD_DIR / service_name
     restart_service_path = paths.SYSTEMD_DIR / restart_service_name
     timer_path = paths.SYSTEMD_DIR / timer_name
+    safe_restart_helper_path = paths.safe_restart_helper_file()
 
     project_root = Path(__file__).parent.parent.parent
     templates_dir = project_root / "templates"
@@ -1128,12 +1143,11 @@ def generate_services(
             server_dir=str(server_dir),
             start_script=str(start_sh),
         )
-        restart_service_render = (
-            "[Unit]\n"
-            f"Description=Restart Arma Reforger Dedicated Server ({instance})\n\n"
-            "[Service]\n"
-            "Type=oneshot\n"
-            f"ExecStart=/usr/bin/systemctl restart {service_name}\n"
+        safe_restart_helper_render = _render_safe_restart_helper_script()
+        restart_service_render = env.get_template("armareforger-restart.service.j2").render(
+            instance=instance,
+            service_name=service_name,
+            restart_helper=str(safe_restart_helper_path),
         )
 
         timer_render = render_restart_timer_unit(on_calendar_entries)
@@ -1151,6 +1165,7 @@ def generate_services(
             tservice = temp_dir / service_name
             trestart = temp_dir / restart_service_name
             ttimer = temp_dir / timer_name
+            thelper = temp_dir / safe_restart_helper_path.name
 
             with open(tservice, "w") as f:
                 f.write(service_render)
@@ -1158,13 +1173,20 @@ def generate_services(
                 f.write(restart_service_render)
             with open(ttimer, "w") as f:
                 f.write(timer_render)
+            with open(thelper, "w") as f:
+                f.write(safe_restart_helper_render)
 
             for tmp_file, dest_file in [
+                (thelper, safe_restart_helper_path),
                 (tservice, service_path),
                 (trestart, restart_service_path),
                 (ttimer, timer_path),
             ]:
-                install_result = install_systemd_unit_file(tmp_file, dest_file)
+                install_result = install_systemd_unit_file(
+                    tmp_file,
+                    dest_file,
+                    mode="0755" if tmp_file == thelper else "0644",
+                )
                 results.append(install_result)
                 if not install_result.success:
                     return results

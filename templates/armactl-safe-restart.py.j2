@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""Bounded systemd restart helper for Arma Reforger services."""
+
+from __future__ import annotations
+
+import re
+import subprocess
+import sys
+import time
+
+SYSTEMCTL_BIN = "{{ systemctl_bin }}"
+STOP_GRACE_SECONDS = 95
+POST_KILL_GRACE_SECONDS = 25
+START_GRACE_SECONDS = 180
+STABLE_SECONDS = 30
+POLL_SECONDS = 2
+ALLOWED_UNIT_RE = re.compile(r"^armareforger(?:@[A-Za-z0-9_.-]+)?\.service$")
+
+
+def log(message: str) -> None:
+    print(f"armactl-safe-restart: {message}", flush=True)
+
+
+def fail(message: str, code: int = 1) -> int:
+    print(f"armactl-safe-restart: {message}", file=sys.stderr, flush=True)
+    return code
+
+
+def run_systemctl(*args: str, timeout: int = 30) -> subprocess.CompletedProcess[str]:
+    cmd = [SYSTEMCTL_BIN, *args]
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(
+            cmd,
+            124,
+            stdout="",
+            stderr=f"timed out after {timeout}s",
+        )
+    except OSError as error:
+        return subprocess.CompletedProcess(
+            cmd,
+            127,
+            stdout="",
+            stderr=str(error),
+        )
+
+
+def state(unit: str) -> dict[str, str]:
+    result = run_systemctl(
+        "show",
+        unit,
+        "--property=ActiveState,SubState,MainPID,ExecMainPID,Result",
+        timeout=10,
+    )
+    values: dict[str, str] = {}
+    for raw_line in result.stdout.splitlines():
+        if "=" not in raw_line:
+            continue
+        key, value = raw_line.split("=", 1)
+        values[key] = value
+    return values
+
+
+def state_text(values: dict[str, str]) -> str:
+    active = values.get("ActiveState") or "unknown"
+    sub = values.get("SubState") or "unknown"
+    main_pid = values.get("MainPID") or "0"
+    exec_pid = values.get("ExecMainPID") or "0"
+    result = values.get("Result") or "unknown"
+    return (
+        f"state={active}/{sub} main_pid={main_pid} "
+        f"exec_pid={exec_pid} result={result}"
+    )
+
+
+def wait_for_stop(unit: str, deadline_seconds: int) -> bool:
+    deadline = time.monotonic() + deadline_seconds
+    while time.monotonic() < deadline:
+        values = state(unit)
+        if values.get("ActiveState") in {"inactive", "failed"}:
+            log(f"{unit} stopped: {state_text(values)}")
+            return True
+        time.sleep(POLL_SECONDS)
+    return False
+
+
+def wait_for_active(unit: str, deadline_seconds: int) -> bool:
+    deadline = time.monotonic() + deadline_seconds
+    while time.monotonic() < deadline:
+        values = state(unit)
+        active = values.get("ActiveState")
+        sub = values.get("SubState")
+        if active == "active" and sub == "running":
+            log(f"{unit} started: {state_text(values)}")
+            return True
+        if active == "failed":
+            log(f"{unit} failed while starting: {state_text(values)}")
+            return False
+        time.sleep(POLL_SECONDS)
+    log(f"{unit} did not become active in time: {state_text(state(unit))}")
+    return False
+
+
+def require_stable(unit: str, stable_seconds: int) -> bool:
+    deadline = time.monotonic() + stable_seconds
+    while time.monotonic() < deadline:
+        values = state(unit)
+        if values.get("ActiveState") != "active" or values.get("SubState") != "running":
+            log(f"{unit} lost active/running state: {state_text(values)}")
+            return False
+        time.sleep(POLL_SECONDS)
+    log(f"{unit} remained active/running for {stable_seconds}s")
+    return True
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 2:
+        return fail("Usage: armactl-safe-restart UNIT")
+
+    unit = argv[1]
+    if not ALLOWED_UNIT_RE.fullmatch(unit):
+        return fail(f"Denied: unsupported unit '{unit}'.")
+
+    log(f"stopping {unit}")
+    stop_result = run_systemctl("--no-block", "stop", unit)
+    if stop_result.returncode != 0:
+        return fail(f"failed to request stop for {unit}: exit={stop_result.returncode}")
+
+    if not wait_for_stop(unit, STOP_GRACE_SECONDS):
+        log(f"{unit} did not stop within {STOP_GRACE_SECONDS}s; sending SIGKILL")
+        kill_result = run_systemctl("kill", "--kill-who=all", "--signal=SIGKILL", unit)
+        if kill_result.returncode != 0:
+            return fail(f"failed to SIGKILL {unit}: exit={kill_result.returncode}")
+        if not wait_for_stop(unit, POST_KILL_GRACE_SECONDS):
+            return fail(f"{unit} still did not stop after SIGKILL: {state_text(state(unit))}")
+
+    run_systemctl("reset-failed", unit)
+
+    log(f"starting {unit}")
+    start_result = run_systemctl("start", unit, timeout=START_GRACE_SECONDS)
+    if start_result.returncode != 0:
+        return fail(f"failed to start {unit}: exit={start_result.returncode}")
+
+    if not wait_for_active(unit, START_GRACE_SECONDS):
+        return fail(f"{unit} did not reach active/running after start")
+    if not require_stable(unit, STABLE_SECONDS):
+        return fail(f"{unit} did not stay active/running after restart")
+
+    log(f"restart completed for {unit}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

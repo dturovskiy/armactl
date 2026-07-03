@@ -1,6 +1,10 @@
 [Unit]
-Description=Restart Arma Reforger Dedicated Server
+Description=Restart Arma Reforger Dedicated Server ({{ instance }})
+After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/systemctl restart armareforger.service
+ExecStart={{ restart_helper }} {{ service_name }}
+TimeoutStartSec=6min
+StandardOutput=journal
+StandardError=journal
