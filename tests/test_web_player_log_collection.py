@@ -459,6 +459,148 @@ def test_player_log_collection_job_collects_allowlisted_logs_and_audits_counts(
     assert "Charlie Three" not in audit_text
 
 
+def test_player_log_collection_job_classifies_controlled_skipped_files(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from armactl.web.jobs import get_job, player_logs
+    from armactl.web.services import player_log_collection
+
+    allowed_log = _write_console_log(tmp_path, _fixture_lines(), run="allowed")
+    oversized_log = _write_console_log(tmp_path, ["oversized"], run="oversized")
+    oversized_log.write_bytes(b"x" * (player_logs.DEFAULT_MAX_FILE_BYTES + 1))
+    monkeypatch.setattr(
+        player_logs,
+        "start_player_log_collection_worker",
+        lambda db_path, job_id: None,
+    )
+    db_path = tmp_path / "web" / "web.db"
+    audit_log_path = tmp_path / "logs" / "web" / "audit.log"
+
+    queued = player_log_collection.request_player_log_collection_and_start(
+        db_path,
+        audit_log_path=audit_log_path,
+        username="owner",
+        user_id=None,
+    )
+    dispatch = player_logs.dispatch_player_log_collection_job(db_path, queued.job.id)
+
+    job = get_job(db_path, queued.job.id)
+    assert dispatch.ran is True
+    assert job is not None
+    assert job.status == "succeeded"
+    assert job.result_message == "Player log collection completed with skipped files."
+    assert "files_requested=2" in job.stdout_tail
+    assert "files_scanned=1" in job.stdout_tail
+    assert "files_skipped=1" in job.stdout_tail
+    assert "errors=1" in job.stdout_tail
+    assert "skipped_file_reasons=file_too_large=1" in job.stdout_tail
+
+    events = _audit_events(tmp_path)
+    outcome = events[-1]
+
+    assert outcome["action"] == player_logs.PLAYER_LOG_COLLECTION_ACTION
+    assert outcome["target"] == player_logs.PLAYER_LOG_COLLECTION_JOB_KIND
+    assert outcome["success"] is True
+    assert outcome["message"] == "Player log collection completed with skipped files."
+    assert outcome["details"]["files_requested"] == "2"
+    assert outcome["details"]["files_scanned"] == "1"
+    assert outcome["details"]["files_skipped"] == "1"
+    assert outcome["details"]["error_count"] == "1"
+    assert outcome["details"]["skipped_file_reasons"] == "file_too_large=1"
+
+    audit_text = audit_log_path.read_text(encoding="utf-8")
+    for rendered in (job.stdout_tail, audit_text):
+        assert str(allowed_log) not in rendered
+        assert str(oversized_log) not in rendered
+
+
+def test_player_log_collection_job_audits_uncontrolled_skip_as_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from armactl.web.jobs import get_job, player_logs
+    from armactl.web.services import player_log_collection
+
+    scanned_log = _write_console_log(tmp_path, [""], run="scanned")
+    skipped_log = _write_console_log(tmp_path, [""], run="skipped")
+    stat_failed_error = player_logs.player_log_collector.PlayerLogCollectionError(
+        source="console.log",
+        code="stat_failed",
+        message="file metadata could not be read",
+    )
+    summary = player_logs.player_log_collector.PlayerLogCollectionSummary(
+        dry_run=False,
+        files_requested=2,
+        files_scanned=1,
+        files_skipped=1,
+        lines_scanned=3,
+        matched_events=0,
+        stored_events=0,
+        duplicate_events=0,
+        unmatched_lines=3,
+        skipped_lines=0,
+        errors=(stat_failed_error,),
+        files=(
+            player_logs.player_log_collector.PlayerLogCollectionFileSummary(
+                source="console.log",
+                status="scanned",
+                bytes_scanned=128,
+                lines_scanned=3,
+                unmatched_lines=3,
+            ),
+            player_logs.player_log_collector.PlayerLogCollectionFileSummary(
+                source="console.log",
+                status="error",
+                errors=(stat_failed_error,),
+            ),
+        ),
+    )
+
+    monkeypatch.setattr(
+        player_logs.player_log_collector,
+        "collect_player_log_events",
+        lambda *args, **kwargs: summary,
+    )
+    monkeypatch.setattr(
+        player_logs,
+        "start_player_log_collection_worker",
+        lambda db_path, job_id: None,
+    )
+    db_path = tmp_path / "web" / "web.db"
+    audit_log_path = tmp_path / "logs" / "web" / "audit.log"
+
+    queued = player_log_collection.request_player_log_collection_and_start(
+        db_path,
+        audit_log_path=audit_log_path,
+        username="owner",
+        user_id=None,
+    )
+    dispatch = player_logs.dispatch_player_log_collection_job(db_path, queued.job.id)
+
+    job = get_job(db_path, queued.job.id)
+    assert dispatch.ran is True
+    assert job is not None
+    assert job.status == "succeeded"
+    assert job.result_message == "Player log collection completed with skipped files."
+    assert "skipped_file_reasons=stat_failed=1" in job.stdout_tail
+
+    events = _audit_events(tmp_path)
+    outcome = events[-1]
+
+    assert outcome["action"] == player_logs.PLAYER_LOG_COLLECTION_ACTION
+    assert outcome["target"] == player_logs.PLAYER_LOG_COLLECTION_JOB_KIND
+    assert outcome["success"] is False
+    assert outcome["message"] == "Player log collection completed with skipped files."
+    assert outcome["details"]["skipped_file_reasons"] == "stat_failed=1"
+
+    audit_text = audit_log_path.read_text(encoding="utf-8")
+    for rendered in (job.stdout_tail, audit_text):
+        assert str(tmp_path) not in rendered
+        assert str(scanned_log) not in rendered
+        assert str(skipped_log) not in rendered
+
+
 def test_allowlist_resolver_uses_instance_config_console_logs_only(tmp_path: Path) -> None:
     from armactl.web.jobs import player_logs
 

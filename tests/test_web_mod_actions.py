@@ -684,6 +684,122 @@ def test_mods_pending_warning_from_service_is_rendered(
     assert "raw-mod-secret" not in response.text
 
 
+def test_mods_outcome_audit_failure_after_change_still_marks_pending_work(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions, pending_work
+    from armactl.web.services.audit import AuditLogError
+
+    config_path = _write_mod_config(tmp_path, [])
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def add_mod(path: Path, mod_id: str, name: str = "", version: str = "") -> ModAddResult:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+        payload["game"]["mods"] = [{"modId": mod_id, "name": name, "version": version}]
+        config_path.write_text(json.dumps(payload), encoding="utf-8")
+        return ModAddResult(mod_id, "added")
+
+    def fail_outcome_audit(*args, **kwargs):
+        if (kwargs.get("details") or {}).get("phase") == "outcome":
+            raise AuditLogError("disk full token=raw-audit-secret")
+
+    monkeypatch.setattr(mod_actions.mods_manager, "add_mod_detailed", add_mod)
+    monkeypatch.setattr(mod_actions, "append_audit_event", fail_outcome_audit)
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/add",
+        data={
+            "csrf_token": csrf_token,
+            "mod_id": "cccccccccccccccc",
+            "name": "Charlie token=raw-mod-secret",
+            "version": "1.2.3",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Mod action completed but audit logging failed." in response.text
+    assert "Restart the server to apply mod changes." in response.text
+    assert "raw-mod-secret" not in response.text
+    assert "raw-audit-secret" not in response.text
+    assert "Traceback" not in response.text
+    updated = json.loads(config_path.read_text(encoding="utf-8"))
+    assert updated["game"]["mods"] == [
+        {
+            "modId": "CCCCCCCCCCCCCCCC",
+            "name": "Charlie token=raw-mod-secret",
+            "version": "1.2.3",
+        }
+    ]
+    item = pending_work.get_pending_work(
+        tmp_path / "web" / "web.db",
+        kind=pending_work.KIND_MODS,
+    )
+    assert item is not None
+    assert item.source_action == "mod.add"
+    assert item.details == "Charlie token=*** (CCCCCCCCCCCCCCCC)"
+
+
+def test_mod_service_unexpected_pending_exception_falls_back_without_raw_error(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import mod_actions, pending_work
+
+    config_path = _write_mod_config(tmp_path, [])
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def add_mod(path: Path, mod_id: str, name: str = "", version: str = "") -> ModAddResult:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+        payload["game"]["mods"] = [{"modId": mod_id, "name": name, "version": version}]
+        config_path.write_text(json.dumps(payload), encoding="utf-8")
+        return ModAddResult(mod_id, "added")
+
+    def fail_pending_state(*args, **kwargs):
+        raise RuntimeError("pending failed /raw/path token=raw-pending-secret")
+
+    monkeypatch.setattr(mod_actions.mods_manager, "add_mod_detailed", add_mod)
+    monkeypatch.setattr(pending_work, "mark_restart_pending_for_state", fail_pending_state)
+
+    result = mod_actions.run_mod_action_and_audit(
+        mod_actions.ACTION_ADD,
+        instance="default",
+        mod_id="cccccccccccccccc",
+        name="Charlie token=raw-mod-secret",
+        version="1.2.3",
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+        db_path=tmp_path / "web" / "web.db",
+    )
+
+    assert result.success is True
+    assert result.pending_work_warning == pending_work.PENDING_WORK_FALLBACK_WARNING
+    assert result.pending_work_error == ""
+    combined_result_text = " ".join(
+        [result.message, result.pending_work_warning, result.pending_work_error]
+    )
+    assert "raw-pending-secret" not in combined_result_text
+    assert "/raw/path" not in combined_result_text
+    item = pending_work.get_fallback_pending_work(
+        tmp_path / "web" / "web.db",
+        kind=pending_work.KIND_MODS,
+    )
+    assert item is not None
+    assert item.source_action == "mod.add"
+    assert item.details == "Charlie token=*** (CCCCCCCCCCCCCCCC)"
+
+
 def test_mods_audit_failure_after_change_still_marks_pending_work(
     tmp_path: Path,
     monkeypatch,

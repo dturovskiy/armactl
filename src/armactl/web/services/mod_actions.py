@@ -993,7 +993,7 @@ def audit_mod_action_result(
             exit_code=result.exit_code,
             details=details,
         )
-    except AuditLogError:
+    except Exception:  # noqa: BLE001 - outcome audit runs after backend mutation.
         return replace(
             result,
             success=False,
@@ -1006,6 +1006,46 @@ def audit_mod_action_result(
     return result
 
 
+def _pending_mod_details(result: ModActionResult) -> str:
+    return str(
+        result.details.get("pending_details")
+        or result.details.get("mod_label")
+        or result.target
+    )
+
+
+def _mark_restart_pending_fallback_for_mod_result(
+    result: ModActionResult,
+    *,
+    db_path: Path,
+    username: str,
+    baseline_fingerprint: str = "",
+    current_fingerprint: str = "",
+) -> ModActionResult:
+    try:
+        pending_work.mark_restart_pending_fallback(
+            db_path,
+            instance=result.instance,
+            kind=pending_work.KIND_MODS,
+            source_action=result.action,
+            username=username,
+            details=_pending_mod_details(result),
+            baseline_fingerprint=baseline_fingerprint,
+            current_fingerprint=current_fingerprint,
+        )
+    except Exception:  # noqa: BLE001 - both pending stores failed after mutation.
+        return replace(
+            result,
+            pending_work_warning="",
+            pending_work_error=pending_work.PENDING_WORK_STORAGE_FAILED_MESSAGE,
+        )
+    return replace(
+        result,
+        pending_work_warning=pending_work.PENDING_WORK_FALLBACK_WARNING,
+        pending_work_error="",
+    )
+
+
 def _mark_restart_pending_for_mod_result(
     result: ModActionResult,
     *,
@@ -1015,11 +1055,7 @@ def _mark_restart_pending_for_mod_result(
 ) -> ModActionResult:
     if db_path is None or not result.changed:
         return result
-    pending_details = str(
-        result.details.get("pending_details")
-        or result.details.get("mod_label")
-        or result.target
-    )
+    pending_details = _pending_mod_details(result)
     current_fingerprint = ""
     if baseline_fingerprint:
         try:
@@ -1028,25 +1064,34 @@ def _mark_restart_pending_for_mod_result(
             )
         except ModActionError:
             current_fingerprint = ""
-    if baseline_fingerprint and current_fingerprint:
-        write_result = pending_work.mark_restart_pending_for_state(
-            db_path,
-            instance=result.instance,
-            kind=pending_work.KIND_MODS,
-            source_action=result.action,
+    try:
+        if baseline_fingerprint and current_fingerprint:
+            write_result = pending_work.mark_restart_pending_for_state(
+                db_path,
+                instance=result.instance,
+                kind=pending_work.KIND_MODS,
+                source_action=result.action,
+                username=username,
+                details=pending_details,
+                baseline_fingerprint=baseline_fingerprint,
+                current_fingerprint=current_fingerprint,
+            )
+        else:
+            write_result = pending_work.mark_restart_pending_for_service(
+                db_path,
+                instance=result.instance,
+                kind=pending_work.KIND_MODS,
+                source_action=result.action,
+                username=username,
+                details=pending_details,
+            )
+    except Exception:  # noqa: BLE001 - best-effort fallback is safer post-mutation.
+        return _mark_restart_pending_fallback_for_mod_result(
+            result,
+            db_path=db_path,
             username=username,
-            details=pending_details,
             baseline_fingerprint=baseline_fingerprint,
             current_fingerprint=current_fingerprint,
-        )
-    else:
-        write_result = pending_work.mark_restart_pending_for_service(
-            db_path,
-            instance=result.instance,
-            kind=pending_work.KIND_MODS,
-            source_action=result.action,
-            username=username,
-            details=pending_details,
         )
     return replace(
         result,

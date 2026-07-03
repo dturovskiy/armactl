@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import stat as stat_module
 import threading
+from collections import Counter
 from pathlib import Path
 
 from armactl import paths, player_log_collector
@@ -28,6 +29,12 @@ PLAYER_LOG_COLLECTION_JOB_KIND = "players:collect-log-events"
 PLAYER_LOG_COLLECTION_ACTION = "players.log-events.collect"
 PLAYER_LOG_COLLECTION_SCOPE = "instance_config_profile_console_logs"
 DEFAULT_MAX_LOG_FILES = 32
+_CONTROLLED_PARTIAL_SKIP_ERROR_CODES = frozenset(
+    {
+        "file_too_large",
+        "missing_file",
+    }
+)
 
 
 class PlayerLogCollectionAuditError(RuntimeError):
@@ -128,6 +135,31 @@ def ensure_player_log_collection_job(
     )
 
 
+def _skipped_file_reason_counts(
+    summary: PlayerLogCollectionSummary | None,
+) -> dict[str, int]:
+    if summary is None or not summary.errors:
+        return {}
+    return dict(sorted(Counter(error.code for error in summary.errors).items()))
+
+
+def _skipped_file_reason_text(summary: PlayerLogCollectionSummary | None) -> str:
+    reason_counts = _skipped_file_reason_counts(summary)
+    return ",".join(
+        f"{reason}={count}" for reason, count in reason_counts.items()
+    )
+
+
+def _audit_success_for_summary(summary: PlayerLogCollectionSummary) -> bool:
+    if summary.error_count == 0:
+        return True
+    if summary.files_scanned < 1:
+        return False
+    return set(_skipped_file_reason_counts(summary)).issubset(
+        _CONTROLLED_PARTIAL_SKIP_ERROR_CODES
+    )
+
+
 def _count_details(
     summary: PlayerLogCollectionSummary | None,
     *,
@@ -170,6 +202,9 @@ def _count_details(
                 "error_count": str(summary.error_count),
             }
         )
+        skipped_reasons = _skipped_file_reason_text(summary)
+        if skipped_reasons:
+            details["skipped_file_reasons"] = skipped_reasons
     if reason_class:
         details["reason_class"] = safe_player_text(reason_class, max_length=120)
     if reason_message:
@@ -190,7 +225,7 @@ def _summary_message(summary: PlayerLogCollectionSummary) -> str:
 
 
 def _summary_output(summary: PlayerLogCollectionSummary) -> str:
-    return (
+    output = (
         "Player log collection counts: "
         f"files_requested={summary.files_requested}; "
         f"files_scanned={summary.files_scanned}; "
@@ -202,6 +237,10 @@ def _summary_output(summary: PlayerLogCollectionSummary) -> str:
         f"skipped_lines={summary.skipped_lines}; "
         f"errors={summary.error_count}"
     )
+    skipped_reasons = _skipped_file_reason_text(summary)
+    if skipped_reasons:
+        output = f"{output}; skipped_file_reasons={skipped_reasons}"
+    return output
 
 
 def _append_collection_outcome_audit(
@@ -306,7 +345,7 @@ def handle_player_log_collection(context: JobContext) -> JobHandlerResult:
             instance=instance,
             job_id=context.job.id,
             summary=summary,
-            success=summary.error_count == 0,
+            success=_audit_success_for_summary(summary),
             message=message,
         )
     except AuditLogError as error:

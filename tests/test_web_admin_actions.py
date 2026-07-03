@@ -545,6 +545,62 @@ def test_admins_pending_warning_from_service_is_rendered(
     assert "raw-admin-secret" not in response.text
 
 
+def test_admins_outcome_audit_failure_after_change_still_marks_pending_work(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import admin_actions, pending_work
+    from armactl.web.services.audit import AuditLogError
+
+    config_path = _write_admin_config(tmp_path, [])
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        admin_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def add_admin(path: Path, admin_reference: str, name: str = "") -> bool:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+        payload["game"]["admins"] = [admin_reference]
+        config_path.write_text(json.dumps(payload), encoding="utf-8")
+        return True
+
+    def fail_outcome_audit(*args, **kwargs):
+        if (kwargs.get("details") or {}).get("phase") == "outcome":
+            raise AuditLogError("disk full token=raw-audit-secret")
+
+    monkeypatch.setattr(admin_actions.admins_manager, "add_admin", add_admin)
+    monkeypatch.setattr(admin_actions, "append_audit_event", fail_outcome_audit)
+    csrf_token = _admins_csrf_token(client)
+
+    response = client.post(
+        "/admins/add",
+        data={
+            "csrf_token": csrf_token,
+            "admin_reference": "ABCDEF1234567890",
+            "label": "Captain token=raw-admin-secret",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Admin action completed but audit logging failed." in response.text
+    assert "Restart the server to apply admin changes." in response.text
+    assert "raw-admin-secret" not in response.text
+    assert "raw-audit-secret" not in response.text
+    assert "Traceback" not in response.text
+    updated = json.loads(config_path.read_text(encoding="utf-8"))
+    assert updated["game"]["admins"] == ["ABCDEF1234567890"]
+    item = pending_work.get_pending_work(
+        tmp_path / "web" / "web.db",
+        kind=pending_work.KIND_ADMINS,
+    )
+    assert item is not None
+    assert item.source_action == "admin.add"
+    assert item.details == "ABCDEF1234567890; label=Captain token=***"
+
+
 @pytest.mark.parametrize(
     ("initial_admins", "expected_action"),
     [([], "admin.add"), (["ABCDEF1234567890"], "admin.update")],
