@@ -126,6 +126,23 @@ def test_parse_player_lines_handles_incomplete_reforger_output_without_slot():
     assert entries[0].guid == "0109fcf5-a861-4002-881e-8a497c59797c"
 
 
+def test_parse_player_lines_deduplicates_repeated_reforger_rows_by_guid():
+    response = """
+Players on server: [Player#] ; [Player UID] ; [Player Name]
+#1 ; 9ea05788-5a32-4148-b847-4770dae69ef6 ; S.G.L.Cerberus
+#2 ; 718c1fdb-7990-41c8-9c4d-1914dbec1681 ; SGL_Taran
+#1 ; 9ea05788-5a32-4148-b847-4770dae69ef6 ; S.G.L.Cerberus
+#2 ; 718c1fdb-7990-41c8-9c4d-1914dbec1681 ; SGL_Taran
+""".strip()
+
+    entries = rcon._parse_player_lines(response)
+
+    assert [(entry.player_id, entry.guid, entry.name) for entry in entries] == [
+        ("1", "9ea05788-5a32-4148-b847-4770dae69ef6", "S.G.L.Cerberus"),
+        ("2", "718c1fdb-7990-41c8-9c4d-1914dbec1681", "SGL_Taran"),
+    ]
+
+
 def test_query_player_roster_reports_missing_password() -> None:
     state = ServerState(
         server_running=True,
@@ -341,4 +358,3 @@ Players on server: [Player#] ; [Player UID] ; [Player Name]
 
     assert entries == []
     assert session.commands == ["#players", "players"]
-

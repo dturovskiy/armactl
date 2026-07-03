@@ -8,7 +8,7 @@ from typing import Any
 
 from armactl.web.time_format import format_web_timestamp
 
-ACTIVE_LIFECYCLES = frozenset({"stopped", "starting", "running", "updating"})
+ACTIVE_LIFECYCLES = frozenset({"stopped", "starting", "stopping", "running", "updating"})
 TELEMETRY_LOADING_TEXT = "Waiting for telemetry..."
 
 
@@ -158,9 +158,11 @@ def _summary_items(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str
                 ),
             ]
         )
-    elif lifecycle in {"stopped", "starting", "updating"}:
+    elif lifecycle in {"stopped", "starting", "stopping", "updating"}:
         if lifecycle == "updating":
             service_value = "updating"
+        elif lifecycle == "stopping":
+            service_value = "stopping"
         else:
             service_value = "starting" if lifecycle == "starting" else "stopped"
         items.extend(
@@ -300,6 +302,8 @@ def _quick_action_note(lifecycle: str, actions: list[dict[str, Any]]) -> str:
         return "Repair is available as a background job."
     if lifecycle == "starting":
         return "Server is starting; actions are unavailable until telemetry is ready."
+    if lifecycle == "stopping":
+        return "Server is stopping; actions are unavailable until shutdown finishes."
     if lifecycle == "updating":
         return "Server update is running; server actions are unavailable until it finishes."
     return "No server actions available."
@@ -559,6 +563,8 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
                     if lifecycle == "updating"
                     else "starting"
                     if lifecycle == "starting"
+                    else "stopping"
+                    if lifecycle == "stopping"
                     else service.get("active_state")
                     or ("running" if lifecycle == "running" else "stopped"),
                     translate_value=True,

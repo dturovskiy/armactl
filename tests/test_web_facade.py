@@ -219,6 +219,42 @@ def _install_common_fakes(
         "query_player_view",
         lambda instance, **kwargs: players or PlayerView(True, current=3, max_players=64),
     )
+
+    def current_roster_snapshot(instance: str, **kwargs):
+        cache = facade.player_current_cache
+        player_count = 3
+        available = True
+        if players is not None and isinstance(players.current, int):
+            player_count = players.current
+            available = players.available
+        elif players is not None:
+            player_count = 0
+            available = players.available
+        snapshot = cache.CurrentRosterSnapshot(
+            instance=instance,
+            players=(),
+            source="rcon.roster" if available else "unavailable",
+            status="available" if available else "unavailable",
+            error="" if available else "player view is not available",
+            collected_at="2026-06-16T12:00:00+00:00",
+            observed_count=player_count,
+            count_source="rcon" if available else "unavailable",
+            roster_available=available,
+            roster_configured=available,
+        )
+        return cache.CurrentRosterSnapshotResult(
+            snapshot=snapshot,
+            age_seconds=0,
+            is_stale=False,
+            cache_status="test",
+        )
+
+    monkeypatch.setattr(
+        facade.player_current_cache,
+        "load_current_roster_snapshot",
+        current_roster_snapshot,
+    )
+
     monkeypatch.setattr(
         facade.ports,
         "check_server_ports",
@@ -391,10 +427,18 @@ def test_dashboard_snapshot_treats_activating_service_as_starting(monkeypatch):
     assert snapshot["service"]["active_state"] == "activating"
 
 
-def test_dashboard_snapshot_uses_fast_player_probe(monkeypatch):
+def test_dashboard_snapshot_falls_back_to_direct_player_probe_when_cache_fails(
+    monkeypatch,
+):
     state = _state(installed=True, running=True)
     facade = _install_common_fakes(monkeypatch, state, service_active=True)
     calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(
+        facade.player_current_cache,
+        "load_current_roster_snapshot",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("cache boom")),
+    )
 
     def fake_query_player_view(instance: str, **kwargs: Any) -> PlayerView:
         calls.append({"instance": instance, **kwargs})
@@ -572,6 +616,11 @@ def test_dashboard_snapshot_degrades_when_sections_raise(monkeypatch):
         facade.player_view,
         "query_player_view",
         lambda instance, **kwargs: (_ for _ in ()).throw(RuntimeError("players boom")),
+    )
+    monkeypatch.setattr(
+        facade.player_current_cache,
+        "load_current_roster_snapshot",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("cache boom")),
     )
 
     snapshot = facade.load_dashboard_snapshot("default")

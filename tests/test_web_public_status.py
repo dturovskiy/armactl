@@ -36,6 +36,25 @@ def test_public_server_status_json_is_public_and_safe(
     assert calls == ["default"]
 
 
+def test_public_server_status_json_reports_stopping_lifecycle(
+    tmp_path: Path, monkeypatch
+):
+    from armactl.web.app import create_app
+
+    _install_dashboard_model_fakes(monkeypatch, lifecycle="stopping")
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.get("/public/server-status.json")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["running"] is False
+    assert payload["lifecycle"] == "stopping"
+    assert payload["players"]["available"] is False
+    assert payload["players"]["text"] == "unavailable"
+
+
 def test_public_server_status_json_fails_closed(
     tmp_path: Path, monkeypatch
 ):

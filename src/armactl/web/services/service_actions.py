@@ -17,6 +17,17 @@ ACTION_STOP = "stop"
 ACTION_RESTART = "restart"
 SUPPORTED_ACTIONS = frozenset({ACTION_START, ACTION_STOP, ACTION_RESTART})
 CONFIRMATION_REQUIRED_ACTIONS = frozenset({ACTION_STOP, ACTION_RESTART})
+STOPPING_ACTIVE_STATES = frozenset({"deactivating"})
+STOPPING_SUB_STATES = frozenset(
+    {
+        "stop",
+        "stop-sigterm",
+        "stop-sigkill",
+        "stop-post",
+        "final-sigterm",
+        "final-sigkill",
+    }
+)
 
 
 class ServiceActionError(ValueError):
@@ -101,6 +112,28 @@ def _service_name(instance: str, state: ServerState | None, adapter: ServiceAdap
     return adapter.service_unit_name(instance)
 
 
+def _service_status_or_none(
+    adapter: ServiceAdapter,
+    service_name: str,
+) -> dict[str, object] | None:
+    status_getter = getattr(adapter, "get_service_status", None)
+    if status_getter is None:
+        return None
+    try:
+        status = status_getter(service_name)
+    except Exception:  # noqa: BLE001 - status preflight must not hide service controls.
+        return None
+    return status if isinstance(status, dict) else None
+
+
+def _service_is_stopping(status: dict[str, object] | None) -> bool:
+    if status is None:
+        return False
+    active_state = str(status.get("active_state") or "").strip().lower()
+    sub_state = str(status.get("sub_state") or "").strip().lower()
+    return active_state in STOPPING_ACTIVE_STATES or sub_state in STOPPING_SUB_STATES
+
+
 def _result(
     *,
     action: str,
@@ -180,6 +213,21 @@ def run_service_action(
             service_name=service_name,
             success=False,
             message="Config missing. Run './armactl repair' first.",
+            exit_code=1,
+            performed=False,
+        )
+
+    service_status = _service_status_or_none(service_adapter, service_name)
+    if _service_is_stopping(service_status):
+        return _result(
+            action=normalized,
+            instance=instance,
+            service_name=service_name,
+            success=False,
+            message=(
+                "Server is stopping; wait for shutdown to finish before running "
+                "another service action."
+            ),
             exit_code=1,
             performed=False,
         )

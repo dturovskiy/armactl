@@ -149,6 +149,34 @@ def _install_dashboard_model_fakes(monkeypatch) -> None:
         "query_player_view",
         lambda instance, **kwargs: PlayerView(True, current=3, max_players=64),
     )
+
+    def current_roster_snapshot(instance: str, **kwargs):
+        cache = dashboard_model.player_current_cache
+        snapshot = cache.CurrentRosterSnapshot(
+            instance=instance,
+            players=(),
+            source="rcon.roster",
+            status="available",
+            error="",
+            collected_at="2026-06-16T12:00:00+00:00",
+            observed_count=3,
+            count_source="rcon",
+            roster_available=True,
+            roster_configured=True,
+        )
+        return cache.CurrentRosterSnapshotResult(
+            snapshot=snapshot,
+            age_seconds=0,
+            is_stale=False,
+            cache_status="test",
+        )
+
+    monkeypatch.setattr(
+        dashboard_model.player_current_cache,
+        "load_current_roster_snapshot",
+        current_roster_snapshot,
+    )
+
     monkeypatch.setattr(
         dashboard_model.ports,
         "check_server_ports",

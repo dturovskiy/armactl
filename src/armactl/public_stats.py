@@ -11,9 +11,11 @@ from typing import Any
 from armactl import discovery, metrics, paths, player_view, status_summary
 from armactl.redaction import redact_sensitive_text
 from armactl.service_manager import get_service_status, service_unit_name
+from armactl.web.services import player_current_cache
 
 PLAYER_QUERY_TIMEOUT_SECONDS = 0.75
 ROSTER_QUERY_TIMEOUT_SECONDS = 0.75
+PUBLIC_STATS_CURRENT_ROSTER_CACHE_MAX_AGE_SECONDS = 75
 MAX_TEXT_LENGTH = 160
 MAX_DISCORD_MESSAGE_LENGTH = 1900
 DISCORD_PLAYER_LIMIT_MARKER = (
@@ -78,6 +80,15 @@ def _lifecycle_from_state(state: Any, service: dict[str, Any]) -> str:
     sub_state = str(service.get("sub_state") or "").strip().lower()
     if active_state == "activating" or sub_state in {"start", "auto-restart"}:
         return "starting"
+    if active_state == "deactivating" or sub_state in {
+        "stop",
+        "stop-sigterm",
+        "stop-sigkill",
+        "stop-post",
+        "final-sigterm",
+        "final-sigkill",
+    }:
+        return "stopping"
     return "stopped"
 
 
@@ -290,6 +301,7 @@ def _status_label(snapshot: PublicStatsSnapshot) -> str:
         return "Online"
     return {
         "starting": "Starting",
+        "stopping": "Stopping",
         "stopped": "Offline",
         "incomplete": "Incomplete install",
         "not_installed": "Not installed",
@@ -301,6 +313,7 @@ def _status_emoji(snapshot: PublicStatsSnapshot) -> str:
         return "🟢"
     return {
         "starting": "🟡",
+        "stopping": "🟡",
         "stopped": "🔴",
         "incomplete": "🟠",
         "not_installed": "⚪",
@@ -315,6 +328,89 @@ def _load_config_and_mods(
     return status_summary.load_status_summaries(config_path)
 
 
+def _safe_optional_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value >= 0:
+        return value
+    return None
+
+
+def _load_public_player_view(instance: str, state: Any) -> player_view.PlayerView:
+    return player_view.query_player_view(
+        instance,
+        timeout=PLAYER_QUERY_TIMEOUT_SECONDS,
+        roster_timeout=ROSTER_QUERY_TIMEOUT_SECONDS,
+        state=state,
+        include_roster=False,
+    )
+
+
+def _load_public_player_view_with_roster(
+    instance: str,
+    state: Any,
+) -> player_view.PlayerView:
+    return player_view.query_player_view(
+        instance,
+        timeout=PLAYER_QUERY_TIMEOUT_SECONDS,
+        roster_timeout=ROSTER_QUERY_TIMEOUT_SECONDS,
+        state=state,
+        include_roster=True,
+    )
+
+
+def _load_public_current_roster(
+    instance: str,
+) -> player_current_cache.CurrentRosterSnapshotResult | None:
+    try:
+        return player_current_cache.load_current_roster_snapshot(
+            instance,
+            max_age_seconds=PUBLIC_STATS_CURRENT_ROSTER_CACHE_MAX_AGE_SECONDS,
+        )
+    except Exception:  # noqa: BLE001 - public stats should degrade to direct view.
+        return None
+
+
+def _public_player_fields(
+    instance: str,
+    state: Any,
+    config: status_summary.ConfigSummary,
+) -> tuple[str, bool, int | None, int | None, tuple[str, ...], bool]:
+    players = _load_public_player_view(instance, state)
+    max_players = _safe_optional_int(players.max_players) or _safe_optional_int(
+        config.max_players
+    )
+    roster_result = _load_public_current_roster(instance)
+    if roster_result is not None and roster_result.snapshot.available:
+        snapshot = roster_result.snapshot
+        names = tuple(
+            _safe_text(player.display_name, max_length=48)
+            for player in snapshot.players
+        )
+        return (
+            _safe_text(players.map_name, "", max_length=80),
+            True,
+            snapshot.total_count,
+            max_players,
+            names,
+            bool(snapshot.roster_available),
+        )
+
+    if roster_result is None:
+        players = _load_public_player_view_with_roster(instance, state)
+        max_players = _safe_optional_int(players.max_players) or max_players
+
+    names = tuple(_safe_text(name, max_length=48) for name in players.player_lines)
+    return (
+        _safe_text(players.map_name, "", max_length=80),
+        bool(players.available),
+        players.current if isinstance(players.current, int) else None,
+        max_players,
+        names,
+        bool(players.roster_available),
+    )
+
+
 def load_public_stats(instance: str = paths.DEFAULT_INSTANCE_NAME) -> PublicStatsSnapshot:
     """Collect a bounded read-only statistics snapshot for public community use."""
     state = discovery.discover(instance=instance, save=False)
@@ -324,20 +420,25 @@ def load_public_stats(instance: str = paths.DEFAULT_INSTANCE_NAME) -> PublicStat
         getattr(state, "config_path", "") if getattr(state, "config_exists", False) else ""
     )
     if getattr(state, "server_installed", False):
-        players = player_view.query_player_view(
-            instance,
-            timeout=PLAYER_QUERY_TIMEOUT_SECONDS,
-            roster_timeout=ROSTER_QUERY_TIMEOUT_SECONDS,
-            state=state,
-            include_roster=True,
-        )
+        (
+            map_name,
+            players_available,
+            player_count,
+            max_players,
+            player_names,
+            roster_available,
+        ) = _public_player_fields(instance, state, config)
         fps = metrics.query_server_fps_metrics(paths.config_dir(instance))
     else:
-        players = player_view.PlayerView(False, None, None)
+        map_name = ""
+        players_available = False
+        player_count = None
+        max_players = None
+        player_names = ()
+        roster_available = False
         fps = metrics.ServerFpsMetrics(False)
 
     mod_preview = tuple(_safe_text(item.label, max_length=80) for item in mods.preview[:3])
-    player_names = tuple(_safe_text(name, max_length=48) for name in players.player_lines)
 
     return PublicStatsSnapshot(
         instance=_safe_text(instance, "default", max_length=64),
@@ -347,12 +448,12 @@ def load_public_stats(instance: str = paths.DEFAULT_INSTANCE_NAME) -> PublicStat
         service_state=_safe_text(service.get("active_state"), "unknown", max_length=64),
         server_name=_safe_text(config.server_name, "Unknown server"),
         scenario_id=_safe_text(config.scenario_id, "unknown"),
-        map_name=_safe_text(players.map_name, "", max_length=80),
-        players_available=bool(players.available),
-        player_count=players.current if isinstance(players.current, int) else None,
-        max_players=players.max_players if isinstance(players.max_players, int) else None,
+        map_name=map_name,
+        players_available=players_available,
+        player_count=player_count,
+        max_players=max_players,
         player_names=player_names,
-        roster_available=bool(players.roster_available),
+        roster_available=roster_available,
         fps_available=bool(fps.available),
         fps_stale=bool(fps.stale),
         fps_text=(

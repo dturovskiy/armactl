@@ -18,6 +18,7 @@ from armactl.web.services.player_identity import (
 )
 
 CURRENT_ROSTER_CACHE_TTL_SECONDS = 10
+STALE_ROSTER_UNAVAILABLE_CACHE_MAX_AGE_SECONDS = 120
 _PERSISTENT_SNAPSHOT_TABLE = "web_current_roster_cache"
 _PERSISTENT_PLAYER_TABLE = "web_current_roster_cache_players"
 _SOURCE_UNAVAILABLE = 'unavailable'
@@ -144,6 +145,46 @@ def current_roster_snapshot_is_fresh(
     if age_seconds is None:
         return False
     return age_seconds <= max(0, int(max_age_seconds))
+
+
+def _current_roster_snapshot_within_age(
+    snapshot: CurrentRosterSnapshot | None,
+    *,
+    max_age_seconds: int | None,
+    now: datetime | None = None,
+) -> bool:
+    if snapshot is None or max_age_seconds is None:
+        return False
+    age_seconds = current_roster_snapshot_age_seconds(snapshot, now=now)
+    if age_seconds is None:
+        return False
+    return age_seconds <= max(0, int(max_age_seconds))
+
+
+def _should_keep_stale_roster_snapshot(
+    live_snapshot: CurrentRosterSnapshot,
+    stale_snapshot: CurrentRosterSnapshot | None,
+    *,
+    max_stale_age_seconds: int | None,
+) -> bool:
+    if stale_snapshot is None:
+        return False
+    if not _current_roster_snapshot_within_age(
+        stale_snapshot,
+        max_age_seconds=max_stale_age_seconds,
+    ):
+        return False
+    if not stale_snapshot.available or not stale_snapshot.roster_available:
+        return False
+    if stale_snapshot.total_count <= 0:
+        return False
+    if live_snapshot.total_count != 0:
+        return False
+    if live_snapshot.roster_available:
+        return False
+    if not live_snapshot.roster_configured:
+        return False
+    return live_snapshot.count_source != "rcon"
 
 
 def _redact_ips_and_paths(text: str) -> str:
@@ -566,6 +607,7 @@ def load_current_roster_snapshot(
     *,
     data_root: Path = paths.DEFAULT_DATA_ROOT,
     max_age_seconds: int = CURRENT_ROSTER_CACHE_TTL_SECONDS,
+    max_stale_age_seconds: int | None = STALE_ROSTER_UNAVAILABLE_CACHE_MAX_AGE_SECONDS,
 ) -> CurrentRosterSnapshotResult:
     """Return current roster from memory, persistent cache, or live fallback."""
     cached = get_cached_current_roster_snapshot(instance, data_root=data_root)
@@ -629,11 +671,28 @@ def load_current_roster_snapshot(
             cache_status="error",
         )
 
-    snapshot = store_current_roster_snapshot_from_roster(
-        roster,
-        instance=normalized_instance,
-        data_root=data_root,
-    )
+    snapshot = snapshot_from_roster(roster, instance=normalized_instance)
+    stale_snapshot = persistent or cached
+    if _should_keep_stale_roster_snapshot(
+        snapshot,
+        stale_snapshot,
+        max_stale_age_seconds=max_stale_age_seconds,
+    ):
+        assert stale_snapshot is not None
+        stale_snapshot = store_current_roster_snapshot(
+            stale_snapshot,
+            data_root=data_root,
+        )
+        safe_error = snapshot.error or "RCON roster unavailable; A2S reported zero players."
+        return CurrentRosterSnapshotResult(
+            snapshot=stale_snapshot,
+            age_seconds=current_roster_snapshot_age_seconds(stale_snapshot),
+            is_stale=True,
+            cache_status="stale_roster_unavailable",
+            refresh_error=safe_error,
+        )
+
+    snapshot = store_current_roster_snapshot(snapshot, data_root=data_root)
     try:
         snapshot = store_persistent_current_roster_snapshot(
             snapshot,

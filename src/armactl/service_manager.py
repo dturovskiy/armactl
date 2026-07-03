@@ -300,6 +300,21 @@ def _instance_from_service_name(service_name: str) -> str | None:
         return None
 
 
+def _restart_unit_for_game_service(service_name: str) -> str | None:
+    if service_name == paths.SERVICE_NAME:
+        return paths.RESTART_SERVICE_NAME
+
+    match = INSTANCE_SERVICE_RE.fullmatch(service_name)
+    if not match:
+        return None
+
+    try:
+        instance = paths.validate_instance_name(match.group(1))
+    except paths.InvalidInstanceNameError:
+        return None
+    return restart_service_unit_name(instance)
+
+
 def _run_pre_start_guards(service_name: str) -> ServiceResult | None:
     instance = _instance_from_service_name(service_name)
     if instance is None:
@@ -731,6 +746,9 @@ def restart_service(service_name: str = "armareforger.service") -> ServiceResult
     guard_result = _run_pre_start_guards(service_name)
     if guard_result is not None:
         return guard_result
+    restart_unit = _restart_unit_for_game_service(service_name)
+    if restart_unit is not None:
+        return _run_systemctl("start", restart_unit)
     return _run_systemctl("restart", service_name)
 
 

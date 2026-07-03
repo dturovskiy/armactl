@@ -168,6 +168,31 @@ def _parse_reforger_player_line(line: str) -> PlayerEntry | None:
     )
 
 
+def _player_entry_dedupe_key(entry: PlayerEntry) -> tuple[str, str]:
+    guid = (entry.guid or "").strip().lower()
+    if guid:
+        return ("guid", guid)
+
+    player_id = (entry.player_id or "").strip()
+    if player_id:
+        return ("player_id", player_id)
+
+    normalized_name = " ".join(entry.name.strip().lower().split())
+    return ("name", normalized_name)
+
+
+def _dedupe_player_entries(entries: list[PlayerEntry]) -> list[PlayerEntry]:
+    unique: list[PlayerEntry] = []
+    seen: set[tuple[str, str]] = set()
+    for entry in entries:
+        key = _player_entry_dedupe_key(entry)
+        if not key[1] or key in seen:
+            continue
+        seen.add(key)
+        unique.append(entry)
+    return unique
+
+
 class _RconSession:
     """Small one-shot BattlEye RCON session."""
 
@@ -322,7 +347,7 @@ def _parse_player_lines(response: str) -> list[PlayerEntry]:
 
         entries.append(PlayerEntry(name=line, raw=line))
 
-    return entries
+    return _dedupe_player_entries(entries)
 
 
 def _is_empty_player_roster_response(response: str) -> bool:
@@ -422,5 +447,4 @@ def query_player_roster(
     finally:
         session.logout()
         session.close()
-
 

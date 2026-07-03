@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -81,6 +82,15 @@ def _service_status(lifecycle: str) -> dict[str, object]:
             "enabled": True,
             "active_state": "activating",
             "sub_state": "start",
+            "main_pid": 123,
+        }
+    if lifecycle == "stopping":
+        return {
+            "service_name": "armareforger.service",
+            "active": False,
+            "enabled": True,
+            "active_state": "deactivating",
+            "sub_state": "stop-sigterm",
             "main_pid": 123,
         }
     return {
@@ -232,6 +242,34 @@ def _install_dashboard_model_fakes(
             max_players=64 if players_available else None,
         ),
     )
+
+    def current_roster_snapshot(instance: str, **kwargs):
+        cache = dashboard_model.player_current_cache
+        snapshot = cache.CurrentRosterSnapshot(
+            instance=instance,
+            players=(),
+            source="rcon.roster" if players_available else "unavailable",
+            status="available" if players_available else "unavailable",
+            error="" if players_available else "player view is not available",
+            collected_at="2026-06-16T12:00:00+00:00",
+            observed_count=3 if players_available else 0,
+            count_source="rcon" if players_available else "unavailable",
+            roster_available=players_available,
+            roster_configured=players_available,
+        )
+        return cache.CurrentRosterSnapshotResult(
+            snapshot=snapshot,
+            age_seconds=0,
+            is_stale=False,
+            cache_status="test",
+        )
+
+    monkeypatch.setattr(
+        dashboard_model.player_current_cache,
+        "load_current_roster_snapshot",
+        current_roster_snapshot,
+    )
+
     monkeypatch.setattr(
         dashboard_model.ports,
         "check_server_ports",
@@ -358,6 +396,63 @@ def test_authenticated_owner_can_fetch_dashboard_status_json(
         "update-check",
     ]
     assert calls == ["default"]
+
+
+def test_dashboard_players_use_current_roster_cache_before_direct_probe(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.page_models import dashboard as dashboard_model
+    from armactl.web.services import player_current_cache
+
+    real_load_current_roster_snapshot = player_current_cache.load_current_roster_snapshot
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch)
+    player_current_cache.clear_current_roster_cache()
+    player_current_cache.store_persistent_current_roster_snapshot(
+        player_current_cache.CurrentRosterSnapshot(
+            instance="default",
+            players=(
+                player_current_cache.CurrentRosterPlayerSnapshot(
+                    display_name="Alpha",
+                    reliable_id="11111111-1111-4111-8111-111111111111",
+                    source="rcon.guid",
+                ),
+            ),
+            source="rcon.roster",
+            status="available",
+            error="",
+            collected_at=datetime.now(timezone.utc).isoformat(),
+            observed_count=5,
+            count_source="rcon",
+            roster_available=True,
+            roster_configured=True,
+        ),
+        data_root=tmp_path,
+    )
+    monkeypatch.setattr(
+        dashboard_model.player_current_cache,
+        "load_current_roster_snapshot",
+        real_load_current_roster_snapshot,
+    )
+    monkeypatch.setattr(
+        dashboard_model.player_view,
+        "query_player_view",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("direct player probe should not be called")
+        ),
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard/status.json", follow_redirects=False)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["fields"]["overview.players"] == "5 / 64"
+    assert payload["players"]["text"] == "5 / 64"
 
 
 def test_unauthenticated_dashboard_status_json_redirects_to_login(tmp_path: Path):
@@ -623,6 +718,36 @@ def test_dashboard_starting_server_hides_service_actions(tmp_path: Path, monkeyp
     assert "data-service-action-form" not in response.text
     assert "/static/js/service_actions.js" in response.text
     assert "Live server" not in response.text
+
+
+def test_dashboard_stopping_server_hides_service_actions(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch, lifecycle="stopping")
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+    payload = client.get("/dashboard/status.json", follow_redirects=False).json()
+
+    assert response.status_code == 200
+    assert "stopping" in response.text
+    assert "Server is stopping; actions are unavailable until shutdown finishes." in response.text
+    assert "action=\"/service/start\"" not in response.text
+    assert "action=\"/service/stop\"" not in response.text
+    assert "action=\"/service/restart\"" not in response.text
+    assert "data-service-action-form" not in response.text
+    assert "Live server" not in response.text
+    assert payload["lifecycle"] == "stopping"
+    assert payload["running"] is False
+    assert payload["fields"]["overview.lifecycle"] == "stopping"
+    assert (
+        payload["fields"]["quick_actions.note"]
+        == "Server is stopping; actions are unavailable until shutdown finishes."
+    )
+    assert payload["actions"] == []
 
 
 def test_dashboard_running_server_marks_live_telemetry_loading(

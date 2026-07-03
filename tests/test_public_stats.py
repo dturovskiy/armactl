@@ -63,6 +63,41 @@ def _patch_public_stats_sources(
             roster_available=True,
         ),
     )
+
+    def current_roster_snapshot(instance: str, **kwargs):
+        cache = public_stats.player_current_cache
+        snapshot = cache.CurrentRosterSnapshot(
+            instance=instance,
+            players=tuple(
+                cache.CurrentRosterPlayerSnapshot(
+                    display_name=name,
+                    reliable_id=f"00000000-0000-4000-8000-{index:012d}",
+                    source="rcon.guid",
+                )
+                for index, name in enumerate(player_names, start=1)
+            ),
+            source="rcon.roster",
+            status="available",
+            error="",
+            collected_at="2026-06-16T12:00:00+00:00",
+            observed_count=len(player_names),
+            count_source="rcon",
+            roster_available=True,
+            roster_configured=True,
+        )
+        return cache.CurrentRosterSnapshotResult(
+            snapshot=snapshot,
+            age_seconds=0,
+            is_stale=False,
+            cache_status="test",
+        )
+
+    monkeypatch.setattr(
+        public_stats.player_current_cache,
+        "load_current_roster_snapshot",
+        current_roster_snapshot,
+    )
+
     monkeypatch.setattr(
         public_stats.metrics,
         "query_server_fps_metrics",
@@ -119,6 +154,72 @@ def test_render_discord_stats_message_includes_nine_roster_names(monkeypatch) ->
         assert f"- {name}" in text
     assert "not shown due to Discord message limit" not in text
     assert len(text) <= public_stats.MAX_DISCORD_MESSAGE_LENGTH
+
+
+def test_public_stats_uses_current_roster_cache_when_direct_view_is_count_only(
+    monkeypatch,
+) -> None:
+    _patch_public_stats_sources(monkeypatch, player_names=())
+    player_names = tuple(f"Player {index}" for index in range(1, 6))
+
+    monkeypatch.setattr(
+        public_stats.player_view,
+        "query_player_view",
+        lambda *args, **kwargs: PlayerView(
+            available=True,
+            current=5,
+            max_players=128,
+            map_name="ARM-Campaign_ScenarioName_Everon",
+            entries=(),
+            roster_available=False,
+        ),
+    )
+
+    def cached_roster(instance: str, **kwargs):
+        cache = public_stats.player_current_cache
+        snapshot = cache.CurrentRosterSnapshot(
+            instance=instance,
+            players=tuple(
+                cache.CurrentRosterPlayerSnapshot(
+                    display_name=name,
+                    reliable_id=f"00000000-0000-4000-8000-{index:012d}",
+                    source="rcon.guid",
+                )
+                for index, name in enumerate(player_names, start=1)
+            ),
+            source="rcon.roster",
+            status="available",
+            error="",
+            collected_at="2026-07-03T20:00:00+00:00",
+            observed_count=5,
+            count_source="rcon",
+            roster_available=True,
+            roster_configured=True,
+        )
+        return cache.CurrentRosterSnapshotResult(
+            snapshot=snapshot,
+            age_seconds=3,
+            is_stale=False,
+            cache_status="persistent",
+        )
+
+    monkeypatch.setattr(
+        public_stats.player_current_cache,
+        "load_current_roster_snapshot",
+        cached_roster,
+    )
+
+    snapshot = public_stats.load_public_stats("default")
+    text = public_stats.render_discord_stats_message(snapshot)
+
+    assert snapshot.player_count == 5
+    assert snapshot.max_players == 128
+    assert snapshot.roster_available is True
+    assert snapshot.player_names == player_names
+    assert "👥 Players: 5/128" in text
+    assert "- count-only:" not in text
+    for name in player_names:
+        assert f"- {name}" in text
 
 
 def test_discord_stats_message_marks_count_only_without_roster_rows() -> None:
@@ -185,6 +286,65 @@ def test_discord_stats_message_marks_count_mismatch_without_synthetic_rows() -> 
     assert "- SGL_Taran" in text
     assert "- count-only remainder: 2 players without roster names" in text
     assert "Unknown player" not in text
+
+
+def test_public_stats_marks_deactivating_service_as_stopping(monkeypatch) -> None:
+    state = ServerState(
+        server_installed=True,
+        config_exists=True,
+        server_running=False,
+        config_path="/srv/secret/config.json",
+        service_name="armareforger.service",
+    )
+    monkeypatch.setattr(public_stats.discovery, "discover", lambda **kwargs: state)
+    monkeypatch.setattr(
+        public_stats,
+        "get_service_status",
+        lambda service_name: {
+            "active_state": "deactivating",
+            "sub_state": "stop-sigterm",
+        },
+    )
+    monkeypatch.setattr(
+        public_stats.status_summary,
+        "load_status_summaries",
+        lambda config_path: (
+            status_summary.ConfigSummary(
+                available=True,
+                server_name="Public Server",
+                scenario_id="{A72E000B7728A414}Missions/DOE_Chervonopilia.conf",
+                max_players=128,
+            ),
+            status_summary.ModsSummary(available=True, count=112),
+        ),
+    )
+    monkeypatch.setattr(
+        public_stats.player_view,
+        "query_player_view",
+        lambda *args, **kwargs: PlayerView(
+            available=False,
+            current=None,
+            max_players=128,
+        ),
+    )
+    monkeypatch.setattr(
+        public_stats.player_current_cache,
+        "load_current_roster_snapshot",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("cache unavailable")),
+    )
+    monkeypatch.setattr(
+        public_stats.metrics,
+        "query_server_fps_metrics",
+        lambda config_dir: metrics.ServerFpsMetrics(False),
+    )
+
+    snapshot = public_stats.load_public_stats("default")
+    text = public_stats.render_discord_stats_message(snapshot)
+
+    assert snapshot.lifecycle == "stopping"
+    assert snapshot.running is False
+    assert "🟡 Status: Stopping" in text
+    assert "🔴 Status: Offline" not in text
 
 
 def test_discord_stats_message_marks_roster_truncation_for_message_limit() -> None:

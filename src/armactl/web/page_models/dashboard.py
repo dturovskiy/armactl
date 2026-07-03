@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 from armactl import (
     discovery,
     metrics,
+    paths,
     player_view,
     ports,
     sat_admin_guard,
@@ -29,13 +31,14 @@ from armactl.web.page_models.common import (
     _unavailable,
 )
 from armactl.web.security.exposure import get_exposure_warning
-from armactl.web.services import server_versions
+from armactl.web.services import player_current_cache, server_versions
 
 DEFAULT_GAME_PORT = 2001
 DEFAULT_A2S_PORT = 17777
 DEFAULT_RCON_PORT = 19999
 DASHBOARD_PLAYER_TIMEOUT_SECONDS = 0.35
-DASHBOARD_ROSTER_TIMEOUT_SECONDS = 0.35
+DASHBOARD_ROSTER_TIMEOUT_SECONDS = 1.5
+DASHBOARD_CURRENT_ROSTER_CACHE_MAX_AGE_SECONDS = 75
 
 
 def _resolve_service_adapter(adapter: ServiceAdapter | None) -> ServiceAdapter:
@@ -86,6 +89,19 @@ def _service_is_activating(service: dict[str, Any]) -> bool:
     return active_state == "activating" or sub_state in {"start", "auto-restart"}
 
 
+def _service_is_stopping(service: dict[str, Any]) -> bool:
+    active_state = str(service.get("active_state") or "").strip().lower()
+    sub_state = str(service.get("sub_state") or "").strip().lower()
+    return active_state == "deactivating" or sub_state in {
+        "stop",
+        "stop-sigterm",
+        "stop-sigkill",
+        "stop-post",
+        "final-sigterm",
+        "final-sigkill",
+    }
+
+
 def _dashboard_lifecycle(
     state: ServerState,
     service: dict[str, Any],
@@ -93,6 +109,8 @@ def _dashboard_lifecycle(
     base = _base_lifecycle(state)
     if base != "stopped":
         return base
+    if _service_is_stopping(service):
+        return "stopping"
     if not state.server_running and not _service_looks_active_or_starting(service):
         return "stopped"
     if _service_is_activating(service):
@@ -211,6 +229,82 @@ def _decorate_players(players: dict[str, Any]) -> dict[str, Any]:
     else:
         decorated["count_text"] = "unavailable"
     return decorated
+
+
+def _dashboard_data_root(web_config: Any | None) -> Path:
+    if web_config is None:
+        return paths.DEFAULT_DATA_ROOT
+    data_root = getattr(web_config, "data_root", None)
+    if data_root is None:
+        return paths.DEFAULT_DATA_ROOT
+    return Path(data_root)
+
+
+def _safe_config_max_players(config_summary: dict[str, Any]) -> int | None:
+    value = config_summary.get("max_players")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value >= 0:
+        return value
+    return None
+
+
+def _current_roster_players_for_dashboard(
+    instance: str,
+    config_summary: dict[str, Any],
+    web_config: Any | None,
+) -> dict[str, Any]:
+    result = player_current_cache.load_current_roster_snapshot(
+        instance,
+        data_root=_dashboard_data_root(web_config),
+        max_age_seconds=DASHBOARD_CURRENT_ROSTER_CACHE_MAX_AGE_SECONDS,
+    )
+    snapshot = result.snapshot
+    return {
+        "available": snapshot.available,
+        "current": snapshot.total_count if snapshot.available else None,
+        "max_players": _safe_config_max_players(config_summary),
+        "count_source": snapshot.count_source,
+        "source": snapshot.source,
+        "status": snapshot.status,
+        "cache_status": result.cache_status,
+        "age_seconds": result.age_seconds,
+        "stale": result.is_stale,
+        "roster_available": snapshot.roster_available,
+        "roster_configured": snapshot.roster_configured,
+        "error": result.refresh_error or snapshot.error,
+    }
+
+
+def _direct_players_for_dashboard(
+    instance: str,
+    state: ServerState,
+    config_summary: dict[str, Any],
+) -> dict[str, Any]:
+    direct = _plain_dict(
+        player_view.query_player_view(
+            instance,
+            timeout=DASHBOARD_PLAYER_TIMEOUT_SECONDS,
+            roster_timeout=DASHBOARD_ROSTER_TIMEOUT_SECONDS,
+            state=state,
+            include_roster=True,
+        )
+    )
+    if direct.get("max_players") is None:
+        direct["max_players"] = _safe_config_max_players(config_summary)
+    return direct
+
+
+def _load_players_for_dashboard(
+    instance: str,
+    state: ServerState,
+    config_summary: dict[str, Any],
+    web_config: Any | None,
+) -> dict[str, Any]:
+    try:
+        return _current_roster_players_for_dashboard(instance, config_summary, web_config)
+    except Exception:
+        return _direct_players_for_dashboard(instance, state, config_summary)
 
 
 def _decorate_service_runtime(runtime: dict[str, Any]) -> dict[str, Any]:
@@ -468,12 +562,11 @@ def load_dashboard_snapshot(
                 "players",
                 errors,
                 _unavailable("player view is not available"),
-                player_view.query_player_view,
+                _load_players_for_dashboard,
                 instance,
-                timeout=DASHBOARD_PLAYER_TIMEOUT_SECONDS,
-                roster_timeout=DASHBOARD_ROSTER_TIMEOUT_SECONDS,
                 state=state,
-                include_roster=True,
+                config_summary=config_summary,
+                web_config=web_config,
             )
         )
     else:

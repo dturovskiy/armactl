@@ -132,6 +132,28 @@ def test_stop_already_stopped_skips_backend(monkeypatch):
     assert calls == []
 
 
+def test_start_is_blocked_while_service_is_stopping(monkeypatch):
+    calls: list[tuple[str, str]] = []
+    _patch_state(monkeypatch, _state(running=False))
+
+    class StoppingAdapter(_FakeServiceAdapter):
+        def get_service_status(self, service_name: str) -> dict[str, object]:
+            return {
+                "service_name": service_name,
+                "active_state": "deactivating",
+                "sub_state": "stop-sigterm",
+            }
+
+    adapter = StoppingAdapter(calls, ServiceResult(True, "should not run", 0))
+
+    result = service_actions.run_service_action("start", adapter=adapter)
+
+    assert result.success is False
+    assert result.performed is False
+    assert "Server is stopping" in result.message
+    assert calls == []
+
+
 def test_restart_rejects_missing_config(monkeypatch):
     calls: list[tuple[str, str]] = []
     _patch_state(monkeypatch, _state(running=True, config_exists=False))
