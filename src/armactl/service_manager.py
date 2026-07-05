@@ -34,6 +34,8 @@ INSTANCE_SERVICE_RE = re.compile(r"^armareforger@([A-Za-z0-9_.-]+)\.service$")
 RESTART_INSTANCE_SERVICE_RE = re.compile(
     r"^armareforger-restart@([A-Za-z0-9_.-]+)\.service$"
 )
+SYSTEMCTL_TIMEOUT_SECONDS = 30
+RESTART_HELPER_SYSTEMCTL_TIMEOUT_SECONDS = 120
 
 
 @dataclass
@@ -61,6 +63,7 @@ def _run_systemctl(
     action: str,
     service_name: str | None = None,
     use_sudo: bool = True,
+    timeout_seconds: int = SYSTEMCTL_TIMEOUT_SECONDS,
 ) -> ServiceResult:
     """Run a systemctl command and return the result."""
     action_label = {
@@ -78,7 +81,7 @@ def _run_systemctl(
             cmd,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=timeout_seconds,
         )
         if result.returncode == 0:
             return ServiceResult(
@@ -112,9 +115,10 @@ def _run_systemctl(
         return ServiceResult(
             success=False,
             message=tr(
-                "{action} {service_name}: timed out after 30s",
+                "{action} {service_name}: timed out after {timeout_seconds}s",
                 action=action_label,
                 service_name=service_name,
+                timeout_seconds=timeout_seconds,
             ),
             exit_code=1,
         )
@@ -748,7 +752,11 @@ def restart_service(service_name: str = "armareforger.service") -> ServiceResult
         return guard_result
     restart_unit = _restart_unit_for_game_service(service_name)
     if restart_unit is not None:
-        return _run_systemctl("start", restart_unit)
+        return _run_systemctl(
+            "start",
+            restart_unit,
+            timeout_seconds=RESTART_HELPER_SYSTEMCTL_TIMEOUT_SECONDS,
+        )
     return _run_systemctl("restart", service_name)
 
 

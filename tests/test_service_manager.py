@@ -1,7 +1,7 @@
 """Tests for service and timer helpers."""
 
 from pathlib import Path
-from subprocess import CompletedProcess
+from subprocess import CompletedProcess, TimeoutExpired
 from unittest.mock import patch
 
 from armactl import paths
@@ -338,7 +338,11 @@ def test_restart_service_uses_bounded_restart_helper_unit(tmp_path: Path) -> Non
         result = restart_service("armareforger.service")
 
     assert result.success is True
-    systemctl_mock.assert_called_once_with("start", "armareforger-restart.service")
+    systemctl_mock.assert_called_once_with(
+        "start",
+        "armareforger-restart.service",
+        timeout_seconds=120,
+    )
 
 
 def test_restart_service_uses_instance_bounded_restart_helper_unit(tmp_path: Path) -> None:
@@ -357,7 +361,11 @@ def test_restart_service_uses_instance_bounded_restart_helper_unit(tmp_path: Pat
         result = restart_service("armareforger@alpha.service")
 
     assert result.success is True
-    systemctl_mock.assert_called_once_with("start", "armareforger-restart@alpha.service")
+    systemctl_mock.assert_called_once_with(
+        "start",
+        "armareforger-restart@alpha.service",
+        timeout_seconds=120,
+    )
 
 
 def test_restart_service_keeps_non_game_service_restart_path() -> None:
@@ -479,6 +487,18 @@ def test_run_systemctl_rewrites_noninteractive_sudo_error() -> None:
 
     assert result.success is False
     assert _secure_privileged_channel_message() == result.message
+
+
+def test_run_systemctl_uses_configured_timeout_in_subprocess_and_message() -> None:
+    with patch(
+        "armactl.service_manager.subprocess.run",
+        side_effect=TimeoutExpired(["systemctl", "start", "unit.service"], timeout=75),
+    ) as run_mock:
+        result = _run_systemctl("start", "unit.service", timeout_seconds=75)
+
+    assert run_mock.call_args.kwargs["timeout"] == 75
+    assert result.success is False
+    assert "timed out after 75s" in result.message
 
 
 def test_run_systemctl_redacts_secret_values_in_stderr() -> None:
