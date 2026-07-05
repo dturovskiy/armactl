@@ -33,6 +33,9 @@ def test_unspecified_bind_without_https_gets_strong_warning():
     assert warning is not None
     assert warning.severity == "danger"
     assert warning.message == EXTERNAL_BIND_WITHOUT_HTTPS_WARNING
+    assert "documented gateway/firewall/VPN profile" in warning.message
+    assert "Secure cookie flag" in warning.message
+    assert "gateway port" in warning.message
 
 
 def test_external_ip_with_https_gets_soft_warning():
@@ -42,6 +45,8 @@ def test_external_ip_with_https_gets_soft_warning():
     assert warning is not None
     assert warning.severity == "warning"
     assert warning.message == EXTERNAL_BIND_WARNING
+    assert "gateway/firewall/VPN/HTTPS profile" in warning.message
+    assert "gateway mapping" in warning.message
 
 
 def test_unknown_hostname_is_treated_as_external():

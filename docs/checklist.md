@@ -66,6 +66,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Improve schedule timezone UX with browser-local input/display and UTC backend normalization.
 - [x] Add config-focused editor phase 2 with validation, backups, audit, recovery, and reset/error UX.
 - [x] Add narrow safe replacement foundation for allowlisted /files/config config/profile files, including AdminServerSettings and CMPlayerStatsHUD profile JSON, with no broad editing, delete, rename, or arbitrary file-manager scope.
+- [x] Document local/same-host and gateway-managed VM web deployment profiles, including the internal `8765` VM bind port, external gateway ports, and HTTPS-required cookie responsibility.
 - [ ] Close remaining TUI/Web parity gaps that should be web-primary.
 - [ ] Run final VM smoke, architecture/security/dead-code/docs review before main merge.
 
@@ -74,6 +75,6 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] README covers install, usage, runtime layout, CLI commands, Telegram, and local web dashboard.
 - [x] Architecture doc explains source/runtime/service boundaries.
 - [x] Troubleshooting covers install, service, ports, telemetry, Telegram, and web dashboard basics.
-- [x] Web deployment doc covers local/LAN setup and reverse-proxy guidance.
+- [x] Web deployment doc covers local/same-host, gateway-managed VM, reverse-proxy, and HTTPS-required cookie guidance.
 - [ ] Keep screenshots current after visible UI changes.
 - [ ] Keep release notes concise and operator-focused.

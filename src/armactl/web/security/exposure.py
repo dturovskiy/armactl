@@ -8,12 +8,15 @@ from typing import Any
 
 SAFE_BIND_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 EXTERNAL_BIND_WITHOUT_HTTPS_WARNING = (
-    "External bind without HTTPS-required cookies. Use an HTTPS reverse proxy, "
-    "VPN, firewall, or set ARMACTL_WEB_HTTPS_REQUIRED=true."
+    "External bind without HTTPS-required cookies. Use only with a documented "
+    "gateway/firewall/VPN profile, or serve the browser over HTTPS and set "
+    "ARMACTL_WEB_HTTPS_REQUIRED=true. HTTPS_REQUIRED only sets the Secure "
+    "cookie flag; it does not protect the bind or gateway port."
 )
 EXTERNAL_BIND_WARNING = (
-    "External bind detected. Ensure access is protected by TLS, a reverse proxy, "
-    "VPN, or firewall."
+    "External bind detected. Ensure a documented gateway/firewall/VPN/HTTPS "
+    "profile protects access. HTTPS_REQUIRED only controls Secure cookies, not "
+    "the bind or gateway mapping."
 )
 
 

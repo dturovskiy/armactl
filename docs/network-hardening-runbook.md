@@ -1,9 +1,10 @@
 # Network Hardening And Incident Runbook
 
 This runbook is public-safe guidance for operators who expose an Arma Reforger
-server and the local `armactl` dashboard. Keep deployment-specific IP
-addresses, VM names, router mappings, and provider contacts in private operator
-notes, not in this repository.
+server and the local `armactl` dashboard. Keep deployment-specific
+credentials and provider contacts in private operator notes. Non-secret private
+IP examples may be documented here only when they are intentionally used as
+operator deployment truth.
 
 ## Exposure Inventory
 
@@ -56,9 +57,49 @@ Needed public surfaces are normally limited to:
 The `armactl` dashboard is an authenticated management surface. Do not expose
 the VM-local dashboard directly to the internet.
 
+Supported dashboard deployment profiles:
+
+- Local/same-host: `armactl-web` binds to `127.0.0.1:8765`; the browser uses a
+  local browser, SSH tunnel, or reverse proxy on the same host.
+- Gateway-managed VM: a separate gateway or Proxmox host listens on external
+  operator ports and proxies to `VM_IP:8765`; `armactl-web` on the VM binds to
+  the VM LAN IP or `0.0.0.0:8765` so the gateway can reach it.
+
+Current private deployment example, without credentials:
+
+- deus-gateway external `8766` proxies to Serhiivka `192.168.1.5:8765`.
+- deus-gateway external `8767` proxies to Chervonopilya `192.168.1.7:8765`.
+- The VM web runtime port is still `8765`; external gateway ports are not
+  stored in VM `web.env`.
+
+`ARMACTL_WEB_HTTPS_REQUIRED` controls only the web session cookie `Secure`
+flag. It does not configure TLS, nginx, firewall policy, VPN policy, or gateway
+port mappings. Use `true` when the browser reaches the dashboard over HTTPS.
+Use `false` only when HTTPS is not part of the browser path and the access path
+is still protected by a real outer layer such as gateway ACLs, firewall rules,
+VPN, or an identity-aware proxy.
+
+An `External bind without HTTPS-required cookies` warning can be expected for a
+gateway-managed VM only when that outer gateway/firewall/VPN profile is real and
+documented. Keep the warning visible as an operator check; do not suppress it
+automatically.
+
+Operator checklist:
+
+1. Check `web.env` for `ARMACTL_WEB_BIND_HOST`, `ARMACTL_WEB_BIND_PORT`, and
+   `ARMACTL_WEB_HTTPS_REQUIRED` without printing secrets.
+2. For local/same-host, expect `127.0.0.1:8765`.
+3. For gateway-managed VM, expect the VM LAN IP or `0.0.0.0:8765`; do not
+   switch back to `127.0.0.1` unless the reverse proxy is on the same VM.
+4. Verify the gateway mapping points external operator ports to `VM_IP:8765`.
+5. Set `ARMACTL_WEB_HTTPS_REQUIRED=true` when browser access is HTTPS.
+6. Keep fallback CLI/TUI access and a rollback note before changing network
+   routing.
+
 Temporary protection:
 
-- bind `armactl-web` to localhost or a private VM address where possible;
+- bind `armactl-web` to localhost for local/same-host, or to the VM LAN IP or
+  `0.0.0.0` only for a documented gateway-managed VM profile;
 - allow dashboard access only from known operator IPs at the router, provider
   firewall, or gateway;
 - put `/login` and authenticated dashboard polling behind nginx rate limits;
