@@ -205,6 +205,8 @@ Before treating the web dashboard as the primary free/local operator UI, run one
 
 This audit snapshot follows the Phase 4 player/session foundation. Keep the next implementation slices narrow: prefer VM smoke, operator feedback, and small hardening fixes over new feature surface.
 
+P1/P2 cleanup pass status: closed for this audit pass. P1 removed obsolete admin/mod pending fallback dead code and routed admin restart-pending recovery through the shared mutation recovery helper. P2 kept the legacy web facade, filesystem facade, pending-restart adapter, and `/players/refresh` alias as explicit compatibility surfaces with regression tests. No new dead-code dependency was added; lower-noise tooling remains future work after an allowlist exists.
+
 Do not commit private hostnames, IP addresses, provider details, or router rules to this public repo. Production-host smoke targets belong in private operator notes.
 
 ### Priorities
@@ -221,7 +223,7 @@ P1 next slices:
 - Server update UX after VM feedback: clearer retry/failure states, stale active-job guidance, and a safe queued-job cancellation decision if needed.
 - Production readiness polish for health/readiness checks and startup/runtime warnings without widening dashboard exposure.
 - Safe config control expansion only for fields with proven validation, backup/restart behavior, and recovery.
-- Mod cleanup recovery: preflight manifest, stronger partial-failure messaging, and a restore/quarantine design before more deletion behavior.
+- Remaining mod cleanup recovery beyond the current manifests and controlled partial-failure messaging: restore/quarantine design before more deletion behavior.
 - Lightweight file editing design with allowlists, size limits, diff preview, backups, validation, audit, and recovery.
 
 P2 later:
@@ -229,6 +231,7 @@ P2 later:
 - Full automatic player-session scheduler/service enablement, richer session UI, and retention scheduling.
 - Audited banlist/moderation manager after identity, rollback, source-of-truth, and recovery rules are settled.
 - Broader web/TUI parity where operators prove it matters.
+- Low-noise dead-code audit tooling after an allowlist exists.
 - Rich Discord/player statistics after reliable player history/session data is stable enough.
 
 Out of scope:
@@ -334,11 +337,11 @@ updated units.
 
 #### 8. Rollback And Transaction Boundaries For Future Mutation Flows
 
-- Current state: config saves and guarded raw-config saves use intent audit, backup, apply, outcome audit, and shared restart-pending recovery marker handling with fallback sidecar. Allowlisted file replacement stages bytes, validates content, audits intent before publish, creates backup, atomically publishes, records restart-pending recovery through the same helper, and returns controlled post-mutation failures if outcome audit or restart tracking fails. Server job enqueue audits intent before queueing and cancels a newly created job if outcome audit fails. Admin/mod/service/schedule/player-session actions audit intent before mutation and outcome after mutation; mod/admin still have local pending-fallback code, and not every flow uses the shared helper yet. Player registry writes use SQLite transactions and idempotent helpers, but job outcome audit happens after DB mutation.
-- Risk: a backend mutation can still happen before an exception returns to the route or job runner. The shared mutation_recovery.RestartPendingRecovery helper now covers restart-pending marker fallback for config/raw-config and file replacement, including controlled error text when both primary and fallback marker writes fail. Future moderation, banlist, broader config, and file-editor flows still need to adopt the pattern explicitly before adding new mutation surface.
+- Current state: config saves and guarded raw-config saves use intent audit, backup, apply, outcome audit, and shared restart-pending recovery marker handling with fallback sidecar. Allowlisted file replacement stages bytes, validates content, audits intent before publish, creates backup, atomically publishes, records restart-pending recovery through the same helper, and returns controlled post-mutation failures if outcome audit or restart tracking fails. Admin and mod mutation actions also route restart-pending recovery through the shared helper, while destructive mod cleanup/remove paths leave safe manifests or controlled recovery handles. Server job enqueue audits intent before queueing and cancels a newly created job if outcome audit fails. Service/schedule/player-session actions audit intent before mutation and outcome after mutation, but not every flow needs or uses restart-pending recovery markers. Player registry writes use SQLite transactions and idempotent helpers, but job outcome audit happens after DB mutation.
+- Risk: a backend mutation can still happen before an exception returns to the route or job runner. The shared mutation_recovery.RestartPendingRecovery helper now covers restart-pending marker fallback for config/raw-config, file replacement, admin actions, and mod actions, including controlled error text when both primary and fallback marker writes fail. Future moderation, banlist, broader config, and file-editor flows still need to adopt the pattern explicitly before adding new mutation surface.
 - Foundation added: use the mutation recovery checklist for future user-affecting mutations. Required pattern: validate request/permissions/CSRF/allowlist/size; write intent audit; create backup/snapshot/stage/manifest; apply through one narrow service-layer API; verify from disk/DB/service; mark pending work when restart/review/retry/recovery is required; write outcome audit with recovery identifiers; rollback when safe or leave a visible recovery marker with a controlled message.
-- Files/modules touched by the foundation: src/armactl/web/services/mutation_recovery.py, src/armactl/web/services/config_edit.py, src/armactl/web/services/file_replacements.py, tests/test_web_config_edit.py, and tests/test_web_mutation_recovery.py.
-- Flows connected now: config save, raw config save, and allowlisted file replacement post-publish restart tracking. Mod/admin actions remain on local pending-fallback code; service/schedule/job actions remain future candidates where a restart/review marker applies.
+- Files/modules touched by the foundation and cleanup pass: src/armactl/web/services/mutation_recovery.py, src/armactl/web/services/config_edit.py, src/armactl/web/services/file_replacements.py, src/armactl/web/services/admin_actions.py, src/armactl/web/services/mod_actions.py, tests/test_web_config_edit.py, tests/test_web_mutation_recovery.py, tests/test_web_admin_actions.py, and tests/test_web_mod_actions.py.
+- Flows connected now: config save, raw config save, allowlisted file replacement post-publish restart tracking, admin actions, and mod actions. Service/schedule/job actions remain future candidates only where a restart/review marker actually applies.
 - Validation/smoke needed: keep tests for intent-audit failure before mutation, backup/stage creation, apply failure rollback or recovery marker, verify failure, pending-work fallback, outcome-audit failure after mutation, redacted details, and operator-visible recovery messages as each future flow adopts the pattern.
 - Stop condition: no future user-affecting mutation can return an ambiguous failure after a partial backend change; it either rolls back or leaves a documented recovery handle visible to the operator.
 

@@ -143,7 +143,7 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 - Player IDs/names are visible on authenticated moderation pages and stored in `players.db`; treat them as moderation data. Public website status does not publish names or IDs. Discord stats publishes sanitized current roster names by design, bounded only by Discord message safety with an explicit truncation marker.
 - No code currently adds IP storage for players. Tests assert player registry/event tables do not contain `ip`, `ip_address`, or raw-line columns, event ingest redacts address-like values before storage, and `/players/history` does not render raw source paths, IPs, or raw log lines.
 - Existing RCON code reads the configured password to query the roster but does not persist it and does not implement ban/kick commands.
-- One should-fix for future mutation work: unexpected admin backend exceptions are rendered as generic 500 without traceback/secrets, but tests show a backend mutation can occur before the exception without pending-work recovery. New moderation mutations should avoid that shape by using explicit rollback/transaction boundaries.
+- The earlier admin/mod post-mutation pending-work gap is closed for current admin/mod/config/file-replacement flows through shared or covered recovery paths. Future moderation, banlist, broader config, and file-editor mutations still need explicit rollback/recovery boundaries before implementation.
 
 ## Gaps Before Richer Player History
 
