@@ -341,7 +341,7 @@ def test_restart_service_uses_bounded_restart_helper_unit(tmp_path: Path) -> Non
     systemctl_mock.assert_called_once_with(
         "start",
         "armareforger-restart.service",
-        timeout_seconds=120,
+        timeout_seconds=420,
     )
 
 
@@ -364,7 +364,7 @@ def test_restart_service_uses_instance_bounded_restart_helper_unit(tmp_path: Pat
     systemctl_mock.assert_called_once_with(
         "start",
         "armareforger-restart@alpha.service",
-        timeout_seconds=120,
+        timeout_seconds=420,
     )
 
 

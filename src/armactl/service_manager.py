@@ -35,7 +35,11 @@ RESTART_INSTANCE_SERVICE_RE = re.compile(
     r"^armareforger-restart@([A-Za-z0-9_.-]+)\.service$"
 )
 SYSTEMCTL_TIMEOUT_SECONDS = 30
-RESTART_HELPER_SYSTEMCTL_TIMEOUT_SECONDS = 120
+# The restart helper owns the bounded stop/kill/start/stability window, and its
+# systemd unit is allowed to run for 6 minutes. Keep the caller above that window
+# so UI/CLI callers do not report a false timeout while the helper is still
+# safely killing an old process or waiting for server stability.
+RESTART_HELPER_SYSTEMCTL_TIMEOUT_SECONDS = 420
 
 
 @dataclass
