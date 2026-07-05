@@ -745,7 +745,7 @@ def test_mods_remove_pending_work_identifies_config_mod_by_name(
 ):
     from armactl.web.services import mod_actions, pending_work
 
-    config_path = _write_mod_config(
+    config_path = _write_instance_mod_config(
         tmp_path,
         [
             {
@@ -1133,7 +1133,7 @@ def test_mods_remove_success_writes_cleanup_summary_audit(
         lambda instance, save=False: _state(config_path),
     )
 
-    def remove_mod(path: Path, mod_id: str) -> ModUpdateResult:
+    def remove_mod(path: Path, mod_id: str, **kwargs) -> ModUpdateResult:
         calls.append((path, mod_id))
         cleanup = CleanupResult(bytes_deleted=2048)
         return ModUpdateResult(
@@ -1167,6 +1167,73 @@ def test_mods_remove_success_writes_cleanup_summary_audit(
     assert event["details"]["removed_ids"] == ["AAAAAAAAAAAAAAAA"]
     assert event["details"]["removed_id_count"] == "1"
     assert event["details"]["cleanup_freed"] == "2.00 KB"
+
+
+def test_mods_remove_cleanup_error_returns_recovery_handle(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl import addon_cleanup
+    from armactl.web.services import mod_actions, pending_work
+
+    config_path = _write_instance_mod_config(
+        tmp_path,
+        [{"modId": "AAAAAAAAAAAAAAAA", "name": "Active Alpha", "version": "1"}],
+    )
+    addon_dir = _create_addon_dir(
+        config_path.parent / "addons",
+        "Active_token=raw-route-secret_AAAAAAAAAAAAAAAA",
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def fail_rmtree(path: Path) -> None:
+        raise OSError("permission denied /home/deus/private token=raw-delete-secret")
+
+    monkeypatch.setattr(addon_cleanup.shutil, "rmtree", fail_rmtree)
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/remove",
+        data={
+            "csrf_token": csrf_token,
+            "mod_id": "AAAAAAAAAAAAAAAA",
+            "confirm": "remove",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Mod removed, but addon cleanup reported 1 error(s)." in response.text
+    assert "Recovery manifest:" in response.text
+    assert "Restart the server to apply mod changes." in response.text
+    assert addon_dir.exists()
+    assert json.loads(config_path.read_text(encoding="utf-8"))["game"]["mods"] == []
+    assert "/home/deus" not in response.text
+    assert "raw-route-secret" not in response.text
+    assert "raw-delete-secret" not in response.text
+    manifests = list((tmp_path / "instance" / "backups" / "mod-cleanup").glob("*.json"))
+    assert len(manifests) == 1
+    manifest_text = manifests[0].read_text(encoding="utf-8")
+    assert str(tmp_path) not in manifest_text
+    assert "raw-route-secret" not in manifest_text
+    assert "raw-delete-secret" not in manifest_text
+    event = _audit_events(tmp_path)[0]
+    assert event["action"] == "mod.remove"
+    assert event["success"] is False
+    assert event["details"]["changed"] == "yes"
+    assert event["details"]["cleanup_manifest_failed_count"] == "1"
+    assert event["details"]["cleanup_recovery_handles"] == [manifests[0].name]
+    item = pending_work.get_pending_work(
+        tmp_path / "web" / "web.db",
+        kind=pending_work.KIND_MODS,
+    )
+    assert item is not None
+    assert item.source_action == "mod.remove"
 
 
 def test_mods_backend_error_is_controlled_and_audited(tmp_path: Path, monkeypatch):
@@ -1673,7 +1740,12 @@ def test_mods_cleanup_confirmed_calls_cleanup_helper_and_audits(
         lambda instance, save=False: _state(config_path),
     )
 
-    def cleanup(path: Path, *, dry_run: bool = False) -> CleanupResult:
+    def cleanup(
+        path: Path,
+        *,
+        dry_run: bool = False,
+        manifest_instance: str | None = None,
+    ) -> CleanupResult:
         calls.append((path, dry_run))
         return CleanupResult(
             deleted=[Path("/home/deus/private/Stale_token=raw-route-secret_AAAAAAAAAAAAAAAA")],
@@ -1709,6 +1781,71 @@ def test_mods_cleanup_confirmed_calls_cleanup_helper_and_audits(
     audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(encoding="utf-8")
     assert "/home/deus" not in audit_text
     assert "raw-route-secret" not in audit_text
+
+
+def test_mods_cleanup_partial_failure_returns_recovery_handle(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl import addon_cleanup
+    from armactl.web.services import mod_actions
+
+    config_path = _write_instance_mod_config(tmp_path, [])
+    addons = config_path.parent / "addons"
+    first = _create_addon_dir(addons, "First_AAAAAAAAAAAAAAAA", size=1024)
+    second = _create_addon_dir(
+        addons,
+        "Second_token=raw-route-secret_BBBBBBBBBBBBBBBB",
+        size=2048,
+    )
+    real_rmtree = addon_cleanup.shutil.rmtree
+    client = _authed_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def flaky_rmtree(path: Path) -> None:
+        if Path(path).name.startswith("Second"):
+            raise OSError("permission denied /home/deus/private token=raw-delete-secret")
+        real_rmtree(path)
+
+    monkeypatch.setattr(addon_cleanup.shutil, "rmtree", flaky_rmtree)
+    csrf_token = _mods_csrf_token(client)
+
+    response = client.post(
+        "/mods/cleanup",
+        data={"csrf_token": csrf_token, "confirm": "cleanup"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Cleanup completed with 1 error(s); deleted 1 addon entry" in response.text
+    assert "Recovery manifest:" in response.text
+    assert "Restart the server to apply mod changes." not in response.text
+    assert not first.exists()
+    assert second.exists()
+    assert "/home/deus" not in response.text
+    assert "raw-route-secret" not in response.text
+    assert "raw-delete-secret" not in response.text
+    manifests = list((tmp_path / "instance" / "backups" / "mod-cleanup").glob("*.json"))
+    assert len(manifests) == 1
+    manifest_text = manifests[0].read_text(encoding="utf-8")
+    manifest = json.loads(manifest_text)
+    assert manifest["status"] == "partial"
+    assert manifest["result"]["deleted_count"] == 1
+    assert manifest["result"]["failed_count"] == 1
+    assert str(tmp_path) not in manifest_text
+    assert "/home/deus" not in manifest_text
+    assert "raw-route-secret" not in manifest_text
+    assert "raw-delete-secret" not in manifest_text
+    event = _audit_events(tmp_path)[0]
+    assert event["action"] == "mod.cleanup"
+    assert event["success"] is False
+    assert event["details"]["cleanup_recovery_handles"] == [manifests[0].name]
+    assert event["details"]["cleanup_manifest_deleted_count"] == "1"
+    assert event["details"]["cleanup_manifest_failed_count"] == "1"
 
 
 def test_mods_cleanup_requires_confirmation(tmp_path: Path, monkeypatch):
@@ -1760,6 +1897,7 @@ def test_mods_cleanup_intent_audit_failure_aborts_mutation(
     assert "Mod action was not run because audit logging failed." in response.text
     assert "raw-audit-secret" not in response.text
     assert list_pending_work(tmp_path / "web" / "web.db") == []
+    assert not list(tmp_path.glob("**/mod-cleanup/*.json"))
 
 
 def test_mods_cleanup_outcome_audit_failure_reports_controlled_problem(
@@ -1771,6 +1909,11 @@ def test_mods_cleanup_outcome_audit_failure_reports_controlled_problem(
     from armactl.web.services.pending_work import list_pending_work
 
     config_path = _write_instance_mod_config(tmp_path, [])
+    stale = _create_addon_dir(
+        config_path.parent / "addons",
+        "Stale_token=raw-route-secret_AAAAAAAAAAAAAAAA",
+        size=1024,
+    )
     client = _authed_client(tmp_path, monkeypatch)
     monkeypatch.setattr(
         mod_actions.discovery,
@@ -1778,18 +1921,11 @@ def test_mods_cleanup_outcome_audit_failure_reports_controlled_problem(
         lambda instance, save=False: _state(config_path),
     )
 
-    def cleanup(path: Path, *, dry_run: bool = False) -> CleanupResult:
-        return CleanupResult(
-            deleted=[Path("/private/Stale_AAAAAAAAAAAAAAAA")],
-            bytes_deleted=1024,
-        )
-
     def fail_outcome(audit_log_path, *, details=None, **kwargs):
         if (details or {}).get("phase") == "outcome":
             raise AuditLogError("disk full token=raw-audit-secret")
         return None
 
-    monkeypatch.setattr(mod_actions, "cleanup_unconfigured_addons", cleanup)
     monkeypatch.setattr(mod_actions, "append_audit_event", fail_outcome)
     csrf_token = _mods_csrf_token(client)
 
@@ -1802,8 +1938,16 @@ def test_mods_cleanup_outcome_audit_failure_reports_controlled_problem(
     assert response.status_code == 400
     assert "Mod action completed but audit logging failed." in response.text
     assert "Deleted 1 unused addon entry" in response.text
+    assert "Recovery manifest:" in response.text
     assert "Restart the server to apply mod changes." not in response.text
     assert "raw-audit-secret" not in response.text
+    assert "raw-route-secret" not in response.text
+    assert not stale.exists()
+    manifests = list((tmp_path / "instance" / "backups" / "mod-cleanup").glob("*.json"))
+    assert len(manifests) == 1
+    manifest_text = manifests[0].read_text(encoding="utf-8")
+    assert str(tmp_path) not in manifest_text
+    assert "raw-route-secret" not in manifest_text
     assert list_pending_work(tmp_path / "web" / "web.db") == []
 
 
@@ -1867,7 +2011,7 @@ def test_mods_cleanup_result_details_are_redacted_and_bounded(
     monkeypatch.setattr(
         mod_actions,
         "cleanup_unconfigured_addons",
-        lambda path, *, dry_run=False: cleanup,
+        lambda path, *, dry_run=False, manifest_instance=None: cleanup,
     )
 
     result = mod_actions.check_unused_addons()

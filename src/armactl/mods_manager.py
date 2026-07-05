@@ -35,6 +35,29 @@ class ModUpdateResult:
     removed_ids: set[str] = field(default_factory=set)
 
 
+class ModCleanupPartialError(ConfigError):
+    """Raised when addon cleanup changed files but the mod update failed later."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        cleanup_result: CleanupResult,
+        config_changed: bool,
+    ) -> None:
+        super().__init__(message)
+        self.cleanup_result = cleanup_result
+        self.config_changed = config_changed
+
+    @property
+    def changed(self) -> bool:
+        return self.config_changed or bool(self.cleanup_result.deleted)
+
+    @property
+    def restart_required(self) -> bool:
+        return self.config_changed
+
+
 MOD_ID_TOKEN_RE = re.compile(r"(?i)(?<![0-9a-f])([0-9a-f]{16})(?![0-9a-f])")
 ModAddStatus = Literal["added", "reactivated", "updated", "unchanged", "duplicate_input"]
 
@@ -107,6 +130,7 @@ def _merge_cleanup_results(target: CleanupResult | None, source: CleanupResult) 
     target.skipped.extend(source.skipped)
     target.errors.extend(source.errors)
     target.bytes_deleted += source.bytes_deleted
+    target.manifests.extend(source.manifests)
     return target
 
 
@@ -153,6 +177,23 @@ def _mod_ids(mods: list[dict[str, Any]]) -> set[str]:
         if mod_id is not None:
             ids.add(mod_id)
     return ids
+
+
+def _mod_entries_for_ids(
+    mods: list[dict[str, Any]],
+    mod_ids: set[str] | frozenset[str],
+) -> list[dict[str, Any]]:
+    """Return mod entries whose normalized IDs are in *mod_ids*."""
+    normalized_ids = {
+        normalized
+        for mod_id in mod_ids
+        if (normalized := normalize_mod_id(mod_id)) is not None
+    }
+    return [
+        mod
+        for mod in mods
+        if normalize_mod_id(mod.get("modId")) in normalized_ids
+    ]
 
 
 def _mod_key(mod_id: Any) -> str:
@@ -239,6 +280,8 @@ def save_mods_with_removed_addon_cleanup(
     new_mods: list[dict[str, Any]],
     *,
     cleanup_removed: bool = True,
+    cleanup_action: str = "mod.remove",
+    cleanup_instance: str | None = None,
 ) -> ModUpdateResult:
     """Save active mods and safely clean addons no longer referenced anywhere."""
     migrate_legacy_disabled_mods(config_path)
@@ -261,20 +304,34 @@ def save_mods_with_removed_addon_cleanup(
             raise
 
         enospc_retry_performed = True
-        cleanup_result = cleanup_addons_by_mod_ids(config_path, removed_ids)
+        cleanup_result = cleanup_addons_by_mod_ids(
+            config_path,
+            removed_ids,
+            manifest_action=cleanup_action,
+            manifest_instance=cleanup_instance,
+            affected_mods=_mod_entries_for_ids(old_mods, removed_ids),
+        )
 
         try:
             save_config(config_path, config)
         except Exception as retry_exc:
-            raise ConfigError(
+            raise ModCleanupPartialError(
                 tr(
                     "Failed to save config after freeing addon files for removed mods: {error}",
                     error=retry_exc,
-                )
+                ),
+                cleanup_result=cleanup_result,
+                config_changed=False,
             ) from retry_exc
 
     if cleanup_removed and removed_ids and cleanup_result is None:
-        cleanup_result = cleanup_addons_by_mod_ids(config_path, removed_ids)
+        cleanup_result = cleanup_addons_by_mod_ids(
+            config_path,
+            removed_ids,
+            manifest_action=cleanup_action,
+            manifest_instance=cleanup_instance,
+            affected_mods=_mod_entries_for_ids(old_mods, removed_ids),
+        )
     elif cleanup_removed and cleanup_result is None:
         cleanup_result = CleanupResult()
 
@@ -488,7 +545,12 @@ def remove_mod(config_path: Path | str, mod_id: str) -> bool:
     return remove_mod_detailed(config_path, mod_id).config_changed
 
 
-def remove_mod_detailed(config_path: Path | str, mod_id: str) -> ModUpdateResult:
+def remove_mod_detailed(
+    config_path: Path | str,
+    mod_id: str,
+    *,
+    manifest_instance: str | None = None,
+) -> ModUpdateResult:
     """Remove an active or disabled mod and clean up its local addon directory."""
     migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
@@ -511,7 +573,14 @@ def remove_mod_detailed(config_path: Path | str, mod_id: str) -> ModUpdateResult
 
     save_disabled_mods(config_path, new_disabled_mods)
     try:
-        result = save_mods_with_removed_addon_cleanup(config_path, config, mods, new_mods)
+        result = save_mods_with_removed_addon_cleanup(
+            config_path,
+            config,
+            mods,
+            new_mods,
+            cleanup_action="mod.remove",
+            cleanup_instance=manifest_instance,
+        )
     except Exception as error:
         _rollback_disabled_mods(config_path, original_disabled_mods, error)
         raise
@@ -519,7 +588,13 @@ def remove_mod_detailed(config_path: Path | str, mod_id: str) -> ModUpdateResult
     disabled_removed_ids = _mod_ids(disabled_mods) - _mod_ids(new_disabled_mods)
     extra_cleanup_ids = disabled_removed_ids - result.removed_ids
     if extra_cleanup_ids:
-        cleanup_result = cleanup_addons_by_mod_ids(config_path, extra_cleanup_ids)
+        cleanup_result = cleanup_addons_by_mod_ids(
+            config_path,
+            extra_cleanup_ids,
+            manifest_action="mod.remove",
+            manifest_instance=manifest_instance,
+            affected_mods=_mod_entries_for_ids(disabled_mods, extra_cleanup_ids),
+        )
         result.cleanup_result = _merge_cleanup_results(result.cleanup_result, cleanup_result)
         result.removed_ids.update(extra_cleanup_ids)
 
@@ -556,7 +631,11 @@ def clear_mods_detailed(config_path: Path | str) -> ModUpdateResult:
     if extra_cleanup_ids:
         result.cleanup_result = _merge_cleanup_results(
             result.cleanup_result,
-            cleanup_addons_by_mod_ids(config_path, extra_cleanup_ids),
+            cleanup_addons_by_mod_ids(
+                config_path,
+                extra_cleanup_ids,
+                affected_mods=_mod_entries_for_ids(disabled_mods, extra_cleanup_ids),
+            ),
         )
         result.removed_ids.update(extra_cleanup_ids)
     return result

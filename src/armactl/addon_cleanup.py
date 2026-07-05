@@ -3,19 +3,39 @@
 from __future__ import annotations
 
 import errno
+import json
 import logging
 import os
 import re
 import shutil
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from armactl.redaction import redact_sensitive_text
 
 log = logging.getLogger(__name__)
 
 ADDON_DIR_MOD_ID_RE = re.compile(r"(?i)(?:^|_)([0-9a-f]{16})$")
 MOD_ID_RE = re.compile(r"(?i)^[0-9a-f]{16}$")
+MANIFEST_SUBDIR = "mod-cleanup"
+MANIFEST_VERSION = 1
+MAX_MANIFEST_MODS = 50
+MAX_MANIFEST_NAME_LENGTH = 128
+
+
+@dataclass(frozen=True)
+class CleanupManifestRef:
+    """Audit/UI-safe reference to an addon cleanup recovery manifest."""
+
+    name: str
+    status: str
+    planned_delete_count: int = 0
+    completed_delete_count: int = 0
+    failed_delete_count: int = 0
+    skipped_count: int = 0
 
 
 @dataclass
@@ -26,11 +46,26 @@ class CleanupResult:
     skipped: list[Path] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     bytes_deleted: int = 0
+    manifests: list[CleanupManifestRef] = field(default_factory=list)
 
     @property
     def freed_display(self) -> str:
         """Human-readable representation of freed space."""
         return _format_bytes(self.bytes_deleted)
+
+    @property
+    def manifest(self) -> CleanupManifestRef | None:
+        """Return the most recent recovery manifest reference, if one exists."""
+        return self.manifests[-1] if self.manifests else None
+
+
+@dataclass(frozen=True)
+class _PlannedAddonCleanup:
+    """One addon directory selected for deletion, represented safely."""
+
+    path: Path
+    mod_id: str
+    name: str
 
 
 def _format_bytes(size: int) -> str:
@@ -178,6 +213,307 @@ def is_enospc(exc: Exception) -> bool:
     return False
 
 
+
+def _safe_manifest_text(value: Any, *, max_length: int = MAX_MANIFEST_NAME_LENGTH) -> str:
+    text = redact_sensitive_text(value).replace("\r", " ").replace("\n", " ").strip()
+    lowered = text.lower()
+    for marker in ("token=", "token:", "password=", "password:"):
+        marker_start = lowered.find(marker)
+        if marker_start >= 0:
+            marker_end = marker_start + len(marker)
+            text = f"{text[:marker_end]}***"
+            break
+    if len(text) > max_length:
+        return f"{text[:max_length]}..."
+    return text
+
+
+def _safe_addon_entry_name(path: Path) -> str:
+    return _safe_manifest_text(Path(path).name or "unknown")
+
+
+def _instance_from_config_path(config_path: Path | str) -> str:
+    path = Path(config_path)
+    if path.parent.name == "config" and path.parent.parent.name:
+        return _safe_manifest_text(path.parent.parent.name, max_length=80) or "default"
+    return "default"
+
+
+def _manifest_root_for_config(config_path: Path | str) -> Path:
+    path = Path(config_path)
+    if path.parent.name == "config":
+        return path.parent.parent / "backups" / MANIFEST_SUBDIR
+    return path.parent / "backups" / MANIFEST_SUBDIR
+
+
+def _fsync_directory(directory: Path) -> None:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    try:
+        fd = os.open(directory, flags)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        return
+    finally:
+        os.close(fd)
+
+
+def _write_manifest_payload(path: Path, payload: dict[str, Any]) -> None:
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tmp_path.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+        _fsync_directory(path.parent)
+    except OSError:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
+def _next_manifest_path(root: Path) -> Path:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    manifest_path = root / f"mod-cleanup-{timestamp}.json"
+    suffix = 1
+    while manifest_path.exists():
+        manifest_path = root / f"mod-cleanup-{timestamp}-{suffix}.json"
+        suffix += 1
+    return manifest_path
+
+
+def _safe_mod_entry(mod: Any) -> dict[str, str]:
+    if isinstance(mod, Mapping):
+        raw_id = mod.get("modId") or mod.get("mod_id") or ""
+        mod_id = normalize_mod_id(raw_id) or _safe_manifest_text(raw_id, max_length=64).upper()
+        name = _safe_manifest_text(mod.get("name"), max_length=MAX_MANIFEST_NAME_LENGTH)
+        return {"modId": mod_id, "name": name}
+    mod_id = normalize_mod_id(mod) or _safe_manifest_text(mod, max_length=64).upper()
+    return {"modId": mod_id, "name": ""}
+
+
+def _affected_mods_for_manifest(
+    affected_mods: Iterable[Mapping[str, Any] | str] | None,
+    planned_entries: list[_PlannedAddonCleanup],
+) -> list[dict[str, str]]:
+    safe_mods: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for mod in affected_mods or ():
+        safe = _safe_mod_entry(mod)
+        key = safe["modId"]
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        safe_mods.append(safe)
+        if len(safe_mods) >= MAX_MANIFEST_MODS:
+            return safe_mods
+
+    for entry in planned_entries:
+        if entry.mod_id in seen:
+            continue
+        seen.add(entry.mod_id)
+        safe_mods.append({"modId": entry.mod_id, "name": entry.name})
+        if len(safe_mods) >= MAX_MANIFEST_MODS:
+            break
+    return safe_mods
+
+
+def _planned_addons_payload(
+    planned_entries: list[_PlannedAddonCleanup],
+) -> list[dict[str, str]]:
+    return [
+        {"modId": entry.mod_id, "name": entry.name}
+        for entry in planned_entries[:MAX_MANIFEST_MODS]
+    ]
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _manifest_status(result: CleanupResult) -> str:
+    if result.errors and result.deleted:
+        return "partial"
+    if result.errors:
+        return "failed"
+    return "completed"
+
+
+def _manifest_ref(
+    manifest_path: Path,
+    *,
+    status: str,
+    planned_delete_count: int,
+    result: CleanupResult,
+) -> CleanupManifestRef:
+    return CleanupManifestRef(
+        name=manifest_path.name,
+        status=status,
+        planned_delete_count=planned_delete_count,
+        completed_delete_count=len(result.deleted),
+        failed_delete_count=len(result.errors),
+        skipped_count=len(result.skipped),
+    )
+
+
+def _set_manifest_ref(result: CleanupResult, ref: CleanupManifestRef) -> None:
+    for index, existing in enumerate(result.manifests):
+        if existing.name == ref.name:
+            result.manifests[index] = ref
+            return
+    result.manifests.append(ref)
+
+
+def _create_cleanup_manifest(
+    config_path: Path | str,
+    *,
+    action: str,
+    instance: str | None,
+    affected_mods: Iterable[Mapping[str, Any] | str] | None,
+    planned_entries: list[_PlannedAddonCleanup],
+    skipped_count: int,
+    target_mod_count: int,
+    result: CleanupResult,
+) -> tuple[Path, dict[str, Any]] | None:
+    manifest_root = _manifest_root_for_config(config_path)
+    manifest_path = _next_manifest_path(manifest_root)
+    payload: dict[str, Any] = {
+        "manifest_version": MANIFEST_VERSION,
+        "action": _safe_manifest_text(action, max_length=80),
+        "instance": _safe_manifest_text(
+            instance or _instance_from_config_path(config_path),
+            max_length=80,
+        ),
+        "timestamp": _utc_timestamp(),
+        "status": "planned",
+        "affected_mods": _affected_mods_for_manifest(affected_mods, planned_entries),
+        "affected_mods_omitted_count": str(
+            max(0, target_mod_count - MAX_MANIFEST_MODS)
+        ),
+        "planned_operations": {
+            "delete_addon_dirs": len(planned_entries),
+            "skip_addon_dirs": skipped_count,
+            "target_mods": target_mod_count,
+        },
+        "planned_addons": _planned_addons_payload(planned_entries),
+        "planned_addons_omitted_count": str(
+            max(0, len(planned_entries) - MAX_MANIFEST_MODS)
+        ),
+        "result": {
+            "deleted_count": 0,
+            "failed_count": 0,
+            "skipped_count": skipped_count,
+            "bytes_deleted": 0,
+        },
+        "path_details": "Absolute paths and path-specific errors are intentionally omitted.",
+    }
+    try:
+        _write_manifest_payload(manifest_path, payload)
+    except OSError as exc:
+        result.errors.append("Failed to create cleanup recovery manifest.")
+        log.warning("Failed to create addon cleanup manifest: %s", exc)
+        return None
+    _set_manifest_ref(
+        result,
+        _manifest_ref(
+            manifest_path,
+            status="planned",
+            planned_delete_count=len(planned_entries),
+            result=result,
+        ),
+    )
+    return manifest_path, payload
+
+
+def _finalize_cleanup_manifest(
+    manifest_path: Path,
+    payload: dict[str, Any],
+    *,
+    result: CleanupResult,
+    planned_delete_count: int,
+) -> None:
+    status = _manifest_status(result)
+    payload["status"] = status
+    payload["updated_at"] = _utc_timestamp()
+    payload["result"] = {
+        "deleted_count": len(result.deleted),
+        "failed_count": len(result.errors),
+        "skipped_count": len(result.skipped),
+        "bytes_deleted": result.bytes_deleted,
+    }
+    payload["errors_suppressed"] = bool(result.errors)
+    try:
+        _write_manifest_payload(manifest_path, payload)
+    except OSError as exc:
+        result.errors.append("Failed to update cleanup recovery manifest.")
+        log.warning("Failed to update addon cleanup manifest: %s", exc)
+        status = _manifest_status(result)
+    _set_manifest_ref(
+        result,
+        _manifest_ref(
+            manifest_path,
+            status=status,
+            planned_delete_count=planned_delete_count,
+            result=result,
+        ),
+    )
+
+
+def _delete_planned_addons(
+    config_path: Path | str,
+    planned_entries: list[_PlannedAddonCleanup],
+    result: CleanupResult,
+    *,
+    dry_run: bool,
+    manifest_action: str,
+    manifest_instance: str | None,
+    affected_mods: Iterable[Mapping[str, Any] | str] | None,
+    target_mod_count: int,
+) -> None:
+    manifest: tuple[Path, dict[str, Any]] | None = None
+    if not dry_run and planned_entries:
+        manifest = _create_cleanup_manifest(
+            config_path,
+            action=manifest_action,
+            instance=manifest_instance,
+            affected_mods=affected_mods,
+            planned_entries=planned_entries,
+            skipped_count=len(result.skipped),
+            target_mod_count=target_mod_count,
+            result=result,
+        )
+        if manifest is None:
+            return
+
+    for entry in planned_entries:
+        try:
+            _delete_entry(entry.path, result, dry_run=dry_run)
+        except Exception as exc:  # noqa: BLE001 - keep cleanup result controlled.
+            result.errors.append(
+                "Unexpected addon cleanup failure; path-specific details were suppressed."
+            )
+            log.exception("Unexpected addon cleanup failure for %s: %s", entry.path, exc)
+            break
+
+    if manifest is not None:
+        manifest_path, payload = manifest
+        _finalize_cleanup_manifest(
+            manifest_path,
+            payload,
+            result=result,
+            planned_delete_count=len(planned_entries),
+        )
+
+
 def _prepare_addons_root(config_path: Path | str, result: CleanupResult) -> Path | None:
     try:
         addons = resolve_safe_addons_dir(config_path)
@@ -249,6 +585,9 @@ def cleanup_addons_by_mod_ids(
     mod_ids: set[str] | frozenset[str],
     *,
     dry_run: bool = False,
+    manifest_action: str = "mod.remove",
+    manifest_instance: str | None = None,
+    affected_mods: Iterable[Mapping[str, Any] | str] | None = None,
 ) -> CleanupResult:
     """Delete addon directories matching the provided removed mod IDs."""
     result = CleanupResult()
@@ -262,6 +601,7 @@ def cleanup_addons_by_mod_ids(
     if addons_root is None:
         return result
 
+    planned_entries: list[_PlannedAddonCleanup] = []
     for entry in _iter_safe_addon_entries(addons_root, result):
         parsed_id = extract_mod_id_from_addon_dir_name(entry.name)
         if parsed_id is None:
@@ -269,8 +609,20 @@ def cleanup_addons_by_mod_ids(
             continue
         if parsed_id not in target_ids:
             continue
-        _delete_entry(entry, result, dry_run=dry_run)
+        planned_entries.append(
+            _PlannedAddonCleanup(entry, parsed_id, _safe_addon_entry_name(entry))
+        )
 
+    _delete_planned_addons(
+        config_path,
+        planned_entries,
+        result,
+        dry_run=dry_run,
+        manifest_action=manifest_action,
+        manifest_instance=manifest_instance,
+        affected_mods=affected_mods,
+        target_mod_count=len(target_ids),
+    )
     return result
 
 
@@ -279,6 +631,8 @@ def cleanup_unconfigured_addons(
     active_mod_ids: set[str] | None = None,
     *,
     dry_run: bool = False,
+    manifest_action: str = "mod.cleanup",
+    manifest_instance: str | None = None,
 ) -> CleanupResult:
     """Delete valid addon dirs whose IDs are not active in config.json."""
     result = CleanupResult()
@@ -305,6 +659,7 @@ def cleanup_unconfigured_addons(
             if (normalized := normalize_mod_id(mod_id)) is not None
         }
 
+    planned_entries: list[_PlannedAddonCleanup] = []
     for entry in _iter_safe_addon_entries(addons_root, result):
         parsed_id = extract_mod_id_from_addon_dir_name(entry.name)
         if parsed_id is None:
@@ -312,6 +667,18 @@ def cleanup_unconfigured_addons(
             continue
         if parsed_id in active_upper:
             continue
-        _delete_entry(entry, result, dry_run=dry_run)
+        planned_entries.append(
+            _PlannedAddonCleanup(entry, parsed_id, _safe_addon_entry_name(entry))
+        )
 
+    _delete_planned_addons(
+        config_path,
+        planned_entries,
+        result,
+        dry_run=dry_run,
+        manifest_action=manifest_action,
+        manifest_instance=manifest_instance,
+        affected_mods=None,
+        target_mod_count=len(planned_entries),
+    )
     return result

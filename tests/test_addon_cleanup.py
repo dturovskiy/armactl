@@ -203,6 +203,93 @@ def test_cleanup_by_mod_ids_deletes_only_matching_dirs(tmp_path: Path) -> None:
     assert result.skipped == [unknown.resolve()]
 
 
+def test_cleanup_manifest_is_created_before_destructive_delete(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    addons = tmp_path / "instance" / "config" / "addons"
+    _write_config(config_path)
+    removed = _create_addon_dir(addons, "Remove_token=raw-secret_AAAAAAAAAAAAAAAA")
+    manifest_root = tmp_path / "instance" / "backups" / "mod-cleanup"
+    real_rmtree = addon_cleanup.shutil.rmtree
+    observed: dict[str, str] = {}
+
+    def observing_rmtree(path: Path) -> None:
+        manifests = list(manifest_root.glob("*.json"))
+        assert len(manifests) == 1
+        payload = json.loads(manifests[0].read_text(encoding="utf-8"))
+        assert payload["status"] == "planned"
+        assert payload["planned_operations"]["delete_addon_dirs"] == 1
+        observed["manifest_name"] = manifests[0].name
+        real_rmtree(path)
+
+    monkeypatch.setattr(addon_cleanup.shutil, "rmtree", observing_rmtree)
+
+    result = cleanup_addons_by_mod_ids(
+        config_path,
+        {"aaaaaaaaaaaaaaaa"},
+        affected_mods=[
+            {"modId": "AAAAAAAAAAAAAAAA", "name": "Remove token=raw-mod-secret"}
+        ],
+    )
+
+    assert result.manifest is not None
+    assert observed["manifest_name"] == result.manifest.name
+    assert result.manifest.status == "completed"
+    assert result.manifest.planned_delete_count == 1
+    assert result.manifest.completed_delete_count == 1
+    assert not removed.exists()
+    payload_text = (manifest_root / result.manifest.name).read_text(encoding="utf-8")
+    payload = json.loads(payload_text)
+    assert payload["status"] == "completed"
+    assert payload["result"]["deleted_count"] == 1
+    assert payload["affected_mods"][0]["modId"] == "AAAAAAAAAAAAAAAA"
+    assert str(tmp_path) not in payload_text
+    assert "raw-secret" not in payload_text
+    assert "raw-mod-secret" not in payload_text
+
+
+def test_cleanup_manifest_records_partial_failure_without_raw_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    addons = tmp_path / "instance" / "config" / "addons"
+    _write_config(config_path)
+    first = _create_addon_dir(addons, "First_AAAAAAAAAAAAAAAA")
+    second = _create_addon_dir(addons, "Second_token=raw-secret_BBBBBBBBBBBBBBBB")
+    real_rmtree = addon_cleanup.shutil.rmtree
+
+    def flaky_rmtree(path: Path) -> None:
+        if Path(path).name.startswith("Second"):
+            raise OSError("permission denied /home/deus/private token=raw-delete-secret")
+        real_rmtree(path)
+
+    monkeypatch.setattr(addon_cleanup.shutil, "rmtree", flaky_rmtree)
+
+    result = cleanup_unconfigured_addons(config_path)
+
+    assert result.manifest is not None
+    assert result.manifest.status == "partial"
+    assert result.manifest.completed_delete_count == 1
+    assert result.manifest.failed_delete_count == 1
+    assert result.deleted == [first.resolve()]
+    assert not first.exists()
+    assert second.exists()
+    manifest_path = tmp_path / "instance" / "backups" / "mod-cleanup" / result.manifest.name
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+    manifest = json.loads(manifest_text)
+    assert manifest["status"] == "partial"
+    assert manifest["result"]["deleted_count"] == 1
+    assert manifest["result"]["failed_count"] == 1
+    assert manifest["errors_suppressed"] is True
+    assert str(tmp_path) not in manifest_text
+    assert "/home/deus/private" not in manifest_text
+    assert "raw-secret" not in manifest_text
+    assert "raw-delete-secret" not in manifest_text
+
+
 def test_cleanup_by_mod_ids_skips_invalid_target_ids(tmp_path: Path) -> None:
     config_path = tmp_path / "instance" / "config" / "config.json"
     addons = tmp_path / "instance" / "config" / "addons"

@@ -12,7 +12,7 @@ from armactl import discovery, mods_manager, paths
 from armactl.addon_cleanup import CleanupResult, cleanup_unconfigured_addons
 from armactl.config_manager import ConfigError
 from armactl.redaction import redact_sensitive_text
-from armactl.web.services import pending_work
+from armactl.web.services import mutation_recovery, pending_work
 from armactl.web.services.audit import AuditLogError, append_audit_event
 
 ACTION_ADD = "mod.add"
@@ -54,6 +54,10 @@ MAX_CLEANUP_SUMMARY_ENTRIES = 8
 MOD_PARTIAL_FAILURE_MESSAGE = (
     "Mod action did not complete cleanly after changing mod state. "
     "Review the current mod list and pending restart work before retrying."
+)
+MOD_CLEANUP_PARTIAL_FAILURE_MESSAGE = (
+    "Mod cleanup did not complete cleanly after changing addon files. "
+    "Review the cleanup recovery manifest before retrying."
 )
 MOD_UNEXPECTED_FAILURE_MESSAGE = "Mod action failed before completing."
 
@@ -307,7 +311,95 @@ def _cleanup_result_details(cleanup: CleanupResult) -> dict[str, object]:
         "cleanup_skipped_count": str(len(cleanup.skipped)),
         "cleanup_error_count": str(len(cleanup.errors)),
         "cleanup_freed": cleanup.freed_display,
+        **_cleanup_manifest_details(cleanup),
     }
+
+
+def _cleanup_manifest_details(cleanup: CleanupResult) -> dict[str, object]:
+    manifests = cleanup.manifests
+    if not manifests:
+        return {}
+    return {
+        "cleanup_recovery_handles": [manifest.name for manifest in manifests],
+        "cleanup_manifest_count": str(len(manifests)),
+        "cleanup_manifest_planned_delete_count": str(
+            sum(manifest.planned_delete_count for manifest in manifests)
+        ),
+        "cleanup_manifest_deleted_count": str(
+            sum(manifest.completed_delete_count for manifest in manifests)
+        ),
+        "cleanup_manifest_failed_count": str(
+            sum(manifest.failed_delete_count for manifest in manifests)
+        ),
+        "cleanup_manifest_skipped_count": str(
+            sum(manifest.skipped_count for manifest in manifests)
+        ),
+    }
+
+
+def _cleanup_recovery_note(cleanup: CleanupResult | None) -> str:
+    if cleanup is None or not cleanup.manifests:
+        return ""
+    handles = [manifest.name for manifest in cleanup.manifests]
+    if len(handles) == 1:
+        return f"Recovery manifest: {handles[0]}."
+    shown = ", ".join(handles[:3])
+    omitted = len(handles) - 3
+    if omitted > 0:
+        return f"Recovery manifests: {shown}; {omitted} more."
+    return f"Recovery manifests: {shown}."
+
+
+def _with_cleanup_recovery_note(message: str, cleanup: CleanupResult | None) -> str:
+    note = _cleanup_recovery_note(cleanup)
+    return f"{message} {note}" if note else message
+
+
+def _cleanup_error_count(cleanup: CleanupResult | None) -> int:
+    return len(cleanup.errors) if cleanup is not None else 0
+
+
+def _cleanup_partial_message(prefix: str, cleanup: CleanupResult | None) -> str:
+    errors = _cleanup_error_count(cleanup)
+    message = f"{prefix}, but addon cleanup reported {errors} error(s)."
+    return _with_cleanup_recovery_note(message, cleanup)
+
+
+def _cleanup_partial_exception_result(
+    *,
+    action: str,
+    instance: str,
+    target: str,
+    error: mods_manager.ModCleanupPartialError,
+) -> ModActionResult:
+    cleanup = error.cleanup_result
+    details: dict[str, object] = {
+        "backend_error_class": _safe_text(error.__class__.__name__, max_length=80),
+        **_cleanup_result_details(cleanup),
+    }
+    recovery_note = _cleanup_recovery_note(cleanup)
+    if recovery_note:
+        details["recovery"] = recovery_note.rstrip(".")
+    if error.restart_required:
+        details["pending_details"] = _safe_text(target)
+
+    return ModActionResult(
+        action=action,
+        instance=instance,
+        target=_safe_text(target),
+        success=False,
+        changed=error.changed,
+        message=(
+            MOD_CLEANUP_PARTIAL_FAILURE_MESSAGE
+            if error.changed
+            else MOD_UNEXPECTED_FAILURE_MESSAGE
+        ),
+        exit_code=1,
+        restart_required=error.restart_required,
+        backend_success=False,
+        backend_message="Addon cleanup did not complete cleanly.",
+        details=details,
+    )
 
 
 def _safe_cleanup_entry_name(path: Path) -> str:
@@ -514,6 +606,13 @@ def import_mod_pack(
             data_root=data_root,
             append=append,
         )
+    except mods_manager.ModCleanupPartialError as error:
+        return _cleanup_partial_exception_result(
+            action=ACTION_IMPORT,
+            instance=normalized_instance,
+            target="mod pack import",
+            error=error,
+        )
     except (ModActionError, ConfigError, OSError) as error:
         return _failure(
             action=ACTION_IMPORT,
@@ -523,17 +622,22 @@ def import_mod_pack(
         )
 
     target = f"{normalized_mode} import"
+    cleanup = update_result.cleanup_result
+    cleanup_errors = _cleanup_error_count(cleanup)
+    success = cleanup_errors == 0
     return _result(
         action=ACTION_IMPORT,
         instance=normalized_instance,
         target=target,
-        success=True,
+        success=success,
         changed=update_result.config_changed,
         message=(
             f"Import {normalized_mode} complete: "
             f"added {added_count}, skipped {skipped_count}."
+            if success
+            else _cleanup_partial_message(f"Import {normalized_mode} changed mod state", cleanup)
         ),
-        exit_code=0,
+        exit_code=0 if success else 1,
         details={
             **_import_details(
                 mode=normalized_mode,
@@ -618,6 +722,7 @@ def _addon_cleanup_details(
         details["cleanup_error_summary"] = (
             "Path-specific cleanup errors were suppressed from web output."
         )
+    details.update(_cleanup_manifest_details(cleanup))
     return details
 
 
@@ -639,14 +744,29 @@ def _addon_cleanup_message(cleanup: CleanupResult, *, dry_run: bool) -> tuple[bo
     if errors and found:
         return (
             False,
-            f"Cleanup completed with {errors} error(s); deleted {found} addon {entry_word}, "
-            f"freed {cleanup.freed_display}.",
+            _with_cleanup_recovery_note(
+                f"Cleanup completed with {errors} error(s); deleted {found} addon "
+                f"{entry_word}, freed {cleanup.freed_display}.",
+                cleanup,
+            ),
         )
     if errors:
-        return False, f"Cleanup failed with {errors} error(s); no addon files were deleted."
+        return (
+            False,
+            _with_cleanup_recovery_note(
+                f"Cleanup failed with {errors} error(s); no addon files were deleted.",
+                cleanup,
+            ),
+        )
     if found == 0:
         return True, "No unused addon files found."
-    return True, f"Deleted {found} unused addon {entry_word}, freed {cleanup.freed_display}."
+    return (
+        True,
+        _with_cleanup_recovery_note(
+            f"Deleted {found} unused addon {entry_word}, freed {cleanup.freed_display}.",
+            cleanup,
+        ),
+    )
 
 
 def _run_unused_addon_cleanup(
@@ -657,7 +777,11 @@ def _run_unused_addon_cleanup(
     normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
     try:
         config_path = _config_path(normalized_instance)
-        cleanup = cleanup_unconfigured_addons(config_path, dry_run=dry_run)
+        cleanup = cleanup_unconfigured_addons(
+            config_path,
+            dry_run=dry_run,
+            manifest_instance=normalized_instance,
+        )
     except (ModActionError, ConfigError, OSError, TypeError, ValueError):
         return _failure(
             action=ACTION_CLEANUP_CHECK if dry_run else ACTION_CLEANUP,
@@ -898,7 +1022,18 @@ def remove_mod(
             reference,
             _existing_mod_name(config_path, reference),
         )
-        result = mods_manager.remove_mod_detailed(config_path, reference)
+        result = mods_manager.remove_mod_detailed(
+            config_path,
+            reference,
+            manifest_instance=normalized_instance,
+        )
+    except mods_manager.ModCleanupPartialError as error:
+        return _cleanup_partial_exception_result(
+            action=ACTION_REMOVE,
+            instance=normalized_instance,
+            target=mod_id,
+            error=error,
+        )
     except (ModActionError, ConfigError) as error:
         return _failure(
             action=ACTION_REMOVE,
@@ -907,14 +1042,22 @@ def remove_mod(
             message=error,
         )
 
+    cleanup = result.cleanup_result
+    cleanup_errors = _cleanup_error_count(cleanup)
+    success = cleanup_errors == 0
+    if result.config_changed and not success:
+        message = _cleanup_partial_message("Mod removed", cleanup)
+    else:
+        message = "Mod removed." if result.config_changed else "Mod was unchanged."
+
     return _result(
         action=ACTION_REMOVE,
         instance=normalized_instance,
         target=reference,
-        success=True,
+        success=success,
         changed=result.config_changed,
-        message="Mod removed." if result.config_changed else "Mod was unchanged.",
-        exit_code=0,
+        message=message,
+        exit_code=0 if success else 1,
         details={"mod_label": target_label, **_cleanup_details(result)},
     )
 
@@ -1058,7 +1201,7 @@ def _mark_restart_pending_for_mod_result(
     username: str,
     baseline_fingerprint: str = "",
 ) -> ModActionResult:
-    if db_path is None or not result.changed:
+    if db_path is None or not result.changed or not result.restart_required:
         return result
     pending_details = _pending_mod_details(result)
     current_fingerprint = ""
@@ -1069,35 +1212,21 @@ def _mark_restart_pending_for_mod_result(
             )
         except ModActionError:
             current_fingerprint = ""
-    try:
-        if baseline_fingerprint and current_fingerprint:
-            write_result = pending_work.mark_restart_pending_for_state(
-                db_path,
-                instance=result.instance,
-                kind=pending_work.KIND_MODS,
-                source_action=result.action,
-                username=username,
-                details=pending_details,
-                baseline_fingerprint=baseline_fingerprint,
-                current_fingerprint=current_fingerprint,
-            )
-        else:
-            write_result = pending_work.mark_restart_pending_for_service(
-                db_path,
-                instance=result.instance,
-                kind=pending_work.KIND_MODS,
-                source_action=result.action,
-                username=username,
-                details=pending_details,
-            )
-    except Exception:  # noqa: BLE001 - best-effort fallback is safer post-mutation.
-        return _mark_restart_pending_fallback_for_mod_result(
-            result,
+
+    write_result = mutation_recovery.mark_restart_pending_for_mutation(
+        mutation_recovery.RestartPendingRecovery(
             db_path=db_path,
+            instance=result.instance,
+            kind=pending_work.KIND_MODS,
+            source_action=result.action,
+            source_path="/mods",
+            title="Mod changes",
             username=username,
+            details=pending_details,
             baseline_fingerprint=baseline_fingerprint,
             current_fingerprint=current_fingerprint,
         )
+    )
     return replace(
         result,
         pending_work_warning=write_result.warning,
@@ -1141,28 +1270,52 @@ def _run_mod_workflow_and_audit(
     try:
         result = workflow()
     except Exception as exc:  # noqa: BLE001 - report controlled partial mutation state.
-        changed_after_failure = False
+        state_changed_after_failure = False
         if baseline_fingerprint and baseline_config_path is not None:
             try:
                 current_fingerprint = _mods_restart_fingerprint(baseline_config_path)
             except Exception:  # noqa: BLE001 - diagnostics must stay controlled.
                 current_fingerprint = ""
-            changed_after_failure = bool(
+            state_changed_after_failure = bool(
                 current_fingerprint and current_fingerprint != baseline_fingerprint
             )
+
+        cleanup = getattr(exc, "cleanup_result", None)
+        cleanup_changed_after_failure = isinstance(cleanup, CleanupResult) and bool(
+            cleanup.deleted
+        )
+        restart_required_after_failure = bool(
+            state_changed_after_failure or getattr(exc, "restart_required", False)
+        )
+        changed_after_failure = bool(
+            state_changed_after_failure
+            or cleanup_changed_after_failure
+            or getattr(exc, "changed", False)
+        )
 
         details: dict[str, object] = {
             "backend_error_class": _safe_text(exc.__class__.__name__, max_length=80),
         }
-        if changed_after_failure:
+        if isinstance(cleanup, CleanupResult):
+            details.update(_cleanup_result_details(cleanup))
+            recovery_note = _cleanup_recovery_note(cleanup)
+            if recovery_note:
+                details["recovery"] = recovery_note.rstrip(".")
+        if restart_required_after_failure:
             details.update(
                 {
                     "pending_details": safe_target,
-                    "recovery": (
-                        "Review the current mod list and pending restart work before retrying."
-                    ),
+                    "recovery": details.get("recovery")
+                    or "Review the current mod list and pending restart work before retrying.",
                 }
             )
+
+        if restart_required_after_failure:
+            message = MOD_PARTIAL_FAILURE_MESSAGE
+        elif cleanup_changed_after_failure:
+            message = MOD_CLEANUP_PARTIAL_FAILURE_MESSAGE
+        else:
+            message = MOD_UNEXPECTED_FAILURE_MESSAGE
 
         result = ModActionResult(
             action=action,
@@ -1170,12 +1323,9 @@ def _run_mod_workflow_and_audit(
             target=safe_target,
             success=False,
             changed=changed_after_failure,
-            message=(
-                MOD_PARTIAL_FAILURE_MESSAGE
-                if changed_after_failure
-                else MOD_UNEXPECTED_FAILURE_MESSAGE
-            ),
+            message=message,
             exit_code=1,
+            restart_required=restart_required_after_failure,
             backend_success=False,
             backend_message="Unexpected backend error.",
             details=details,
