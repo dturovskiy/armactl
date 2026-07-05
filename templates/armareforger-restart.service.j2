@@ -5,6 +5,6 @@ After=network-online.target
 [Service]
 Type=oneshot
 ExecStart={{ restart_helper }} {{ service_name }}
-TimeoutStartSec=6min
+TimeoutStartSec={{ restart_timing.restart_unit_timeout_start_sec }}
 StandardOutput=journal
 StandardError=journal

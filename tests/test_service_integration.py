@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import armactl.i18n as i18n
 import armactl.service_manager as service_manager
+from armactl.restart_timing import RESTART_TIMING
 
 
 def test_generate_services_writes_expected_units_and_restarts_timer(tmp_path: Path) -> None:
@@ -80,6 +81,9 @@ def test_generate_services_writes_expected_units_and_restarts_timer(tmp_path: Pa
     assert "MemoryAccounting=yes" in service_text
     assert f"ExecStart={helper_path} armareforger@alpha.service" in restart_service_text
     assert "/usr/bin/systemctl restart armareforger@alpha.service" not in restart_service_text
+    assert (
+        f"TimeoutStartSec={RESTART_TIMING.restart_unit_timeout_start_sec}" in restart_service_text
+    )
     assert installed_modes[helper_path] == "0755"
     assert installed_modes[restart_service_path] == "0644"
     assert "SIGKILL" in helper_text

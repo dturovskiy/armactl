@@ -5,6 +5,7 @@ from subprocess import CompletedProcess, TimeoutExpired
 from unittest.mock import patch
 
 from armactl import paths
+from armactl.restart_timing import RESTART_TIMING
 from armactl.sat_admin_guard import SatAdminGuardError
 from armactl.service_manager import (
     ServiceResult,
@@ -78,6 +79,21 @@ def test_unit_name_helpers_reject_unsafe_instance_names() -> None:
         except paths.InvalidInstanceNameError:
             continue
         raise AssertionError(f"{helper.__name__} should reject unsafe instance names")
+
+
+def test_restart_timing_contract_keeps_helper_unit_and_caller_guards_aligned() -> None:
+    """Restart helper, systemd unit, and caller guard must share one contract."""
+    assert RESTART_TIMING.helper_state_window_seconds == (
+        RESTART_TIMING.stop_grace_seconds
+        + RESTART_TIMING.post_kill_grace_seconds
+        + RESTART_TIMING.start_grace_seconds
+        + RESTART_TIMING.stability_check_seconds
+    )
+    assert (
+        RESTART_TIMING.restart_unit_timeout_seconds
+        >= RESTART_TIMING.helper_worst_case_window_seconds
+    )
+    assert RESTART_TIMING.caller_timeout_seconds > RESTART_TIMING.restart_unit_timeout_seconds
 
 
 def test_get_timer_status_falls_back_to_timer_file_schedule(tmp_path: Path) -> None:
@@ -205,10 +221,13 @@ def test_render_safe_restart_helper_is_bounded_to_armareforger_services() -> Non
     helper = _render_safe_restart_helper_script()
 
     compile(helper, "armactl-safe-restart", "exec")
-    assert "STOP_GRACE_SECONDS = 95" in helper
-    assert "POST_KILL_GRACE_SECONDS = 25" in helper
-    assert "START_GRACE_SECONDS = 180" in helper
-    assert "STABLE_SECONDS = 30" in helper
+    namespace: dict[str, object] = {"__name__": "armactl_safe_restart_test"}
+    exec(compile(helper, "armactl-safe-restart", "exec"), namespace)
+    assert namespace["STOP_GRACE_SECONDS"] == RESTART_TIMING.stop_grace_seconds
+    assert namespace["POST_KILL_GRACE_SECONDS"] == RESTART_TIMING.post_kill_grace_seconds
+    assert namespace["START_GRACE_SECONDS"] == RESTART_TIMING.start_grace_seconds
+    assert namespace["STABLE_SECONDS"] == RESTART_TIMING.stability_check_seconds
+    assert namespace["POLL_SECONDS"] == RESTART_TIMING.poll_seconds
     assert '"kill", "--kill-who=all", "--signal=SIGKILL", unit' in helper
     assert 'ALLOWED_UNIT_RE = re.compile(r"^armareforger' in helper
     assert "armactl-web.service" not in helper
@@ -341,7 +360,7 @@ def test_restart_service_uses_bounded_restart_helper_unit(tmp_path: Path) -> Non
     systemctl_mock.assert_called_once_with(
         "start",
         "armareforger-restart.service",
-        timeout_seconds=420,
+        timeout_seconds=RESTART_TIMING.caller_timeout_seconds,
     )
 
 
@@ -364,7 +383,7 @@ def test_restart_service_uses_instance_bounded_restart_helper_unit(tmp_path: Pat
     systemctl_mock.assert_called_once_with(
         "start",
         "armareforger-restart@alpha.service",
-        timeout_seconds=420,
+        timeout_seconds=RESTART_TIMING.caller_timeout_seconds,
     )
 
 

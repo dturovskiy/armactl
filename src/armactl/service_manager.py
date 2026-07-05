@@ -22,6 +22,7 @@ from jinja2 import Environment, FileSystemLoader
 from armactl import paths
 from armactl.i18n import _, tr
 from armactl.redaction import redact_sensitive_text, safe_subprocess_error
+from armactl.restart_timing import RESTART_TIMING
 
 TIME_ONLY_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 DAILY_TIME_RE = re.compile(r"^\*-\*-\* (\d{1,2}:\d{2}:\d{2})$")
@@ -35,11 +36,6 @@ RESTART_INSTANCE_SERVICE_RE = re.compile(
     r"^armareforger-restart@([A-Za-z0-9_.-]+)\.service$"
 )
 SYSTEMCTL_TIMEOUT_SECONDS = 30
-# The restart helper owns the bounded stop/kill/start/stability window, and its
-# systemd unit is allowed to run for 6 minutes. Keep the caller above that window
-# so UI/CLI callers do not report a false timeout while the helper is still
-# safely killing an old process or waiting for server stability.
-RESTART_HELPER_SYSTEMCTL_TIMEOUT_SECONDS = 420
 
 
 @dataclass
@@ -454,6 +450,7 @@ def _render_safe_restart_helper_script() -> str:
     """Render the root-owned bounded restart helper script text."""
     env = _template_environment()
     rendered = env.get_template("armactl-safe-restart.py.j2").render(
+        restart_timing=RESTART_TIMING,
         systemctl_bin=_resolve_systemctl_binary(),
     )
     return _normalize_generated_text(rendered)
@@ -759,7 +756,7 @@ def restart_service(service_name: str = "armareforger.service") -> ServiceResult
         return _run_systemctl(
             "start",
             restart_unit,
-            timeout_seconds=RESTART_HELPER_SYSTEMCTL_TIMEOUT_SECONDS,
+            timeout_seconds=RESTART_TIMING.caller_timeout_seconds,
         )
     return _run_systemctl("restart", service_name)
 
@@ -1176,6 +1173,7 @@ def generate_services(
         safe_restart_helper_render = _render_safe_restart_helper_script()
         restart_service_render = env.get_template("armareforger-restart.service.j2").render(
             instance=instance,
+            restart_timing=RESTART_TIMING,
             service_name=service_name,
             restart_helper=str(safe_restart_helper_path),
         )
