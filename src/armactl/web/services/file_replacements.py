@@ -14,7 +14,7 @@ from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 
 from armactl import paths
-from armactl.web.services import config_edit, pending_work
+from armactl.web.services import config_edit, mutation_recovery, pending_work
 from armactl.web.services.audit import AuditLogError, append_audit_event
 from armactl.web.services.filesystem_errors import (
     FileBrowserError,
@@ -549,20 +549,21 @@ def _mark_restart_pending_for_replacement(
     username: str,
     instance: str,
 ) -> pending_work.PendingWorkWriteResult:
-    if db_path is None or not staged.validation.requires_restart:
-        return pending_work.PendingWorkWriteResult()
     details = ", ".join(staged.validation.changed_fields) or staged.relative_path
-    return pending_work.mark_restart_pending_for_state(
-        db_path,
-        instance=instance,
-        kind=pending_work.KIND_CONFIG,
-        source_action=FILE_REPLACE_ACTION,
-        source_path="/files/config",
-        title="Config/profile file changes",
-        username=username,
-        details=details,
-        baseline_fingerprint=staged.validation.baseline_fingerprint,
-        current_fingerprint=staged.validation.current_fingerprint,
+    return mutation_recovery.mark_restart_pending_for_mutation(
+        mutation_recovery.RestartPendingRecovery(
+            db_path=db_path,
+            instance=instance,
+            kind=pending_work.KIND_CONFIG,
+            source_action=FILE_REPLACE_ACTION,
+            source_path="/files/config",
+            title="Config/profile file changes",
+            username=username,
+            details=details,
+            baseline_fingerprint=staged.validation.baseline_fingerprint,
+            current_fingerprint=staged.validation.current_fingerprint,
+            required=staged.validation.requires_restart,
+        )
     )
 
 

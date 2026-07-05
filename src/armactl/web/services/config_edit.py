@@ -26,7 +26,7 @@ from armactl.server_config_schema import (
 from armactl.server_config_schema import (
     set_nested_value as schema_set_nested_value,
 )
-from armactl.web.services import pending_work
+from armactl.web.services import mutation_recovery, pending_work
 from armactl.web.services.audit import AuditLogError, append_audit_event
 
 
@@ -541,9 +541,9 @@ def _mark_restart_pending_for_config_result(
     details = ", ".join(result.changed_fields)
     if len(details) > 500:
         details = details[:497].rstrip() + "..."
-    if baseline_fingerprint and current_fingerprint:
-        write_result = pending_work.mark_restart_pending_for_state(
-            db_path,
+    write_result = mutation_recovery.mark_restart_pending_for_mutation(
+        mutation_recovery.RestartPendingRecovery(
+            db_path=db_path,
             instance=instance,
             kind=pending_work.KIND_CONFIG,
             source_action=CONFIG_SAVE_ACTION,
@@ -552,15 +552,7 @@ def _mark_restart_pending_for_config_result(
             baseline_fingerprint=baseline_fingerprint,
             current_fingerprint=current_fingerprint,
         )
-    else:
-        write_result = pending_work.mark_restart_pending_for_service(
-            db_path,
-            instance=instance,
-            kind=pending_work.KIND_CONFIG,
-            source_action=CONFIG_SAVE_ACTION,
-            username=username,
-            details=details,
-        )
+    )
     return replace(
         result,
         pending_work_warning=write_result.warning,

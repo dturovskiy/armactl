@@ -1071,6 +1071,50 @@ def test_raw_config_edit_updates_advanced_field_preserves_secrets_and_tracks_pen
     assert "admin-password-secret" not in audit_text
 
 
+def test_raw_config_service_audit_failure_records_pending_marker(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import config_edit, pending_work
+    from armactl.web.services.audit import AuditLogError
+
+    original_config = _sample_config()
+    config_path = _write_config(tmp_path, deepcopy(original_config))
+    _patch_discovery(monkeypatch, config_path)
+    submitted = json.loads(config_edit.build_raw_config_editor_text(original_config))
+    submitted["game"]["gameProperties"]["networkViewDistance"] = 1800
+
+    def fail_outcome(*args, **kwargs):
+        if (kwargs.get("details") or {}).get("phase") == "outcome":
+            raise AuditLogError("disk full token=raw-audit-secret")
+
+    monkeypatch.setattr(config_edit, "append_audit_event", fail_outcome)
+
+    with pytest.raises(config_edit.ConfigAuditError) as error:
+        config_edit.save_default_raw_config_and_audit(
+            "default",
+            json.dumps(submitted),
+            audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+            username="owner",
+            db_path=tmp_path / "web" / "web.db",
+        )
+
+    assert str(error.value) == "Config saved but audit logging failed."
+    assert error.value.result.audit_written is False
+    updated = json.loads(config_path.read_text())
+    assert updated["game"]["gameProperties"]["networkViewDistance"] == 1800
+    item = pending_work.get_pending_work(
+        tmp_path / "web" / "web.db",
+        kind=pending_work.KIND_CONFIG,
+    )
+    assert item is not None
+    assert item.source_action == "config.save"
+    assert "game.gameProperties.networkViewDistance" in item.details
+    assert "raw-audit-secret" not in str(error.value)
+    assert "raw-rcon-secret" not in str(error.value)
+    assert "admin-password-secret" not in str(error.value)
+
+
 def test_raw_config_edit_rejects_secret_field_removal_without_backup(
     tmp_path: Path, monkeypatch
 ):
