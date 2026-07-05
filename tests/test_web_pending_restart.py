@@ -54,6 +54,36 @@ def test_pending_work_roundtrip(tmp_path: Path):
     assert loaded.resolution_action == RESOLUTION_RESTART_GAME_SERVER
 
 
+def test_pending_restart_legacy_adapter_roundtrip(tmp_path: Path):
+    from armactl.web.services import pending_restart
+
+    db_path = tmp_path / "web" / "web.db"
+
+    created = pending_restart.mark_pending_restart(
+        db_path,
+        reason=pending_restart.REASON_CONFIG,
+        source_action="config.save",
+        username="owner",
+        details="max_players",
+    )
+
+    loaded = pending_restart.get_pending_restart(db_path)
+
+    assert loaded == created
+    assert loaded is not None
+    assert loaded.instance == "default"
+    assert loaded.reason == pending_restart.REASON_CONFIG
+    assert loaded.reason_label == "Config changes"
+    assert loaded.source_action == "config.save"
+    assert loaded.details == "max_players"
+    assert loaded.created_by_username == "owner"
+    assert get_pending_work(db_path, kind=KIND_CONFIG) is not None
+
+    assert pending_restart.clear_pending_restart(db_path) is True
+    assert pending_restart.get_pending_restart(db_path) is None
+    assert get_pending_work(db_path, kind=KIND_CONFIG) is None
+
+
 def test_pending_work_stacks_categories_and_upserts_same_category(tmp_path: Path):
     db_path = tmp_path / "web" / "web.db"
     ensure_web_db(db_path)

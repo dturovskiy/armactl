@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import re
 import warnings
@@ -76,6 +77,31 @@ def test_file_adapter_import_does_not_import_tui_textual(
 ):
     forbidden = ("armactl.tui", "textual")
     assert_import_does_not_import_modules("armactl.web.services.filesystem", forbidden)
+
+
+def test_filesystem_legacy_facade_reexports_split_service_api():
+    filesystem = importlib.import_module("armactl.web.services.filesystem")
+    errors = importlib.import_module("armactl.web.services.filesystem_errors")
+    listing = importlib.import_module("armactl.web.services.filesystem_listing")
+    paths = importlib.import_module("armactl.web.services.filesystem_paths")
+    preview = importlib.import_module("armactl.web.services.filesystem_preview")
+    roots = importlib.import_module("armactl.web.services.filesystem_roots")
+    transfer = importlib.import_module("armactl.web.services.filesystem_transfer")
+    replacements = importlib.import_module("armactl.web.services.file_replacements")
+
+    assert filesystem.FileBrowserError is errors.FileBrowserError
+    assert filesystem.DirectoryListing is listing.DirectoryListing
+    assert filesystem.FileMetadata is listing.FileMetadata
+    assert filesystem.list_directory is listing.list_directory
+    assert filesystem.ResolvedBrowserPath is paths.ResolvedBrowserPath
+    assert filesystem.resolve_browser_path is paths.resolve_browser_path
+    assert filesystem.FilePreview is preview.FilePreview
+    assert filesystem.preview_text_file is preview.preview_text_file
+    assert filesystem.FileRoot is roots.FileRoot
+    assert filesystem.list_allowed_roots is roots.list_allowed_roots
+    assert filesystem.DownloadFile is transfer.DownloadFile
+    assert filesystem.upload_file is transfer.upload_file
+    assert filesystem.replace_file_and_audit is replacements.replace_file_and_audit
 
 
 def test_files_route_import_does_not_import_tui_textual(

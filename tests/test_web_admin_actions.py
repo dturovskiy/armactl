@@ -504,6 +504,61 @@ def test_admin_service_pending_db_failure_writes_fallback_and_warns(
     ).read_text(encoding="utf-8")
 
 
+def test_admin_service_pending_total_failure_is_controlled(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import admin_actions, pending_work
+
+    config_path = _write_admin_config(tmp_path, [])
+    monkeypatch.setattr(
+        admin_actions.discovery,
+        'discover',
+        lambda instance, save=False: _state(config_path),
+    )
+
+    def add_admin(path: Path, admin_reference: str, name: str = '') -> bool:
+        payload = json.loads(config_path.read_text(encoding='utf-8'))
+        payload['game']['admins'] = [admin_reference]
+        config_path.write_text(json.dumps(payload), encoding='utf-8')
+        return True
+
+    def fail_pending_state(*args, **kwargs):
+        raise RuntimeError('pending failed /raw/path token=raw-pending-secret')
+
+    def fail_fallback(*args, **kwargs):
+        raise OSError('fallback failed token=raw-fallback-secret')
+
+    monkeypatch.setattr(admin_actions.admins_manager, 'add_admin', add_admin)
+    monkeypatch.setattr(pending_work, 'mark_restart_pending_for_state', fail_pending_state)
+    monkeypatch.setattr(pending_work, 'mark_restart_pending_fallback', fail_fallback)
+
+    result = admin_actions.run_admin_action_and_audit(
+        admin_actions.ACTION_ADD,
+        instance='default',
+        admin_reference='ABCDEF1234567890',
+        label='Captain token=raw-admin-secret',
+        audit_log_path=tmp_path / 'logs' / 'web' / 'audit.log',
+        username='owner',
+        db_path=tmp_path / 'web' / 'web.db',
+    )
+
+    assert result.success is True
+    assert result.pending_work_warning == ''
+    assert result.pending_work_error == pending_work.PENDING_WORK_STORAGE_FAILED_MESSAGE
+    combined_result_text = ' '.join(
+        [result.message, result.pending_work_warning, result.pending_work_error]
+    )
+    assert 'raw-pending-secret' not in combined_result_text
+    assert 'raw-fallback-secret' not in combined_result_text
+    assert 'raw-admin-secret' not in combined_result_text
+    assert '/raw/path' not in combined_result_text
+    assert json.loads(config_path.read_text(encoding='utf-8'))['game']['admins'] == [
+        'ABCDEF1234567890'
+    ]
+    assert pending_work.list_fallback_pending_work(tmp_path / 'web' / 'web.db') == []
+
+
 def test_admins_pending_warning_from_service_is_rendered(
     tmp_path: Path,
     monkeypatch,

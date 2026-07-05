@@ -2880,6 +2880,49 @@ def test_players_refresh_route_queues_background_job_and_notice(
     assert not (tmp_path / "default" / "players.db").exists()
 
 
+def test_players_refresh_legacy_alias_queues_current_refresh_job_and_notice(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import list_recent_jobs, player_current
+
+    setup_owner_user(tmp_path, "owner", "owner players password")
+    started_jobs: list[int] = []
+    monkeypatch.setattr(
+        player_current,
+        "start_player_current_refresh_worker",
+        lambda db_path, job_id: started_jobs.append(job_id),
+    )
+    app = create_app(data_root=tmp_path)
+    client = _client(app)
+    _login(client, "owner", "owner players password")
+    page = client.get("/players", follow_redirects=False)
+    csrf_token = _form_token(page.text)
+
+    response = client.post(
+        "/players/refresh",
+        data={"csrf_token": csrf_token, "raw_path": str(tmp_path / "secret.log")},
+        follow_redirects=False,
+    )
+
+    jobs = list_recent_jobs(tmp_path / "web" / "web.db")
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/players?refresh_current=queued")
+    assert jobs[0].kind == player_current.PLAYER_CURRENT_REFRESH_JOB_KIND
+    assert started_jobs == [jobs[0].id]
+    notice_page = client.get(response.headers["location"], follow_redirects=False)
+
+    assert notice_page.status_code == 200
+    assert "notice-success" in notice_page.text
+    assert "Current player refresh queued." in notice_page.text
+    assert "href=" in notice_page.text
+    assert "/jobs" in notice_page.text
+    assert str(tmp_path / "secret.log") not in notice_page.text
+    assert not (tmp_path / "default" / "players.db").exists()
+
+
 def test_players_refresh_intent_audit_failure_aborts_roster_load_and_registry_write(
     tmp_path: Path,
     monkeypatch,

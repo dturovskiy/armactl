@@ -1162,38 +1162,6 @@ def _pending_mod_details(result: ModActionResult) -> str:
     )
 
 
-def _mark_restart_pending_fallback_for_mod_result(
-    result: ModActionResult,
-    *,
-    db_path: Path,
-    username: str,
-    baseline_fingerprint: str = "",
-    current_fingerprint: str = "",
-) -> ModActionResult:
-    try:
-        pending_work.mark_restart_pending_fallback(
-            db_path,
-            instance=result.instance,
-            kind=pending_work.KIND_MODS,
-            source_action=result.action,
-            username=username,
-            details=_pending_mod_details(result),
-            baseline_fingerprint=baseline_fingerprint,
-            current_fingerprint=current_fingerprint,
-        )
-    except Exception:  # noqa: BLE001 - both pending stores failed after mutation.
-        return replace(
-            result,
-            pending_work_warning="",
-            pending_work_error=pending_work.PENDING_WORK_STORAGE_FAILED_MESSAGE,
-        )
-    return replace(
-        result,
-        pending_work_warning=pending_work.PENDING_WORK_FALLBACK_WARNING,
-        pending_work_error="",
-    )
-
-
 def _mark_restart_pending_for_mod_result(
     result: ModActionResult,
     *,

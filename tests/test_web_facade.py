@@ -44,6 +44,32 @@ def _import_bot_model():
     return importlib.import_module("armactl.web.page_models.bot")
 
 
+def test_legacy_web_facade_reexports_page_model_api():
+    legacy_facade = importlib.import_module("armactl.web.facade")
+    common_model = _import_common_model()
+    dashboard_model = _import_dashboard_model()
+    config_model = _import_config_model()
+    mods_model = _import_mods_model()
+    admins_model = _import_admins_model()
+    bot_model = _import_bot_model()
+
+    assert legacy_facade.DashboardError is common_model.DashboardError
+    assert legacy_facade.DashboardSnapshot is dashboard_model.DashboardSnapshot
+    assert (
+        legacy_facade.DASHBOARD_PLAYER_TIMEOUT_SECONDS
+        == dashboard_model.DASHBOARD_PLAYER_TIMEOUT_SECONDS
+    )
+    assert (
+        legacy_facade.DASHBOARD_ROSTER_TIMEOUT_SECONDS
+        == dashboard_model.DASHBOARD_ROSTER_TIMEOUT_SECONDS
+    )
+    assert legacy_facade.load_dashboard_snapshot is dashboard_model.load_dashboard_snapshot
+    assert legacy_facade.load_config_page is config_model.load_config_page
+    assert legacy_facade.load_mods_page is mods_model.load_mods_page
+    assert legacy_facade.load_admins_page is admins_model.load_admins_page
+    assert legacy_facade.load_bot_page is bot_model.load_bot_page
+
+
 def _state(
     *,
     installed: bool,

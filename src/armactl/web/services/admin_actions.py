@@ -9,7 +9,7 @@ from typing import Any
 from armactl import admins_manager, discovery, paths
 from armactl.config_manager import ConfigError
 from armactl.redaction import redact_sensitive_text
-from armactl.web.services import pending_work
+from armactl.web.services import mutation_recovery, pending_work
 from armactl.web.services.audit import AuditLogError, append_audit_event
 
 ACTION_ADD = "admin.add"
@@ -363,39 +363,6 @@ def audit_admin_action_result(
     return result
 
 
-def _mark_restart_pending_fallback_for_admin_result(
-    result: AdminActionResult,
-    *,
-    db_path: Path,
-    username: str,
-    baseline_fingerprint: str = "",
-    current_fingerprint: str = "",
-    label: str = "",
-) -> AdminActionResult:
-    try:
-        pending_work.mark_restart_pending_fallback(
-            db_path,
-            instance=result.instance,
-            kind=pending_work.KIND_ADMINS,
-            source_action=result.action,
-            username=username,
-            details=_pending_admin_details(result, label),
-            baseline_fingerprint=baseline_fingerprint,
-            current_fingerprint=current_fingerprint,
-        )
-    except Exception:  # noqa: BLE001 - both pending stores failed after mutation.
-        return replace(
-            result,
-            pending_work_warning="",
-            pending_work_error=pending_work.PENDING_WORK_STORAGE_FAILED_MESSAGE,
-        )
-    return replace(
-        result,
-        pending_work_warning=pending_work.PENDING_WORK_FALLBACK_WARNING,
-        pending_work_error="",
-    )
-
-
 def _mark_restart_pending_for_admin_result(
     result: AdminActionResult,
     *,
@@ -414,36 +381,18 @@ def _mark_restart_pending_for_admin_result(
             )
         except AdminActionError:
             current_fingerprint = ""
-    try:
-        if baseline_fingerprint and current_fingerprint:
-            write_result = pending_work.mark_restart_pending_for_state(
-                db_path,
-                instance=result.instance,
-                kind=pending_work.KIND_ADMINS,
-                source_action=result.action,
-                username=username,
-                details=_pending_admin_details(result, label),
-                baseline_fingerprint=baseline_fingerprint,
-                current_fingerprint=current_fingerprint,
-            )
-        else:
-            write_result = pending_work.mark_restart_pending_for_service(
-                db_path,
-                instance=result.instance,
-                kind=pending_work.KIND_ADMINS,
-                source_action=result.action,
-                username=username,
-                details=_pending_admin_details(result, label),
-            )
-    except Exception:  # noqa: BLE001 - best-effort fallback is safer post-mutation.
-        return _mark_restart_pending_fallback_for_admin_result(
-            result,
+    write_result = mutation_recovery.mark_restart_pending_for_mutation(
+        mutation_recovery.RestartPendingRecovery(
             db_path=db_path,
+            instance=result.instance,
+            kind=pending_work.KIND_ADMINS,
+            source_action=result.action,
             username=username,
+            details=_pending_admin_details(result, label),
             baseline_fingerprint=baseline_fingerprint,
             current_fingerprint=current_fingerprint,
-            label=label,
         )
+    )
     return replace(
         result,
         pending_work_warning=write_result.warning,
