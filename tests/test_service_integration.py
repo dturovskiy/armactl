@@ -6,6 +6,7 @@ from unittest.mock import patch
 import armactl.i18n as i18n
 import armactl.service_manager as service_manager
 from armactl.restart_timing import RESTART_TIMING
+from armactl.runtime_settings import RuntimeSettingsError, normalize_max_fps_profile
 
 
 def test_generate_services_writes_expected_units_and_restarts_timer(tmp_path: Path) -> None:
@@ -225,3 +226,206 @@ exec "${SERVER_DIR}/ArmaReforgerServer" \
     assert '-profile "${CONFIG_DIR}"' in start_script_text
     assert "-logStats 10000" in start_script_text
     assert start_script_path.stat().st_mode & 0o777 == 0o755
+
+
+def test_render_start_script_defaults_to_60_max_fps(tmp_path: Path) -> None:
+    script = service_manager.render_start_script(
+        instance_root=tmp_path / "default",
+        server_dir=tmp_path / "default" / "server",
+        config_dir=tmp_path / "default" / "config",
+        config_file=tmp_path / "default" / "config" / "config.json",
+    )
+
+    assert "-maxFPS 60" in script
+
+
+def test_max_fps_profile_accepts_only_safe_values() -> None:
+    assert normalize_max_fps_profile(60) == 60
+    assert normalize_max_fps_profile("120") == 120
+    for value in (0, 30, 90, 144, "", "060", "120;rm", True):
+        try:
+            normalize_max_fps_profile(value)
+        except RuntimeSettingsError:
+            continue
+        raise AssertionError(f"{value!r} should be rejected")
+
+
+
+def test_update_max_fps_profile_persists_and_regenerates_120(tmp_path: Path) -> None:
+    instance = "alpha"
+    instance_root = tmp_path / "armactl-data" / instance
+    server_dir = instance_root / "server"
+    config_dir = instance_root / "config"
+    config_file = config_dir / "config.json"
+    start_script_path = instance_root / "start-armareforger.sh"
+    runtime_settings_path = instance_root / "runtime-settings.json"
+
+    server_dir.mkdir(parents=True)
+    config_dir.mkdir(parents=True)
+    config_file.write_text("{}", encoding="utf-8")
+    start_script_path.write_text("#!/usr/bin/env bash\n-maxFPS 60\n", encoding="utf-8")
+
+    with (
+        patch("armactl.service_manager.paths.server_dir", return_value=server_dir),
+        patch("armactl.service_manager.paths.config_dir", return_value=config_dir),
+        patch("armactl.service_manager.paths.config_file", return_value=config_file),
+        patch("armactl.service_manager.paths.start_script", return_value=start_script_path),
+        patch(
+            "armactl.service_manager.paths.runtime_settings_file",
+            return_value=runtime_settings_path,
+        ),
+        patch("armactl.service_manager.paths.backups_dir", return_value=instance_root / "backups"),
+        patch("armactl.service_manager.paths._containing_git_marker", return_value=None),
+    ):
+        result = service_manager.update_max_fps_profile(instance, 120)
+
+    assert result.success is True
+    assert "Max FPS profile set to 120" in result.message
+    assert "\"max_fps\": 120" in runtime_settings_path.read_text(encoding="utf-8")
+    assert "-maxFPS 120" in start_script_path.read_text(encoding="utf-8")
+    backups = list((instance_root / "backups").glob("start-armareforger.sh.*.bak"))
+    assert len(backups) == 1
+    assert "-maxFPS 60" in backups[0].read_text(encoding="utf-8")
+
+
+def test_sync_generated_preserves_configured_max_fps(tmp_path: Path) -> None:
+    instance = "alpha"
+    instance_root = tmp_path / "armactl-data" / instance
+    server_dir = instance_root / "server"
+    config_dir = instance_root / "config"
+    config_file = config_dir / "config.json"
+    start_script_path = instance_root / "start-armareforger.sh"
+    runtime_settings_path = instance_root / "runtime-settings.json"
+
+    server_dir.mkdir(parents=True)
+    config_dir.mkdir(parents=True)
+    config_file.write_text("{}", encoding="utf-8")
+    runtime_settings_path.write_text(
+        "{\"version\": 1, \"scope\": \"armactl-generated-runtime\", \"max_fps\": 120}\n",
+        encoding="utf-8",
+    )
+    start_script_path.write_text("#!/usr/bin/env bash\n-maxFPS 60\n", encoding="utf-8")
+
+    with (
+        patch("armactl.service_manager.paths.server_dir", return_value=server_dir),
+        patch("armactl.service_manager.paths.config_dir", return_value=config_dir),
+        patch("armactl.service_manager.paths.config_file", return_value=config_file),
+        patch("armactl.service_manager.paths.start_script", return_value=start_script_path),
+        patch(
+            "armactl.service_manager.paths.runtime_settings_file",
+            return_value=runtime_settings_path,
+        ),
+        patch("armactl.service_manager.paths.backups_dir", return_value=instance_root / "backups"),
+        patch("armactl.service_manager.paths._containing_git_marker", return_value=None),
+    ):
+        result = service_manager.sync_generated_start_script(instance)
+
+    assert result.success is True
+    assert "-maxFPS 120" in start_script_path.read_text(encoding="utf-8")
+
+
+def test_generate_services_preserves_configured_max_fps(tmp_path: Path) -> None:
+    instance = "alpha"
+    instance_root = tmp_path / "armactl-data" / instance
+    runtime_settings_path = instance_root / "runtime-settings.json"
+    systemd_dir = tmp_path / "systemd"
+    systemd_dir.mkdir(parents=True)
+    instance_root.mkdir(parents=True)
+    runtime_settings_path.write_text(
+        "{\"version\": 1, \"scope\": \"armactl-generated-runtime\", \"max_fps\": 120}\n",
+        encoding="utf-8",
+    )
+
+    def fake_install(
+        source: Path,
+        destination: Path,
+        *,
+        mode: str = "0644",
+    ) -> service_manager.ServiceResult:
+        return service_manager.ServiceResult(True, "installed", 0)
+
+    with (
+        patch("armactl.service_manager.paths.instance_root", return_value=instance_root),
+        patch(
+            "armactl.service_manager.paths.runtime_settings_file",
+            return_value=runtime_settings_path,
+        ),
+        patch("armactl.service_manager.paths.SYSTEMD_DIR", systemd_dir),
+        patch("armactl.service_manager.paths._containing_git_marker", return_value=None),
+        patch("armactl.service_manager.install_systemd_unit_file", side_effect=fake_install),
+        patch(
+            "armactl.service_manager.daemon_reload",
+            return_value=service_manager.ServiceResult(True, "ok"),
+        ),
+        patch(
+            "armactl.service_manager._run_systemctl",
+            return_value=service_manager.ServiceResult(True, "timer restarted"),
+        ),
+        patch.dict("os.environ", {"USER": "tester"}, clear=False),
+    ):
+        results = service_manager.generate_services(instance=instance)
+
+    assert all(result.success for result in results)
+    assert "-maxFPS 120" in (instance_root / "start-armareforger.sh").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_update_max_fps_profile_rolls_back_existing_settings_on_sync_failure(
+    tmp_path: Path,
+) -> None:
+    instance = "alpha"
+    instance_root = tmp_path / "armactl-data" / instance
+    runtime_settings_path = instance_root / "runtime-settings.json"
+    instance_root.mkdir(parents=True)
+    previous = (
+        b"{\"version\": 1, "
+        b"\"scope\": \"armactl-generated-runtime\", "
+        b"\"max_fps\": 60}\n"
+    )
+    runtime_settings_path.write_bytes(previous)
+    runtime_settings_path.chmod(0o600)
+
+    with (
+        patch(
+            "armactl.service_manager.paths.runtime_settings_file",
+            return_value=runtime_settings_path,
+        ),
+        patch(
+            "armactl.service_manager.sync_generated_start_script",
+            return_value=service_manager.ServiceResult(False, "/tmp/raw token=secret", 7),
+        ),
+    ):
+        result = service_manager.update_max_fps_profile(instance, 120)
+
+    assert result.success is False
+    assert result.exit_code == 7
+    assert runtime_settings_path.read_bytes() == previous
+    assert runtime_settings_path.stat().st_mode & 0o777 == 0o600
+    assert "/tmp/raw" not in result.message
+    assert "secret" not in result.message
+
+
+def test_update_max_fps_profile_removes_new_settings_on_sync_failure(
+    tmp_path: Path,
+) -> None:
+    instance = "alpha"
+    instance_root = tmp_path / "armactl-data" / instance
+    runtime_settings_path = instance_root / "runtime-settings.json"
+    instance_root.mkdir(parents=True)
+
+    with (
+        patch(
+            "armactl.service_manager.paths.runtime_settings_file",
+            return_value=runtime_settings_path,
+        ),
+        patch(
+            "armactl.service_manager.sync_generated_start_script",
+            return_value=service_manager.ServiceResult(False, "failed", 9),
+        ),
+    ):
+        result = service_manager.update_max_fps_profile(instance, 120)
+
+    assert result.success is False
+    assert result.exit_code == 9
+    assert not runtime_settings_path.exists()

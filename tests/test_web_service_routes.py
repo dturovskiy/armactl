@@ -864,3 +864,128 @@ def test_service_restart_backend_success_audit_failure_clears_pending_work(
     assert 'Service action completed but audit logging failed.' in response.text
     assert 'All saved changes that required restart have been applied.' in response.text
     assert get_pending_work(db_path, kind=KIND_CONFIG) is None
+
+
+def test_fps_service_action_route_requires_auth_permission_and_csrf(
+    tmp_path: Path,
+    monkeypatch,
+    set_web_owner_permissions,
+):
+    from armactl.web.app import create_app
+    from armactl.web.auth.permissions import ALL_PERMISSIONS
+    from armactl.web.services import service_actions
+
+    def fail_action(*args, **kwargs):
+        raise AssertionError("FPS backend action should not be called")
+
+    monkeypatch.setattr(service_actions, "run_service_action_with_max_fps_and_audit", fail_action)
+
+    unauthenticated_client = _client(create_app(data_root=tmp_path / "unauth"))
+    unauthenticated = unauthenticated_client.post(
+        "/service/start-at-fps",
+        data={"max_fps": "120"},
+        follow_redirects=False,
+    )
+    assert unauthenticated.status_code == 303
+    assert unauthenticated.headers["location"] == "/login"
+
+    password = "owner fps route password"
+    permission_root = tmp_path / "permission"
+    setup_owner_user(permission_root, "owner", password)
+    set_web_owner_permissions(set())
+    permission_client = _client(create_app(data_root=permission_root))
+    csrf_token = _login_action_csrf_token(permission_client, "owner", password)
+    denied = permission_client.post(
+        "/service/start-at-fps",
+        data={"csrf_token": csrf_token, "max_fps": "120"},
+        follow_redirects=False,
+    )
+    assert denied.status_code == 403
+    assert denied.text == "Permission denied."
+
+    set_web_owner_permissions(ALL_PERMISSIONS)
+    csrf_root = tmp_path / "csrf"
+    setup_owner_user(csrf_root, "owner", password)
+    csrf_client = _client(create_app(data_root=csrf_root))
+    _login(csrf_client, "owner", password)
+    invalid_csrf = csrf_client.post(
+        "/service/start-at-fps",
+        data={"csrf_token": "wrong-token", "max_fps": "120"},
+        follow_redirects=False,
+    )
+    assert invalid_csrf.status_code == 403
+    assert "Invalid CSRF token." in invalid_csrf.text
+
+
+def test_restart_at_fps_route_requires_confirmation(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services import service_actions
+
+    password = "owner fps confirm password"
+    setup_owner_user(tmp_path, "owner", password)
+
+    def fail_action(*args, **kwargs):
+        raise AssertionError("FPS backend action should not be called")
+
+    monkeypatch.setattr(service_actions, "run_service_action_with_max_fps_and_audit", fail_action)
+    client = _client(create_app(data_root=tmp_path))
+    csrf_token = _login_action_csrf_token(client, "owner", password)
+
+    response = client.post(
+        "/service/restart-at-fps",
+        data={"csrf_token": csrf_token, "max_fps": "120"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Confirmation is required to restart the server." in response.text
+
+
+def test_restart_at_fps_route_calls_fps_action_wrapper(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.services import service_actions
+
+    password = "owner fps route password"
+    setup_owner_user(tmp_path, "owner", password)
+    captured: dict[str, object] = {}
+
+    def fake_fps_action(action: str, max_fps_profile: str, **kwargs):
+        captured["action"] = action
+        captured["max_fps_profile"] = max_fps_profile
+        captured["username"] = kwargs["username"]
+        return service_actions.ServiceActionResult(
+            action=action,
+            instance="default",
+            service_name="armareforger.service",
+            success=True,
+            message="Max FPS profile set to 120. Server restart completed.",
+            exit_code=0,
+            performed=True,
+            backend_success=True,
+            max_fps_profile=120,
+        )
+
+    monkeypatch.setattr(
+        service_actions,
+        "run_service_action_with_max_fps_and_audit",
+        fake_fps_action,
+    )
+    client = _client(create_app(data_root=tmp_path))
+    csrf_token = _login_action_csrf_token(client, "owner", password)
+
+    response = client.post(
+        "/service/restart-at-fps",
+        data={"csrf_token": csrf_token, "confirm": "restart-at-fps", "max_fps": "120"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "Server restart completed." in response.text
+    assert captured == {
+        "action": "restart-at-fps",
+        "max_fps_profile": "120",
+        "username": "owner",
+    }

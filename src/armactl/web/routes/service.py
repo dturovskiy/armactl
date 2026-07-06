@@ -37,9 +37,9 @@ def _backend_success(result: service_actions.ServiceActionResult) -> bool:
 def _operator_result_title(result: service_actions.ServiceActionResult) -> str:
     if not result.performed and not result.intent_audited:
         return "Service action rejected."
-    if result.action == "restart":
+    if result.action in {"restart", "restart-at-fps"}:
         return "Server restart completed." if _backend_success(result) else "Server restart failed."
-    if result.action == "start":
+    if result.action in {"start", "start-at-fps"}:
         return "Server start completed." if _backend_success(result) else "Server start failed."
     if result.action == "stop":
         return "Server stop completed." if _backend_success(result) else "Server stop failed."
@@ -50,12 +50,14 @@ def _operator_result_message(
     result: service_actions.ServiceActionResult,
 ) -> str:
     backend_success = _backend_success(result)
+    if result.action in {"start-at-fps", "restart-at-fps"}:
+        return result.message
     if result.action in {"start", "restart"} and backend_success:
         if not result.audit_written:
             return result.message
         if result.pending_restart_work_cleared:
             return "Pending restart work cleared."
-        if result.action == "restart":
+        if result.action in {"restart", "restart-at-fps"}:
             return "No pending restart work was waiting."
     if result.action == "restart" and result.performed:
         return "Pending restart work was not cleared."
@@ -69,7 +71,10 @@ def _operator_result_message(
 def _service_result_view(
     result: service_actions.ServiceActionResult,
 ) -> dict[str, object]:
-    show_backend_message = not (result.action in {"start", "restart"} and result.success)
+    show_backend_message = not (
+        result.action in {"start", "restart", "start-at-fps", "restart-at-fps"}
+        and result.success
+    )
     return {
         "title": _operator_result_title(result),
         "message": _operator_result_message(result),
@@ -148,6 +153,7 @@ def service_action(
     action: str,
     csrf_token: str = Form(default=""),
     confirm: str = Form(default=""),
+    max_fps: str = Form(default=""),
 ) -> Response:
     """Run a controlled service action for the default instance."""
     current = get_current_session(request)
@@ -174,7 +180,9 @@ def service_action(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
-    if service_actions.requires_confirmation(normalized) and confirm != normalized:
+    confirmation_required = service_actions.requires_confirmation(normalized)
+    confirmation_valid = service_actions.confirmation_matches(normalized, confirm)
+    if confirmation_required and not confirmation_valid:
         return _render_result(
             request,
             current,
@@ -183,13 +191,23 @@ def service_action(
         )
 
     try:
-        result = service_actions.run_service_action_and_audit(
-            normalized,
-            audit_log_path=current.config.audit_log_path,
-            username=current.user.username,
-            instance=paths.DEFAULT_INSTANCE_NAME,
-            db_path=current.config.db_path,
-        )
+        if service_actions.is_max_fps_service_action(normalized):
+            result = service_actions.run_service_action_with_max_fps_and_audit(
+                normalized,
+                max_fps_profile=max_fps,
+                audit_log_path=current.config.audit_log_path,
+                username=current.user.username,
+                instance=paths.DEFAULT_INSTANCE_NAME,
+                db_path=current.config.db_path,
+            )
+        else:
+            result = service_actions.run_service_action_and_audit(
+                normalized,
+                audit_log_path=current.config.audit_log_path,
+                username=current.user.username,
+                instance=paths.DEFAULT_INSTANCE_NAME,
+                db_path=current.config.db_path,
+            )
     except service_actions.ServiceActionError:
         return _render_result(
             request,

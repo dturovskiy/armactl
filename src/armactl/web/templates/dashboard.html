@@ -62,13 +62,29 @@
   {% if dashboard.actions %}
     {% set service_action_labels = {
       "start": t("Starting server..."),
+      "start-at-fps": t("Starting server..."),
       "stop": t("Stopping server..."),
-      "restart": t("Restarting server...")
+      "restart": t("Restarting server..."),
+      "restart-at-fps": t("Restarting server...")
     } %}
+    {% if dashboard.fps_selector %}
+      <fieldset class="fps-selector" aria-label="{{ t(dashboard.fps_selector.legend) }}">
+        <legend>{{ t(dashboard.fps_selector.legend) }}</legend>
+        <div class="segmented-control">
+          {% for option in dashboard.fps_selector.options %}
+            <label class="segmented-option">
+              <input type="radio" name="{{ dashboard.fps_selector.name }}" value="{{ option.value }}" form="{{ dashboard.fps_selector.form_id }}"{% if option.selected %} checked{% endif %}>
+              <span>{{ t(option.label) }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+    {% endif %}
     <div class="action-grid">
       {% for action in dashboard.actions %}
-        {% set service_action_label = service_action_labels.get(action.name, "") %}
-        <form method="post" action="{{ action.action_path }}" class="action-form action-tile"{% if service_action_label %} data-service-action-form data-service-action="{{ action.name }}" data-service-action-label="{{ service_action_label }}"{% endif %}>
+        {% set runtime_action = action.service_action|default(action.name) %}
+        {% set service_action_label = service_action_labels.get(runtime_action, "") %}
+        <form method="post" action="{{ action.action_path }}" class="action-form action-tile"{% if action.form_id %} id="{{ action.form_id }}"{% endif %}{% if service_action_label %} data-service-action-form data-service-action="{{ runtime_action }}" data-service-action-label="{{ service_action_label }}"{% endif %}>
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           {% if action.confirm_label %}
             <label class="inline-confirm">
@@ -76,7 +92,8 @@
               {{ t(action.confirm_label) }}
             </label>
           {% endif %}
-          <button{% if action.danger %} class="danger"{% endif %}{% if service_action_label %} data-service-action-submit{% endif %} type="submit">{{ t(action.label) }}</button>
+          {% set action_button_class = action.tone|default("danger" if action.danger else "") %}
+          <button{% if action_button_class %} class="{{ action_button_class }}"{% endif %}{% if service_action_label %} data-service-action-submit{% endif %} type="submit">{{ t(action.label) }}</button>
         </form>
       {% endfor %}
     </div>

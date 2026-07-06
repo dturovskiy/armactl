@@ -534,3 +534,39 @@ def test_run_systemctl_redacts_secret_values_in_stderr() -> None:
     assert result.success is False
     assert "super-secret" not in result.message
     assert "passwordAdmin=***" in result.message
+
+
+def test_replace_generated_start_script_fsyncs_temp_and_parent(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import armactl.service_manager as service_manager_module
+
+    start_script = tmp_path / "start-armareforger.sh"
+    start_script.write_text("old", encoding="utf-8")
+    backups_dir = tmp_path / "backups"
+    fsync_calls: list[int] = []
+
+    monkeypatch.setattr(
+        service_manager_module.paths,
+        "backups_dir",
+        lambda instance: backups_dir,
+    )
+    monkeypatch.setattr(
+        service_manager_module.os,
+        "fsync",
+        lambda fd: fsync_calls.append(fd),
+    )
+
+    service_manager_module._replace_generated_start_script(
+        start_script,
+        "new\n",
+        instance="alpha",
+        backup_existing=True,
+    )
+
+    assert start_script.read_text(encoding="utf-8") == "new\n"
+    assert start_script.stat().st_mode & 0o777 == 0o755
+    assert not (tmp_path / ".start-armareforger.sh.tmp").exists()
+    assert len(list(backups_dir.glob("start-armareforger.sh.*.bak"))) == 1
+    assert len(fsync_calls) >= 2

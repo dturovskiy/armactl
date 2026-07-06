@@ -12,6 +12,7 @@ from armactl import (
     paths,
     player_view,
     ports,
+    runtime_settings,
     sat_admin_guard,
     status_summary,
 )
@@ -68,6 +69,7 @@ class DashboardSnapshot:
     web: dict[str, Any]
     bot: dict[str, Any]
     sat: dict[str, Any]
+    runtime_settings: dict[str, Any]
     errors: tuple[DashboardError, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
@@ -437,6 +439,33 @@ def _load_web_runtime(web_config: Any | None) -> dict[str, Any]:
         "exposure_warning": warning.to_dict() if warning is not None else None,
     }
 
+def _load_runtime_settings_summary(
+    instance: str,
+    web_config: Any | None,
+    errors: list[DashboardError],
+) -> dict[str, Any]:
+    data_root = _dashboard_data_root(web_config)
+    try:
+        status = runtime_settings.read_max_fps_status(instance, data_root=data_root)
+    except Exception as error:
+        message = str(error) or error.__class__.__name__
+        errors.append(DashboardError(section="runtime_settings", message=message))
+        return {
+            "available": False,
+            "max_fps": runtime_settings.DEFAULT_MAX_FPS_PROFILE,
+            "generated_max_fps": None,
+            "generated_matches": False,
+        }
+    return {
+        "available": True,
+        "max_fps": status.configured,
+        "generated_max_fps": status.generated,
+        "generated_matches": status.generated_matches,
+        "settings_exists": status.settings_exists,
+        "generated_exists": status.generated_exists,
+    }
+
+
 def _load_sat_summary(state: ServerState, errors: list[DashboardError]) -> dict[str, Any]:
     if not state.config_path:
         return _unavailable("config path is not available")
@@ -594,6 +623,7 @@ def load_dashboard_snapshot(
         web=_load_web_runtime(web_config),
         bot=load_bot_summary(instance, errors),
         sat=_load_sat_summary(state, errors),
+        runtime_settings=_load_runtime_settings_summary(instance, web_config, errors),
         errors=tuple(errors),
     )
     return snapshot.to_dict()

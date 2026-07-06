@@ -607,7 +607,7 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert 'summary-card-wide' in root_response.text
     assert 'action="/service/start"' not in root_response.text
     assert 'action="/service/stop"' in root_response.text
-    assert 'action="/service/restart"' in root_response.text
+    assert 'action="/service/restart-at-fps"' in root_response.text
     assert 'href="/config"' in root_response.text
     assert 'href="/mods"' in root_response.text
     assert 'href="/admins"' in root_response.text
@@ -625,7 +625,7 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert "/static/js/service_actions.js" in root_response.text
     assert 'data-service-action-form' in root_response.text
     assert 'data-service-action="stop"' in root_response.text
-    assert 'data-service-action="restart"' in root_response.text
+    assert 'data-service-action="restart-at-fps"' in root_response.text
     assert 'data-service-action-label="Stopping server..."' in root_response.text
     assert 'data-service-action-label="Restarting server..."' in root_response.text
     assert 'data-service-action-submit' in root_response.text
@@ -634,7 +634,7 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
         root_response.text,
     )
     assert re.search(
-        r'<input type="checkbox" name="confirm" value="restart" required>',
+        r'<input type="checkbox" name="confirm" value="restart-at-fps" required>',
         root_response.text,
     )
     service_action_values = re.findall(
@@ -675,7 +675,7 @@ def test_dashboard_js_static_asset_is_served(tmp_path: Path):
     assert "password" not in response.text.lower()
 
 
-def test_dashboard_stopped_server_shows_start_only(tmp_path: Path, monkeypatch):
+def test_dashboard_stopped_server_shows_start_fps_actions(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
 
     password = "owner dashboard password"
@@ -687,11 +687,19 @@ def test_dashboard_stopped_server_shows_start_only(tmp_path: Path, monkeypatch):
     response = client.get("/dashboard", follow_redirects=False)
 
     assert response.status_code == 200
-    assert 'action="/service/start"' in response.text
+    assert response.text.count('class="fps-selector"') == 1
+    assert response.text.count('name="max_fps"') == 2
+    assert 'value="60" form="service-start-form" checked' in response.text
+    assert 'value="120" form="service-start-form"' in response.text
+    assert '<input type="hidden" name="max_fps"' not in response.text
+    assert response.text.count('action="/service/start-at-fps"') == 1
+    assert "Start at 60 FPS" not in response.text
+    assert "Start at 120 FPS" not in response.text
+    assert 'action="/service/start-at-fps"' in response.text
     assert 'action="/jobs/server/update-check"' in response.text
     assert 'action="/service/stop"' not in response.text
-    assert 'action="/service/restart"' not in response.text
-    assert 'data-service-action="start"' in response.text
+    assert 'action="/service/restart-at-fps"' not in response.text
+    assert 'data-service-action="start-at-fps"' in response.text
     assert 'data-service-action-label="Starting server..."' in response.text
     assert "/static/js/service_actions.js" in response.text
     assert "Server snapshot" in response.text
@@ -783,7 +791,7 @@ def test_dashboard_running_server_marks_live_telemetry_loading(
     assert payload["metrics"]["fps"]["text"] == "Waiting for telemetry..."
 
 
-def test_dashboard_running_server_shows_stop_restart_only(tmp_path: Path, monkeypatch):
+def test_dashboard_running_server_shows_stop_restart_fps_actions(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
 
     password = "owner dashboard password"
@@ -795,9 +803,34 @@ def test_dashboard_running_server_shows_stop_restart_only(tmp_path: Path, monkey
     response = client.get("/dashboard", follow_redirects=False)
 
     assert response.status_code == 200
+    assert response.text.count('class="fps-selector"') == 1
+    assert response.text.count('name="max_fps"') == 2
+    assert 'value="60" form="service-restart-form" checked' in response.text
+    assert 'value="120" form="service-restart-form"' in response.text
+    assert 'id="service-stop-form"' in response.text
+    assert 'name="max_fps" value="60" form="service-stop-form"' not in response.text
+    stop_button = (
+        '<button class="danger" data-service-action-submit type="submit">'
+        'Stop</button>'
+    )
+    assert stop_button in response.text
+    restart_warning_button = (
+        '<button class="warning" data-service-action-submit type="submit">'
+        'Restart</button>'
+    )
+    assert restart_warning_button in response.text
+    restart_danger_button = (
+        '<button class="danger" data-service-action-submit type="submit">'
+        'Restart</button>'
+    )
+    assert restart_danger_button not in response.text
+    assert '<input type="hidden" name="max_fps"' not in response.text
+    assert response.text.count('action="/service/restart-at-fps"') == 1
+    assert "Restart at 60 FPS" not in response.text
+    assert "Restart at 120 FPS" not in response.text
     assert 'action="/service/start"' not in response.text
     assert 'action="/service/stop"' in response.text
-    assert 'action="/service/restart"' in response.text
+    assert 'action="/service/restart-at-fps"' in response.text
     assert 'action="/jobs/server/update-check"' in response.text
     assert "3 / 64" in response.text
     assert "59.8" in response.text
@@ -895,7 +928,7 @@ def test_dashboard_incomplete_server_shows_repair_job_action(
     assert 'action="/jobs/server/repair"' in response.text
     assert 'action="/service/start"' not in response.text
     assert 'action="/service/stop"' not in response.text
-    assert 'action="/service/restart"' not in response.text
+    assert 'action="/service/restart-at-fps"' not in response.text
     assert "Repair" in response.text
     assert "Installation incomplete" in response.text
 
@@ -960,7 +993,7 @@ def test_dashboard_no_server_empty_state_renders_controlled_html(
     assert "Mock Server" not in response.text
     assert 'action="/service/start"' not in response.text
     assert 'action="/service/stop"' not in response.text
-    assert 'action="/service/restart"' not in response.text
+    assert 'action="/service/restart-at-fps"' not in response.text
     assert 'href="/config"' not in response.text
     assert 'href="/mods"' not in response.text
     assert 'href="/admins"' not in response.text

@@ -933,6 +933,19 @@
     "Combat hint": "Combat hint",
     "Join time and role need session tracking before they can be shown reliably.": "Join time and role need session tracking before they can be shown reliably.",
     "Replacement file": "Replacement file",
-    "Single-file download is available; upload is limited to server files. Replacement is limited to allowlisted config/profile files; delete/rename actions are not available.": "Single-file download is available; upload is limited to server files. Replacement is limited to allowlisted config/profile files; delete/rename actions are not available."
+    "Single-file download is available; upload is limited to server files. Replacement is limited to allowlisted config/profile files; delete/rename actions are not available.": "Single-file download is available; upload is limited to server files. Replacement is limited to allowlisted config/profile files; delete/rename actions are not available.",
+    "120 FPS": "120 FPS",
+    "60 FPS": "60 FPS",
+    "Max FPS": "Max FPS",
+    "Max FPS profile set to {max_fps}. Generated launch script refreshed.": "Max FPS profile set to {max_fps}. Generated launch script refreshed.",
+    "Max FPS profile was not applied and rollback failed. Service action was not run.": "Max FPS profile was not applied and rollback failed. Service action was not run.",
+    "Max FPS profile was not applied because generated launch script refresh failed. Service action was not run.": "Max FPS profile was not applied because generated launch script refresh failed. Service action was not run.",
+    "Max FPS profile was saved, but generated launch script refresh failed. Service action was not run.": "Max FPS profile was saved, but generated launch script refresh failed. Service action was not run.",
+    "Restart at 120 FPS": "Restart at 120 FPS",
+    "Restart at 60 FPS": "Restart at 60 FPS",
+    "Runtime max FPS setting could not be saved.": "Runtime max FPS setting could not be saved.",
+    "Runtime max FPS setting is invalid: {error}": "Runtime max FPS setting is invalid: {error}",
+    "Start at 120 FPS": "Start at 120 FPS",
+    "Start at 60 FPS": "Start at 60 FPS"
   }
 }

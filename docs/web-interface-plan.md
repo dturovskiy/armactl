@@ -20,6 +20,7 @@ The armactl web dashboard is a local browser interface for managing the same Arm
 - File browser with bounded preview, single-file download, and no-overwrite upload.
 - Logs and diagnostic report views.
 - Background jobs for install, repair, update checks, and updates.
+- Safe generated runtime FPS profile selector for service start/restart, with one dashboard control backed by an armactl-only instance settings sidecar rather than `config.json`; allowed values are 60/120, running servers require restart to apply, and there is no arbitrary launch-args editor.
 - Player registry foundation with reliable IDs and no IP storage by default.
 - Player log event DB ingest foundation for sanitized parser output in the existing `players.db`, with dedupe and no raw log-line/IP storage.
 - Manual player log collector/import foundation through CLI for explicitly supplied bounded text log files, with dry-run/write modes and safe basename+file-marker+line source refs.

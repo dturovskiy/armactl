@@ -213,11 +213,14 @@ def _action_forms(lifecycle: str, can_run_actions: bool) -> list[dict[str, Any]]
         return [
             {
                 "name": "start",
-                "action_path": "/service/start",
+                "service_action": "start-at-fps",
+                "action_path": "/service/start-at-fps",
+                "form_id": "service-start-form",
                 "label": "Start",
                 "danger": False,
                 "confirm_label": "",
                 "confirm_value": "",
+                "uses_fps_selector": True,
             }
         ]
     if lifecycle == "running":
@@ -225,6 +228,7 @@ def _action_forms(lifecycle: str, can_run_actions: bool) -> list[dict[str, Any]]
             {
                 "name": "stop",
                 "action_path": "/service/stop",
+                "form_id": "service-stop-form",
                 "label": "Stop",
                 "danger": True,
                 "confirm_label": "Confirm stop",
@@ -232,15 +236,18 @@ def _action_forms(lifecycle: str, can_run_actions: bool) -> list[dict[str, Any]]
             },
             {
                 "name": "restart",
-                "action_path": "/service/restart",
+                "service_action": "restart-at-fps",
+                "action_path": "/service/restart-at-fps",
+                "form_id": "service-restart-form",
                 "label": "Restart",
-                "danger": True,
+                "danger": False,
+                "tone": "warning",
                 "confirm_label": "Confirm restart",
-                "confirm_value": "restart",
+                "confirm_value": "restart-at-fps",
+                "uses_fps_selector": True,
             },
         ]
     return []
-
 
 def _server_update_check_action(
     snapshot: Mapping[str, Any],
@@ -762,6 +769,39 @@ def _diagnostics(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str, 
     return diagnostics
 
 
+def _selected_max_fps(snapshot: Mapping[str, Any]) -> str:
+    runtime = _section(snapshot, "runtime_settings")
+    value = runtime.get("max_fps")
+    if value == 120 or str(value).strip() == "120":
+        return "120"
+    return "60"
+
+
+def _fps_selector(
+    snapshot: Mapping[str, Any],
+    actions: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    target_action = next(
+        (action for action in actions if action.get("uses_fps_selector")),
+        None,
+    )
+    if target_action is None:
+        return None
+    form_id = _text(target_action.get("form_id"), "")
+    if not form_id:
+        return None
+    selected = _selected_max_fps(snapshot)
+    return {
+        "form_id": form_id,
+        "name": "max_fps",
+        "legend": "Max FPS",
+        "options": [
+            {"value": "60", "label": "60 FPS", "selected": selected == "60"},
+            {"value": "120", "label": "120 FPS", "selected": selected == "120"},
+        ],
+    }
+
+
 def build_dashboard_view(
     snapshot: Mapping[str, Any],
     *,
@@ -813,6 +853,7 @@ def build_dashboard_view(
         "lifecycle": lifecycle,
         "overview_items": _summary_items(snapshot, lifecycle),
         "actions": actions,
+        "fps_selector": _fps_selector(snapshot, actions),
         "quick_action_note": _quick_action_note(lifecycle, actions),
         "management_links": management_links,
         "management_note": management_note,

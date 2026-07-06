@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,13 @@ from armactl import paths
 from armactl.i18n import _, tr
 from armactl.redaction import redact_sensitive_text, safe_subprocess_error
 from armactl.restart_timing import RESTART_TIMING
+from armactl.runtime_settings import (
+    RuntimeSettingsError,
+    load_max_fps_profile,
+    normalize_max_fps_profile,
+    read_max_fps_status,
+    save_max_fps_profile,
+)
 
 TIME_ONLY_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 DAILY_TIME_RE = re.compile(r"^\*-\*-\* (\d{1,2}:\d{2}:\d{2})$")
@@ -277,6 +285,7 @@ def render_start_script(
     max_fps: int = 60,
 ) -> str:
     """Render the generated Arma Reforger launch script from the current template."""
+    max_fps = normalize_max_fps_profile(max_fps)
     env = _template_environment()
     rendered = env.get_template("start-armareforger.sh.j2").render(
         instance_root=str(instance_root),
@@ -289,6 +298,78 @@ def render_start_script(
     )
     return _normalize_generated_text(rendered)
 
+
+def _runtime_settings_failure(error: object) -> ServiceResult:
+    return ServiceResult(
+        False,
+        tr(
+            "Runtime max FPS setting is invalid: {error}",
+            error=redact_sensitive_text(error),
+        ),
+        1,
+    )
+
+
+def get_max_fps_profile_status(instance: str = paths.DEFAULT_INSTANCE_NAME):
+    """Return the configured/generated max FPS status for one instance."""
+    return read_max_fps_status(instance)
+
+
+def _backup_generated_start_script(start_sh: Path, instance: str) -> bool:
+    if not start_sh.is_file():
+        return False
+    backup_dir = paths.backups_dir(instance)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_path = backup_dir / f"{start_sh.name}.{stamp}.bak"
+    counter = 1
+    while backup_path.exists():
+        backup_path = backup_dir / f"{start_sh.name}.{stamp}.{counter}.bak"
+        counter += 1
+    shutil.copy2(start_sh, backup_path)
+    backup_path.chmod(0o600)
+    return True
+
+
+def _fsync_directory(directory: Path) -> None:
+    """Best-effort fsync for a directory after publishing a file."""
+    try:
+        fd = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def _replace_generated_start_script(
+    start_sh: Path,
+    rendered: str,
+    *,
+    instance: str,
+    backup_existing: bool = True,
+) -> None:
+    start_sh.parent.mkdir(parents=True, exist_ok=True)
+    if backup_existing:
+        _backup_generated_start_script(start_sh, instance)
+    temp_path = start_sh.with_name(f".{start_sh.name}.tmp")
+    try:
+        with temp_path.open("w", encoding="utf-8", newline="") as handle:
+            handle.write(rendered)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, start_sh)
+        start_sh.chmod(0o755)
+        _fsync_directory(start_sh.parent)
+    except OSError:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 def _instance_from_service_name(service_name: str) -> str | None:
     if service_name in {paths.SERVICE_NAME, paths.RESTART_SERVICE_NAME}:
@@ -366,6 +447,7 @@ def sync_generated_start_script(
         config_dir = paths.config_dir(instance)
         config_file = paths.config_file(instance)
         start_sh = paths.start_script(instance)
+        max_fps = load_max_fps_profile(instance)
 
         if not instance_root.exists():
             return ServiceResult(
@@ -380,7 +462,7 @@ def sync_generated_start_script(
             config_dir=config_dir,
             config_file=config_file,
             log_stats_interval_ms=10000,
-            max_fps=60,
+            max_fps=max_fps,
         )
 
         try:
@@ -408,12 +490,12 @@ def sync_generated_start_script(
                 tr("Generated start script is up to date: {path}", path=start_sh),
             )
 
-        start_sh.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = start_sh.with_name(f".{start_sh.name}.tmp")
-        temp_path.write_text(rendered, encoding="utf-8")
-        temp_path.chmod(0o755)
-        temp_path.replace(start_sh)
-        start_sh.chmod(0o755)
+        _replace_generated_start_script(
+            start_sh,
+            rendered,
+            instance=instance,
+            backup_existing=True,
+        )
 
         return ServiceResult(
             True,
@@ -423,6 +505,8 @@ def sync_generated_start_script(
                 path=start_sh,
             ),
         )
+    except RuntimeSettingsError as error:
+        return _runtime_settings_failure(error)
     except paths.UnsafeServerInstallDirError as error:
         return ServiceResult(False, str(error), 1)
     except OSError as error:
@@ -435,6 +519,101 @@ def sync_generated_start_script(
             1,
         )
 
+
+def _restore_runtime_settings_file(
+    settings_path: Path,
+    *,
+    existed: bool,
+    previous_content: bytes,
+    previous_mode: int | None,
+) -> None:
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    if not existed:
+        settings_path.unlink(missing_ok=True)
+        _fsync_directory(settings_path.parent)
+        return
+
+    temp_path = settings_path.with_suffix(settings_path.suffix + ".rollback")
+    try:
+        with temp_path.open("wb") as handle:
+            handle.write(previous_content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if previous_mode is not None:
+            temp_path.chmod(previous_mode)
+        os.replace(temp_path, settings_path)
+        if previous_mode is not None:
+            settings_path.chmod(previous_mode)
+        _fsync_directory(settings_path.parent)
+    except OSError:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
+def _snapshot_runtime_settings_file(settings_path: Path) -> tuple[bool, bytes, int | None]:
+    try:
+        stat_result = settings_path.stat()
+        return True, settings_path.read_bytes(), stat_result.st_mode & 0o777
+    except FileNotFoundError:
+        return False, b"", None
+
+
+def update_max_fps_profile(
+    instance: str,
+    max_fps: int | str,
+) -> ServiceResult:
+    """Persist max FPS and regenerate the generated start script safely."""
+    settings_path = paths.runtime_settings_file(instance)
+    try:
+        profile = normalize_max_fps_profile(max_fps)
+        existed, previous_content, previous_mode = _snapshot_runtime_settings_file(settings_path)
+        save_max_fps_profile(instance, profile)
+    except RuntimeSettingsError as error:
+        return _runtime_settings_failure(error)
+    except OSError:
+        return ServiceResult(
+            False,
+            _("Runtime max FPS setting could not be saved."),
+            1,
+        )
+
+    sync_result = sync_generated_start_script(instance)
+    if not sync_result.success:
+        try:
+            _restore_runtime_settings_file(
+                settings_path,
+                existed=existed,
+                previous_content=previous_content,
+                previous_mode=previous_mode,
+            )
+        except OSError:
+            return ServiceResult(
+                False,
+                _(
+                    "Max FPS profile was not applied and rollback failed. "
+                    "Service action was not run."
+                ),
+                1,
+            )
+        return ServiceResult(
+            False,
+            _(
+                "Max FPS profile was not applied because generated launch script "
+                "refresh failed. Service action was not run."
+            ),
+            sync_result.exit_code,
+        )
+    return ServiceResult(
+        True,
+        tr(
+            "Max FPS profile set to {max_fps}. Generated launch script refreshed.",
+            max_fps=profile,
+        ),
+        0,
+    )
 
 def _render_privileged_helper_script() -> str:
     """Render the root-owned helper script text."""
@@ -1156,13 +1335,14 @@ def generate_services(
 
     # 2. Render templates
     try:
+        max_fps = load_max_fps_profile(instance)
         start_sh_render = render_start_script(
             instance_root=inst_root,
             server_dir=server_dir,
             config_dir=config_dir,
             config_file=config_file,
             log_stats_interval_ms=10000,
-            max_fps=60,
+            max_fps=max_fps,
         )
         service_render = env.get_template("armareforger.service.j2").render(
             user=user,
@@ -1180,10 +1360,13 @@ def generate_services(
 
         timer_render = render_restart_timer_unit(on_calendar_entries)
 
-        # 3. Write start script (no sudo needed, it's in user's home)
-        with open(start_sh, "w") as f:
-            f.write(start_sh_render)
-        start_sh.chmod(0o755)
+        # 3. Write start script (no sudo needed, it is in the instance root)
+        _replace_generated_start_script(
+            start_sh,
+            start_sh_render,
+            instance=instance,
+            backup_existing=True,
+        )
         results.append(ServiceResult(True, tr("Generated {path}", path=start_sh)))
 
         # 4. Write systemd files to temp and sudo mv them
@@ -1240,6 +1423,9 @@ def generate_services(
                     tr("Timer {timer_name} restarted to apply schedule", timer_name=timer_name),
                 )
             )
+
+    except RuntimeSettingsError as e:
+        results.append(_runtime_settings_failure(e))
 
     except Exception as e:
         results.append(

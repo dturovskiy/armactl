@@ -866,7 +866,10 @@ def test_dashboard_status_payload_is_small_and_safe():
     assert payload["fields"]["heading"] == "Lifecycle Test Server"
     assert payload["fields"]["overview.players"] == "3 / 64"
     assert payload["fields"]["host.cpu"] == "12%"
-    assert [action["name"] for action in payload["actions"]] == ["stop", "restart"]
+    assert [action["name"] for action in payload["actions"]] == [
+        "stop",
+        "restart",
+    ]
     assert payload["metrics"]["fps"]["value"] == 60.0
     assert payload["metrics"]["fps"]["percent"] == 100.0
     assert payload["metrics"]["cpu"]["percent"] == 12.0
@@ -897,6 +900,9 @@ def test_dashboard_view_model_actions_follow_lifecycle():
     stopped = build_dashboard_view(_view_snapshot("stopped"), **common_permissions)
     starting = build_dashboard_view(_view_snapshot("starting"), **common_permissions)
     running = build_dashboard_view(_view_snapshot("running"), **common_permissions)
+    configured = _view_snapshot("stopped")
+    configured["runtime_settings"] = {"max_fps": 120}
+    configured_view = build_dashboard_view(configured, **common_permissions)
 
     assert not_installed["heading"] == "Dashboard"
     assert [action["name"] for action in not_installed["actions"]] == ["install"]
@@ -907,14 +913,23 @@ def test_dashboard_view_model_actions_follow_lifecycle():
     assert [action["name"] for action in incomplete["actions"]] == ["repair"]
     assert incomplete["actions"][0]["action_path"] == "/jobs/server/repair"
     assert incomplete["quick_action_note"] == ""
-    assert [action["name"] for action in stopped["actions"]] == ["start"]
+    assert [action["name"] for action in stopped["actions"]] == [
+        "start",
+    ]
+    assert configured_view["fps_selector"]["options"][1]["selected"] is True
     assert starting["actions"] == []
     assert starting["quick_action_note"] == (
         "Server is starting; actions are unavailable until telemetry is ready."
     )
     assert starting["server_cards"]
     assert all(card["title"] != "Live server" for card in starting["server_cards"])
-    assert [action["name"] for action in running["actions"]] == ["stop", "restart"]
+    assert [action["name"] for action in running["actions"]] == [
+        "stop",
+        "restart",
+    ]
+    assert running["actions"][0]["danger"] is True
+    assert running["actions"][1]["danger"] is False
+    assert running["actions"][1]["tone"] == "warning"
     assert running["heading"] == "Lifecycle Test Server"
     assert running["server_cards"][0]["title"] == "Server config"
     assert running["server_cards"][0]["layout"] == "wide"

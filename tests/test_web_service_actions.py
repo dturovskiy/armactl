@@ -299,3 +299,153 @@ def test_restart_service_action_clears_restart_pending_work(monkeypatch, tmp_pat
     assert result.pending_restart_work_cleared is True
     assert pending_work.list_pending_work(db_path) == []
     assert calls == [("restart", "armareforger.service")]
+
+
+def test_start_at_fps_rejects_running_without_mutating(monkeypatch):
+    calls: list[tuple[str, str]] = []
+    update_calls: list[tuple[str, int]] = []
+    _patch_state(monkeypatch, _state(running=True))
+    adapter = _adapter(calls, ServiceResult(True, "should not run", 0))
+
+    def update_profile(instance: str, max_fps: int) -> ServiceResult:
+        update_calls.append((instance, max_fps))
+        return ServiceResult(True, "updated", 0)
+
+    monkeypatch.setattr(service_actions.service_manager, "update_max_fps_profile", update_profile)
+
+    result = service_actions.run_service_action_with_max_fps(
+        "start-at-fps",
+        120,
+        adapter=adapter,
+    )
+
+    assert result.success is False
+    assert result.performed is False
+    assert result.message == "Server already running; use restart to apply FPS."
+    assert result.max_fps_profile == 120
+    assert update_calls == []
+    assert calls == []
+
+
+def test_start_at_fps_intent_audit_failure_does_not_mutate(monkeypatch, tmp_path: Path):
+    calls: list[tuple[str, str]] = []
+    update_calls: list[tuple[str, int]] = []
+    _patch_state(monkeypatch, _state(running=False))
+    adapter = _adapter(calls, ServiceResult(True, "should not run", 0))
+
+    def fail_audit(*args, **kwargs):
+        raise service_actions.AuditLogError("audit unavailable")
+
+    def update_profile(instance: str, max_fps: int) -> ServiceResult:
+        update_calls.append((instance, max_fps))
+        return ServiceResult(True, "updated", 0)
+
+    monkeypatch.setattr(service_actions, "append_audit_event", fail_audit)
+    monkeypatch.setattr(service_actions.service_manager, "update_max_fps_profile", update_profile)
+
+    result = service_actions.run_service_action_with_max_fps_and_audit(
+        "start-at-fps",
+        120,
+        audit_log_path=tmp_path / "audit.log",
+        username="owner",
+        adapter=adapter,
+    )
+
+    assert result.success is False
+    assert result.intent_audited is False
+    assert result.performed is False
+    assert update_calls == []
+    assert calls == []
+
+
+def test_restart_at_fps_does_not_restart_if_profile_update_fails(monkeypatch):
+    calls: list[tuple[str, str]] = []
+    _patch_state(monkeypatch, _state(running=True))
+    adapter = _adapter(calls, ServiceResult(True, "should not run", 0))
+
+    def fail_update(instance: str, max_fps: int) -> ServiceResult:
+        return ServiceResult(False, "/srv/armactl-data/default token=raw-secret", 9)
+
+    monkeypatch.setattr(service_actions.service_manager, "update_max_fps_profile", fail_update)
+
+    result = service_actions.run_service_action_with_max_fps(
+        "restart-at-fps",
+        120,
+        adapter=adapter,
+    )
+
+    assert result.success is False
+    assert result.performed is False
+    assert result.exit_code == 9
+    assert result.backend_message == "Max FPS profile update failed."
+    assert "/srv/armactl-data" not in result.message
+    assert "raw-secret" not in result.message
+    assert calls == []
+
+
+def test_restart_at_120_updates_profile_before_restart(monkeypatch):
+    order: list[str] = []
+    _patch_state(monkeypatch, _state(running=True))
+
+    def update_profile(instance: str, max_fps: int) -> ServiceResult:
+        order.append(f"update:{max_fps}")
+        return ServiceResult(True, "updated", 0)
+
+    class OrderedAdapter(_FakeServiceAdapter):
+        def restart_service(self, service_name: str) -> ServiceResult:
+            order.append(f"restart:{service_name}")
+            return self.result
+
+    monkeypatch.setattr(service_actions.service_manager, "update_max_fps_profile", update_profile)
+    adapter = OrderedAdapter([], ServiceResult(True, "restarted", 0))
+
+    result = service_actions.run_service_action_with_max_fps(
+        "restart-at-fps",
+        120,
+        adapter=adapter,
+    )
+
+    assert result.success is True
+    assert result.performed is True
+    assert order == ["update:120", "restart:armareforger.service"]
+
+
+def test_restart_at_fps_output_and_audit_hide_raw_paths_and_secrets(
+    monkeypatch,
+    tmp_path: Path,
+):
+    _patch_state(monkeypatch, _state(running=True))
+
+    def update_profile(instance: str, max_fps: int) -> ServiceResult:
+        return ServiceResult(True, "updated /srv/armactl-data/default", 0)
+
+    monkeypatch.setattr(service_actions.service_manager, "update_max_fps_profile", update_profile)
+    adapter = _adapter(
+        [],
+        ServiceResult(False, "failed /srv/armactl-data/default password=backend-secret", 7),
+    )
+    audit_path = tmp_path / "logs" / "web" / "audit.log"
+
+    result = service_actions.run_service_action_with_max_fps_and_audit(
+        "restart-at-fps",
+        120,
+        audit_log_path=audit_path,
+        username="owner",
+        adapter=adapter,
+    )
+
+    audit_text = audit_path.read_text(encoding="utf-8")
+    assert result.success is False
+    assert result.message == (
+        "Max FPS profile set to 120, but server restart failed. "
+        "The generated launch script is ready; retry the service action after "
+        "resolving the service issue."
+    )
+    assert result.backend_message == "Backend service action failed."
+    assert "/srv/armactl-data" not in result.message
+    assert "backend-secret" not in result.message
+    assert "/srv/armactl-data" not in audit_text
+    assert "backend-secret" not in audit_text
+    events = [json.loads(line) for line in audit_text.splitlines()]
+    assert {event["details"]["phase"] for event in events} == {"intent", "outcome"}
+    assert all(event["details"].get("max_fps_profile") == "120" for event in events)

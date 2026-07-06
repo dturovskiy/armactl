@@ -237,6 +237,14 @@ def admins_state_file(
     return instance_root(instance, data_root) / "admins-state.json"
 
 
+def runtime_settings_file(
+    instance: str = DEFAULT_INSTANCE_NAME,
+    data_root: Path = DEFAULT_DATA_ROOT,
+) -> Path:
+    """armactl-only generated-runtime settings for the instance."""
+    return instance_root(instance, data_root) / "runtime-settings.json"
+
+
 def modpacks_dir(
     instance: str = DEFAULT_INSTANCE_NAME,
     data_root: Path = DEFAULT_DATA_ROOT,
