@@ -131,16 +131,17 @@ Goal: make player history useful as an operator journal.
 Tasks:
 
 - Define event categories: player activity, session evidence, system evidence, diagnostics.
-- Keep default mode high-signal and player-focused.
-- Move low-level correlation/system rows behind `Session evidence` or diagnostics mode.
+- Keep default `Player events` mode high-signal, player-focused, and operator-facing.
+- Keep `Session evidence` as the diagnostics/source-evidence view for lifecycle, disconnect, and correlation-only rows.
 - Add structured details for faction/side, source kind, confidence, correlation IDs, and sanitized source refs where useful.
 - Add dedupe/grouping rules for repeated rows from the same source marker when safe.
 
 Acceptance criteria:
 
 - Default history answers "who did what and when" without drowning in ingestion evidence.
+- Session evidence remains available for diagnostics without deleting stored event rows.
 - Details are useful, structured, and safe.
-- Sessionization still sees the stored evidence it needs.
+- Sessionization still sees the stored evidence it needs; Slice 2 does not expand session truth.
 
 ### Slice 3: Session Semantics And Job UX
 

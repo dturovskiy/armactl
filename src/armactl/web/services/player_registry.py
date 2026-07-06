@@ -24,6 +24,7 @@ from armactl.player_log_events import (
     EVENT_TIME_SOURCE_CALLER_OCCURRED_AT,
     EVENT_TIME_SOURCE_LOG_PREFIX_WITHOUT_DATE,
     EVENT_TIME_SOURCE_UNAVAILABLE,
+    EVENT_TYPE_COMBAT_HINT,
     EVENT_TYPE_KILL,
     EVENT_TYPE_OTHER_DEATH,
     EVENT_TYPE_PLAYER_DISCONNECTED,
@@ -2547,8 +2548,11 @@ def list_player_log_events(
     session_evidence_only: bool = False,
 ) -> list[PlayerLogEventRecord]:
     """List sanitized stored player log events, newest first."""
-    connection = _connect_existing(db_path)
+    connection = _connect_existing_readonly(db_path)
     if connection is None:
+        return []
+    if not _table_exists(connection, "player_log_events"):
+        connection.close()
         return []
 
     normalized_limit = _bounded_player_history_limit(limit)
@@ -2564,12 +2568,45 @@ def list_player_log_events(
     params: list[object] = []
     if player_events_only:
         where_clauses.append(
-            "NOT (event_type = ? OR (event_type = ? AND COALESCE(player_id, '') = ''))"
+            "("
+            "event_type NOT IN (?, ?) "
+            "AND ("
+            "(COALESCE(player_id, '') <> '' "
+            "OR COALESCE(victim_id, '') <> '' "
+            "OR COALESCE(instigator_id, '') <> '') "
+            "OR ("
+            "event_type <> ? "
+            "AND (COALESCE(player_name, '') <> '' "
+            "OR COALESCE(victim_name, '') <> '' "
+            "OR COALESCE(instigator_name, '') <> '')"
+            ")"
+            ")"
+            ")"
         )
-        params.extend((EVENT_TYPE_SERVER_LIFECYCLE, EVENT_TYPE_PLAYER_DISCONNECTED))
+        params.extend(
+            (
+                EVENT_TYPE_SERVER_LIFECYCLE,
+                EVENT_TYPE_PLAYER_DISCONNECTED,
+                EVENT_TYPE_COMBAT_HINT,
+            )
+        )
     if session_evidence_only:
-        where_clauses.append("(event_type = ? OR event_type = ?)")
-        params.extend((EVENT_TYPE_SERVER_LIFECYCLE, EVENT_TYPE_PLAYER_DISCONNECTED))
+        where_clauses.append(
+            "("
+            "event_type IN (?, ?) "
+            "OR (event_type = ? "
+            "AND COALESCE(player_id, '') = '' "
+            "AND COALESCE(victim_id, '') = '' "
+            "AND COALESCE(instigator_id, '') = '')"
+            ")"
+        )
+        params.extend(
+            (
+                EVENT_TYPE_SERVER_LIFECYCLE,
+                EVENT_TYPE_PLAYER_DISCONNECTED,
+                EVENT_TYPE_COMBAT_HINT,
+            )
+        )
     if normalized_event_type:
         where_clauses.append("event_type = ?")
         params.append(normalized_event_type)
@@ -2616,9 +2653,11 @@ def list_player_log_events(
     try:
         with connection:
             rows = connection.execute(sql, tuple(params)).fetchall()
+        return [_player_log_event_record_from_row(row) for row in rows]
+    except (IndexError, KeyError, sqlite3.OperationalError):
+        return []
     finally:
         connection.close()
-    return [_player_log_event_record_from_row(row) for row in rows]
 
 
 def list_player_log_events_for_sessionization(

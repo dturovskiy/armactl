@@ -38,6 +38,43 @@ PLAYER_HISTORY_MODE_OPTIONS = (
     (PLAYER_HISTORY_MODE_SESSION_EVIDENCE, "Session evidence"),
 )
 PLAYER_HISTORY_MODE_VALUES = frozenset(value for value, _label in PLAYER_HISTORY_MODE_OPTIONS)
+PLAYER_HISTORY_SOURCE_LABELS = {
+    player_log_events.SOURCE_BACKEND_AUTH: "Backend auth",
+    player_log_events.SOURCE_NETWORK_PLAYER_UPDATE: "Network player update",
+    player_log_events.SOURCE_SCRIPT_FACTION_JOIN: "Faction event",
+    player_log_events.SOURCE_RPL_DISCONNECT: "RPL disconnect",
+    player_log_events.SOURCE_NETWORK_DISCONNECT: "Network disconnect",
+    player_log_events.SOURCE_BATTLEYE_DISCONNECT: "BattlEye disconnect",
+    player_log_events.SOURCE_SERVER_LIFECYCLE: "Service lifecycle",
+    player_log_events.SOURCE_SCRIPT_KILL: "Combat event",
+    player_log_events.SOURCE_SERVER_ADMIN_TOOLS_KILL: "ServerAdminTools event",
+}
+PLAYER_HISTORY_CONFIDENCE_LABELS = {
+    player_log_events.CONFIDENCE_HIGH: "High",
+    player_log_events.CONFIDENCE_MEDIUM: "Medium",
+    player_log_events.CONFIDENCE_LOW: "Low",
+}
+PLAYER_HISTORY_TIME_SOURCE_LABELS = {
+    player_log_events.EVENT_TIME_SOURCE_LOG_PREFIX_WITH_DATE: "Log timestamp",
+    player_log_events.EVENT_TIME_SOURCE_LOG_PREFIX_WITHOUT_DATE: "Log timestamp without date",
+    player_log_events.EVENT_TIME_SOURCE_CALLER_OCCURRED_AT: "Caller event time",
+    player_log_events.EVENT_TIME_SOURCE_CALLER_OBSERVED_AT: "Caller observed time",
+    player_log_events.EVENT_TIME_SOURCE_UNAVAILABLE: "Unavailable",
+}
+PLAYER_HISTORY_TIME_CONFIDENCE_LABELS = {
+    player_log_events.EVENT_TIME_CONFIDENCE_EXACT: "Exact",
+    player_log_events.EVENT_TIME_CONFIDENCE_DERIVED: "Derived",
+    player_log_events.EVENT_TIME_CONFIDENCE_AMBIGUOUS: "Ambiguous",
+}
+PLAYER_HISTORY_COMBAT_EVENT_TYPES = frozenset(
+    {
+        player_log_events.EVENT_TYPE_KILL,
+        player_log_events.EVENT_TYPE_SUICIDE,
+        player_log_events.EVENT_TYPE_TEAMKILL,
+        player_log_events.EVENT_TYPE_OTHER_DEATH,
+        player_log_events.EVENT_TYPE_COMBAT_HINT,
+    }
+)
 
 PLAYER_SESSION_STATUS_LABELS = {
     player_registry.PLAYER_SESSION_STATUS_OPEN: "Stored open",
@@ -177,6 +214,42 @@ class CurrentPlayersPage:
 
 
 @dataclass(frozen=True)
+class PlayerHistoryField:
+    """One safe player-history detail or diagnostic field."""
+
+    label: str
+    value: str = ""
+    display_value: str = ""
+    title: str = ""
+    kind: str = "text"
+    value_labels: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PlayerHistoryEventRow:
+    """Template-ready player-history row with safe summaries."""
+
+    record: player_registry.PlayerLogEventRecord
+    label: str
+    actor_label: str
+    actor_value: str
+    details: tuple[PlayerHistoryField, ...]
+    diagnostics: tuple[PlayerHistoryField, ...]
+
+    @property
+    def event_type(self) -> str:
+        return self.record.event_type
+
+    @property
+    def event_time(self) -> str:
+        return self.record.event_time
+
+    @property
+    def event_time_label(self) -> str:
+        return self.record.event_time_label
+
+
+@dataclass(frozen=True)
 class PlayerHistoryPage:
     """Read-only stored player event history page model."""
 
@@ -186,7 +259,7 @@ class PlayerHistoryPage:
     mode: str
     reliable_id: str
     limit: int
-    events: tuple[player_registry.PlayerLogEventRecord, ...]
+    events: tuple[PlayerHistoryEventRow, ...]
     event_type_options: tuple[tuple[str, str], ...]
     event_type_labels: dict[str, str]
     mode_options: tuple[tuple[str, str], ...]
@@ -391,6 +464,268 @@ def _normalize_history_mode(value: object) -> str:
     return PLAYER_HISTORY_MODE_PLAYER_EVENTS
 
 
+def _history_fallback_label(value: str) -> str:
+    text = safe_player_text(value, max_length=80)
+    if not text:
+        return "Unknown"
+    words = text.replace("_", " ").replace("-", " ").split()
+    return " ".join(word.capitalize() for word in words) or "Unknown"
+
+
+def _history_source_labels(source: str) -> tuple[str, ...]:
+    parts = tuple(part for part in source.split("+") if part)
+    if not parts:
+        return ("Unknown",)
+    return tuple(
+        PLAYER_HISTORY_SOURCE_LABELS.get(part, _history_fallback_label(part))
+        for part in parts
+    )
+
+
+def _history_label_value(
+    labels: dict[str, str],
+    value: str,
+) -> tuple[str, ...]:
+    if not value:
+        return ()
+    return (labels.get(value, _history_fallback_label(value)),)
+
+
+def _history_text_field(
+    label: str,
+    value: object,
+    *,
+    max_length: int = 160,
+) -> PlayerHistoryField | None:
+    text = safe_player_text(value, max_length=max_length)
+    if not text:
+        return None
+    return PlayerHistoryField(label=label, value=text, display_value=text)
+
+
+def _history_id_field(label: str, value: object) -> PlayerHistoryField | None:
+    text = safe_player_text(value, max_length=120)
+    if not text:
+        return None
+    if len(text) > 18:
+        display_value = f"{text[:8]}...{text[-5:]}"
+    else:
+        display_value = text
+    return PlayerHistoryField(
+        label=label,
+        value=text,
+        display_value=display_value,
+        title=text,
+        kind="id",
+    )
+
+
+def _history_labels_field(label: str, labels: tuple[str, ...]) -> PlayerHistoryField | None:
+    clean_labels = tuple(label for label in labels if label)
+    if not clean_labels:
+        return None
+    return PlayerHistoryField(label=label, kind="labels", value_labels=clean_labels)
+
+
+def _history_time_field(label: str, value: object) -> PlayerHistoryField | None:
+    text = safe_player_text(value, max_length=80)
+    if not text:
+        return None
+    return PlayerHistoryField(label=label, value=text, kind="time")
+
+
+def _history_distance_field(distance_m: float | None) -> PlayerHistoryField | None:
+    if distance_m is None:
+        return None
+    return PlayerHistoryField(
+        label="Distance",
+        value=f"{distance_m:g}",
+        display_value=f"{distance_m:g}",
+        kind="distance",
+    )
+
+
+def _history_badges_field(event: player_registry.PlayerLogEventRecord) -> PlayerHistoryField | None:
+    labels: list[str] = []
+    if event.teamkill:
+        labels.append("TK")
+    if event.suicide:
+        labels.append("Suicide")
+    if event.ai_instigator:
+        labels.append("AI")
+    return _history_labels_field("Markers", tuple(labels))
+
+
+def _add_history_field(
+    fields: list[PlayerHistoryField],
+    field: PlayerHistoryField | None,
+) -> None:
+    if field is not None:
+        fields.append(field)
+
+
+def _history_actor(event: player_registry.PlayerLogEventRecord) -> tuple[str, str]:
+    if event.event_type == player_log_events.EVENT_TYPE_SERVER_LIFECYCLE:
+        return "System", ""
+    actor = event.player_name or event.victim_name or event.instigator_name
+    if actor:
+        return "", actor
+    if event.event_type == player_log_events.EVENT_TYPE_PLAYER_DISCONNECTED:
+        return "Correlation only", ""
+    return "Unknown", ""
+
+
+def _history_event_details(
+    event: player_registry.PlayerLogEventRecord,
+    *,
+    mode: str,
+) -> tuple[PlayerHistoryField, ...]:
+    fields: list[PlayerHistoryField] = []
+    event_type = event.event_type
+
+    if event_type in {
+        player_log_events.EVENT_TYPE_PLAYER_AUTHENTICATED,
+        player_log_events.EVENT_TYPE_PLAYER_UPDATE,
+    }:
+        _add_history_field(fields, _history_id_field("Player ID", event.player_id))
+        _add_history_field(
+            fields,
+            _history_labels_field("Source", _history_source_labels(event.source)),
+        )
+    elif event_type == player_log_events.EVENT_TYPE_FACTION_JOIN:
+        _add_history_field(fields, _history_id_field("Player ID", event.player_id))
+        _add_history_field(fields, _history_text_field("Faction", event.player_faction))
+        _add_history_field(
+            fields,
+            _history_labels_field("Source", _history_source_labels(event.source)),
+        )
+    elif event_type == player_log_events.EVENT_TYPE_SERVER_LIFECYCLE:
+        pass
+    elif event_type == player_log_events.EVENT_TYPE_PLAYER_DISCONNECTED:
+        if mode == PLAYER_HISTORY_MODE_SESSION_EVIDENCE:
+            _add_history_field(fields, _history_text_field("RPL identity", event.rpl_identity))
+            _add_history_field(fields, _history_text_field("Connection ID", event.connection_id))
+            _add_history_field(fields, _history_text_field("BE slot", event.be_slot))
+    elif event_type in PLAYER_HISTORY_COMBAT_EVENT_TYPES:
+        _add_history_field(fields, _history_text_field("Victim", event.victim_name))
+        if event.instigator_name and event.instigator_name != event.victim_name:
+            _add_history_field(
+                fields,
+                _history_text_field("Instigator", event.instigator_name),
+            )
+        if event.victim_faction and event.instigator_faction:
+            if event.victim_faction == event.instigator_faction:
+                _add_history_field(fields, _history_text_field("Faction", event.victim_faction))
+            else:
+                _add_history_field(
+                    fields,
+                    _history_text_field("Victim faction", event.victim_faction),
+                )
+                _add_history_field(
+                    fields,
+                    _history_text_field("Instigator faction", event.instigator_faction),
+                )
+        else:
+            _add_history_field(
+                fields,
+                _history_text_field("Faction", event.victim_faction or event.instigator_faction),
+            )
+        _add_history_field(fields, _history_text_field("Damage", event.damage_type))
+        _add_history_field(fields, _history_text_field("Hit", event.hit_zone))
+        _add_history_field(fields, _history_distance_field(event.distance_m))
+        _add_history_field(fields, _history_badges_field(event))
+    else:
+        _add_history_field(fields, _history_id_field("Player ID", event.player_id))
+        _add_history_field(
+            fields,
+            _history_labels_field("Source", _history_source_labels(event.source)),
+        )
+
+    return tuple(fields)
+
+
+def _history_field_signature(field: PlayerHistoryField) -> tuple[str, str, tuple[str, ...], str]:
+    return (field.label, field.value, field.value_labels, field.kind)
+
+
+def _history_event_diagnostics(
+    event: player_registry.PlayerLogEventRecord,
+    *,
+    details: tuple[PlayerHistoryField, ...],
+    mode: str,
+) -> tuple[PlayerHistoryField, ...]:
+    fields: list[PlayerHistoryField] = []
+    shown = {_history_field_signature(field) for field in details}
+
+    def add(field: PlayerHistoryField | None) -> None:
+        if field is None:
+            return
+        signature = _history_field_signature(field)
+        if signature in shown:
+            return
+        shown.add(signature)
+        fields.append(field)
+
+    if event.player_id and event.player_id not in {event.victim_id, event.instigator_id}:
+        add(_history_id_field("Player ID", event.player_id))
+    add(_history_id_field("Victim ID", event.victim_id))
+    add(_history_id_field("Instigator ID", event.instigator_id))
+    if mode == PLAYER_HISTORY_MODE_SESSION_EVIDENCE:
+        add(_history_text_field("Session player ID", event.session_player_id))
+        add(_history_text_field("Victim session ID", event.victim_session_player_id))
+        add(_history_text_field("Instigator session ID", event.instigator_session_player_id))
+        add(_history_text_field("RPL identity", event.rpl_identity))
+        add(_history_text_field("Connection ID", event.connection_id))
+        add(_history_text_field("BE slot", event.be_slot))
+    add(_history_labels_field("Source", _history_source_labels(event.source)))
+    add(
+        _history_labels_field(
+            "Confidence",
+            _history_label_value(PLAYER_HISTORY_CONFIDENCE_LABELS, event.confidence),
+        )
+    )
+    add(
+        _history_labels_field(
+            "Time source",
+            _history_label_value(PLAYER_HISTORY_TIME_SOURCE_LABELS, event.time_source),
+        )
+    )
+    add(
+        _history_labels_field(
+            "Time confidence",
+            _history_label_value(
+                PLAYER_HISTORY_TIME_CONFIDENCE_LABELS,
+                event.time_confidence,
+            ),
+        )
+    )
+    add(_history_text_field("Log timestamp", event.log_timestamp, max_length=80))
+    if event.collected_at and event.collected_at != event.event_time:
+        add(_history_time_field("Collected", event.collected_at))
+    add(_history_text_field("Reference", event.source_ref, max_length=120))
+    return tuple(fields)
+
+
+def _player_history_event_row(
+    event: player_registry.PlayerLogEventRecord,
+    *,
+    mode: str,
+) -> PlayerHistoryEventRow:
+    details = _history_event_details(event, mode=mode)
+    actor_label, actor_value = _history_actor(event)
+    return PlayerHistoryEventRow(
+        record=event,
+        label=PLAYER_HISTORY_EVENT_TYPE_LABELS.get(
+            event.event_type,
+            _history_fallback_label(event.event_type),
+        ),
+        actor_label=actor_label,
+        actor_value=actor_value,
+        details=details,
+        diagnostics=_history_event_diagnostics(event, details=details, mode=mode),
+    )
+
+
 def _normalize_session_status(value: object) -> str:
     candidate = safe_player_text(value, max_length=40)
     if candidate in PLAYER_SESSION_STATUS_VALUES:
@@ -441,7 +776,8 @@ def load_player_history_page(
         reliable_id=normalized_reliable_id,
         limit=normalized_limit,
         events=tuple(
-            player_registry.list_player_log_events(
+            _player_history_event_row(event, mode=normalized_mode)
+            for event in player_registry.list_player_log_events(
                 registry_path,
                 limit=normalized_limit,
                 event_type=normalized_event_type,

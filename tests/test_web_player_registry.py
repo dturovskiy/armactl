@@ -2270,12 +2270,10 @@ def test_player_sessions_route_renders_filtered_sanitized_session_fields(
         assert forbidden not in html
 
 
-def test_player_history_route_renders_empty_state_and_migrates_v1_db(
+def test_player_history_route_renders_empty_state_without_mutating_v1_db(
     tmp_path: Path,
     monkeypatch,
 ):
-    from armactl.web.services import player_registry
-
     db_path = tmp_path / "default" / "players.db"
     db_path.parent.mkdir(parents=True)
     with sqlite3.connect(db_path) as connection:
@@ -2317,15 +2315,33 @@ def test_player_history_route_renders_empty_state_and_migrates_v1_db(
             )
             """
         )
+    tables_before = _sqlite_tables(db_path)
     client = _authed_client(tmp_path, monkeypatch)
 
     response = client.get("/players/history", follow_redirects=False)
 
     assert response.status_code == 200
     assert "No player events recorded yet." in response.text
-    assert "player_log_events" in _sqlite_tables(db_path)
-    assert "player_sessions" in _sqlite_tables(db_path)
-    assert _registry_schema_version(db_path) == player_registry.PLAYER_REGISTRY_SCHEMA_VERSION
+    assert _sqlite_tables(db_path) == tables_before
+    assert "player_log_events" not in _sqlite_tables(db_path)
+    assert "player_sessions" not in _sqlite_tables(db_path)
+    assert _registry_schema_version(db_path) == "1"
+
+
+def test_player_history_get_does_not_create_registry_or_enqueue_jobs(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.jobs import list_recent_jobs
+
+    db_path = tmp_path / "default" / "players.db"
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get("/players/history", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert not db_path.exists()
+    assert list_recent_jobs(tmp_path / "web" / "web.db") == []
 
 
 def test_player_history_route_renders_stored_rows_without_raw_sources(
@@ -2345,7 +2361,7 @@ def test_player_history_route_renders_stored_rows_without_raw_sources(
             observed_at="2026-01-01T12:00:01+00:00",
             raw_source_ref=(
                 "/home/deus/armactl-data/default/config/logs/run/"
-                "console-198.51.100.7.log:203.0.113.9:1"
+                "console-198.51.100.7.log:password=hunter2:203.0.113.9:1"
             ),
         ),
         _parse_log_event(
@@ -2384,10 +2400,10 @@ def test_player_history_route_renders_stored_rows_without_raw_sources(
     assert response.status_code == 200
     html = response.text
     assert 'data-local-time datetime="2026-01-01T12:00:' in html
-    assert "player_authenticated" in html
-    assert "player_update" in html
-    assert "faction_join" in html
-    assert "teamkill" in html
+    for label in ("Authenticated", "Player update", "Faction join", "Teamkill"):
+        assert label in html
+    assert 'title="player_authenticated"' not in html
+    assert 'title="teamkill"' not in html
     assert "player-events-table" in html
     assert "player-event-details-row" not in html
     assert "player-event-diagnostics-row" in html
@@ -2400,22 +2416,30 @@ def test_player_history_route_renders_stored_rows_without_raw_sources(
     assert "Bravo Two" in html
     assert PLAYER_ALPHA_ID in html
     assert PLAYER_BRAVO_ID in html
-    assert "US_Army" not in html
-    assert "US" in html
-    assert "Faction resource" not in html
-    assert "session " not in html
-    assert "Confidence" not in html
-    assert "Diagnostics" in html
+    assert "Player ID" in html
+    assert "Backend auth" in html
+    assert "Network player update" in html
+    assert "Faction event" in html
+    assert "Faction:</strong>" in html
+    assert "Victim:</strong>" in html
+    assert "Instigator:</strong>" in html
+    assert "Damage:</strong>" in html
+    assert "Hit:</strong>" in html
+    assert "Distance:</strong>" in html
     assert "Bullet" in html
     assert "LeftArm" in html
     assert "2.2 m" in html
-    assert "console-***.log:***" in html
+    assert "US_Army" not in html
+    assert "Faction resource" not in html
+    assert "Session player ID" not in html
+    assert "RPL identity" not in html
+    assert "console-***.log:password=***" in html
     assert "/home/deus" not in html
     assert "armactl-data" not in html
     assert "198.51.100.7" not in html
     assert "203.0.113.9" not in html
+    assert "hunter2" not in html
     assert raw_auth_line not in html
-
 
 def test_player_history_default_hides_session_evidence_rows(
     tmp_path: Path,
@@ -2449,8 +2473,14 @@ def test_player_history_default_hides_session_evidence_rows(
                 observed_at="2026-01-01T12:00:04+00:00",
                 raw_source_ref="journal:shutdown",
             ),
+            _parse_log_event(
+                "SCRIPT : ServerAdminTools | Event serveradmintools_player_killed | "
+                "player: Ghost Victim, instigator: Unknown Shooter, friendly: false",
+                observed_at="2026-01-01T12:00:05+00:00",
+                raw_source_ref="journal:combat-hint",
+            ),
         ],
-        ingested_at="2026-01-01T12:00:05+00:00",
+        ingested_at="2026-01-01T12:00:06+00:00",
     )
     stored_event_types = [
         event.event_type for event in player_registry.list_player_log_events(db_path)
@@ -2465,20 +2495,25 @@ def test_player_history_default_hides_session_evidence_rows(
 
     assert response.status_code == 200
     html = response.text
-    assert "player_authenticated" in html
+    assert "Authenticated" in html
     assert "journal:alpha-auth" in html
-    assert 'title="server_lifecycle"' not in html
-    assert 'title="player_disconnected"' not in html
-    assert "journal:rpl-disconnect" not in html
-    assert "journal:network-disconnect" not in html
-    assert "journal:shutdown" not in html
+    for hidden_text in (
+        "journal:rpl-disconnect",
+        "journal:network-disconnect",
+        "journal:shutdown",
+        "journal:combat-hint",
+        "Ghost Victim",
+        "Unknown Shooter",
+    ):
+        assert hidden_text not in html
     assert "Correlation only" not in html
     assert "System" not in html
     assert "server_lifecycle" in stored_event_types
     assert stored_event_types.count("player_disconnected") == 2
+    assert "combat_hint" in stored_event_types
     assert "server_lifecycle" in sessionizer_event_types
     assert sessionizer_event_types.count("player_disconnected") == 2
-
+    assert "combat_hint" in sessionizer_event_types
 
 def test_player_history_session_evidence_mode_renders_safe_diagnostics(
     tmp_path: Path,
@@ -2498,6 +2533,10 @@ def test_player_history_session_evidence_mode_renders_safe_diagnostics(
         + chr(39)
     )
     raw_lifecycle_line = "DEFAULT : [PERSISTENCE] Save (SHUTDOWN) started."
+    raw_hint_line = (
+        "SCRIPT : ServerAdminTools | Event serveradmintools_player_killed | "
+        "player: Ghost Victim, instigator: Unknown Shooter, friendly: true"
+    )
     player_registry.ingest_player_log_events(
         db_path,
         [
@@ -2524,6 +2563,73 @@ def test_player_history_session_evidence_mode_renders_safe_diagnostics(
                 observed_at="2026-01-01T12:00:05+00:00",
                 raw_source_ref="journal:shutdown",
             ),
+            _parse_log_event(
+                raw_hint_line,
+                observed_at="2026-01-01T12:00:06+00:00",
+                raw_source_ref="journal:combat-hint",
+            ),
+        ],
+        ingested_at="2026-01-01T12:00:07+00:00",
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get(
+        "/players/history?mode=session_evidence",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'value="session_evidence" selected' in html
+    assert 'title="server_lifecycle"' not in html
+    assert 'title="player_disconnected"' not in html
+    assert "Server lifecycle" in html
+    assert "Disconnect" in html
+    assert "Combat hint" in html
+    assert "System" in html
+    assert html.count("Correlation only") == 2
+    assert "Bravo Two" in html
+    assert "Ghost Victim" in html
+    assert "Unknown Shooter" in html
+    assert ">Unknown<" not in html
+    assert "Unknown player" not in html
+    assert "RPL identity" in html
+    assert "42" in html
+    assert "Connection ID" in html
+    assert "conn-17" in html
+    assert "BE slot" in html
+    assert "23" in html
+    assert "RPL disconnect" in html
+    assert "Network disconnect" in html
+    assert "BattlEye disconnect" in html
+    assert "Service lifecycle" in html
+    assert "ServerAdminTools event" in html
+    assert "console-***.log:***" in html
+    assert "/home/deus" not in html
+    assert "armactl-data" not in html
+    assert "198.51.100.7" not in html
+    assert "203.0.113.9" not in html
+    assert raw_rpl_line not in html
+    assert raw_network_line not in html
+    assert raw_be_line not in html
+    assert raw_lifecycle_line not in html
+    assert raw_hint_line not in html
+
+
+def test_player_history_rows_without_useful_details_do_not_render_dash_noise(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.ingest_player_log_events(
+        db_path,
+        [
+            _parse_log_event(
+                "DEFAULT : [PERSISTENCE] Save (SHUTDOWN) started.",
+                observed_at="2026-01-01T12:00:05+00:00",
+            ),
         ],
         ingested_at="2026-01-01T12:00:06+00:00",
     )
@@ -2536,28 +2642,10 @@ def test_player_history_session_evidence_mode_renders_safe_diagnostics(
 
     assert response.status_code == 200
     html = response.text
-    assert 'value="session_evidence" selected' in html
-    assert 'title="server_lifecycle"' in html
-    assert 'title="player_disconnected"' in html
-    assert "System" in html
-    assert html.count("Correlation only") == 3
-    assert ">Unknown<" not in html
-    assert "Unknown player" not in html
-    assert "RPL identity" in html
-    assert "42" in html
-    assert "Connection ID" in html
-    assert "conn-17" in html
-    assert "BE slot" in html
-    assert "23" in html
-    assert "console-***.log:***" in html
-    assert "/home/deus" not in html
-    assert "armactl-data" not in html
-    assert "198.51.100.7" not in html
-    assert "203.0.113.9" not in html
-    assert raw_rpl_line not in html
-    assert raw_network_line not in html
-    assert raw_be_line not in html
-    assert raw_lifecycle_line not in html
+    assert "Server lifecycle" in html
+    assert "player-event-details-cell" not in html
+    assert '<span class="muted">-</span>' not in html
+    assert "Reference</strong>" not in html
 
 
 def test_player_history_route_filters_query_with_default_player_event_scope(

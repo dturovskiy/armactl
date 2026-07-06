@@ -2,43 +2,41 @@
 {% macro local_time(timestamp) -%}
   {% if timestamp %}{{ format_web_timestamp(timestamp) }}{% else %}<span class="muted">-</span>{% endif %}
 {%- endmacro %}
-{% macro inline_actor(name) -%}
-  {% if name %}
-    <strong class="wrap-value">{{ name }}</strong>
+{% macro field_value(field) -%}
+  {% if field.kind == "id" %}
+    <span class="player-id-cell player-id-clip" title="{{ field.title }}">{{ field.display_value }}</span>
+  {% elif field.kind == "labels" %}
+    {% for value_label in field.value_labels %}
+      <span>{{ t(value_label) }}</span>{% if not loop.last %}<span class="player-history-field-separator">+</span>{% endif %}
+    {% endfor %}
+  {% elif field.kind == "time" %}
+    {{ local_time(field.value) }}
+  {% elif field.kind == "distance" %}
+    {{ tr("{distance} m", distance=field.value) }}
   {% else %}
-    <span class="muted">{{ t("Unknown") }}</span>
+    <span class="wrap-value"{% if field.title %} title="{{ field.title }}"{% endif %}>{{ field.display_value or field.value }}</span>
   {% endif %}
 {%- endmacro %}
-{% macro primary_actor(event) -%}
-  {% if event.event_type == "server_lifecycle" %}
-    <strong class="wrap-value">{{ t("System") }}</strong>
-  {% elif event.event_type == "player_disconnected" and not event.player_id %}
-    <strong class="wrap-value">{{ t("Correlation only") }}</strong>
+{% macro detail_field(field) -%}
+  {% if field.kind == "labels" and field.label == "Markers" %}
+    <span class="player-event-flags">
+      {% for value_label in field.value_labels %}
+        <span class="status-pill {% if value_label == 'TK' or value_label == 'Suicide' %}status-pill-warning{% else %}status-pill-ok{% endif %}">{{ t(value_label) }}</span>
+      {% endfor %}
+    </span>
   {% else %}
-    {{ inline_actor(event.player_name) }}
+    <span class="player-event-detail-item"><strong>{{ t(field.label) }}:</strong> {{ field_value(field) }}</span>
   {% endif %}
 {%- endmacro %}
-{% macro diagnostic_id(label, reliable_id) -%}
-  {% if reliable_id %}
-    <span class="player-diagnostic-line"><strong>{{ t(label) }}:</strong> <span class="player-id-cell player-id-clip" title="{{ reliable_id }}">{{ reliable_id[:8] }}...{{ reliable_id[-5:] }}</span></span>
-  {% endif %}
+{% macro diagnostic_field(field) -%}
+  <span class="player-diagnostic-line wrap-value"><strong>{{ t(field.label) }}:</strong> {{ field_value(field) }}</span>
 {%- endmacro %}
-{% macro diagnostic_text(label, value) -%}
-  {% if value %}
-    <span class="player-diagnostic-line wrap-value"><strong>{{ t(label) }}:</strong> {{ value }}</span>
+{% macro event_actor(event) -%}
+  {% if event.actor_value %}
+    <strong class="wrap-value">{{ event.actor_value }}</strong>
+  {% else %}
+    <strong class="wrap-value">{{ t(event.actor_label) }}</strong>
   {% endif %}
-{%- endmacro %}
-{% macro combat_summary(event) -%}
-  {% if event.damage_type or event.hit_zone or event.distance_m is not none %}
-    {% if event.damage_type %}<strong>{{ event.damage_type }}</strong>{% endif %}
-    {% if event.hit_zone %}<span>{{ event.hit_zone }}</span>{% endif %}
-    {% if event.distance_m is not none %}<span>{{ tr("{distance} m", distance=event.distance_m) }}</span>{% endif %}
-  {% endif %}
-{%- endmacro %}
-{% macro event_flags(event) -%}
-  {% if event.teamkill %}<span class="status-pill status-pill-warning">{{ t("TK") }}</span>{% endif %}
-  {% if event.suicide %}<span class="status-pill status-pill-warning">{{ t("Suicide") }}</span>{% endif %}
-  {% if event.ai_instigator %}<span class="status-pill status-pill-ok">{{ t("AI") }}</span>{% endif %}
 {%- endmacro %}
 {% block title %}{{ t("Players - armactl web") }}{% endblock %}
 {% block heading %}{{ t("Players") }}{% endblock %}
@@ -127,7 +125,6 @@
             <th>{{ t("Evidence time") }}</th>
             <th>{{ t("Event") }}</th>
             <th>{{ t("Player") }}</th>
-            <th>{{ t("Faction") }}</th>
             <th>{{ t("Details") }}</th>
           </tr>
         </thead>
@@ -135,53 +132,32 @@
         {% for event in events %}
           <tr class="player-event-main-row">
             <td><span class="player-row-subtle">{{ t(event.event_time_label) }}</span>{{ local_time(event.event_time) }}</td>
-            <td><span class="status-pill status-pill-ok player-event-type-pill" title="{{ event.event_type }}">{{ t(event_type_labels.get(event.event_type, event.event_type)) }}</span></td>
-            <td>{{ primary_actor(event) }}</td>
+            <td><span class="status-pill status-pill-ok player-event-type-pill">{{ t(event.label) }}</span></td>
+            <td>{{ event_actor(event) }}</td>
             <td>
-              {% set faction = event.player_faction or event.victim_faction or event.instigator_faction %}
-              {% if faction %}<span class="wrap-value">{{ faction }}</span>{% else %}<span class="muted">-</span>{% endif %}
-            </td>
-            <td>
-              <div class="player-event-details-cell">
-                {% if event.victim_name %}
-                  <span><strong>{{ t("Target") }}</strong>: {{ inline_actor(event.victim_name) }}</span>
-                {% endif %}
-                {% if event.instigator_name and event.instigator_name != event.player_name and event.instigator_name != event.victim_name %}
-                  <span><strong>{{ t("Instigator") }}</strong>: {{ inline_actor(event.instigator_name) }}</span>
-                {% endif %}
-                {% if event.damage_type or event.hit_zone or event.distance_m is not none %}
-                  <span><strong>{{ t("Combat") }}</strong>: <span class="player-event-combat-line">{{ combat_summary(event) }}</span></span>
-                {% endif %}
-                {% if event.teamkill or event.suicide or event.ai_instigator %}
-                  <span class="player-event-flags">{{ event_flags(event) }}</span>
-                {% endif %}
-                {% if not event.victim_name and not event.instigator_name and not event.damage_type and not event.hit_zone and event.distance_m is none and not event.teamkill and not event.suicide and not event.ai_instigator %}
-                  <span class="muted">-</span>
-                {% endif %}
-              </div>
-            </td>
-          </tr>
-          <tr class="player-event-diagnostics-row">
-            <td colspan="5">
-              <details class="player-event-diagnostics">
-                <summary>{{ t("Diagnostics") }}</summary>
-                <div class="player-diagnostic-stack">
-                  {{ diagnostic_id("Player ID", event.player_id) }}
-                  {{ diagnostic_id("Victim ID", event.victim_id) }}
-                  {{ diagnostic_id("Instigator ID", event.instigator_id) }}
-                  {{ diagnostic_text("RPL identity", event.rpl_identity) }}
-                  {{ diagnostic_text("Connection ID", event.connection_id) }}
-                  {{ diagnostic_text("BE slot", event.be_slot) }}
-                  <span class="player-diagnostic-line"><strong>{{ t("Source") }}:</strong> {{ event.source }}</span>
-                  {{ diagnostic_text("Time source", event.event_time_detail) }}
-                  {{ diagnostic_text("Time confidence", event.time_confidence) }}
-                  {{ diagnostic_text("Log timestamp", event.log_timestamp) }}
-                  {% if event.collected_at %}<span class="player-diagnostic-line"><strong>{{ t("Collected") }}:</strong> {{ local_time(event.collected_at) }}</span>{% endif %}
-                  {% if event.source_ref %}<span class="player-diagnostic-line wrap-value"><strong>{{ t("Reference") }}:</strong> {{ event.source_ref }}</span>{% endif %}
+              {% if event.details %}
+                <div class="player-event-details-cell">
+                  {% for field in event.details %}
+                    {{ detail_field(field) }}
+                  {% endfor %}
                 </div>
-              </details>
+              {% endif %}
             </td>
           </tr>
+          {% if event.diagnostics %}
+            <tr class="player-event-diagnostics-row">
+              <td colspan="4">
+                <details class="player-event-diagnostics">
+                  <summary>{{ t("Diagnostics") }}</summary>
+                  <div class="player-diagnostic-stack">
+                    {% for field in event.diagnostics %}
+                      {{ diagnostic_field(field) }}
+                    {% endfor %}
+                  </div>
+                </details>
+              </td>
+            </tr>
+          {% endif %}
         {% endfor %}
         </tbody>
       </table>

@@ -82,6 +82,62 @@ def test_web_template_literal_translation_keys_exist_in_locales():
     assert missing_uk == [], missing_uk
 
 
+def test_player_history_dynamic_translation_keys_exist_in_locales():
+    keys = {
+        "Authenticated",
+        "Player update",
+        "Faction join",
+        "Disconnect",
+        "Server lifecycle",
+        "Kill",
+        "Suicide",
+        "Teamkill",
+        "Other death",
+        "Combat hint",
+        "Player events",
+        "Session evidence",
+        "System",
+        "Correlation only",
+        "RPL identity",
+        "Connection ID",
+        "BE slot",
+        "Backend auth",
+        "Network player update",
+        "Faction event",
+        "RPL disconnect",
+        "Network disconnect",
+        "BattlEye disconnect",
+        "Service lifecycle",
+        "Combat event",
+        "ServerAdminTools event",
+        "High",
+        "Medium",
+        "Low",
+        "Log timestamp without date",
+        "Caller event time",
+        "Caller observed time",
+        "Unavailable",
+        "Exact",
+        "Derived",
+        "Ambiguous",
+        "Victim faction",
+        "Instigator faction",
+        "Damage",
+        "Hit",
+        "Distance",
+        "Session player ID",
+        "Victim session ID",
+        "Instigator session ID",
+        "Reference",
+        "Confidence",
+        "TK",
+        "AI",
+    }
+
+    assert sorted(keys - _locale_keys("en")) == []
+    assert sorted(keys - _locale_keys("uk")) == []
+
+
 def test_player_session_dynamic_translation_keys_exist_in_locales():
     keys = {
         "All statuses",
