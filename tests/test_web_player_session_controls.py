@@ -339,6 +339,12 @@ def test_session_get_pages_render_controls_without_enqueueing_jobs(
     assert 'action="/players/sessions/scan-live"' in sessions.text
     assert 'action="/players/sessions/sessionize-log-events"' in sessions.text
     assert 'action="/players/sessions/maintenance"' in sessions.text
+    assert "Scan live sessions" in sessions.text
+    assert "Observe current roster into sessions" in sessions.text
+    assert "Sessionize logs" in sessions.text
+    assert "Process stored log evidence" in sessions.text
+    assert "Session maintenance" in sessions.text
+    assert "Close stale / clean old closed sessions" in sessions.text
     assert 'name="log_path"' not in sessions.text
     assert 'name="source_ref"' not in sessions.text
     assert list_recent_jobs(tmp_path / "web" / "web.db") == []
@@ -401,14 +407,16 @@ def test_session_page_renders_active_job_indicators_with_safe_fields(
     assert 'href="/jobs#background-jobs"' in html
     assert f'data-active-session-job-id="{running_job.id}"' in html
     assert f'data-active-session-job-id="{queued_job.id}"' in html
-    assert f">#{running_job.id}</a>" in html
-    assert f">#{queued_job.id}</a>" in html
-    assert "players:scan-live-sessions" in html
-    assert "players:sessionize-log-events" in html
+    assert f">Job #{running_job.id}</a>" in html
+    assert f">Job #{queued_job.id}</a>" in html
+    assert "Scan live sessions" in html
+    assert "Sessionize log events" in html
+    assert "players:scan-live-sessions" not in html
+    assert "players:sessionize-log-events" not in html
     assert "players:session-maintenance" not in html
     assert "players:refresh-current" not in html
-    assert "running" in html
-    assert "queued" in html
+    assert "Running" in html
+    assert "Queued" in html
     assert "raw-secret" not in html
     assert "raw-token" not in html
     assert "198.51.100.44" not in html

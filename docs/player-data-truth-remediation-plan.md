@@ -51,17 +51,18 @@ Observed problem: operators do not know what session job buttons do, and the mea
 
 Truth contract:
 
-- `Open` means armactl has evidence that started/updated a session and has not yet stored close evidence. It does not guarantee the player is online right now.
-- `Closed` means armactl stored a close boundary or inferred a close from a controlled rule such as server lifecycle, reliable disconnect evidence, repeated reliable roster absence, or stale timeout.
-- `Observed` means the first evidence time stored for the session, not necessarily exact join time unless the source is a reliable connect event.
-- `Last observed` means the latest evidence time in that session.
-- `Inferred close` means a close time/reason inferred from available evidence, not necessarily an exact disconnect time.
+- `Stored open` means armactl has stored session evidence that started/updated a session and has not yet stored reliable close evidence. It does not guarantee the player is online right now.
+- `Stored closed` means armactl stored close evidence or inferred a close from a controlled rule such as lifecycle/server boundary, reliable disconnect evidence, repeated reliable roster absence, or stale timeout.
+- `First evidence` means the first evidence time stored for the session, not necessarily exact join time unless the source is a reliable connect event.
+- `Last evidence` means the latest evidence time in that session.
+- `Close evidence` means the stored close/inferred-close time and source. It is not necessarily an exact disconnect time.
+- Session labels must not make online, playtime, K-D, role, or current faction truth claims; current online truth remains the `/players` current roster surface.
 
 Job button contract:
 
-- `Scan live player sessions`: one-shot live roster scan. It can open/update sessions for reliable current roster IDs and can advance safe absence windows. It is not a daemon.
-- `Create sessions from player events`: reads already stored `player_log_events` and converts reliable evidence into session rows. It does not read live logs directly.
-- `Run session maintenance`: closes stale open sessions and runs retention cleanup according to explicit rules. It is not a live scanner.
+- `Scan live sessions`: one-shot manual current roster observation into sessions. It can open/update stored session evidence for reliable current roster IDs and can advance safe absence windows. It is not a daemon, scheduler, or poller.
+- `Sessionize logs`: reads already stored `player_log_events` and converts reliable evidence into session rows. It does not read live logs directly.
+- `Session maintenance`: closes stale open sessions and runs retention cleanup according to explicit rules. It is not a live scanner and does not enable automatic scheduling.
 
 ### 4. VM Smoke Finding: False `waiting_for_telemetry`
 
@@ -149,17 +150,19 @@ Goal: remove ambiguity from sessions and background job controls.
 
 Tasks:
 
-- Rename or clarify labels for open/closed sessions and timestamps.
-- Add concise operator-facing explanations in docs and, where appropriate, small UI help text/tooltips.
-- Make source/confidence/end-reason labels consistent.
-- Ensure open sessions are not presented as guaranteed online truth.
-- Ensure close reasons clearly identify exact close, inferred close, stale absence, stale timeout, or server boundary.
+- Rename or clarify labels for stored open/closed sessions and evidence timestamps.
+- Add concise operator-facing explanations in docs and compact UI helper text where it prevents ambiguous job actions.
+- Make source/confidence/end-reason labels consistent: reliable roster evidence, log evidence, lifecycle/server boundary, stale absence / stale timeout, and high/medium/low confidence.
+- Ensure stored open sessions are not presented as guaranteed online truth.
+- Ensure close reasons clearly identify close evidence, inferred/stale absence, stale timeout, or server boundary without expanding session truth.
+- Do not add an automatic scheduler, timer, service, poller, daemon, or background GET-side mutation.
 
 Acceptance criteria:
 
 - Operators can explain what each session job does before pressing it.
-- Operators understand that `Open` means "not closed by stored evidence yet", not "definitely online".
+- Operators understand that `Stored open` means "not closed by stored evidence yet", not "definitely online".
 - Existing session rows remain readable without claiming false precision.
+- Slice 3 does not add online/playtime/K-D/role/current faction truth and does not enable automatic session scheduling.
 
 ### Slice 4: Operational Status Telemetry Fix
 

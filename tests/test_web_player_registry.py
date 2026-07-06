@@ -2166,6 +2166,14 @@ def test_player_sessions_summary_counts_existing_sessions_read_only(
     assert 'data-summary-inferred-stale-count="1"' in html
     assert 'data-summary-latest-observed="2026-06-16T12:30:00+00:00"' in html
     assert 'datetime="2026-06-16T12:30:00Z"' in html
+    assert "Stored open" in html
+    assert "Stored closed" in html
+    assert "Inferred/stale close evidence" in html
+    assert "Stored status" in html
+    assert "Online" not in html
+    assert "Offline" not in html
+    assert "online" not in html.lower()
+    assert "offline" not in html.lower()
     assert after_rows == before_rows
 
 
@@ -2242,13 +2250,12 @@ def test_player_sessions_route_renders_filtered_sanitized_session_fields(
     assert "First evidence" in html
     assert "Last evidence" in html
     assert "Close evidence" in html
-    assert "Backend auth" in html
-    assert "RCON roster" in html
-    assert "Scanner checkpoint" in html
-    assert "High" in html
-    assert "Medium" in html
-    assert "Low" in html
-    assert "Stale absence" in html
+    assert "Log evidence" in html
+    assert "Reliable roster evidence" in html
+    assert "Stale absence / stale timeout" in html
+    assert "High confidence" in html
+    assert "Medium confidence" in html
+    assert "Low confidence" in html
     for forbidden in (
         raw_path,
         "/home/deus",

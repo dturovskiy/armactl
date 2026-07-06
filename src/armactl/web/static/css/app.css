@@ -1175,8 +1175,14 @@ button.warning {
 }
 
 .player-session-job-form {
-  display: flex;
+  display: grid;
+  gap: 4px;
   margin: 0;
+}
+
+.player-session-job-form .muted {
+  font-size: 0.82rem;
+  font-weight: 600;
 }
 
 .player-history-action-row {

@@ -1,14 +1,14 @@
 {% extends "layout.html" %}
 {% macro local_time(timestamp) -%}
-  {% if timestamp %}{{ format_web_timestamp(timestamp) }}{% else %}<span class="muted">-</span>{% endif %}
+  {% if timestamp %}{{ format_web_timestamp(timestamp) }}{% endif %}
 {%- endmacro %}
 {% macro source_line(label, source, confidence) -%}
   {% if source %}
     <span class="player-diagnostic-line">
       <strong>{{ t(label) }}:</strong>
-      <span>{{ t(page.source_labels.get(source, source)) }}</span>
+      <span>{{ t(page.source_labels.get(source, "Other evidence")) }}</span>
       {% if confidence %}
-        <span class="muted">({{ t(page.confidence_labels.get(confidence, confidence)) }})</span>
+        <span class="muted">({{ t(page.confidence_labels.get(confidence, "Unknown confidence")) }})</span>
       {% endif %}
     </span>
   {% endif %}
@@ -51,15 +51,18 @@
     <div class="player-session-job-actions">
       <form method="post" action="/players/sessions/scan-live" class="player-session-job-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit">{{ t("Scan live player sessions") }}</button>
+        <button type="submit">{{ t("Scan live sessions") }}</button>
+        <span class="muted">{{ t("Observe current roster into sessions") }}</span>
       </form>
       <form method="post" action="/players/sessions/sessionize-log-events" class="player-session-job-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit">{{ t("Sessionize player log events") }}</button>
+        <button type="submit">{{ t("Sessionize logs") }}</button>
+        <span class="muted">{{ t("Process stored log evidence") }}</span>
       </form>
       <form method="post" action="/players/sessions/maintenance" class="player-session-job-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit">{{ t("Run session maintenance") }}</button>
+        <button type="submit">{{ t("Session maintenance") }}</button>
+        <span class="muted">{{ t("Close stale / clean old closed sessions") }}</span>
       </form>
     </div>
   </section>
@@ -67,15 +70,15 @@
   <section class="player-session-summary" data-player-session-summary>
     <div class="player-summary-grid player-session-summary-grid">
       <article class="player-summary-item" data-summary-open-count="{{ page.summary.open_sessions }}">
-        <span>{{ t("Open sessions") }}</span>
+        <span>{{ t("Stored open") }}</span>
         <strong>{{ page.summary.open_sessions }}</strong>
       </article>
       <article class="player-summary-item" data-summary-closed-count="{{ page.summary.closed_sessions }}">
-        <span>{{ t("Closed sessions") }}</span>
+        <span>{{ t("Stored closed") }}</span>
         <strong>{{ page.summary.closed_sessions }}</strong>
       </article>
       <article class="player-summary-item" data-summary-inferred-stale-count="{{ page.summary.inferred_or_stale_closes }}">
-        <span>{{ t("Inferred/stale closes") }}</span>
+        <span>{{ t("Inferred/stale close evidence") }}</span>
         <strong>{{ page.summary.inferred_or_stale_closes }}</strong>
       </article>
       <article class="player-summary-item" data-summary-latest-observed="{{ page.summary.latest_observed_at }}">
@@ -91,13 +94,12 @@
         <h2>{{ t("Active session jobs") }}</h2>
         <a class="button-link secondary-link" href="/jobs#background-jobs">{{ t("Open background jobs") }}</a>
       </div>
-      <p class="muted">{{ t("Session freshness jobs are queued or running.") }}</p>
       <div class="player-session-active-job-list">
         {% for job in page.active_jobs %}
           <div class="player-session-active-job" data-active-session-job-id="{{ job.job_id }}">
-            <span><strong>{{ t("Job kind") }}:</strong> <code>{{ job.kind }}</code></span>
-            <span><strong>{{ t("Status") }}:</strong> <span class="status-pill status-pill-{{ job.status }}">{{ t(job.status) }}</span></span>
-            <a class="text-link" href="{{ job.jobs_url }}">#{{ job.job_id }}</a>
+            <span><strong>{{ t("Job") }}:</strong> {{ t(job.kind_label) }}</span>
+            <span><strong>{{ t("Status") }}:</strong> <span class="status-pill status-pill-{{ job.status }}">{{ t(job.status_label) }}</span></span>
+            <a class="text-link" href="{{ job.jobs_url }}">{{ t("Job") }} #{{ job.job_id }}</a>
           </div>
         {% endfor %}
       </div>
@@ -112,7 +114,7 @@
   <form method="get" action="/players/sessions" class="player-search-form player-history-filter-form">
     <div class="player-history-filter-grid">
       <label>
-        <span>{{ t("Status") }}</span>
+        <span>{{ t("Stored status") }}</span>
         <select name="status">
           {% for option_value, option_label in page.status_options %}
             <option value="{{ option_value }}"{% if option_value == status %} selected{% endif %}>{{ t(option_label) }}</option>
@@ -128,7 +130,7 @@
         </select>
       </label>
       <label>
-        <span>{{ t("Source") }}</span>
+        <span>{{ t("Evidence source") }}</span>
         <select name="source">
           {% for option_value, option_label in page.source_options %}
             <option value="{{ option_value }}"{% if option_value == source %} selected{% endif %}>{{ t(option_label) }}</option>
@@ -161,11 +163,11 @@
           <tr>
             <th>{{ t("Player") }}</th>
             <th>{{ t("Player ID") }}</th>
-            <th>{{ t("Status") }}</th>
+            <th>{{ t("Stored status") }}</th>
             <th>{{ t("First evidence") }}</th>
             <th>{{ t("Last evidence") }}</th>
             <th>{{ t("Close evidence") }}</th>
-            <th>{{ t("Source") }}</th>
+            <th>{{ t("Evidence") }}</th>
             <th>{{ t("End reason") }}</th>
           </tr>
         </thead>
@@ -180,8 +182,8 @@
             </td>
             <td><span class="player-id-cell player-id-clip" title="{{ session.reliable_id }}">{{ session.reliable_id[:8] }}...{{ session.reliable_id[-5:] }}</span></td>
             <td>
-              {% set status_label = page.status_labels.get(session.status, session.status or "Unknown") %}
-              <span class="status-pill {% if session.status == 'open' %}status-pill-ok{% else %}status-pill-warning{% endif %}">{{ t(status_label) }}</span>
+              {% set status_label = page.status_labels.get(session.status, "Unknown status") %}
+              <span class="status-pill">{{ t(status_label) }}</span>
             </td>
             <td>{{ local_time(session.open_observed_at) }}</td>
             <td>{{ local_time(session.last_seen_at) }}</td>
@@ -195,9 +197,7 @@
             </td>
             <td>
               {% if session.end_reason %}
-                <span class="wrap-value">{{ t(page.end_reason_labels.get(session.end_reason, session.end_reason)) }}</span>
-              {% else %}
-                <span class="muted">-</span>
+                <span class="wrap-value">{{ t(page.end_reason_labels.get(session.end_reason, "Unknown close reason")) }}</span>
               {% endif %}
             </td>
           </tr>

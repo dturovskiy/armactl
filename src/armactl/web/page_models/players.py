@@ -88,13 +88,23 @@ PLAYER_SESSION_STATUS_VALUES = frozenset(
     status for status, _label in PLAYER_SESSION_STATUS_OPTIONS if status
 )
 PLAYER_SESSION_END_REASON_LABELS = {
-    player_registry.PLAYER_SESSION_END_REASON_DISCONNECT: "Disconnect",
-    player_registry.PLAYER_SESSION_END_REASON_SERVER_BOUNDARY: "Server boundary",
-    player_registry.PLAYER_SESSION_END_REASON_STALE_TIMEOUT: "Stale timeout",
-    player_registry.PLAYER_SESSION_END_REASON_STALE_ABSENCE: "Stale absence",
-    player_registry.PLAYER_SESSION_END_REASON_SCANNER_CHECKPOINT: "Scanner checkpoint",
-    player_registry.PLAYER_SESSION_END_REASON_IMPORT_WINDOW: "Import window",
-    player_registry.PLAYER_SESSION_END_REASON_UNKNOWN: "Unknown",
+    player_registry.PLAYER_SESSION_END_REASON_DISCONNECT: "Disconnect evidence",
+    player_registry.PLAYER_SESSION_END_REASON_SERVER_BOUNDARY: (
+        "Lifecycle/server boundary"
+    ),
+    player_registry.PLAYER_SESSION_END_REASON_STALE_TIMEOUT: (
+        "Stale absence / stale timeout"
+    ),
+    player_registry.PLAYER_SESSION_END_REASON_STALE_ABSENCE: (
+        "Stale absence / stale timeout"
+    ),
+    player_registry.PLAYER_SESSION_END_REASON_SCANNER_CHECKPOINT: (
+        "Scanner checkpoint boundary"
+    ),
+    player_registry.PLAYER_SESSION_END_REASON_IMPORT_WINDOW: (
+        "Stored log import window"
+    ),
+    player_registry.PLAYER_SESSION_END_REASON_UNKNOWN: "Unknown close reason",
 }
 PLAYER_SESSION_END_REASON_OPTIONS = (
     ("", "All end reasons"),
@@ -104,15 +114,19 @@ PLAYER_SESSION_END_REASON_VALUES = frozenset(
     reason for reason, _label in PLAYER_SESSION_END_REASON_OPTIONS if reason
 )
 PLAYER_SESSION_SOURCE_LABELS = {
-    player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH: "Backend auth",
-    player_registry.PLAYER_SESSION_SOURCE_NETWORK_PLAYER_UPDATE: "Network player update",
-    player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER: "RCON roster",
-    player_registry.PLAYER_SESSION_SOURCE_SCRIPT_FACTION_JOIN: "Faction event",
-    player_registry.PLAYER_SESSION_SOURCE_SCRIPT_KILL: "Combat event",
-    player_registry.PLAYER_SESSION_SOURCE_SERVER_ADMIN_TOOLS_KILL: "ServerAdminTools event",
-    player_registry.PLAYER_SESSION_SOURCE_SERVICE_LIFECYCLE: "Service lifecycle",
-    player_registry.PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT: "Scanner checkpoint",
-    player_registry.PLAYER_SESSION_SOURCE_MANUAL_IMPORT: "Manual import",
+    player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH: "Log evidence",
+    player_registry.PLAYER_SESSION_SOURCE_NETWORK_PLAYER_UPDATE: "Log evidence",
+    player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER: "Reliable roster evidence",
+    player_registry.PLAYER_SESSION_SOURCE_SCRIPT_FACTION_JOIN: "Log evidence",
+    player_registry.PLAYER_SESSION_SOURCE_SCRIPT_KILL: "Log evidence",
+    player_registry.PLAYER_SESSION_SOURCE_SERVER_ADMIN_TOOLS_KILL: "Log evidence",
+    player_registry.PLAYER_SESSION_SOURCE_SERVICE_LIFECYCLE: (
+        "Lifecycle/server boundary"
+    ),
+    player_registry.PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT: (
+        "Stale absence / stale timeout"
+    ),
+    player_registry.PLAYER_SESSION_SOURCE_MANUAL_IMPORT: "Log evidence",
 }
 PLAYER_SESSION_SOURCE_OPTIONS = (
     ("", "All sources"),
@@ -122,9 +136,18 @@ PLAYER_SESSION_SOURCE_VALUES = frozenset(
     source for source, _label in PLAYER_SESSION_SOURCE_OPTIONS if source
 )
 PLAYER_SESSION_CONFIDENCE_LABELS = {
-    player_registry.PLAYER_SESSION_CONFIDENCE_HIGH: "High",
-    player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM: "Medium",
-    player_registry.PLAYER_SESSION_CONFIDENCE_LOW: "Low",
+    player_registry.PLAYER_SESSION_CONFIDENCE_HIGH: "High confidence",
+    player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM: "Medium confidence",
+    player_registry.PLAYER_SESSION_CONFIDENCE_LOW: "Low confidence",
+}
+PLAYER_SESSION_JOB_KIND_LABELS = {
+    player_session_jobs.PLAYER_LIVE_SESSION_SCAN_JOB_KIND: "Scan live sessions",
+    player_session_jobs.PLAYER_LOG_SESSIONIZATION_JOB_KIND: "Sessionize log events",
+    player_session_jobs.PLAYER_SESSION_MAINTENANCE_JOB_KIND: "Session maintenance",
+}
+PLAYER_SESSION_JOB_STATUS_LABELS = {
+    job_models.JOB_STATUS_QUEUED: "Queued",
+    job_models.JOB_STATUS_RUNNING: "Running",
 }
 PLAYER_SESSION_OPERATOR_JOB_KINDS = frozenset(
     {
@@ -271,7 +294,9 @@ class PlayerSessionJobIndicator:
 
     job_id: int
     kind: str
+    kind_label: str
     status: str
+    status_label: str
     jobs_url: str = "/jobs#background-jobs"
 
 
@@ -803,7 +828,9 @@ def _player_session_job_indicator(
     return PlayerSessionJobIndicator(
         job_id=int(job.id),
         kind=job.kind,
+        kind_label=PLAYER_SESSION_JOB_KIND_LABELS.get(job.kind, "Session job"),
         status=job.status,
+        status_label=PLAYER_SESSION_JOB_STATUS_LABELS.get(job.status, "Active"),
     )
 
 
