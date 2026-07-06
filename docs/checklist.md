@@ -4,7 +4,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 
 ## Current Core
 
-- [x] Repo-local launcher with automatic bootstrap.
+- [x] Repo-local launcher with automatic bootstrap and read-only bootstrap drift diagnostics.
 - [x] Fresh install flow for Arma Reforger Dedicated Server.
 - [x] Existing-server detection and management.
 - [x] Repair flow for missing or stale generated files.

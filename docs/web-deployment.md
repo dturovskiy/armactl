@@ -37,6 +37,48 @@ For scripted gateway-managed VM setup:
 
 The command prompts for the owner password when the first owner does not exist.
 
+## Wrapper And Bootstrap Drift Recovery
+
+The repo-local `./armactl` wrapper deliberately checks the virtualenv dependency
+stamp before it runs the CLI. A stale or missing `.venv/.armactl-pyproject.sha256`
+means `pyproject.toml` changed, the installed dependency mode is too small for
+the requested command, or the runtime cannot import the expected packages.
+
+For web operations, diagnose the checkout from the server shell:
+
+```bash
+./scripts/bootstrap.sh --check --web
+```
+
+The `--check` mode is read-only: it does not run `apt`, `sudo`, `pip`, create a
+virtualenv, or edit stamp files. If it reports refresh needed, use the supported
+interactive recovery path:
+
+```bash
+./scripts/bootstrap.sh --web
+```
+
+Then re-run the normal wrapper command, for example:
+
+```bash
+./armactl web service status
+```
+
+Do not hand-edit `.venv/.armactl-pyproject.sha256`. A successful supported
+bootstrap writes the current `pyproject.toml` hash and requested mode to that
+stamp. The normal wrapper also selects `--web` automatically for `./armactl web
+...` commands, and `scripts/run-web` exports the same web bootstrap mode.
+
+The installed `armactl-web.service` runs the pinned repo virtualenv directly as
+`.venv/bin/python -m armactl web run ...`; it does not invoke the wrapper at
+service start. Wrapper drift therefore affects operator CLI/smoke commands, not
+the already-rendered systemd `ExecStart` path.
+
+Use `ARMACTL_PYTHON=.venv/bin/python ./armactl ...` only as a temporary,
+explicit smoke workaround when the virtualenv is already known good and the
+wrapper stamp is stale. It is not the primary production contract and should be
+followed by the supported bootstrap refresh above.
+
 ## Deployment Profiles
 
 armactl supports two deployment profiles for the web dashboard. The profile is

@@ -82,11 +82,16 @@ Implemented contract:
 
 Observed problem: normal `./armactl` can be blocked by stale dependency/bootstrap state on a production VM, while `ARMACTL_PYTHON=.venv/bin/python ./armactl ...` works.
 
-Target contract:
+Root cause found in smoke: the wrapper compares the current `pyproject.toml` hash and requested dependency mode with `.venv/.armactl-pyproject.sha256` before it runs the CLI. When the stamp is stale or the installed mode does not satisfy the requested command, the wrapper correctly enters the dependency/bootstrap path. In non-interactive smoke contexts, stdin is not a TTY, so the wrapper refuses to run installer work that may require sudo/apt/pip and exits with the interactive-TTY guard instead of mutating the VM.
 
-- Final smoke should pass with the normal wrapper, or the operator docs should define the supported recovery path.
-- Do not hand-edit stamp files in production.
-- Prefer supported bootstrap/repair flow or a narrow wrapper status/repair improvement if the current flow cannot be safely run non-interactively.
+Implemented contract:
+
+- Normal `./armactl` still fails closed on missing/stale/mismatched dependency state; it does not silently skip dependency mismatch.
+- The non-interactive wrapper error now prints the requested bootstrap mode, a read-only diagnosis command, the supported interactive recovery command, and the temporary override wording.
+- `./scripts/bootstrap.sh --help` is safe and does not enter the installer path.
+- `./scripts/bootstrap.sh --check [--prod|--web|--dev]` verifies the existing virtualenv, dependency stamp, mode, and importability without running apt, sudo, pip, creating a virtualenv, or editing files.
+- Successful supported bootstrap remains the only normal stamp refresh path and writes the current `pyproject.toml` hash plus requested mode.
+- `ARMACTL_PYTHON=.venv/bin/python ./armactl ...` remains an explicit temporary smoke escape hatch only when the venv is known good, not the production contract.
 
 ## Implementation Slices
 
@@ -185,21 +190,23 @@ Acceptance criteria:
 - Real startup/config/service failure states still display correctly.
 - Production VM smoke should no longer alternate between ready and waiting only because of log spam; final VM confirmation belongs to Slice 6.
 
-### Slice 5: Wrapper/Bootstrap Drift Recovery
+### Slice 5: Wrapper/Bootstrap Drift Recovery — implemented
 
 Goal: make final smoke pass without relying on `ARMACTL_PYTHON` overrides.
 
-Tasks:
+Implemented behavior:
 
-- Audit the wrapper stale-stamp path and supported bootstrap flow.
-- Decide whether production should run a supported interactive bootstrap, a service-safe repair command, or a narrow wrapper improvement.
-- Add docs/tests if wrapper behavior changes.
-- Do not hand-edit stamp files.
+- The wrapper dependency guard remains fail-closed: stale `pyproject.toml` hash, missing stamp, insufficient dependency mode, or failed runtime imports require supported bootstrap recovery.
+- Non-interactive wrapper recovery output now names the requested mode and points operators to `./scripts/bootstrap.sh --check <mode>` for read-only diagnosis and `./scripts/bootstrap.sh <mode>` for interactive recovery.
+- `scripts/bootstrap.sh --help` exits before any apt/sudo/bootstrap path.
+- `scripts/bootstrap.sh --check [--prod|--web|--dev]` is a non-mutating check for venv presence, stamp hash, mode compatibility, and importability.
+- Successful `scripts/bootstrap.sh [--prod|--web|--dev]` remains the supported stamp refresh path and writes `.venv/.armactl-pyproject.sha256` after dependency install succeeds.
+- `ARMACTL_PYTHON=.venv/bin/python ./armactl ...` is documented only as a temporary read-only smoke workaround when the virtualenv is known good.
 
 Acceptance criteria:
 
-- Normal `./armactl --version` and read-only smoke commands pass on production VMs.
-- If a VM cannot run normal wrapper non-interactively, the supported recovery path is documented and tested.
+- Normal `./armactl --version` and read-only smoke commands should pass on production VMs after the supported bootstrap refresh.
+- If a VM cannot run normal wrapper non-interactively before refresh, the supported recovery path is documented and tested.
 
 ### Slice 6: Final VM Smoke Re-Run
 

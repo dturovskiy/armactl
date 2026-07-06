@@ -23,7 +23,15 @@ pyproject_hash() {
 }
 
 venv_needs_refresh() {
-    [ ! -f "$STAMP_FILE" ] || [ "$(cat "$STAMP_FILE")" != "$(pyproject_hash)" ]
+    if [ ! -f "$STAMP_FILE" ]; then
+        return 0
+    fi
+
+    read -r stamped_hash stamped_mode < "$STAMP_FILE" || return 0
+    [ "$stamped_hash" != "$(pyproject_hash)" ] && return 0
+    [ "${stamped_mode:-}" = "--dev" ] || return 0
+
+    return 1
 }
 
 using_test_python_override() {
