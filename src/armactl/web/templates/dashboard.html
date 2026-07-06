@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
 {% macro value_item(item) -%}
-  <dt>{{ t(item.label) }}</dt><dd{% if item.field %} data-dashboard-field="{{ item.field }}" data-dashboard-loading="{{ 'true' if item.loading else 'false' }}"{% endif %}>{% if item.translate_value %}{{ t(item.value) }}{% else %}{{ t(item.value) if item.loading else item.value }}{% endif %}</dd>
+  <dt>{{ t(item.label) }}</dt><dd{% if item.field %} data-dashboard-field="{{ item.field }}" data-dashboard-loading="{{ 'true' if item.loading else 'false' }}"{% endif %}{% if item.timestamp %} data-dashboard-timestamp="true"{% endif %}>{% if item.timestamp %}{{ format_web_timestamp(item.value) }}{% elif item.translate_value %}{{ t(item.value) }}{% else %}{{ t(item.value) if item.loading else item.value }}{% endif %}</dd>
 {%- endmacro %}
 {% macro item_list(items) -%}
   <dl class="key-value-list">

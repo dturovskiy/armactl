@@ -1,10 +1,6 @@
 {% extends "layout.html" %}
 {% macro local_time(timestamp) -%}
-  {% if timestamp %}
-    <time data-local-time datetime="{{ timestamp }}" title="{{ timestamp }}">{{ timestamp[:16]|replace("T", " ") }}</time>
-  {% else %}
-    <span class="muted">-</span>
-  {% endif %}
+  {% if timestamp %}{{ format_web_timestamp(timestamp) }}{% else %}<span class="muted">-</span>{% endif %}
 {%- endmacro %}
 {% macro inline_actor(name) -%}
   {% if name %}
@@ -128,7 +124,7 @@
       <table class="player-events-table">
         <thead>
           <tr>
-            <th>{{ t("Time") }}</th>
+            <th>{{ t("Evidence time") }}</th>
             <th>{{ t("Event") }}</th>
             <th>{{ t("Player") }}</th>
             <th>{{ t("Faction") }}</th>
@@ -138,7 +134,7 @@
         <tbody>
         {% for event in events %}
           <tr class="player-event-main-row">
-            <td>{{ local_time(event.event_time) }}</td>
+            <td><span class="player-row-subtle">{{ t(event.event_time_label) }}</span>{{ local_time(event.event_time) }}</td>
             <td><span class="status-pill status-pill-ok player-event-type-pill" title="{{ event.event_type }}">{{ t(event_type_labels.get(event.event_type, event.event_type)) }}</span></td>
             <td>{{ primary_actor(event) }}</td>
             <td>
@@ -177,6 +173,10 @@
                   {{ diagnostic_text("Connection ID", event.connection_id) }}
                   {{ diagnostic_text("BE slot", event.be_slot) }}
                   <span class="player-diagnostic-line"><strong>{{ t("Source") }}:</strong> {{ event.source }}</span>
+                  {{ diagnostic_text("Time source", event.event_time_detail) }}
+                  {{ diagnostic_text("Time confidence", event.time_confidence) }}
+                  {{ diagnostic_text("Log timestamp", event.log_timestamp) }}
+                  {% if event.collected_at %}<span class="player-diagnostic-line"><strong>{{ t("Collected") }}:</strong> {{ local_time(event.collected_at) }}</span>{% endif %}
                   {% if event.source_ref %}<span class="player-diagnostic-line wrap-value"><strong>{{ t("Reference") }}:</strong> {{ event.source_ref }}</span>{% endif %}
                 </div>
               </details>

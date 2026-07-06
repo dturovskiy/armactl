@@ -19,7 +19,7 @@
   <dl class="key-value-list">
     {% for item in page["items"] %}
       <dt>{{ t(item.label) }}</dt>
-      <dd>{% if item.translate_value %}{{ t(item.value) }}{% else %}{{ item.value }}{% endif %}</dd>
+      <dd>{% if item.timestamp %}{{ format_web_timestamp(item.value) }}{% elif item.translate_value %}{{ t(item.value) }}{% else %}{{ item.value }}{% endif %}</dd>
     {% endfor %}
   </dl>
   {% if page.active_job %}

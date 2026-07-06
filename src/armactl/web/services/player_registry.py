@@ -18,6 +18,12 @@ from armactl import paths
 from armactl.player_log_events import (
     CONFIDENCE_HIGH,
     CONFIDENCE_MEDIUM,
+    EVENT_TIME_CONFIDENCE_AMBIGUOUS,
+    EVENT_TIME_CONFIDENCE_EXACT,
+    EVENT_TIME_SOURCE_CALLER_OBSERVED_AT,
+    EVENT_TIME_SOURCE_CALLER_OCCURRED_AT,
+    EVENT_TIME_SOURCE_LOG_PREFIX_WITHOUT_DATE,
+    EVENT_TIME_SOURCE_UNAVAILABLE,
     EVENT_TYPE_KILL,
     EVENT_TYPE_OTHER_DEATH,
     EVENT_TYPE_PLAYER_DISCONNECTED,
@@ -37,7 +43,7 @@ from armactl.web.services.player_identity import (
 )
 
 PLAYER_REGISTRY_DB_NAME = "players.db"
-PLAYER_REGISTRY_SCHEMA_VERSION = "7"
+PLAYER_REGISTRY_SCHEMA_VERSION = "8"
 PRIVATE_PLAYER_REGISTRY_FILE_MODE = 0o600
 DEFAULT_PLAYER_HISTORY_EVENT_LIMIT = 100
 MAX_PLAYER_HISTORY_EVENT_LIMIT = 250
@@ -60,8 +66,11 @@ _PLAYER_LOG_EVENT_INSERT_COLUMNS = (
     "source",
     "source_ref",
     "confidence",
+    "occurred_at",
     "observed_at",
     "log_timestamp",
+    "time_source",
+    "time_confidence",
     "player_id",
     "player_name",
     "session_player_id",
@@ -84,12 +93,33 @@ _PLAYER_LOG_EVENT_INSERT_COLUMNS = (
     "damage_type",
     "hit_zone",
     "distance_m",
+    "collected_at",
     "created_at",
 )
 _PLAYER_LOG_EVENT_DEDUPE_COLUMNS = tuple(
     column
     for column in _PLAYER_LOG_EVENT_INSERT_COLUMNS
-    if column not in {"event_key", "created_at", "connection_id", "be_slot"}
+    if column not in {
+        "event_key",
+        "collected_at",
+        "created_at",
+        "connection_id",
+        "be_slot",
+    }
+)
+_PLAYER_LOG_EVENT_LEGACY_V7_DEDUPE_COLUMNS = tuple(
+    column
+    for column in _PLAYER_LOG_EVENT_INSERT_COLUMNS
+    if column not in {
+        "event_key",
+        "occurred_at",
+        "time_source",
+        "time_confidence",
+        "collected_at",
+        "created_at",
+        "connection_id",
+        "be_slot",
+    }
 )
 PLAYER_SESSION_STATUS_OPEN = "open"
 PLAYER_SESSION_STATUS_CLOSED = "closed"
@@ -222,8 +252,11 @@ class PlayerLogEventRecord:
     source: str
     source_ref: str
     confidence: str
+    occurred_at: str
     observed_at: str
     log_timestamp: str
+    time_source: str
+    time_confidence: str
     player_id: str
     player_name: str
     session_player_id: str
@@ -246,11 +279,30 @@ class PlayerLogEventRecord:
     damage_type: str
     hit_zone: str
     distance_m: float | None
+    collected_at: str
     created_at: str
 
     @property
     def event_time(self) -> str:
-        return self.observed_at or self.created_at
+        return self.occurred_at or self.observed_at or self.collected_at or self.created_at
+
+    @property
+    def event_time_label(self) -> str:
+        if self.occurred_at:
+            return "Event time"
+        if self.observed_at:
+            return "Observed"
+        if self.collected_at:
+            return "Collected"
+        return "Recorded"
+
+    @property
+    def event_time_detail(self) -> str:
+        if self.occurred_at:
+            return self.time_source or "event occurrence"
+        if self.observed_at:
+            return self.time_source or "source observation"
+        return self.time_source or "storage record"
 
 
 @dataclass(frozen=True)
@@ -533,8 +585,11 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
             source TEXT NOT NULL,
             source_ref TEXT,
             confidence TEXT NOT NULL,
+            occurred_at TEXT,
             observed_at TEXT,
             log_timestamp TEXT,
+            time_source TEXT NOT NULL DEFAULT 'unavailable',
+            time_confidence TEXT NOT NULL DEFAULT 'ambiguous',
             player_id TEXT,
             player_name TEXT,
             session_player_id TEXT,
@@ -557,6 +612,7 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
             damage_type TEXT,
             hit_zone TEXT,
             distance_m REAL,
+            collected_at TEXT,
             created_at TEXT NOT NULL
         )
         """
@@ -567,12 +623,31 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
         (
             ("connection_id", "connection_id TEXT"),
             ("be_slot", "be_slot TEXT"),
+            ("occurred_at", "occurred_at TEXT"),
+            ("time_source", "time_source TEXT NOT NULL DEFAULT 'unavailable'"),
+            (
+                "time_confidence",
+                "time_confidence TEXT NOT NULL DEFAULT 'ambiguous'",
+            ),
+            ("collected_at", "collected_at TEXT"),
         ),
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_log_events_occurred_at
+        ON player_log_events(occurred_at)
+        """
     )
     connection.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_player_log_events_observed_at
         ON player_log_events(observed_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_log_events_collected_at
+        ON player_log_events(collected_at)
         """
     )
     connection.execute(
@@ -603,7 +678,7 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_player_log_events_history_order
         ON player_log_events(
-            COALESCE(observed_at, created_at) DESC,
+            COALESCE(occurred_at, observed_at, collected_at, created_at) DESC,
             event_id DESC
         )
         """
@@ -613,7 +688,7 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_player_log_events_type_history_order
         ON player_log_events(
             event_type,
-            COALESCE(observed_at, created_at) DESC,
+            COALESCE(occurred_at, observed_at, collected_at, created_at) DESC,
             event_id DESC
         )
         """
@@ -623,7 +698,7 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_player_log_events_player_history_order
         ON player_log_events(
             player_id,
-            COALESCE(observed_at, created_at) DESC,
+            COALESCE(occurred_at, observed_at, collected_at, created_at) DESC,
             event_id DESC
         )
         """
@@ -633,7 +708,7 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_player_log_events_victim_history_order
         ON player_log_events(
             victim_id,
-            COALESCE(observed_at, created_at) DESC,
+            COALESCE(occurred_at, observed_at, collected_at, created_at) DESC,
             event_id DESC
         )
         """
@@ -643,7 +718,7 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_player_log_events_instigator_history_order
         ON player_log_events(
             instigator_id,
-            COALESCE(observed_at, created_at) DESC,
+            COALESCE(occurred_at, observed_at, collected_at, created_at) DESC,
             event_id DESC
         )
         """
@@ -810,6 +885,17 @@ def _ensure_player_session_live_scan_windows_schema(
     )
 
 
+def _drop_player_log_event_history_indexes(connection: sqlite3.Connection) -> None:
+    for index_name in (
+        "idx_player_log_events_history_order",
+        "idx_player_log_events_type_history_order",
+        "idx_player_log_events_player_history_order",
+        "idx_player_log_events_victim_history_order",
+        "idx_player_log_events_instigator_history_order",
+    ):
+        connection.execute(f"DROP INDEX IF EXISTS {_quote_identifier(index_name)}")
+
+
 def _drop_player_session_indexes(connection: sqlite3.Connection) -> None:
     for index_name in (
         "idx_player_sessions_reliable_id",
@@ -960,6 +1046,11 @@ def _run_player_registry_migrations(connection: sqlite3.Connection) -> None:
         _rebuild_player_sessions_schema_for_v7(connection)
         _ensure_player_session_live_scan_windows_schema(connection)
         _write_player_registry_schema_version(connection, 7)
+        current_version = 7
+    if current_version < 8:
+        _drop_player_log_event_history_indexes(connection)
+        _ensure_player_log_events_schema(connection)
+        _write_player_registry_schema_version(connection, 8)
 
 
 def ensure_player_registry_db(db_path: Path) -> Path:
@@ -1020,8 +1111,11 @@ def _player_log_event_record_from_row(row: sqlite3.Row) -> PlayerLogEventRecord:
         source=_safe_event_text(row["source"]) or "unknown",
         source_ref=_safe_event_source_ref(row["source_ref"]) or "",
         confidence=_safe_event_text(row["confidence"]) or "unknown",
+        occurred_at=_safe_event_text(row["occurred_at"]) or "",
         observed_at=_safe_event_text(row["observed_at"]) or "",
         log_timestamp=_safe_event_text(row["log_timestamp"]) or "",
+        time_source=_safe_event_text(row["time_source"]) or "",
+        time_confidence=_safe_event_text(row["time_confidence"]) or "",
         player_id=_safe_event_player_id(row["player_id"]) or "",
         player_name=_safe_event_text(row["player_name"]) or "",
         session_player_id=_safe_event_text(row["session_player_id"]) or "",
@@ -1047,6 +1141,7 @@ def _player_log_event_record_from_row(row: sqlite3.Row) -> PlayerLogEventRecord:
         damage_type=_safe_event_text(row["damage_type"]) or "",
         hit_zone=_safe_event_text(row["hit_zone"]) or "",
         distance_m=_event_distance(row["distance_m"]),
+        collected_at=_safe_event_text(row["collected_at"]) or "",
         created_at=_safe_event_text(row["created_at"]) or "",
     )
 
@@ -2130,7 +2225,10 @@ def ingest_player_log_events(
 ) -> PlayerLogEventIngestResult:
     """Persist sanitized parsed player log events into the registry database."""
     timestamp = ingested_at or _utc_now()
-    rows = tuple(_player_log_event_row(event, created_at=timestamp) for event in events)
+    rows = tuple(
+        _player_log_event_row(event, collected_at=timestamp, created_at=timestamp)
+        for event in events
+    )
 
     ensure_player_registry_db(db_path)
     stored_count = 0
@@ -2139,11 +2237,16 @@ def ingest_player_log_events(
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("BEGIN IMMEDIATE")
         for row in rows:
-            if _player_log_event_exists(connection, row["event_key"]):
+            if _player_log_event_exists(connection, row):
                 duplicate_count += 1
                 continue
-            observed_at = str(row.get("observed_at") or row["created_at"])
-            _record_player_log_event_observations(connection, row, observed_at=observed_at)
+            observed_at = _trusted_player_log_event_time(row)
+            if observed_at:
+                _record_player_log_event_observations(
+                    connection,
+                    row,
+                    observed_at=observed_at,
+                )
             cursor = _insert_player_log_event(connection, row)
             if cursor.rowcount == 1:
                 stored_count += 1
@@ -2156,16 +2259,60 @@ def ingest_player_log_events(
     )
 
 
-def _player_log_event_exists(connection: sqlite3.Connection, event_key: object) -> bool:
-    row = connection.execute(
-        """
+def _player_log_event_exists(
+    connection: sqlite3.Connection,
+    row: dict[str, object],
+) -> bool:
+    keys = _player_log_event_lookup_keys(row)
+    placeholders = ", ".join("?" for _ in keys)
+    found = connection.execute(
+        f"""
         SELECT 1
         FROM player_log_events
-        WHERE event_key = ?
+        WHERE event_key IN ({placeholders})
+        LIMIT 1
         """,
-        (event_key,),
+        keys,
     ).fetchone()
-    return row is not None
+    return found is not None
+
+
+def _player_log_event_lookup_keys(row: dict[str, object]) -> tuple[str, ...]:
+    keys = [str(row.get("event_key") or "")]
+    keys.extend(_player_log_event_legacy_v7_keys(row))
+    deduped: list[str] = []
+    for key in keys:
+        if key and key not in deduped:
+            deduped.append(key)
+    return tuple(deduped)
+
+
+def _player_log_event_legacy_v7_keys(row: dict[str, object]) -> tuple[str, ...]:
+    legacy_row = dict(row)
+    legacy_row["occurred_at"] = None
+    legacy_row["time_source"] = None
+    legacy_row["time_confidence"] = None
+    legacy_row["collected_at"] = None
+    keys = [
+        _player_log_event_key(
+            legacy_row,
+            dedupe_columns=_PLAYER_LOG_EVENT_LEGACY_V7_DEDUPE_COLUMNS,
+        )
+    ]
+    if legacy_row.get("log_timestamp"):
+        legacy_without_log_timestamp = dict(legacy_row)
+        legacy_without_log_timestamp["log_timestamp"] = None
+        keys.append(
+            _player_log_event_key(
+                legacy_without_log_timestamp,
+                dedupe_columns=_PLAYER_LOG_EVENT_LEGACY_V7_DEDUPE_COLUMNS,
+            )
+        )
+    return tuple(keys)
+
+
+def _trusted_player_log_event_time(row: dict[str, object]) -> str:
+    return str(row.get("occurred_at") or row.get("observed_at") or "")
 
 
 def _insert_player_log_event(
@@ -2214,16 +2361,28 @@ def _record_player_log_event_observations(
 def _player_log_event_row(
     event: PlayerLogEvent,
     *,
+    collected_at: str,
     created_at: str,
 ) -> dict[str, object]:
+    occurred_at = _safe_event_text(event.occurred_at)
+    observed_at = _safe_event_text(event.observed_at)
+    raw_timestamp = _safe_event_text(event.raw_timestamp)
     row: dict[str, object] = {
         "event_key": "",
         "event_type": _safe_event_text(event.event_type) or "unknown",
         "source": _safe_event_text(event.source) or "unknown",
         "source_ref": _safe_event_source_ref(event.raw_source_ref),
         "confidence": _safe_event_text(event.confidence) or "unknown",
-        "observed_at": _safe_event_text(event.observed_at),
-        "log_timestamp": _safe_event_text(event.raw_timestamp),
+        "occurred_at": occurred_at,
+        "observed_at": observed_at,
+        "log_timestamp": raw_timestamp,
+        "time_source": _event_time_source(event, occurred_at, observed_at, raw_timestamp),
+        "time_confidence": _event_time_confidence(
+            event,
+            occurred_at,
+            observed_at,
+            raw_timestamp,
+        ),
         "player_id": _safe_event_player_id(event.player_id),
         "player_name": _safe_event_text(event.player_name),
         "session_player_id": _safe_event_correlation(event.session_player_id),
@@ -2250,14 +2409,53 @@ def _player_log_event_row(
         "damage_type": _safe_event_text(event.damage_type),
         "hit_zone": _safe_event_text(event.hit_zone),
         "distance_m": _event_distance(event.distance_m),
+        "collected_at": collected_at,
         "created_at": created_at,
     }
     row["event_key"] = _player_log_event_key(row)
     return row
 
 
-def _player_log_event_key(row: dict[str, object]) -> str:
-    payload = {column: row.get(column) for column in _PLAYER_LOG_EVENT_DEDUPE_COLUMNS}
+def _event_time_source(
+    event: PlayerLogEvent,
+    occurred_at: str | None,
+    observed_at: str | None,
+    raw_timestamp: str | None,
+) -> str:
+    source = _safe_event_text(event.time_source, max_length=80)
+    if source:
+        return source
+    if occurred_at:
+        return EVENT_TIME_SOURCE_CALLER_OCCURRED_AT
+    if observed_at:
+        return EVENT_TIME_SOURCE_CALLER_OBSERVED_AT
+    if raw_timestamp:
+        return EVENT_TIME_SOURCE_LOG_PREFIX_WITHOUT_DATE
+    return EVENT_TIME_SOURCE_UNAVAILABLE
+
+
+def _event_time_confidence(
+    event: PlayerLogEvent,
+    occurred_at: str | None,
+    observed_at: str | None,
+    raw_timestamp: str | None,
+) -> str:
+    confidence = _safe_event_text(event.time_confidence, max_length=80)
+    if confidence:
+        return confidence
+    if occurred_at or observed_at:
+        return EVENT_TIME_CONFIDENCE_EXACT
+    if raw_timestamp:
+        return EVENT_TIME_CONFIDENCE_AMBIGUOUS
+    return EVENT_TIME_CONFIDENCE_AMBIGUOUS
+
+
+def _player_log_event_key(
+    row: dict[str, object],
+    *,
+    dedupe_columns: tuple[str, ...] = _PLAYER_LOG_EVENT_DEDUPE_COLUMNS,
+) -> str:
+    payload = {column: row.get(column) for column in dedupe_columns}
     if row.get("event_type") == EVENT_TYPE_PLAYER_DISCONNECTED:
         payload["connection_id"] = row.get("connection_id")
         payload["be_slot"] = row.get("be_slot")
@@ -2409,7 +2607,10 @@ def list_player_log_events(
     sql = "SELECT * FROM player_log_events"
     if where_clauses:
         sql += " WHERE " + " AND ".join(where_clauses)
-    sql += " ORDER BY COALESCE(observed_at, created_at) DESC, event_id DESC LIMIT ?"
+    sql += (
+        " ORDER BY COALESCE(occurred_at, observed_at, collected_at, created_at) "
+        "DESC, event_id DESC LIMIT ?"
+    )
     params.append(normalized_limit)
 
     try:
@@ -2434,7 +2635,7 @@ def list_player_log_events_for_sessionization(
                 """
                 SELECT *
                 FROM player_log_events
-                ORDER BY COALESCE(observed_at, log_timestamp, created_at) ASC,
+                ORDER BY COALESCE(occurred_at, observed_at, collected_at, created_at) ASC,
                          event_id ASC
                 """
             ).fetchall()
@@ -2519,7 +2720,7 @@ def _player_summaries_for_known_players(
             f"""
             SELECT
                 event_type,
-                COALESCE(observed_at, created_at) AS event_time,
+                COALESCE(occurred_at, observed_at, collected_at, created_at) AS event_time,
                 event_id,
                 player_id,
                 player_faction,

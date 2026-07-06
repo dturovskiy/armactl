@@ -30,6 +30,15 @@ CONFIDENCE_HIGH = "high"
 CONFIDENCE_MEDIUM = "medium"
 CONFIDENCE_LOW = "low"
 
+EVENT_TIME_SOURCE_LOG_PREFIX_WITH_DATE = "log_prefix_with_date"
+EVENT_TIME_SOURCE_LOG_PREFIX_WITHOUT_DATE = "log_prefix_without_date"
+EVENT_TIME_SOURCE_CALLER_OCCURRED_AT = "caller_occurred_at"
+EVENT_TIME_SOURCE_CALLER_OBSERVED_AT = "caller_observed_at"
+EVENT_TIME_SOURCE_UNAVAILABLE = "unavailable"
+EVENT_TIME_CONFIDENCE_DERIVED = "derived"
+EVENT_TIME_CONFIDENCE_EXACT = "exact"
+EVENT_TIME_CONFIDENCE_AMBIGUOUS = "ambiguous"
+
 
 @dataclass(frozen=True)
 class PlayerLogEvent:
@@ -38,8 +47,11 @@ class PlayerLogEvent:
     event_type: str
     source: str
     confidence: str
+    occurred_at: str | None = None
     observed_at: str | None = None
     raw_timestamp: str | None = None
+    time_source: str | None = None
+    time_confidence: str | None = None
     player_id: str | None = None
     player_name: str | None = None
     session_player_id: str | None = None
@@ -199,26 +211,37 @@ _DISTANCE_RE = re.compile(
     re.I,
 )
 
+_LOG_TIME_PREFIX_RE = re.compile(
+    r"^\s*(?P<timestamp>\d{1,2}:\d{2}:\d{2}(?:[.,]\d{1,6})?)\b"
+)
+
 
 def parse_player_log_event(
     line: str,
     *,
+    occurred_at: str | None = None,
     observed_at: str | None = None,
     raw_timestamp: str | None = None,
+    time_source: str | None = None,
+    time_confidence: str | None = None,
     raw_source_ref: str | None = None,
 ) -> PlayerLogEvent | None:
     """Parse one log line into a bounded DTO, or return ``None`` when unmatched."""
     text = line.strip()
     if not text:
         return None
+    raw_timestamp = raw_timestamp or _raw_timestamp_prefix(text)
 
     if match := _AUTHENTICATED_RE.search(text):
         return PlayerLogEvent(
             event_type=EVENT_TYPE_PLAYER_AUTHENTICATED,
             source=SOURCE_BACKEND_AUTH,
             confidence=CONFIDENCE_HIGH,
+            occurred_at=occurred_at,
             observed_at=observed_at,
             raw_timestamp=raw_timestamp,
+            time_source=time_source,
+            time_confidence=time_confidence,
             player_id=_clean(match.group("player_id")),
             player_name=_clean(match.group("player_name")),
             rpl_identity=_clean(match.group("rpl_identity")),
@@ -230,8 +253,11 @@ def parse_player_log_event(
             event_type=EVENT_TYPE_PLAYER_UPDATE,
             source=SOURCE_NETWORK_PLAYER_UPDATE,
             confidence=CONFIDENCE_HIGH,
+            occurred_at=occurred_at,
             observed_at=observed_at,
             raw_timestamp=raw_timestamp,
+            time_source=time_source,
+            time_confidence=time_confidence,
             player_id=_clean(match.group("player_id")),
             player_name=_clean(match.group("player_name")),
             session_player_id=_clean(match.group("session_player_id")),
@@ -244,8 +270,11 @@ def parse_player_log_event(
             event_type=EVENT_TYPE_FACTION_JOIN,
             source=SOURCE_SCRIPT_FACTION_JOIN,
             confidence=CONFIDENCE_HIGH,
+            occurred_at=occurred_at,
             observed_at=observed_at,
             raw_timestamp=raw_timestamp,
+            time_source=time_source,
+            time_confidence=time_confidence,
             player_id=_clean(match.group("player_id")),
             player_name=_clean(match.group("player_name")),
             session_player_id=_clean(match.group("session_player_id")),
@@ -259,8 +288,11 @@ def parse_player_log_event(
             event_type=EVENT_TYPE_PLAYER_DISCONNECTED,
             source=SOURCE_RPL_DISCONNECT,
             confidence=CONFIDENCE_MEDIUM,
+            occurred_at=occurred_at,
             observed_at=observed_at,
             raw_timestamp=raw_timestamp,
+            time_source=time_source,
+            time_confidence=time_confidence,
             rpl_identity=_clean(match.group("rpl_identity")),
             raw_source_ref=raw_source_ref,
         )
@@ -270,8 +302,11 @@ def parse_player_log_event(
             event_type=EVENT_TYPE_PLAYER_DISCONNECTED,
             source=SOURCE_NETWORK_DISCONNECT,
             confidence=CONFIDENCE_MEDIUM,
+            occurred_at=occurred_at,
             observed_at=observed_at,
             raw_timestamp=raw_timestamp,
+            time_source=time_source,
+            time_confidence=time_confidence,
             connection_id=_clean(match.group("connection_id")),
             raw_source_ref=raw_source_ref,
         )
@@ -281,8 +316,11 @@ def parse_player_log_event(
             event_type=EVENT_TYPE_PLAYER_DISCONNECTED,
             source=SOURCE_BATTLEYE_DISCONNECT,
             confidence=CONFIDENCE_LOW,
+            occurred_at=occurred_at,
             observed_at=observed_at,
             raw_timestamp=raw_timestamp,
+            time_source=time_source,
+            time_confidence=time_confidence,
             player_name=_clean(match.group("player_name")),
             be_slot=_clean(match.group("be_slot")),
             raw_source_ref=raw_source_ref,
@@ -293,8 +331,11 @@ def parse_player_log_event(
             event_type=EVENT_TYPE_SERVER_LIFECYCLE,
             source=SOURCE_SERVER_LIFECYCLE,
             confidence=CONFIDENCE_HIGH,
+            occurred_at=occurred_at,
             observed_at=observed_at,
             raw_timestamp=raw_timestamp,
+            time_source=time_source,
+            time_confidence=time_confidence,
             raw_source_ref=raw_source_ref,
         )
 
@@ -302,8 +343,11 @@ def parse_player_log_event(
         return _build_kill_event(
             match,
             event_type=EVENT_TYPE_KILL,
+            occurred_at=occurred_at,
             observed_at=observed_at,
             raw_timestamp=raw_timestamp,
+            time_source=time_source,
+            time_confidence=time_confidence,
             raw_source_ref=raw_source_ref,
             teamkill=False,
             suicide=False,
@@ -313,8 +357,11 @@ def parse_player_log_event(
         return _build_kill_event(
             match,
             event_type=EVENT_TYPE_TEAMKILL,
+            occurred_at=occurred_at,
             observed_at=observed_at,
             raw_timestamp=raw_timestamp,
+            time_source=time_source,
+            time_confidence=time_confidence,
             raw_source_ref=raw_source_ref,
             teamkill=True,
             suicide=False,
@@ -323,16 +370,22 @@ def parse_player_log_event(
     if match := _KILL_SUICIDE_RE.search(text):
         return _build_suicide_event(
             match,
+            occurred_at=occurred_at,
             observed_at=observed_at,
             raw_timestamp=raw_timestamp,
+            time_source=time_source,
+            time_confidence=time_confidence,
             raw_source_ref=raw_source_ref,
         )
 
     if match := _KILL_OTHER_DEATH_RE.search(text):
         return _build_other_death_event(
             match,
+            occurred_at=occurred_at,
             observed_at=observed_at,
             raw_timestamp=raw_timestamp,
+            time_source=time_source,
+            time_confidence=time_confidence,
             raw_source_ref=raw_source_ref,
         )
 
@@ -342,8 +395,11 @@ def parse_player_log_event(
             event_type=EVENT_TYPE_COMBAT_HINT,
             source=SOURCE_SERVER_ADMIN_TOOLS_KILL,
             confidence=CONFIDENCE_MEDIUM,
+            occurred_at=occurred_at,
             observed_at=observed_at,
             raw_timestamp=raw_timestamp,
+            time_source=time_source,
+            time_confidence=time_confidence,
             player_name=_clean(match.group("victim_name")),
             victim_name=_clean(match.group("victim_name")),
             instigator_name=instigator_name,
@@ -379,8 +435,11 @@ def _build_kill_event(
     match: re.Match[str],
     *,
     event_type: str,
+    occurred_at: str | None,
     observed_at: str | None,
     raw_timestamp: str | None,
+    time_source: str | None,
+    time_confidence: str | None,
     raw_source_ref: str | None,
     teamkill: bool,
     suicide: bool,
@@ -392,8 +451,11 @@ def _build_kill_event(
         event_type=event_type,
         source=SOURCE_SCRIPT_KILL,
         confidence=CONFIDENCE_HIGH,
+        occurred_at=occurred_at,
         observed_at=observed_at,
         raw_timestamp=raw_timestamp,
+        time_source=time_source,
+        time_confidence=time_confidence,
         player_id=_clean(match.group("victim_id")),
         player_name=_clean(match.group("victim_name")),
         session_player_id=_clean(match.group("victim_session_player_id")),
@@ -420,8 +482,11 @@ def _build_kill_event(
 def _build_suicide_event(
     match: re.Match[str],
     *,
+    occurred_at: str | None,
     observed_at: str | None,
     raw_timestamp: str | None,
+    time_source: str | None,
+    time_confidence: str | None,
     raw_source_ref: str | None,
 ) -> PlayerLogEvent:
     victim_id = _clean(match.group("victim_id"))
@@ -431,8 +496,11 @@ def _build_suicide_event(
         event_type=EVENT_TYPE_SUICIDE,
         source=SOURCE_SCRIPT_KILL,
         confidence=CONFIDENCE_HIGH,
+        occurred_at=occurred_at,
         observed_at=observed_at,
         raw_timestamp=raw_timestamp,
+        time_source=time_source,
+        time_confidence=time_confidence,
         player_id=victim_id,
         player_name=victim_name,
         session_player_id=victim_session_player_id,
@@ -457,16 +525,22 @@ def _build_suicide_event(
 def _build_other_death_event(
     match: re.Match[str],
     *,
+    occurred_at: str | None,
     observed_at: str | None,
     raw_timestamp: str | None,
+    time_source: str | None,
+    time_confidence: str | None,
     raw_source_ref: str | None,
 ) -> PlayerLogEvent:
     return PlayerLogEvent(
         event_type=EVENT_TYPE_OTHER_DEATH,
         source=SOURCE_SCRIPT_KILL,
         confidence=CONFIDENCE_HIGH,
+        occurred_at=occurred_at,
         observed_at=observed_at,
         raw_timestamp=raw_timestamp,
+        time_source=time_source,
+        time_confidence=time_confidence,
         player_id=_clean(match.group("victim_id")),
         player_name=_clean(match.group("victim_name")),
         session_player_id=_clean(match.group("victim_session_player_id")),
@@ -520,6 +594,12 @@ def _append_source(source: str, hint_source: str) -> str:
     if hint_source in source.split("+"):
         return source
     return f"{source}+{hint_source}"
+
+
+def _raw_timestamp_prefix(text: str) -> str | None:
+    if not (match := _LOG_TIME_PREFIX_RE.match(text)):
+        return None
+    return _clean(match.group("timestamp"))
 
 
 def _clean(value: object) -> str | None:

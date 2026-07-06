@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from armactl.web.services import server_job_actions, server_versions
-from armactl.web.time_format import format_web_timestamp
 
 STALE_ACTIVE_JOB_SECONDS = 6 * 60 * 60
 
@@ -183,11 +182,18 @@ def _version(page: Mapping[str, Any]) -> Mapping[str, Any]:
     return raw if isinstance(raw, Mapping) else {}
 
 
-def _item(label: str, value: Any, *, translate_value: bool = False) -> dict[str, Any]:
+def _item(
+    label: str,
+    value: Any,
+    *,
+    translate_value: bool = False,
+    timestamp: bool = False,
+) -> dict[str, Any]:
     return dict(
         label=label,
         value=_text(value),
         translate_value=translate_value,
+        timestamp=timestamp,
     )
 
 
@@ -265,9 +271,6 @@ def build_updates_view(
         version.get("check_state") or version.get("checkState"),
         server_versions.SERVER_VERSION_CHECK_UNKNOWN,
     )
-    last_checked_display = (
-        format_web_timestamp(last_checked) if last_checked != "never" else last_checked
-    )
     server_running = _bool(
         page.get("server_running")
         or version.get("server_running")
@@ -337,8 +340,9 @@ def build_updates_view(
             _item("Branch", branch, translate_value=branch == "unknown"),
             _item(
                 "Last checked",
-                last_checked_display,
-                translate_value=last_checked_display == "never",
+                last_checked,
+                translate_value=last_checked == "never",
+                timestamp=last_checked != "never",
             ),
             _item("Check state", _check_state_label(check_state), translate_value=True),
         ],

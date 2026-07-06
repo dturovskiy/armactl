@@ -1627,3 +1627,29 @@ def test_session_maintenance_job_dedupes_and_audits_counts_only(
         assert "198.51.100.11" not in rendered
         for forbidden_key in ("ip", "address", "raw_line", "raw_path"):
             assert forbidden_key not in rendered.casefold()
+
+def test_sessionizer_skips_log_events_without_trusted_event_time(
+    tmp_path: Path,
+):
+    from armactl.web.services import player_registry, player_sessionizer
+
+    db_path = tmp_path / "default" / "players.db"
+    event = _parse_log_event(
+        "12:00:00.000 BACKEND : Authenticated player: "
+        f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One",
+        raw_source_ref="journal:ambiguous-auth",
+    )
+    player_registry.ingest_player_log_events(
+        db_path,
+        [event],
+        ingested_at="2026-06-16T18:00:00+00:00",
+    )
+
+    summary = player_sessionizer.sessionize_stored_player_log_events(db_path)
+
+    assert summary.events_scanned == 1
+    assert summary.events_ignored == 1
+    assert summary.observations_applied == 0
+    assert summary.sessions_created == 0
+    assert _session_rows(db_path) == []
+    assert _player_rows(db_path) == []

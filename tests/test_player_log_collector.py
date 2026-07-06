@@ -49,6 +49,19 @@ def _event_rows(db_path: Path) -> list[dict[str, object]]:
     return [dict(row) for row in rows]
 
 
+def _player_rows(db_path: Path) -> list[dict[str, object]]:
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM players
+            ORDER BY reliable_id ASC
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def _event_count(db_path: Path) -> int:
     with sqlite3.connect(db_path) as connection:
         row = connection.execute("SELECT COUNT(*) FROM player_log_events").fetchone()
@@ -241,3 +254,100 @@ def test_same_basename_from_different_directories_keeps_distinct_refs(
     assert all(str(row["source_ref"]).startswith("console.log:") for row in rows)
     assert all("/" not in str(row["source_ref"]) for row in rows)
     assert str(tmp_path) not in json.dumps(rows, sort_keys=True)
+
+def test_collector_derives_occurrence_time_from_dated_log_context(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "logs" / "2026-07-05-run" / "console.log"
+    db_path = tmp_path / "default" / "players.db"
+    _write_log(
+        log_path,
+        [
+            "18:31:00.000 BACKEND : Authenticated player: "
+            f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One",
+            "18:35:00.000 NETWORK : ### Updating player: PlayerId=7, "
+            f"Name=Alpha One, rplIdentity=42, IdentityId={PLAYER_ALPHA_ID}",
+        ],
+    )
+
+    summary = collect_player_log_events(
+        log_path,
+        db_path,
+        ingested_at="2026-07-06T09:00:00+00:00",
+    )
+
+    rows = _event_rows(db_path)
+    players = _player_rows(db_path)
+    assert summary.stored_events == 2
+    assert [row["occurred_at"] for row in rows] == [
+        "2026-07-05T18:31:00Z",
+        "2026-07-05T18:35:00Z",
+    ]
+    assert [row["collected_at"] for row in rows] == [
+        "2026-07-06T09:00:00+00:00",
+        "2026-07-06T09:00:00+00:00",
+    ]
+    assert {row["time_source"] for row in rows} == {
+        events.EVENT_TIME_SOURCE_LOG_PREFIX_WITH_DATE
+    }
+    assert {row["time_confidence"] for row in rows} == {
+        events.EVENT_TIME_CONFIDENCE_DERIVED
+    }
+    assert players[0]["first_seen_at"] == "2026-07-05T18:31:00Z"
+    assert players[0]["last_seen_at"] == "2026-07-05T18:35:00Z"
+    assert "2026-07-06T09:00:00" not in {
+        players[0]["first_seen_at"],
+        players[0]["last_seen_at"],
+    }
+
+
+def test_collector_keeps_time_of_day_without_date_ambiguous(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "logs" / "run-without-date" / "console.log"
+    db_path = tmp_path / "default" / "players.db"
+    _write_log(
+        log_path,
+        [
+            "18:31:00.000 BACKEND : Authenticated player: "
+            f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One",
+        ],
+    )
+
+    summary = collect_player_log_events(
+        log_path,
+        db_path,
+        ingested_at="2026-07-06T09:00:00+00:00",
+    )
+
+    rows = _event_rows(db_path)
+    assert summary.stored_events == 1
+    assert rows[0]["occurred_at"] is None
+    assert rows[0]["log_timestamp"] == "18:31:00.000"
+    assert rows[0]["time_source"] == events.EVENT_TIME_SOURCE_LOG_PREFIX_WITHOUT_DATE
+    assert rows[0]["time_confidence"] == events.EVENT_TIME_CONFIDENCE_AMBIGUOUS
+    assert _player_rows(db_path) == []
+
+
+def test_collector_handles_midnight_rollover_from_dated_log_context(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "logs" / "2026-07-05-run" / "console.log"
+    db_path = tmp_path / "default" / "players.db"
+    _write_log(
+        log_path,
+        [
+            "23:59:59.000 BACKEND : Authenticated player: "
+            f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One",
+            "00:00:02.000 NETWORK : ### Updating player: PlayerId=7, "
+            f"Name=Alpha One, rplIdentity=42, IdentityId={PLAYER_ALPHA_ID}",
+        ],
+    )
+
+    collect_player_log_events(log_path, db_path)
+
+    rows = _event_rows(db_path)
+    assert [row["occurred_at"] for row in rows] == [
+        "2026-07-05T23:59:59Z",
+        "2026-07-06T00:00:02Z",
+    ]

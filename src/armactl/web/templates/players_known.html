@@ -1,7 +1,6 @@
 {% extends "layout.html" %}
 {% block title %}{{ t("Players - armactl web") }}{% endblock %}
 {% block heading %}{{ t("Players") }}{% endblock %}
-{% block extra_scripts %}<script defer src="{{ url_for('static', path='/js/player_times.js') }}?v={{ web_static_version }}"></script>{% endblock %}
 {% block topbar_actions %}
 <a class="button-link secondary-link" href="/admins">{{ t("Admins") }}</a>
 <a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
@@ -24,7 +23,7 @@
   <div class="section-heading-row">
     <h2>{{ t("Known player table") }}</h2>
   </div>
-  <p class="muted">{{ t("Known reliable player identities recorded from current roster refreshes and log identity events.") }}</p>
+  <p class="muted">{{ t("Known reliable player identities recorded from current roster refreshes and timestamped log identity events.") }}</p>
 
   <form method="get" action="/players/known" class="player-search-form">
     <label>
@@ -44,8 +43,8 @@
             <th>{{ t("Nickname") }}</th>
             <th>{{ t("Identity ID") }}</th>
             <th>{{ t("Seen count") }}</th>
-            <th>{{ t("First seen") }}</th>
-            <th>{{ t("Last seen") }}</th>
+            <th>{{ t("First recorded") }}</th>
+            <th>{{ t("Last recorded") }}</th>
           </tr>
         </thead>
         <tbody>
@@ -58,10 +57,10 @@
             <td><span class="player-id-cell player-id-clip" title="{{ player.reliable_id }}">{{ player.reliable_id[:8] }}...{{ player.reliable_id[-5:] }}</span></td>
             <td class="player-stat-number">{{ player.seen_count }}</td>
             <td>
-              <time data-local-time datetime="{{ player.first_seen_at }}" title="{{ player.first_seen_at }}">{{ player.first_seen_at[:16]|replace("T", " ") }}</time>
+              {{ format_web_timestamp(player.first_seen_at) }}
             </td>
             <td>
-              <time data-local-time datetime="{{ player.last_seen_at }}" title="{{ player.last_seen_at }}">{{ player.last_seen_at[:16]|replace("T", " ") }}</time>
+              {{ format_web_timestamp(player.last_seen_at) }}
             </td>
           </tr>
         {% endfor %}

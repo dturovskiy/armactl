@@ -40,8 +40,8 @@ PLAYER_HISTORY_MODE_OPTIONS = (
 PLAYER_HISTORY_MODE_VALUES = frozenset(value for value, _label in PLAYER_HISTORY_MODE_OPTIONS)
 
 PLAYER_SESSION_STATUS_LABELS = {
-    player_registry.PLAYER_SESSION_STATUS_OPEN: "Open",
-    player_registry.PLAYER_SESSION_STATUS_CLOSED: "Closed",
+    player_registry.PLAYER_SESSION_STATUS_OPEN: "Stored open",
+    player_registry.PLAYER_SESSION_STATUS_CLOSED: "Stored closed",
 }
 PLAYER_SESSION_STATUS_OPTIONS = (
     ("", "All statuses"),

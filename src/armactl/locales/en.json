@@ -946,6 +946,22 @@
     "Runtime max FPS setting could not be saved.": "Runtime max FPS setting could not be saved.",
     "Runtime max FPS setting is invalid: {error}": "Runtime max FPS setting is invalid: {error}",
     "Start at 120 FPS": "Start at 120 FPS",
-    "Start at 60 FPS": "Start at 60 FPS"
+    "Start at 60 FPS": "Start at 60 FPS",
+    "Evidence time": "Evidence time",
+    "Event time": "Event time",
+    "Collected": "Collected",
+    "Recorded": "Recorded",
+    "Time source": "Time source",
+    "Time confidence": "Time confidence",
+    "Log timestamp": "Log timestamp",
+    "First recorded": "First recorded",
+    "Last recorded": "Last recorded",
+    "Known reliable player identities recorded from current roster refreshes and timestamped log identity events.": "Known reliable player identities recorded from current roster refreshes and timestamped log identity events.",
+    "Latest evidence": "Latest evidence",
+    "First evidence": "First evidence",
+    "Last evidence": "Last evidence",
+    "Close evidence": "Close evidence",
+    "Stored open": "Stored open",
+    "Stored closed": "Stored closed"
   }
 }

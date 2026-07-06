@@ -8,8 +8,10 @@ import re
 import stat as stat_module
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
+from armactl import player_log_events as event_contract
 from armactl.player_log_events import PlayerLogEvent, parse_player_log_event
 from armactl.web.services import player_registry
 from armactl.web.services.player_identity import safe_player_text
@@ -20,6 +22,31 @@ PLAYER_LOG_COLLECTOR_LABEL_MAX_LENGTH = 160
 _BINARY_SNIFF_BYTES = 4096
 _IPV4_ADDRESS_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b")
 _BRACKETED_IPV6_ADDRESS_RE = re.compile(r"\[[0-9A-Fa-f:.]{2,}\](?::\d{1,5})?")
+_RUN_DATE_RE = re.compile(
+    r"(?<!\d)(?P<year>20\d{2})[-_.]?(?P<month>0[1-9]|1[0-2])"
+    r"[-_.]?(?P<day>0[1-9]|[12]\d|3[01])(?!\d)"
+)
+_ABSOLUTE_TIMESTAMP_RE = re.compile(
+    r"^\s*(?P<timestamp>"
+    r"\d{4}-\d{2}-\d{2}[T\s]\d{1,2}:\d{2}:\d{2}"
+    r"(?:[.,]\d{1,6})?(?:Z|[+-]\d{2}:?\d{2})?"
+    r")\b"
+)
+_TIME_OF_DAY_RE = re.compile(
+    r"^\s*(?P<timestamp>\d{1,2}:\d{2}:\d{2}(?:[.,]\d{1,6})?)\b"
+)
+
+
+@dataclass(frozen=True)
+class _LineTimestampEvidence:
+    """Bounded timestamp evidence derived from one log line prefix."""
+
+    raw_timestamp: str | None = None
+    occurred_at: str | None = None
+    time_source: str | None = None
+    time_confidence: str | None = None
+    time_of_day: time | None = None
+    current_date: date | None = None
 
 
 @dataclass(frozen=True)
@@ -234,6 +261,7 @@ def _scan_log_file(
                 source=source,
                 source_ref_prefix=_safe_source_ref_prefix(log_path, source),
                 max_lines=max_lines,
+                base_event_date=_safe_run_date_from_path(log_path),
             )
     except OSError:
         return _error_file_summary(source, "read_failed", "file could not be read")
@@ -245,12 +273,15 @@ def _scan_text_handle(
     source: str,
     source_ref_prefix: str,
     max_lines: int,
+    base_event_date: date | None,
 ) -> tuple[PlayerLogCollectionFileSummary, tuple[PlayerLogEvent, ...]]:
     bytes_scanned = 0
     lines_scanned = 0
     unmatched_lines = 0
     skipped_lines = 0
     limited = False
+    current_event_date = base_event_date
+    previous_time_of_day: time | None = None
     parsed_events: list[PlayerLogEvent] = []
 
     for raw_line in handle:
@@ -267,8 +298,21 @@ def _scan_text_handle(
         except UnicodeDecodeError:
             return _error_file_summary(source, "decode_failed", "file is not valid UTF-8 text")
 
+        timestamp_evidence = _line_timestamp_evidence(
+            line,
+            current_date=current_event_date,
+            previous_time_of_day=previous_time_of_day,
+        )
+        current_event_date = timestamp_evidence.current_date
+        if timestamp_evidence.time_of_day is not None:
+            previous_time_of_day = timestamp_evidence.time_of_day
+
         event = parse_player_log_event(
             line,
+            occurred_at=timestamp_evidence.occurred_at,
+            raw_timestamp=timestamp_evidence.raw_timestamp,
+            time_source=timestamp_evidence.time_source,
+            time_confidence=timestamp_evidence.time_confidence,
             raw_source_ref=f"{source_ref_prefix}:{lines_scanned}",
         )
         if event is None:
@@ -288,6 +332,132 @@ def _scan_text_handle(
         limit_reason="max_lines" if limited else None,
     )
     return file_summary, tuple(parsed_events)
+
+
+
+def _safe_run_date_from_path(log_path: Path) -> date | None:
+    for part in reversed(log_path.parts):
+        if not (match := _RUN_DATE_RE.search(part)):
+            continue
+        try:
+            return date(
+                int(match.group("year")),
+                int(match.group("month")),
+                int(match.group("day")),
+            )
+        except ValueError:
+            continue
+    return None
+
+
+def _line_timestamp_evidence(
+    line: str,
+    *,
+    current_date: date | None,
+    previous_time_of_day: time | None,
+) -> _LineTimestampEvidence:
+    if absolute := _absolute_timestamp_from_line(line):
+        return absolute
+
+    match = _TIME_OF_DAY_RE.match(line)
+    if match is None:
+        return _LineTimestampEvidence(current_date=current_date)
+
+    raw_timestamp = match.group("timestamp")
+    time_of_day = _parse_time_of_day(raw_timestamp)
+    if time_of_day is None:
+        return _LineTimestampEvidence(
+            raw_timestamp=raw_timestamp,
+            time_source=event_contract.EVENT_TIME_SOURCE_LOG_PREFIX_WITHOUT_DATE,
+            time_confidence=event_contract.EVENT_TIME_CONFIDENCE_AMBIGUOUS,
+            current_date=current_date,
+        )
+
+    resolved_date = current_date
+    if (
+        resolved_date is not None
+        and previous_time_of_day is not None
+        and time_of_day < previous_time_of_day
+    ):
+        resolved_date = resolved_date + timedelta(days=1)
+
+    if resolved_date is None:
+        return _LineTimestampEvidence(
+            raw_timestamp=raw_timestamp,
+            time_source=event_contract.EVENT_TIME_SOURCE_LOG_PREFIX_WITHOUT_DATE,
+            time_confidence=event_contract.EVENT_TIME_CONFIDENCE_AMBIGUOUS,
+            time_of_day=time_of_day,
+            current_date=current_date,
+        )
+
+    occurred = datetime.combine(
+        resolved_date,
+        time_of_day,
+        tzinfo=timezone.utc,
+    )
+    return _LineTimestampEvidence(
+        raw_timestamp=raw_timestamp,
+        occurred_at=_utc_iso(occurred),
+        time_source=event_contract.EVENT_TIME_SOURCE_LOG_PREFIX_WITH_DATE,
+        time_confidence=event_contract.EVENT_TIME_CONFIDENCE_DERIVED,
+        time_of_day=time_of_day,
+        current_date=resolved_date,
+    )
+
+
+def _absolute_timestamp_from_line(line: str) -> _LineTimestampEvidence | None:
+    match = _ABSOLUTE_TIMESTAMP_RE.match(line)
+    if match is None:
+        return None
+    raw_timestamp = match.group("timestamp")
+    parsed = _parse_absolute_timestamp(raw_timestamp)
+    if parsed is None:
+        return _LineTimestampEvidence(
+            raw_timestamp=raw_timestamp,
+            time_source=event_contract.EVENT_TIME_SOURCE_LOG_PREFIX_WITHOUT_DATE,
+            time_confidence=event_contract.EVENT_TIME_CONFIDENCE_AMBIGUOUS,
+        )
+    parsed_utc = parsed.astimezone(timezone.utc)
+    return _LineTimestampEvidence(
+        raw_timestamp=raw_timestamp,
+        occurred_at=_utc_iso(parsed_utc),
+        time_source=event_contract.EVENT_TIME_SOURCE_LOG_PREFIX_WITH_DATE,
+        time_confidence=event_contract.EVENT_TIME_CONFIDENCE_EXACT,
+        time_of_day=parsed_utc.time(),
+        current_date=parsed_utc.date(),
+    )
+
+
+def _parse_absolute_timestamp(raw_timestamp: str) -> datetime | None:
+    normalized = raw_timestamp.replace(" ", "T").replace(",", ".")
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+    if len(normalized) >= 5 and re.search(r"[+-]\d{4}$", normalized):
+        normalized = f"{normalized[:-2]}:{normalized[-2:]}"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _parse_time_of_day(raw_timestamp: str) -> time | None:
+    main, separator, fraction = raw_timestamp.replace(",", ".").partition(".")
+    parts = main.split(":")
+    if len(parts) != 3:
+        return None
+    try:
+        hour, minute, second = (int(part) for part in parts)
+        microsecond = int(fraction[:6].ljust(6, "0")) if separator else 0
+        return time(hour, minute, second, microsecond)
+    except ValueError:
+        return None
+
+
+def _utc_iso(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _ingest_file_events(

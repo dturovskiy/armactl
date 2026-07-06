@@ -1,10 +1,6 @@
 {% extends "layout.html" %}
 {% macro local_time(timestamp) -%}
-  {% if timestamp %}
-    <time data-local-time datetime="{{ timestamp }}" title="{{ timestamp }}">{{ timestamp[:16]|replace("T", " ") }}</time>
-  {% else %}
-    <span class="muted">-</span>
-  {% endif %}
+  {% if timestamp %}{{ format_web_timestamp(timestamp) }}{% else %}<span class="muted">-</span>{% endif %}
 {%- endmacro %}
 {% macro source_line(label, source, confidence) -%}
   {% if source %}
@@ -19,7 +15,6 @@
 {%- endmacro %}
 {% block title %}{{ t("Players - armactl web") }}{% endblock %}
 {% block heading %}{{ t("Players") }}{% endblock %}
-{% block extra_scripts %}<script defer src="{{ url_for('static', path='/js/player_times.js') }}?v={{ web_static_version }}"></script>{% endblock %}
 {% block topbar_actions %}
 <a class="button-link secondary-link" href="/admins">{{ t("Admins") }}</a>
 <a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
@@ -84,7 +79,7 @@
         <strong>{{ page.summary.inferred_or_stale_closes }}</strong>
       </article>
       <article class="player-summary-item" data-summary-latest-observed="{{ page.summary.latest_observed_at }}">
-        <span>{{ t("Latest observed") }}</span>
+        <span>{{ t("Latest evidence") }}</span>
         <strong>{{ local_time(page.summary.latest_observed_at) }}</strong>
       </article>
     </div>
@@ -167,9 +162,9 @@
             <th>{{ t("Player") }}</th>
             <th>{{ t("Player ID") }}</th>
             <th>{{ t("Status") }}</th>
-            <th>{{ t("Observed") }}</th>
-            <th>{{ t("Last observed") }}</th>
-            <th>{{ t("Inferred close") }}</th>
+            <th>{{ t("First evidence") }}</th>
+            <th>{{ t("Last evidence") }}</th>
+            <th>{{ t("Close evidence") }}</th>
             <th>{{ t("Source") }}</th>
             <th>{{ t("End reason") }}</th>
           </tr>
@@ -193,9 +188,9 @@
             <td>{{ local_time(session.close_observed_at) }}</td>
             <td>
               <div class="player-session-evidence-cell">
-                {{ source_line("Observed", session.open_source, session.open_confidence) }}
-                {{ source_line("Last observed", session.last_seen_source, session.last_seen_confidence) }}
-                {{ source_line("Inferred close", session.close_source, session.close_confidence) }}
+                {{ source_line("First evidence", session.open_source, session.open_confidence) }}
+                {{ source_line("Last evidence", session.last_seen_source, session.last_seen_confidence) }}
+                {{ source_line("Close evidence", session.close_source, session.close_confidence) }}
               </div>
             </td>
             <td>

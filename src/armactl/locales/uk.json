@@ -1529,6 +1529,22 @@
     "Runtime max FPS setting could not be saved.": "Не вдалося зберегти runtime max FPS setting.",
     "Runtime max FPS setting is invalid: {error}": "Налаштування runtime max FPS некоректне: {error}",
     "Start at 120 FPS": "Запустити на 120 FPS",
-    "Start at 60 FPS": "Запустити на 60 FPS"
+    "Start at 60 FPS": "Запустити на 60 FPS",
+    "Evidence time": "Час доказу",
+    "Event time": "Час події",
+    "Collected": "Зібрано",
+    "Recorded": "Записано",
+    "Time source": "Джерело часу",
+    "Time confidence": "Надійність часу",
+    "Log timestamp": "Час із логу",
+    "First recorded": "Перший запис",
+    "Last recorded": "Останній запис",
+    "Known reliable player identities recorded from current roster refreshes and timestamped log identity events.": "Відомі надійні ідентичності гравців, записані з оновлень поточного складу та лог-подій ідентичності з часовою міткою.",
+    "Latest evidence": "Останній доказ",
+    "First evidence": "Перший доказ",
+    "Last evidence": "Останній доказ",
+    "Close evidence": "Доказ закриття",
+    "Stored open": "Збережено відкрито",
+    "Stored closed": "Збережено закрито"
   }
 }

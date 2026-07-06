@@ -137,6 +137,7 @@ def test_authenticated_owner_sees_jobs_page(tmp_path: Path):
     assert "Operations" in response.text
     assert "Background jobs" in response.text
     assert "/static/js/jobs.js" in response.text
+    assert "/static/js/time.js" in response.text
     assert "data-jobs-refresh-root" in response.text
     assert "No pending operator work." in response.text
     assert "safe:test" in response.text
@@ -185,10 +186,12 @@ def test_jobs_page_formats_utc_timestamps(tmp_path: Path):
     response = client.get("/jobs", follow_redirects=False)
 
     assert response.status_code == 200
+    assert 'data-local-time datetime="2026-06-27T18:10:58.356827Z"' in response.text
+    assert 'data-local-time datetime="2026-06-27T18:12:28.483776Z"' in response.text
     assert "2026-06-27 18:10 UTC" in response.text
     assert "2026-06-27 18:12 UTC" in response.text
-    assert "2026-06-27T18:10:58" not in response.text
-    assert "2026-06-27T18:12:28" not in response.text
+    assert "2026-06-27T18:10:58.356827+00:00" not in response.text
+    assert "2026-06-27T18:12:28.483776+00:00" not in response.text
 
 
 def test_jobs_js_static_asset_is_served(tmp_path: Path):

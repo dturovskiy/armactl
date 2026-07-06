@@ -1411,8 +1411,8 @@ def test_known_players_page_is_identity_directory_not_stat_board(
     assert "Alpha One" in html
     assert PLAYER_ALPHA_ID[:8] in html
     assert "<th>Seen count</th>" in html
-    assert "<th>First seen</th>" in html
-    assert "<th>Last seen</th>" in html
+    assert "<th>First recorded</th>" in html
+    assert "<th>Last recorded</th>" in html
     assert "Source:" in html
     assert "<th>Source</th>" not in html
     assert "<th>Kills</th>" not in html
@@ -2165,7 +2165,7 @@ def test_player_sessions_summary_counts_existing_sessions_read_only(
     assert 'data-summary-closed-count="2"' in html
     assert 'data-summary-inferred-stale-count="1"' in html
     assert 'data-summary-latest-observed="2026-06-16T12:30:00+00:00"' in html
-    assert 'datetime="2026-06-16T12:30:00+00:00"' in html
+    assert 'datetime="2026-06-16T12:30:00Z"' in html
     assert after_rows == before_rows
 
 
@@ -2239,9 +2239,9 @@ def test_player_sessions_route_renders_filtered_sanitized_session_fields(
     assert "Alpha token=*** ***" in html
     assert PLAYER_ALPHA_ID in html
     assert "Bravo One" not in html
-    assert "Observed" in html
-    assert "Last observed" in html
-    assert "Inferred close" in html
+    assert "First evidence" in html
+    assert "Last evidence" in html
+    assert "Close evidence" in html
     assert "Backend auth" in html
     assert "RCON roster" in html
     assert "Scanner checkpoint" in html
@@ -2384,7 +2384,6 @@ def test_player_history_route_renders_stored_rows_without_raw_sources(
     assert response.status_code == 200
     html = response.text
     assert 'data-local-time datetime="2026-01-01T12:00:' in html
-    assert "2026-01-01 12:00 UTC" not in html
     assert "player_authenticated" in html
     assert "player_update" in html
     assert "faction_join" in html

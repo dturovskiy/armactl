@@ -83,6 +83,9 @@
       replaceSection(documentFragment, "pending-work");
       replaceSection(documentFragment, "background-jobs");
       restoreOpenJobDetails(openJobIds);
+      if (window.armactlFormatLocalTimes) {
+        window.armactlFormatLocalTimes(document);
+      }
       if (!hasActiveJobs(document)) {
         stopRefresh();
       }

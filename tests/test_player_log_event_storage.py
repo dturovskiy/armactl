@@ -91,7 +91,12 @@ def test_player_log_event_schema_lives_in_instance_players_db(tmp_path: Path) ->
         "source",
         "source_ref",
         "confidence",
+        "occurred_at",
         "observed_at",
+        "log_timestamp",
+        "time_source",
+        "time_confidence",
+        "collected_at",
         "player_id",
         "player_name",
         "rpl_identity",
@@ -112,7 +117,9 @@ def test_player_log_event_schema_lives_in_instance_players_db(tmp_path: Path) ->
         "address",
     } & _sqlite_columns(db_path, "player_log_events")
     assert {
+        "idx_player_log_events_occurred_at",
         "idx_player_log_events_observed_at",
+        "idx_player_log_events_collected_at",
         "idx_player_log_events_type",
         "idx_player_log_events_player",
         "idx_player_log_events_victim",
@@ -170,6 +177,10 @@ def test_ingest_auth_update_and_faction_events(tmp_path: Path) -> None:
     assert rows[0]["player_id"] == PLAYER_ALPHA_ID
     assert rows[0]["player_name"] == "Alpha One"
     assert rows[0]["rpl_identity"] == "42"
+    assert rows[0]["occurred_at"] is None
+    assert rows[0]["time_source"] == events.EVENT_TIME_SOURCE_CALLER_OBSERVED_AT
+    assert rows[0]["time_confidence"] == events.EVENT_TIME_CONFIDENCE_EXACT
+    assert rows[0]["collected_at"] == "2026-01-01T12:00:04+00:00"
     assert rows[1]["session_player_id"] == "7"
     assert rows[1]["log_timestamp"] == "12:00:02.000"
     assert rows[2]["player_faction"] == "US"
@@ -487,3 +498,184 @@ def test_list_player_log_events_filters_and_sorts_newest_first(tmp_path: Path) -
     assert all_rows[0].damage_type == "Bullet"
     assert all_rows[0].hit_zone == "LeftArm"
     assert all_rows[0].distance_m == 2.2
+
+def test_ingest_ambiguous_timestamp_does_not_update_known_players(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "default" / "players.db"
+    event = _parse(
+        "12:00:01.000 BACKEND : Authenticated player: "
+        f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One",
+        raw_source_ref="journal:alpha-auth",
+    )
+
+    result = player_registry.ingest_player_log_events(
+        db_path,
+        [event],
+        ingested_at="2026-01-02T09:00:00+00:00",
+    )
+
+    rows = _event_rows(db_path)
+    assert result.stored_count == 1
+    assert rows[0]["occurred_at"] is None
+    assert rows[0]["observed_at"] is None
+    assert rows[0]["log_timestamp"] == "12:00:01.000"
+    assert rows[0]["time_source"] == events.EVENT_TIME_SOURCE_LOG_PREFIX_WITHOUT_DATE
+    assert rows[0]["time_confidence"] == events.EVENT_TIME_CONFIDENCE_AMBIGUOUS
+    assert rows[0]["collected_at"] == "2026-01-02T09:00:00+00:00"
+    assert player_registry.list_known_players(db_path) == []
+
+
+def test_ingest_treats_pre_v8_collected_log_event_as_duplicate(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.ensure_player_registry_db(db_path)
+    line = (
+        "18:31:00.000 BACKEND : Authenticated player: "
+        f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One"
+    )
+    event = _parse(
+        line,
+        occurred_at="2026-07-05T18:31:00Z",
+        raw_timestamp="18:31:00.000",
+        time_source=events.EVENT_TIME_SOURCE_LOG_PREFIX_WITH_DATE,
+        time_confidence=events.EVENT_TIME_CONFIDENCE_DERIVED,
+        raw_source_ref="console.log:1",
+    )
+    legacy_row = player_registry._player_log_event_row(
+        event,
+        collected_at="2026-07-06T09:00:00+00:00",
+        created_at="2026-07-06T09:00:00+00:00",
+    )
+    legacy_row["occurred_at"] = None
+    legacy_row["log_timestamp"] = None
+    legacy_row["time_source"] = events.EVENT_TIME_SOURCE_UNAVAILABLE
+    legacy_row["time_confidence"] = events.EVENT_TIME_CONFIDENCE_AMBIGUOUS
+    legacy_row["collected_at"] = None
+    legacy_row["event_key"] = player_registry._player_log_event_key(
+        legacy_row,
+        dedupe_columns=player_registry._PLAYER_LOG_EVENT_LEGACY_V7_DEDUPE_COLUMNS,
+    )
+    with sqlite3.connect(db_path) as connection:
+        columns = list(player_registry._PLAYER_LOG_EVENT_INSERT_COLUMNS)
+        connection.execute(
+            f"INSERT INTO player_log_events ({', '.join(columns)}) "
+            f"VALUES ({', '.join('?' for _ in columns)})",
+            [legacy_row.get(column) for column in columns],
+        )
+
+    result = player_registry.ingest_player_log_events(
+        db_path,
+        [event],
+        ingested_at="2026-07-06T10:00:00+00:00",
+    )
+
+    rows = _event_rows(db_path)
+    assert result.stored_count == 0
+    assert result.duplicate_count == 1
+    assert len(rows) == 1
+    assert rows[0]["event_key"] == legacy_row["event_key"]
+
+
+def test_player_log_event_schema_migrates_v7_timestamp_contract(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "default" / "players.db"
+    db_path.parent.mkdir(parents=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE player_registry_schema_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO player_registry_schema_meta(key, value)
+            VALUES ('schema_version', '7')
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE player_log_events (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_key TEXT NOT NULL UNIQUE,
+                event_type TEXT NOT NULL,
+                source TEXT NOT NULL,
+                source_ref TEXT,
+                confidence TEXT NOT NULL,
+                observed_at TEXT,
+                log_timestamp TEXT,
+                player_id TEXT,
+                player_name TEXT,
+                session_player_id TEXT,
+                rpl_identity TEXT,
+                connection_id TEXT,
+                be_slot TEXT,
+                player_faction TEXT,
+                faction_resource TEXT,
+                victim_id TEXT,
+                victim_name TEXT,
+                victim_session_player_id TEXT,
+                victim_faction TEXT,
+                instigator_id TEXT,
+                instigator_name TEXT,
+                instigator_session_player_id TEXT,
+                instigator_faction TEXT,
+                teamkill INTEGER,
+                suicide INTEGER,
+                ai_instigator INTEGER,
+                damage_type TEXT,
+                hit_zone TEXT,
+                distance_m REAL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO player_log_events (
+                event_key,
+                event_type,
+                source,
+                confidence,
+                player_id,
+                player_name,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy-key",
+                events.EVENT_TYPE_PLAYER_AUTHENTICATED,
+                events.SOURCE_BACKEND_AUTH,
+                events.CONFIDENCE_HIGH,
+                PLAYER_ALPHA_ID,
+                "Alpha One",
+                "2026-01-02T09:00:00+00:00",
+            ),
+        )
+
+    player_registry.ensure_player_registry_db(db_path)
+
+    columns = _sqlite_columns(db_path, "player_log_events")
+    rows = _event_rows(db_path)
+    assert _schema_version(db_path) == player_registry.PLAYER_REGISTRY_SCHEMA_VERSION
+    assert {
+        "occurred_at",
+        "time_source",
+        "time_confidence",
+        "collected_at",
+    } <= columns
+    assert {
+        "idx_player_log_events_occurred_at",
+        "idx_player_log_events_collected_at",
+        "idx_player_log_events_history_order",
+    } <= _sqlite_indexes(db_path)
+    assert rows[0]["occurred_at"] is None
+    assert rows[0]["collected_at"] is None
+    assert rows[0]["time_source"] == events.EVENT_TIME_SOURCE_UNAVAILABLE
+    assert rows[0]["time_confidence"] == events.EVENT_TIME_CONFIDENCE_AMBIGUOUS

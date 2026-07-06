@@ -173,6 +173,8 @@ def _observations_from_event(
     event: player_registry.PlayerLogEventRecord,
 ) -> tuple[_SessionObservation, ...]:
     observed_at = _event_observed_at(event)
+    if not observed_at:
+        return ()
     if event.event_type in _CONNECT_EVENT_TYPES:
         return (
             _SessionObservation(
@@ -213,6 +215,8 @@ def _close_evidence_from_event(
     event: player_registry.PlayerLogEventRecord,
 ) -> tuple[_SessionCloseEvidence, ...]:
     observed_at = _event_observed_at(event)
+    if not observed_at:
+        return ()
     if event.event_type not in _CLOSE_EVENT_TYPES:
         return ()
     if event.event_type == player_log_events.EVENT_TYPE_PLAYER_DISCONNECTED:
@@ -480,7 +484,7 @@ def _checkpoint_event_id(session: player_registry.PlayerSessionRecord) -> int | 
 
 
 def _event_observed_at(event: player_registry.PlayerLogEventRecord) -> str:
-    return event.observed_at or event.log_timestamp or event.created_at
+    return event.occurred_at or event.observed_at
 
 
 def _is_older_than(left: str, right: str) -> bool:

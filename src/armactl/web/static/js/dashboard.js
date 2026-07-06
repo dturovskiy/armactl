@@ -28,6 +28,10 @@
     document
       .querySelectorAll(`[data-dashboard-field="${field}"]`)
       .forEach((node) => {
+        if (node.dataset.dashboardTimestamp === "true" && window.armactlSetLocalTime) {
+          window.armactlSetLocalTime(node, String(value));
+          return;
+        }
         node.textContent = String(value);
       });
   }
