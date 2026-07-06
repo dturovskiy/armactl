@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from armactl.redaction import redact_sensitive_text
+
 
 @dataclass
 class ProcessMetrics:
@@ -238,6 +240,8 @@ def query_server_fps_metrics(
 
 OPERATIONAL_STATUS_TAIL_LINES = 300
 CONSOLE_LOG_TAIL_BYTES = 512 * 1024
+OPERATIONAL_STATUS_DETAIL_MAX_CHARS = 180
+OPERATIONAL_STATUS_DETAIL_MAX_ITEMS = 4
 
 
 def _read_tail_text_file(
@@ -264,6 +268,32 @@ def _tail_recent_log_lines(
 ) -> list[str]:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return lines[-max_lines:]
+
+
+def _all_log_lines(text: str) -> list[str]:
+    """Return non-empty lines from an already bounded console-log tail."""
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def _safe_operational_detail(line: str) -> str:
+    """Return an operator-safe, bounded status diagnostic line."""
+    text = redact_sensitive_text(line).replace("\r", " ").replace("\n", " ").strip()
+    text = re.sub(r"\s+", " ", text)
+    if len(text) <= OPERATIONAL_STATUS_DETAIL_MAX_CHARS:
+        return text
+    return f"{text[: OPERATIONAL_STATUS_DETAIL_MAX_CHARS - 1].rstrip()}…"
+
+
+def _safe_operational_details(lines: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    details = [
+        detail
+        for detail in (
+            _safe_operational_detail(line)
+            for line in lines[-OPERATIONAL_STATUS_DETAIL_MAX_ITEMS:]
+        )
+        if detail
+    ]
+    return tuple(details)
 
 
 def _line_has_download_retry(line: str) -> bool:
@@ -320,7 +350,7 @@ def _startup_failure_details(lines: list[str], index: int) -> tuple[str, ...]:
         for line in window
         if _line_has_startup_failure(line) or _line_has_workshop_metadata_error(line)
     ]
-    return tuple((details or [lines[index]])[-4:])
+    return _safe_operational_details(tuple(details or [lines[index]]))
 
 
 def _line_has_starting_status(line: str) -> bool:
@@ -364,7 +394,8 @@ def query_server_operational_status(
         )
 
     age_seconds = max(time.time() - log_mtime, 0.0)
-    lines = _tail_recent_log_lines(text)
+    all_lines = _all_log_lines(text)
+    lines = all_lines[-OPERATIONAL_STATUS_TAIL_LINES:]
     if not lines:
         return ServerOperationalStatus(
             False,
@@ -382,7 +413,7 @@ def query_server_operational_status(
             state="telemetry_stale",
             severity="warning",
             message="Telemetry stale",
-            details=(lines[-1],),
+            details=_safe_operational_details([lines[-1]]),
             age_seconds=age_seconds,
             source=source,
             error="server console log is stale",
@@ -396,7 +427,7 @@ def query_server_operational_status(
                 state="ready",
                 severity="success",
                 message="Ready",
-                details=(line,),
+                details=_safe_operational_details([line]),
                 age_seconds=age_seconds,
                 source=source,
             )
@@ -424,7 +455,7 @@ def query_server_operational_status(
                 state="downloading_mods",
                 severity="warning",
                 message="Downloading mods (retrying)",
-                details=(line,),
+                details=_safe_operational_details([line]),
                 age_seconds=age_seconds,
                 source=source,
             )
@@ -435,7 +466,7 @@ def query_server_operational_status(
                 state="downloading_mods",
                 severity="warning",
                 message="Downloading mods",
-                details=(line,),
+                details=_safe_operational_details([line]),
                 age_seconds=age_seconds,
                 source=source,
             )
@@ -446,7 +477,7 @@ def query_server_operational_status(
                 state="mission_error",
                 severity="error",
                 message="Mission/config error",
-                details=(line,),
+                details=_safe_operational_details([line]),
                 age_seconds=age_seconds,
                 source=source,
             )
@@ -457,7 +488,19 @@ def query_server_operational_status(
                 state="starting",
                 severity="info",
                 message="Starting",
-                details=(line,),
+                details=_safe_operational_details([line]),
+                age_seconds=age_seconds,
+                source=source,
+            )
+
+    for line in reversed(all_lines):
+        if FPS_STATS_RE.search(line):
+            return ServerOperationalStatus(
+                True,
+                state="ready",
+                severity="success",
+                message="Ready",
+                details=_safe_operational_details([line]),
                 age_seconds=age_seconds,
                 source=source,
             )
@@ -467,7 +510,7 @@ def query_server_operational_status(
         state="waiting_for_telemetry",
         severity="warning",
         message="Waiting for server telemetry",
-        details=(lines[-1],),
+        details=_safe_operational_details([lines[-1]]),
         age_seconds=age_seconds,
         source=source,
     )

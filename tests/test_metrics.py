@@ -519,3 +519,103 @@ def test_query_server_operational_status_ignores_backend_heartbeat_timeout(
     assert result.available is True
     assert result.state == "ready"
     assert result.message == "Ready"
+
+
+
+def test_query_server_operational_status_uses_fps_from_full_bounded_tail(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    noise_lines = [
+        f"15:27:{index % 60:02d}.000 SCRIPT (E): benign script exception spam {index}"
+        for index in range(metrics.OPERATIONAL_STATUS_TAIL_LINES + 25)
+    ]
+    _write_console_log(
+        config_dir,
+        "2026-06-11_151427",
+        "\n".join([SAMPLE_FPS_LINE_WITH_MEAN_MEDIAN, *noise_lines]),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.available is True
+    assert result.state == "ready"
+    assert result.severity == "success"
+    assert result.message == "Ready"
+    assert result.details
+    assert "FPS: 60.0" in result.details[0]
+
+
+def test_query_server_operational_status_keeps_fresh_mod_marker_above_old_fps(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-06-11_151427",
+        "\n".join(
+            [
+                SAMPLE_FPS_LINE_WITH_MEAN_MEDIAN,
+                "15:27:01.000 SCRIPT : irrelevant line",
+                "15:27:02.000 BACKEND : Addon Download started 6872C012EBB3A7D4",
+            ]
+        ),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.available is True
+    assert result.state == "downloading_mods"
+    assert result.severity == "warning"
+    assert result.message == "Downloading mods"
+
+
+def test_query_server_operational_status_keeps_fresh_error_above_old_fps(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-06-11_151427",
+        "\n".join(
+            [
+                SAMPLE_FPS_LINE_WITH_MEAN_MEDIAN,
+                "15:27:01.000 SCRIPT : irrelevant line",
+                "15:27:02.000 RESOURCES (E): MissionHeader::ReadMissionHeader "
+                "cannot load the resource 'Missions/Broken.conf'!",
+            ]
+        ),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.available is True
+    assert result.state == "mission_error"
+    assert result.severity == "error"
+    assert result.message == "Mission/config error"
+
+
+def test_query_server_operational_status_does_not_ready_from_stale_fps(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-06-11_151427",
+        SAMPLE_FPS_LINE_WITH_MEAN_MEDIAN,
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1201.0):
+        result = metrics.query_server_operational_status(config_dir, max_age_seconds=120.0)
+
+    assert result.available is False
+    assert result.state == "telemetry_stale"
+    assert result.severity == "warning"
+    assert result.message == "Telemetry stale"

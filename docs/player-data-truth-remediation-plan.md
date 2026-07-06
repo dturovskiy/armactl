@@ -70,11 +70,13 @@ Observed problem: a production VM can report public/dashboard status `waiting_fo
 
 Root cause found in smoke: the latest console log can be flooded by mod/script exception spam. The FPS parser still finds fresh FPS lines in the larger file tail, but operational-status detection scans only a shorter recent-line window and may miss the latest FPS line. This makes the status heuristic claim it is waiting for telemetry even while `fps_text` and `telemetry_age` prove fresh telemetry exists.
 
-Target contract:
+Implemented contract:
 
-- If fresh FPS metrics are available from the same latest console log, operational status must not fall back to `waiting_for_telemetry` only because log spam pushed the FPS line outside the short status window.
-- Startup failure/mod-download/mission-error states must still win when their markers are fresh and relevant.
-- Mod script exception spam should be visible as diagnostics where appropriate, but it should not incorrectly imply that telemetry is missing.
+- Fresh FPS metrics from the same latest console log prevent a fallback to `waiting_for_telemetry` when only irrelevant newer log spam pushed the FPS line outside the short operational-status window.
+- Service stopped/deactivating/failure states remain authoritative in the shared dashboard/public status snapshot.
+- Fresh startup failure, mod-download, mission/config-error, and starting markers still win over older FPS evidence while they are the newest relevant blocking marker.
+- Stale FPS telemetry does not make a server ready.
+- Operator diagnostics are bounded and redacted before they can flow through status DTOs.
 
 ### 5. VM Smoke Finding: Wrapper/Bootstrap Drift
 
@@ -164,22 +166,24 @@ Acceptance criteria:
 - Existing session rows remain readable without claiming false precision.
 - Slice 3 does not add online/playtime/K-D/role/current faction truth and does not enable automatic session scheduling.
 
-### Slice 4: Operational Status Telemetry Fix
+### Slice 4: Operational Status Telemetry Fix — implemented
 
 Goal: fix false `waiting_for_telemetry` during log spam.
 
-Tasks:
+Implemented behavior:
 
-- Add regression fixture with fresh FPS lines plus enough script exception spam to push FPS outside the short operational-status window.
-- Make operational status use fresh FPS metrics as readiness evidence, or scan for FPS in the same larger bounded tail used by the FPS parser.
-- Preserve higher-priority startup/download/mission failure states when their markers are fresh and relevant.
-- Keep bounded reads; do not add live journal readers or unbounded log scanning.
+- The log heuristic still checks the recent operational-status window for fresh blocking markers first: startup failure, mod download/retry, mission/config error, and starting markers.
+- If no blocking marker is found there, it searches the same larger bounded console-log tail used by the FPS parser for FPS telemetry before returning `waiting_for_telemetry`.
+- The dashboard snapshot resolves operational status through a shared precedence path before both dashboard JSON/page rendering and `/public/server-status.json` consume it.
+- Service stopped, deactivating/stopping, and failed states are authoritative over FPS telemetry.
+- Fresh FPS telemetry resolves false waiting states to `ready`/`success`; stale FPS telemetry does not.
+- Status diagnostics remain bounded and redacted.
 
 Acceptance criteria:
 
 - Public/dashboard status reports ready when fresh FPS telemetry is available despite noisy logs.
-- Real startup/config failure states still display correctly.
-- Production VM smoke no longer alternates between ready and waiting only because of log spam.
+- Real startup/config/service failure states still display correctly.
+- Production VM smoke should no longer alternate between ready and waiting only because of log spam; final VM confirmation belongs to Slice 6.
 
 ### Slice 5: Wrapper/Bootstrap Drift Recovery
 

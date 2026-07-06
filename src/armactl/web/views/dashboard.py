@@ -957,6 +957,11 @@ def build_dashboard_status_payload(
             "age": _text(fps.get("age_text"), "unknown"),
             "state": _text(operational.get("message"), "unavailable"),
         },
+        "status": {
+            "state": _text(operational.get("state"), "unknown"),
+            "severity": _text(operational.get("severity"), "unknown"),
+            "message": _text(operational.get("message"), "unavailable"),
+        },
         "host": {
             "cpu": _text(host.get("cpu_text"), "unknown"),
             "memory": _text(host.get("memory_text"), "unknown"),

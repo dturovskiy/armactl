@@ -1010,3 +1010,143 @@ def test_dashboard_view_model_omits_neutral_sat_unavailable_notice():
 
     assert all(card["title"] != "Diagnostics summary" for card in dashboard["server_cards"])
     assert all(item["title"] != "ServerAdminTools" for item in dashboard["diagnostics"])
+
+
+
+def test_dashboard_snapshot_fresh_fps_overrides_false_waiting_status(monkeypatch):
+    server_state = _state(installed=True, running=True)
+    facade = _install_common_fakes(monkeypatch, server_state, service_active=True)
+    monkeypatch.setattr(
+        facade.metrics,
+        "query_server_operational_status",
+        lambda config_dir: ServerOperationalStatus(
+            True,
+            state="waiting_for_telemetry",
+            severity="warning",
+            message="Waiting for server telemetry",
+            age_seconds=7,
+            source=str(config_dir),
+        ),
+    )
+
+    snapshot = facade.load_dashboard_snapshot("default")
+
+    assert snapshot["lifecycle"] == "running"
+    assert snapshot["fps_metrics"]["available"] is True
+    assert snapshot["operational_status"]["state"] == "ready"
+    assert snapshot["operational_status"]["severity"] == "success"
+    assert snapshot["operational_status"]["message"] == "Ready"
+
+
+def test_dashboard_snapshot_keeps_blocking_status_above_fresh_fps(monkeypatch):
+    server_state = _state(installed=True, running=True)
+    facade = _install_common_fakes(monkeypatch, server_state, service_active=True)
+    monkeypatch.setattr(
+        facade.metrics,
+        "query_server_operational_status",
+        lambda config_dir: ServerOperationalStatus(
+            True,
+            state="downloading_mods",
+            severity="warning",
+            message="Downloading mods",
+            age_seconds=5,
+            source=str(config_dir),
+        ),
+    )
+
+    snapshot = facade.load_dashboard_snapshot("default")
+
+    assert snapshot["fps_metrics"]["available"] is True
+    assert snapshot["operational_status"]["state"] == "downloading_mods"
+    assert snapshot["operational_status"]["severity"] == "warning"
+    assert snapshot["operational_status"]["message"] == "Downloading mods"
+
+
+def test_dashboard_snapshot_service_stopped_overrides_fps_status(monkeypatch):
+    facade = _install_common_fakes(
+        monkeypatch,
+        _state(installed=True, running=False),
+        service_active=False,
+    )
+
+    snapshot = facade.load_dashboard_snapshot("default")
+
+    assert snapshot["lifecycle"] == "stopped"
+    assert snapshot["running"] is False
+    assert snapshot["fps_metrics"]["available"] is True
+    assert snapshot["operational_status"]["state"] == "stopped"
+    assert snapshot["operational_status"]["severity"] == "info"
+    assert snapshot["operational_status"]["message"] == "Stopped"
+
+
+def test_dashboard_snapshot_service_deactivating_overrides_fps_status(monkeypatch):
+    server_state = _state(installed=True, running=False)
+    facade = _install_common_fakes(monkeypatch, server_state, service_active=False)
+
+    class DeactivatingServiceAdapter:
+        def get_service_status(self, service_name):
+            return {
+                "service_name": service_name,
+                "active": False,
+                "enabled": True,
+                "active_state": "deactivating",
+                "sub_state": "stop-sigterm",
+                "main_pid": 123,
+            }
+
+        def get_timer_status(self, timer_name):
+            return {
+                "timer_name": timer_name,
+                "active": True,
+                "enabled": True,
+                "schedule": "*-*-* 06:00:00",
+                "next_run": "Fri 2026-06-12 06:00:00 UTC",
+            }
+
+    monkeypatch.setattr(facade, "get_service_adapter", lambda: DeactivatingServiceAdapter())
+
+    snapshot = facade.load_dashboard_snapshot("default")
+
+    assert snapshot["lifecycle"] == "stopping"
+    assert snapshot["running"] is False
+    assert snapshot["fps_metrics"]["available"] is True
+    assert snapshot["operational_status"]["state"] == "stopping"
+    assert snapshot["operational_status"]["severity"] == "warning"
+    assert snapshot["operational_status"]["message"] == "Stopping"
+
+
+def test_dashboard_snapshot_service_failure_overrides_fps_status(monkeypatch):
+    server_state = _state(installed=True, running=False)
+    facade = _install_common_fakes(monkeypatch, server_state, service_active=False)
+
+    class FailedServiceAdapter:
+        def get_service_status(self, service_name):
+            return {
+                "service_name": service_name,
+                "active": False,
+                "enabled": True,
+                "active_state": "failed",
+                "sub_state": "failed",
+                "result": "failed",
+                "main_pid": 0,
+            }
+
+        def get_timer_status(self, timer_name):
+            return {
+                "timer_name": timer_name,
+                "active": True,
+                "enabled": True,
+                "schedule": "*-*-* 06:00:00",
+                "next_run": "Fri 2026-06-12 06:00:00 UTC",
+            }
+
+    monkeypatch.setattr(facade, "get_service_adapter", lambda: FailedServiceAdapter())
+
+    snapshot = facade.load_dashboard_snapshot("default")
+
+    assert snapshot["lifecycle"] == "stopped"
+    assert snapshot["running"] is False
+    assert snapshot["fps_metrics"]["available"] is True
+    assert snapshot["operational_status"]["state"] == "service_failed"
+    assert snapshot["operational_status"]["severity"] == "error"
+    assert snapshot["operational_status"]["message"] == "Service failed"

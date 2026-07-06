@@ -374,6 +374,11 @@ def test_authenticated_owner_can_fetch_dashboard_status_json(
     assert payload["lifecycle"] == "running"
     assert payload["installed"] is True
     assert payload["running"] is True
+    assert payload["status"] == {
+        "state": "ready",
+        "severity": "success",
+        "message": "Ready",
+    }
     assert payload["fields"]["heading"] == "Mock Server"
     assert payload["fields"]["overview.players"] == "3 / 64"
     assert payload["field_states"]["overview.players"] == {"loading": False}

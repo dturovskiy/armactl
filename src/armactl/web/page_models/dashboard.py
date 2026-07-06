@@ -119,6 +119,102 @@ def _dashboard_lifecycle(
         return "starting"
     return "running"
 
+
+_BLOCKING_LOG_OPERATIONAL_STATES = frozenset(
+    {"startup_failed", "downloading_mods", "mission_error", "starting"}
+)
+
+
+def _service_state_text(service: dict[str, Any], key: str) -> str:
+    return str(service.get(key) or "").strip().lower()
+
+
+def _operational_status_dict(
+    *,
+    state: str,
+    severity: str,
+    message: str,
+    age_seconds: float | None = None,
+    source: str = "service",
+) -> dict[str, Any]:
+    return _plain_dict(
+        metrics.ServerOperationalStatus(
+            True,
+            state=state,
+            severity=severity,
+            message=message,
+            age_seconds=age_seconds,
+            source=source,
+        )
+    )
+
+
+def _service_operational_override(
+    lifecycle: str,
+    service: dict[str, Any],
+) -> dict[str, Any] | None:
+    active_state = _service_state_text(service, "active_state")
+    sub_state = _service_state_text(service, "sub_state")
+    result = str(service.get("result") or "").strip().lower()
+
+    if active_state == "failed" or sub_state == "failed" or result == "failed":
+        return _operational_status_dict(
+            state="service_failed",
+            severity="error",
+            message="Service failed",
+        )
+
+    if lifecycle == "stopping" or _service_is_stopping(service):
+        return _operational_status_dict(
+            state="stopping",
+            severity="warning",
+            message="Stopping",
+        )
+
+    if lifecycle == "stopped":
+        return _operational_status_dict(
+            state="stopped",
+            severity="info",
+            message="Stopped",
+        )
+
+    return None
+
+
+def _fresh_fps_available(fps_metrics: dict[str, Any]) -> bool:
+    return bool(fps_metrics.get("available")) and not bool(fps_metrics.get("stale"))
+
+
+def _resolve_operational_status(
+    *,
+    lifecycle: str,
+    service: dict[str, Any],
+    fps_metrics: dict[str, Any],
+    log_status: dict[str, Any],
+) -> dict[str, Any]:
+    service_override = _service_operational_override(lifecycle, service)
+    if service_override is not None:
+        return service_override
+
+    if log_status.get("state") in _BLOCKING_LOG_OPERATIONAL_STATES:
+        return log_status
+
+    if _fresh_fps_available(fps_metrics) and log_status.get("state") in {
+        "waiting_for_telemetry",
+        "telemetry_stale",
+        "unknown",
+    }:
+        return _operational_status_dict(
+            state="ready",
+            severity="success",
+            message="Ready",
+            age_seconds=fps_metrics.get("age_seconds"),
+            source="fps_metrics",
+        )
+
+    return log_status
+
+
 def _port_value(*values: int | None, default: int) -> int:
     for value in values:
         if isinstance(value, int) and not isinstance(value, bool):
@@ -571,7 +667,7 @@ def load_dashboard_snapshot(
             )
         )
 
-    operational_status = _load_operational_status(state, errors)
+    log_operational_status = _load_operational_status(state, errors)
     lifecycle = _dashboard_lifecycle(state, service)
     dashboard_running = lifecycle == "running"
     server_version = _load_server_version(
@@ -584,6 +680,15 @@ def load_dashboard_snapshot(
     if server_version.get("check_state") == server_versions.SERVER_VERSION_CHECK_UPDATING:
         lifecycle = "updating"
         dashboard_running = False
+
+    operational_status = _decorate_operational_status(
+        _resolve_operational_status(
+            lifecycle=lifecycle,
+            service=service,
+            fps_metrics=fps_metrics,
+            log_status=log_operational_status,
+        )
+    )
 
     if dashboard_running:
         players = _decorate_players(
