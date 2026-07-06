@@ -879,6 +879,7 @@ button.danger {
 button.warning {
   border-color: var(--warning);
   background: var(--warning);
+  color: #07100b;
 }
 
 .button-link {
