@@ -632,6 +632,7 @@
     "Showing {count} session(s)": "Showing {count} session(s)",
     "End reason": "End reason",
     "Stored status": "Stored status",
+    "Session state": "Session state",
     "Evidence source": "Evidence source",
     "Evidence": "Evidence",
     "All statuses": "All statuses",
@@ -1011,6 +1012,10 @@
     "Last evidence": "Last evidence",
     "Close evidence": "Close evidence",
     "Stored open": "Stored open",
+    "Session not closed": "Session not closed",
+    "Session closed": "Session closed",
+    "Unclosed sessions": "Unclosed sessions",
+    "Closed sessions": "Closed sessions",
     "Stored closed": "Stored closed"
   }
 }

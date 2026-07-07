@@ -2166,10 +2166,15 @@ def test_player_sessions_summary_counts_existing_sessions_read_only(
     assert 'data-summary-inferred-stale-count="1"' in html
     assert 'data-summary-latest-observed="2026-06-16T12:30:00+00:00"' in html
     assert 'datetime="2026-06-16T12:30:00Z"' in html
-    assert "Stored open" in html
-    assert "Stored closed" in html
+    assert "Unclosed sessions" in html
+    assert "Closed sessions" in html
+    assert "Session not closed" in html
+    assert "Session closed" in html
+    assert "Stored open" not in html
+    assert "Stored closed" not in html
     assert "Inferred/stale close evidence" in html
-    assert "Stored status" in html
+    assert "Session state" in html
+    assert "Stored status" not in html
     assert "<th>Available actions</th>" in html
     assert "<th>Evidence</th>" not in html
     assert "<th>End reason</th>" not in html

@@ -1220,6 +1220,7 @@
     "Showing {count} session(s)": "Показано сесій: {count}",
     "End reason": "Причина завершення",
     "Stored status": "Збережений статус",
+    "Session state": "Стан сесії",
     "Evidence source": "Джерело доказу",
     "Evidence": "Доказ",
     "All statuses": "Усі статуси",
@@ -1594,6 +1595,10 @@
     "Last evidence": "Останній доказ",
     "Close evidence": "Доказ закриття",
     "Stored open": "Збережено відкрито",
+    "Session not closed": "Сесія не закрита",
+    "Session closed": "Сесію закрито",
+    "Unclosed sessions": "Незакриті сесії",
+    "Closed sessions": "Закриті сесії",
     "Stored closed": "Збережено закрито"
   }
 }

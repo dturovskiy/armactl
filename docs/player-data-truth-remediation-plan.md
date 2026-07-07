@@ -51,8 +51,8 @@ Observed problem: operators do not know what session job buttons do, and the mea
 
 Truth contract:
 
-- `Stored open` means armactl has stored session evidence that started/updated a session and has not yet stored reliable close evidence. It does not guarantee the player is online right now.
-- `Stored closed` means armactl stored close evidence or inferred a close from a controlled rule such as lifecycle/server boundary, reliable disconnect evidence, repeated reliable roster absence, or stale timeout.
+- `Session not closed` means armactl has stored session evidence that started/updated a session and has not yet stored reliable close evidence. It does not guarantee the player is online right now.
+- `Session closed` means armactl stored close evidence or inferred a close from a controlled rule such as lifecycle/server boundary, reliable disconnect evidence, repeated reliable roster absence, or stale timeout.
 - `First evidence` means the first evidence time stored for the session, not necessarily exact join time unless the source is a reliable connect event.
 - `Last evidence` means the latest evidence time in that session.
 - `Close evidence` means the stored close/inferred-close time and source. It is not necessarily an exact disconnect time.
@@ -173,7 +173,7 @@ Tasks:
 Acceptance criteria:
 
 - Operators can explain what each session job does before pressing it.
-- Operators understand that `Stored open` means "not closed by stored evidence yet", not "definitely online".
+- Operators understand that `Session not closed` means "not closed by stored evidence yet", not "definitely online".
 - Existing session rows remain readable without claiming false precision.
 - Slice 3 does not add online/playtime/K-D/role/current faction truth and does not enable automatic session scheduling.
 

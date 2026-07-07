@@ -71,11 +71,11 @@
   <section class="player-session-summary" data-player-session-summary>
     <div class="player-summary-grid player-session-summary-grid">
       <article class="player-summary-item" data-summary-open-count="{{ page.summary.open_sessions }}">
-        <span>{{ t("Stored open") }}</span>
+        <span>{{ t("Unclosed sessions") }}</span>
         <strong>{{ page.summary.open_sessions }}</strong>
       </article>
       <article class="player-summary-item" data-summary-closed-count="{{ page.summary.closed_sessions }}">
-        <span>{{ t("Stored closed") }}</span>
+        <span>{{ t("Closed sessions") }}</span>
         <strong>{{ page.summary.closed_sessions }}</strong>
       </article>
       <article class="player-summary-item" data-summary-inferred-stale-count="{{ page.summary.inferred_or_stale_closes }}">
@@ -115,7 +115,7 @@
   <form method="get" action="/players/sessions" class="player-search-form player-history-filter-form">
     <div class="player-history-filter-grid">
       <label>
-        <span>{{ t("Stored status") }}</span>
+        <span>{{ t("Session state") }}</span>
         <select name="status">
           {% for option_value, option_label in page.status_options %}
             <option value="{{ option_value }}"{% if option_value == status %} selected{% endif %}>{{ t(option_label) }}</option>
@@ -164,7 +164,7 @@
           <tr>
             <th>{{ t("Player") }}</th>
             <th>{{ t("Player ID") }}</th>
-            <th>{{ t("Stored status") }}</th>
+            <th>{{ t("Session state") }}</th>
             <th>{{ t("First evidence") }}</th>
             <th>{{ t("Last evidence") }}</th>
             <th>{{ t("Close evidence") }}</th>

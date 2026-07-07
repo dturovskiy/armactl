@@ -1246,19 +1246,34 @@ button.warning {
   table-layout: fixed;
 }
 
-.player-sessions-table th:nth-child(1) { width: 22%; }
-.player-sessions-table th:nth-child(2) { width: 18%; }
-.player-sessions-table th:nth-child(3) { width: 12%; }
+.player-sessions-table th:nth-child(1) { width: 20%; }
+.player-sessions-table th:nth-child(2) { width: 17%; }
+.player-sessions-table th:nth-child(3) { width: 15%; }
 .player-sessions-table th:nth-child(4),
 .player-sessions-table th:nth-child(5),
-.player-sessions-table th:nth-child(6) { width: 12%; }
-.player-sessions-table th:nth-child(7) { width: 12%; }
+.player-sessions-table th:nth-child(6) { width: 13%; }
+.player-sessions-table th:nth-child(7) { width: 9%; }
 
-.player-sessions-table td:nth-child(3),
 .player-sessions-table td:nth-child(4),
 .player-sessions-table td:nth-child(5),
 .player-sessions-table td:nth-child(6) {
   white-space: nowrap;
+}
+
+.player-sessions-table th:nth-child(5),
+.player-sessions-table th:nth-child(6),
+.player-sessions-table td:nth-child(5),
+.player-sessions-table td:nth-child(6) {
+  border-left: 1px solid var(--border);
+}
+
+.player-sessions-table td:nth-child(3) .status-pill {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.15;
+  text-align: center;
+  justify-content: center;
 }
 
 .player-current-table th:nth-child(4),

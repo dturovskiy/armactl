@@ -77,8 +77,8 @@ PLAYER_HISTORY_COMBAT_EVENT_TYPES = frozenset(
 )
 
 PLAYER_SESSION_STATUS_LABELS = {
-    player_registry.PLAYER_SESSION_STATUS_OPEN: "Stored open",
-    player_registry.PLAYER_SESSION_STATUS_CLOSED: "Stored closed",
+    player_registry.PLAYER_SESSION_STATUS_OPEN: "Session not closed",
+    player_registry.PLAYER_SESSION_STATUS_CLOSED: "Session closed",
 }
 PLAYER_SESSION_STATUS_OPTIONS = (
     ("", "All statuses"),
