@@ -42,6 +42,17 @@ _UNC_ABSOLUTE_PATH_RE = re.compile(
 )
 
 
+def contains_sensitive_text(value: object | None) -> bool:
+    """Return whether text contains credential-like values safe editors must reject."""
+    text = "" if value is None else str(value)
+    if any(pattern.search(text) is not None for pattern in _ASSIGNMENT_PATTERNS):
+        return True
+    return (
+        _DISCORD_WEBHOOK_URL_RE.search(text) is not None
+        or _BOT_TOKEN_RE.search(text) is not None
+    )
+
+
 def redact_sensitive_text(value: object | None) -> str:
     """Redact obvious secrets from arbitrary text."""
     text = "" if value is None else str(value)

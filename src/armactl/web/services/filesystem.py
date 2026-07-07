@@ -8,11 +8,14 @@ from __future__ import annotations
 
 from armactl.web.services.file_replacements import (
     MAX_REPLACEMENT_BYTES,
+    EditableReplacement,
     ReplacedFile,
     StagedReplacement,
     cleanup_staged_replacement,
     is_replacement_candidate,
+    read_editable_replacement_text,
     replace_file_and_audit,
+    replace_text_and_audit,
 )
 from armactl.web.services.filesystem_errors import (
     DownloadUnavailableError,
@@ -20,6 +23,7 @@ from armactl.web.services.filesystem_errors import (
     InvalidUploadFilenameError,
     PathUnavailableError,
     ReplacementInvalidContentError,
+    ReplacementStaleBaselineError,
     ReplacementTooLargeError,
     ReplacementUnavailableError,
     RootUnavailableError,
@@ -82,6 +86,7 @@ __all__ = [
     "MAX_UPLOAD_BYTES",
     "PREVIEW_TEXT_FILENAMES",
     "PREVIEW_TEXT_SUFFIXES",
+    "EditableReplacement",
     "ROOT_DEFINITIONS",
     "UPLOAD_ROOT_IDS",
     "Breadcrumb",
@@ -95,6 +100,7 @@ __all__ = [
     "InvalidUploadFilenameError",
     "PathUnavailableError",
     "ReplacedFile",
+    "ReplacementStaleBaselineError",
     "ReplacementInvalidContentError",
     "ReplacementTooLargeError",
     "ReplacementUnavailableError",
@@ -117,7 +123,9 @@ __all__ = [
     "is_preview_candidate",
     "is_replacement_candidate",
     "list_allowed_roots",
+    "read_editable_replacement_text",
     "list_directory",
+    "replace_text_and_audit",
     "parent_relative_path",
     "preview_text_file",
     "publish_staged_upload",

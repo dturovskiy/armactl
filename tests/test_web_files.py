@@ -101,7 +101,10 @@ def test_filesystem_legacy_facade_reexports_split_service_api():
     assert filesystem.list_allowed_roots is roots.list_allowed_roots
     assert filesystem.DownloadFile is transfer.DownloadFile
     assert filesystem.upload_file is transfer.upload_file
+    assert filesystem.EditableReplacement is replacements.EditableReplacement
+    assert filesystem.read_editable_replacement_text is replacements.read_editable_replacement_text
     assert filesystem.replace_file_and_audit is replacements.replace_file_and_audit
+    assert filesystem.replace_text_and_audit is replacements.replace_text_and_audit
 
 
 def test_files_route_import_does_not_import_tui_textual(
@@ -993,6 +996,361 @@ def _post_replace(
 def _replacement_backups(data_root: Path) -> list[Path]:
     backup_root = data_root / "default" / "backups" / "file-replacements"
     return sorted(backup_root.glob("*.bak"))
+
+
+def test_read_editable_replacement_text_returns_safe_dto_for_allowed_targets(
+    tmp_path: Path,
+):
+    from armactl.web.services.file_replacements import read_editable_replacement_text
+
+    config = _config_root(tmp_path)
+    profile_path = config / "profile.cfg"
+    profile_path.write_text("hostname = Test Server\n", encoding="utf-8")
+    config_path = _write_default_config_json(config)
+
+    profile = read_editable_replacement_text(tmp_path, "config", "profile.cfg")
+    config_json = read_editable_replacement_text(tmp_path, "config", "config.json")
+
+    assert profile.root_id == "config"
+    assert profile.relative_path == "profile.cfg"
+    assert profile.display_name == "profile.cfg"
+    assert profile.breadcrumbs[-1] == "profile.cfg"
+    assert profile.file_kind == "profile-file"
+    assert profile.size == profile_path.stat().st_size
+    assert profile.text == "hostname = Test Server\n"
+    assert profile.baseline_fingerprint.startswith("sha256:")
+
+    assert config_json.root_id == "config"
+    assert config_json.relative_path == "config.json"
+    assert config_json.file_kind == "config-json"
+    assert config_json.size == config_path.stat().st_size
+    assert "<redacted: unchanged>" in config_json.text
+    assert "raw-rcon-secret" not in config_json.text
+    assert "raw-admin-secret" not in config_json.text
+    assert config_json.baseline_fingerprint.startswith("sha256:")
+
+    for dto in (profile, config_json):
+        safe_projection = json.dumps(dto.__dict__, ensure_ascii=False, default=str)
+        assert str(tmp_path) not in safe_projection
+        assert str(config) not in safe_projection
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "../server/evil.cfg",
+        "/etc/passwd",
+        ".git/secret.txt",
+        ".venv/secret.txt",
+        "missing.cfg",
+        "profile",
+        "profile/OtherTool/state.json",
+        "AdminServerSettings/nested/admins.json",
+    ],
+)
+def test_read_editable_replacement_text_rejects_unsafe_or_unavailable_targets(
+    tmp_path: Path,
+    relative_path: str,
+):
+    from armactl.web.services.file_replacements import read_editable_replacement_text
+    from armactl.web.services.filesystem_errors import FileBrowserError
+
+    config = _config_root(tmp_path)
+    (config / ".git").mkdir()
+    (config / ".git" / "secret.txt").write_text("git", encoding="utf-8")
+    (config / ".venv").mkdir()
+    (config / ".venv" / "secret.txt").write_text("venv", encoding="utf-8")
+    (config / "profile").mkdir()
+    deep = config / "profile" / "OtherTool" / "state.json"
+    deep.parent.mkdir(parents=True)
+    deep.write_text('{"ok": true}\n', encoding="utf-8")
+    too_deep = config / "AdminServerSettings" / "nested" / "admins.json"
+    too_deep.parent.mkdir(parents=True)
+    too_deep.write_text('{"admins": []}\n', encoding="utf-8")
+
+    with pytest.raises(FileBrowserError) as error:
+        read_editable_replacement_text(tmp_path, "config", relative_path)
+
+    assert str(tmp_path) not in str(error.value)
+
+
+def test_read_editable_replacement_text_rejects_symlink_target(tmp_path: Path):
+    from armactl.web.services.file_replacements import read_editable_replacement_text
+    from armactl.web.services.filesystem_errors import FileBrowserError
+
+    config = _config_root(tmp_path)
+    outside = tmp_path / "outside.cfg"
+    outside.write_text("outside", encoding="utf-8")
+    try:
+        (config / "profile.cfg").symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    with pytest.raises(FileBrowserError):
+        read_editable_replacement_text(tmp_path, "config", "profile.cfg")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [b"abc\x00def", b"abc\x01def", b"\xff", b"password=hunter2\n"],
+)
+def test_read_editable_replacement_text_rejects_unsafe_text_payloads(
+    tmp_path: Path,
+    payload: bytes,
+):
+    from armactl.web.services.file_replacements import read_editable_replacement_text
+    from armactl.web.services.filesystem_errors import ReplacementInvalidContentError
+
+    config = _config_root(tmp_path)
+    (config / "profile.cfg").write_bytes(payload)
+
+    with pytest.raises(ReplacementInvalidContentError) as error:
+        read_editable_replacement_text(tmp_path, "config", "profile.cfg")
+
+    assert "hunter2" not in str(error.value)
+    assert str(tmp_path) not in str(error.value)
+
+
+def test_read_editable_replacement_text_rejects_oversize_file(tmp_path: Path):
+    from armactl.web.services.file_replacements import read_editable_replacement_text
+    from armactl.web.services.filesystem_errors import ReplacementTooLargeError
+
+    config = _config_root(tmp_path)
+    (config / "profile.cfg").write_text("12345", encoding="utf-8")
+
+    with pytest.raises(ReplacementTooLargeError):
+        read_editable_replacement_text(
+            tmp_path,
+            "config",
+            "profile.cfg",
+            max_bytes=4,
+        )
+
+
+def test_replace_text_stale_baseline_rejects_before_mutation_work(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import file_replacements
+    from armactl.web.services.filesystem_errors import ReplacementStaleBaselineError
+
+    config = _config_root(tmp_path)
+    target = config / "profile.cfg"
+    target.write_text("before\n", encoding="utf-8")
+    editable = file_replacements.read_editable_replacement_text(
+        tmp_path,
+        "config",
+        "profile.cfg",
+    )
+    target.write_text("external change\n", encoding="utf-8")
+    audit_calls: list[str] = []
+
+    def record_audit(*args, **kwargs):
+        audit_calls.append("audit")
+
+    monkeypatch.setattr(file_replacements, "append_audit_event", record_audit)
+    monkeypatch.setattr(file_replacements, "create_replacement_backup", pytest.fail)
+    monkeypatch.setattr(file_replacements, "publish_staged_replacement", pytest.fail)
+
+    with pytest.raises(ReplacementStaleBaselineError) as error:
+        file_replacements.replace_text_and_audit(
+            tmp_path,
+            "config",
+            "profile.cfg",
+            "operator save\n",
+            expected_baseline_fingerprint=editable.baseline_fingerprint,
+            audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+            username="owner",
+            db_path=tmp_path / "web" / "web.db",
+        )
+
+    assert str(error.value) == "File changed on disk. Reload before saving."
+    assert target.read_text(encoding="utf-8") == "external change\n"
+    assert audit_calls == []
+    assert _replacement_backups(tmp_path) == []
+
+
+def test_replace_text_noop_save_has_no_backup_audit_or_pending_restart(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import file_replacements, pending_work
+
+    config = _config_root(tmp_path)
+    target = config / "profile.cfg"
+    target.write_text("before\n", encoding="utf-8")
+    editable = file_replacements.read_editable_replacement_text(
+        tmp_path,
+        "config",
+        "profile.cfg",
+    )
+
+    monkeypatch.setattr(file_replacements, "append_audit_event", pytest.fail)
+    monkeypatch.setattr(file_replacements, "create_replacement_backup", pytest.fail)
+    monkeypatch.setattr(
+        file_replacements,
+        "_mark_restart_pending_for_replacement",
+        pytest.fail,
+    )
+
+    result = file_replacements.replace_text_and_audit(
+        tmp_path,
+        "config",
+        "profile.cfg",
+        editable.text,
+        expected_baseline_fingerprint=editable.baseline_fingerprint,
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+        db_path=tmp_path / "web" / "web.db",
+    )
+
+    assert result.backup_path is None
+    assert result.changed_fields == ()
+    assert target.read_text(encoding="utf-8") == "before\n"
+    assert _replacement_backups(tmp_path) == []
+    assert not (tmp_path / "logs" / "web" / "audit.log").exists()
+    assert pending_work.list_pending_work(tmp_path / "web" / "web.db") == []
+
+
+def test_replace_text_non_config_json_invalid_json_rejected_before_publish(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import file_replacements
+    from armactl.web.services.filesystem_errors import ReplacementInvalidContentError
+
+    config = _config_root(tmp_path)
+    target = config / "profile.json"
+    target.write_text('{"ok": true}\n', encoding="utf-8")
+    editable = file_replacements.read_editable_replacement_text(
+        tmp_path,
+        "config",
+        "profile.json",
+    )
+
+    monkeypatch.setattr(file_replacements, "append_audit_event", pytest.fail)
+    monkeypatch.setattr(file_replacements, "create_replacement_backup", pytest.fail)
+    monkeypatch.setattr(file_replacements, "publish_staged_replacement", pytest.fail)
+
+    with pytest.raises(ReplacementInvalidContentError) as error:
+        file_replacements.replace_text_and_audit(
+            tmp_path,
+            "config",
+            "profile.json",
+            '{"ok":',
+            expected_baseline_fingerprint=editable.baseline_fingerprint,
+            audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+            username="owner",
+            db_path=tmp_path / "web" / "web.db",
+        )
+
+    assert "Invalid JSON replacement" in str(error.value)
+    assert target.read_text(encoding="utf-8") == '{"ok": true}\n'
+    assert _replacement_backups(tmp_path) == []
+
+
+def test_replace_text_config_json_reuses_secret_restore_reject_and_validation(
+    tmp_path: Path,
+):
+    from armactl.web.services import file_replacements
+    from armactl.web.services.filesystem_errors import ReplacementInvalidContentError
+
+    config_root = _config_root(tmp_path)
+    original = _sample_server_config()
+    config_path = _write_default_config_json(config_root, original)
+    editable = file_replacements.read_editable_replacement_text(
+        tmp_path,
+        "config",
+        "config.json",
+    )
+    assert "raw-rcon-secret" not in editable.text
+    assert "raw-admin-secret" not in editable.text
+
+    secret_change = json.loads(editable.text)
+    secret_change["rcon"]["password"] = "changed-secret"
+    with pytest.raises(ReplacementInvalidContentError) as error:
+        file_replacements.replace_text_and_audit(
+            tmp_path,
+            "config",
+            "config.json",
+            json.dumps(secret_change),
+            expected_baseline_fingerprint=editable.baseline_fingerprint,
+            audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+            username="owner",
+            db_path=tmp_path / "web" / "web.db",
+        )
+
+    assert "Secret fields cannot be changed" in str(error.value)
+    assert "changed-secret" not in str(error.value)
+    assert json.loads(config_path.read_text(encoding="utf-8")) == original
+    assert _replacement_backups(tmp_path) == []
+
+    submitted = json.loads(editable.text)
+    submitted["game"]["name"] = "Changed"
+    result = file_replacements.replace_text_and_audit(
+        tmp_path,
+        "config",
+        "config.json",
+        json.dumps(submitted, indent=2),
+        expected_baseline_fingerprint=editable.baseline_fingerprint,
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+        db_path=tmp_path / "web" / "web.db",
+    )
+
+    updated = json.loads(config_path.read_text(encoding="utf-8"))
+    assert updated["game"]["name"] == "Changed"
+    assert updated["rcon"]["password"] == original["rcon"]["password"]
+    assert updated["game"]["passwordAdmin"] == original["game"]["passwordAdmin"]
+    assert result.changed_fields == ("game.name",)
+    assert len(_replacement_backups(tmp_path)) == 1
+
+
+def test_replace_text_success_reuses_backup_publish_audit_and_pending_restart(
+    tmp_path: Path,
+):
+    from armactl.web.services import file_replacements, pending_work
+
+    config = _config_root(tmp_path)
+    target = config / "profile.cfg"
+    target.write_text("before\n", encoding="utf-8")
+    editable = file_replacements.read_editable_replacement_text(
+        tmp_path,
+        "config",
+        "profile.cfg",
+    )
+
+    result = file_replacements.replace_text_and_audit(
+        tmp_path,
+        "config",
+        "profile.cfg",
+        "after\n",
+        expected_baseline_fingerprint=editable.baseline_fingerprint,
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+        db_path=tmp_path / "web" / "web.db",
+    )
+
+    assert target.read_text(encoding="utf-8") == "after\n"
+    backups = _replacement_backups(tmp_path)
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == "before\n"
+    assert result.backup_path == backups[0]
+    assert result.changed_fields == ("profile_file",)
+    events = _audit_events(tmp_path)[-2:]
+    assert [event["details"]["phase"] for event in events] == ["intent", "outcome"]
+    assert [event["action"] for event in events] == ["file.replace", "file.replace"]
+    assert events[0]["target"] == "config:profile.cfg"
+    assert events[1]["details"]["backup_name"] == backups[0].name
+
+    item = pending_work.get_pending_work(
+        tmp_path / "web" / "web.db",
+        kind=pending_work.KIND_CONFIG,
+    )
+    assert item is not None
+    assert item.source_action == "file.replace"
+    assert item.source_path == "/files/config"
+    assert item.details == "profile_file"
 
 
 def test_replace_form_visible_only_for_safe_config_candidates(tmp_path: Path):

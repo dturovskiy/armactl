@@ -97,3 +97,10 @@ class ReplacementInvalidContentError(FileBrowserError):
 
     public_message = "Replacement file is not valid for this target."
     status_code = 400
+
+
+class ReplacementStaleBaselineError(FileBrowserError):
+    """Raised when an editable save starts from an outdated file snapshot."""
+
+    public_message = "File changed on disk. Reload before saving."
+    status_code = 409

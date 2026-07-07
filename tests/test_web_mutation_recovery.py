@@ -201,3 +201,87 @@ def test_file_replacement_pending_total_failure_is_controlled(
     assert "raw-pending-secret" not in str(error.value)
     assert "raw-fallback-secret" not in str(error.value)
     assert "raw-content-secret" not in str(error.value)
+
+
+def test_text_replacement_helper_pending_fallback_after_successful_publish(
+    tmp_path: Path,
+    monkeypatch,
+):
+    target = _write_profile_file(tmp_path)
+    editable = file_replacements.read_editable_replacement_text(
+        tmp_path,
+        "config",
+        "profile.cfg",
+    )
+
+    def fail_primary(*args, **kwargs):
+        raise RuntimeError("web.db locked token=raw-pending-secret")
+
+    monkeypatch.setattr(pending_work, "mark_restart_pending_for_state", fail_primary)
+
+    with pytest.raises(file_replacements.FileReplaceTrackingError) as error:
+        file_replacements.replace_text_and_audit(
+            tmp_path,
+            "config",
+            "profile.cfg",
+            "after\n",
+            expected_baseline_fingerprint=editable.baseline_fingerprint,
+            audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+            username="owner",
+            db_path=tmp_path / "web" / "web.db",
+        )
+
+    assert str(error.value) == file_replacements.REPLACE_PENDING_WARNING_MESSAGE
+    assert error.value.result.pending_work_warning == pending_work.PENDING_WORK_FALLBACK_WARNING
+    assert target.read_text(encoding="utf-8") == "after\n"
+    fallback = pending_work.get_fallback_pending_work(
+        tmp_path / "web" / "web.db",
+        kind=pending_work.KIND_CONFIG,
+    )
+    assert fallback is not None
+    assert fallback.source_action == "file.replace"
+    assert fallback.details == "profile_file"
+    assert "raw-pending-secret" not in str(error.value)
+
+
+def test_text_replacement_helper_outcome_audit_failure_is_controlled(
+    tmp_path: Path,
+    monkeypatch,
+):
+    target = _write_profile_file(tmp_path)
+    editable = file_replacements.read_editable_replacement_text(
+        tmp_path,
+        "config",
+        "profile.cfg",
+    )
+
+    def fail_outcome(audit_log_path, *, details, **kwargs):
+        if details["phase"] == "outcome":
+            raise AuditLogError("disk full token=raw-audit-secret")
+
+    monkeypatch.setattr(file_replacements, "append_audit_event", fail_outcome)
+
+    with pytest.raises(file_replacements.FileReplaceAuditError) as error:
+        file_replacements.replace_text_and_audit(
+            tmp_path,
+            "config",
+            "profile.cfg",
+            "after\n",
+            expected_baseline_fingerprint=editable.baseline_fingerprint,
+            audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+            username="owner",
+            db_path=tmp_path / "web" / "web.db",
+        )
+
+    assert str(error.value) == file_replacements.REPLACE_OUTCOME_AUDIT_FAILED_MESSAGE
+    assert error.value.result is not None
+    assert error.value.result.audit_written is False
+    assert target.read_text(encoding="utf-8") == "after\n"
+    item = pending_work.get_pending_work(
+        tmp_path / "web" / "web.db",
+        kind=pending_work.KIND_CONFIG,
+    )
+    assert item is not None
+    assert item.source_action == "file.replace"
+    assert item.details == "profile_file"
+    assert "raw-audit-secret" not in str(error.value)

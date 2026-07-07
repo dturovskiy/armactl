@@ -238,7 +238,9 @@ P1 next slices:
 - Production readiness polish for health/readiness checks and startup/runtime warnings without widening dashboard exposure.
 - Safe config control expansion only for fields with proven validation, backup/restart behavior, and recovery.
 - Remaining mod cleanup recovery beyond the current manifests and controlled partial-failure messaging: restore/quarantine design before more deletion behavior.
-- Lightweight file editing design with allowlists, size limits, diff preview, backups, validation, audit, and recovery.
+- Project-wide reuse/SOLID duplication audit is complete; keep [reuse-solid-duplication-audit.md](reuse-solid-duplication-audit.md) as the source for reuse owners, P1/P2 findings, and compatibility classifications.
+- File editor reuse-helper slice is complete: editor read/save DTOs now live in file_replacements with stale baseline protection, config_edit reuse, mutation_recovery reuse, and focused tests.
+- Lightweight file editing UI/save slice can now start as a thin route/template layer over the reuse helper, with allowlists, size limits, diff preview, backups, validation, audit, and recovery.
 
 P2 later:
 
@@ -298,12 +300,22 @@ Out of scope:
 
 - Current state: the file browser has fixed roots, containment checks, source/system path denial, bounded redacted previews, single-file download, no-overwrite upload only under the server root, and explicit replacement only for allowlisted small UTF-8 text/JSON config/profile files under /files/config, including top-level config text files, AdminServerSettings/*.json, and profile/CMPlayerStatsHUD/*.json. config.json replacement reuses the existing raw-config secret and shape protections. Logs, backups, server binaries, source-tree paths, system paths, traversal, and symlinks remain read-only or rejected.
 - Risk: general web editing could become an accidental arbitrary file manager. Editing server files without validation can break installs, overwrite Workshop content, or leak secrets in previews/diffs.
-- Proposed slice: keep broad file editing out of scope. Future expansion should add only one narrow target class at a time, with diff preview if text editing is introduced. Do not add recursive delete/move, arbitrary path editing, server-root overwrites, or generic backup/log mutation.
+- Slice 1 design/audit contract: [safe-file-editing-contract.md](safe-file-editing-contract.md) defines the current file-browser/upload/replacement audit, future editable targets, must-not-edit boundaries, exact Slice 2 save/UI contract, and missing tests before runtime editor work starts.
+- Proposed slice: keep broad file editing out of scope. Slice 2 may add only a narrow `/files/config` text editor for existing editable candidates from the contract, reusing the replacement validation, backup, audit, atomic publish, and mutation recovery pattern. Do not add recursive delete/move, arbitrary path editing, server-root overwrites, generic backup/log mutation, or a general file manager.
 - Files/modules touched by the replacement foundation: src/armactl/web/services/file_replacements.py, src/armactl/web/services/filesystem_listing.py, src/armactl/web/routes/files.py, src/armactl/web/templates/files.html, tests/test_web_files.py.
-- Validation/smoke needed: path traversal, symlink, source tree/system path denial, logs/backups/server-binary rejection, binary/oversize refusal, backup creation, JSON/config validation failure, no-overwrite upload preservation, audit/pending fallback, and failed-write recovery.
-- Stop condition: operators can replace only explicitly allowed small existing config/profile text targets through backup, validation, atomic publish, audit, pending restart, and controlled recovery. Broad editing and delete remain out of scope.
+- Validation/smoke needed: existing replacement tests plus Slice 2 editor tests for edit-link visibility, GET edit read-only rendering, size/UTF-8/secret rejection before render, stale baseline rejection, JSON/config validation, backup creation, same-directory temp staging, atomic publish, audit/pending fallback, failed-write recovery, no raw path/secret/traceback in UI or errors, and absence of delete/rename/move/copy/bulk controls.
+- Stop condition: operators can replace or edit only explicitly allowed small existing config/profile text targets through backup, validation, atomic publish, audit, pending restart, and controlled recovery. Broad editing and delete remain out of scope.
 
-#### 6. TUI/Web Parity Gaps
+#### 6. Project-Wide Reuse And SOLID Duplication Audit
+
+- Current state: the dashboard now has several mature service-layer contracts: `config_edit` owns guarded config/raw-config editing, `file_replacements` owns allowlisted config/profile replacement, `mutation_recovery` owns restart-pending fallback markers, `filesystem_*` modules own root/path containment, job services own enqueue/audit/dedupe behavior, and player registry/session helpers own persisted player/session truth.
+- Risk: new feature slices can copy these patterns into parallel routes, services, templates, or helpers. The most likely pressure points are the runtime safe file editor, broader config controls, moderation/banlist, Discord/player enrichment, update/job recovery, and any future player identity merge/split work. Duplicating validation, audit, recovery, path containment, secret handling, or source-of-truth logic would reintroduce the same architecture debt this hardening pass is trying to remove.
+- Audit result: [reuse-solid-duplication-audit.md](reuse-solid-duplication-audit.md) found no P0 blockers and identified one P1 gate before runtime file editor work. That gate is now closed by the file_replacements editor read/save helper with stale baseline protection, so routes/templates do not need to copy validation, backup, atomic publish, audit, or restart-pending behavior.
+- Files/modules likely touched: docs first; likely audit targets include `src/armactl/web/services/config_edit.py`, `src/armactl/web/services/file_replacements.py`, `src/armactl/web/services/mutation_recovery.py`, `src/armactl/web/services/filesystem_*.py`, `src/armactl/web/services/*actions.py`, `src/armactl/web/jobs/*`, `src/armactl/web/routes/*`, `src/armactl/web/page_models/*`, and player registry/session services.
+- Validation/smoke needed: `rg` usage checks for duplicate helpers and compatibility facades, import/static smoke, `ruff`, focused tests for any touched shared helper, and full pytest if a shared service contract changes.
+- Stop condition: completed by [reuse-solid-duplication-audit.md](reuse-solid-duplication-audit.md). Future slices must keep an explicit reuse contract, and no new route/service should duplicate existing validation, audit, recovery, path containment, secret handling, or source-of-truth behavior without a documented reason.
+
+#### 7. TUI/Web Parity Gaps
 
 - Current state: TUI covers install, repair, structured/raw config, mods, schedule, logs, cleanup, bot settings/service, host tests, and some port workflows. Web covers authenticated dashboard, config, mods, admins, schedule, files, logs/report, jobs, updates, public status, bot, and player/session surfaces.
 - Risk: chasing full parity can bloat the merge and duplicate workflows that should remain CLI/TUI fallback. Some web-primary features, especially player/session views, should not be pulled into TUI without operator demand.
@@ -312,7 +324,7 @@ Out of scope:
 - Validation/smoke needed: operator walkthrough comparing CLI/TUI/web for install, repair, update, config, mods, logs, bot, and host-test workflows.
 - Stop condition: each gap is marked web-needed, TUI-needed, CLI-only fallback, or deferred. No parity work is done only because another adapter has a feature.
 
-#### 7. Final VM Smoke And Merge Review
+#### 8. Final VM Smoke And Merge Review
 
 - Current state: deployment, architecture, checklist, and hardening runbook docs exist. Public docs intentionally do not store production hostnames, IP addresses, or provider/router details.
 - Risk: a code-complete dashboard can still fail on real service state, proxy state, SteamCMD behavior, cookie settings, or logs/report redaction. Merge gates can drift unless exact commands and pages are named.
@@ -349,7 +361,7 @@ before the restart helper exits successfully. Existing deployments must rerun
 `armactl service install` or an equivalent repair/install path to receive the
 updated units.
 
-#### 8. Rollback And Transaction Boundaries For Future Mutation Flows
+#### 9. Rollback And Transaction Boundaries For Future Mutation Flows
 
 - Current state: config saves and guarded raw-config saves use intent audit, backup, apply, outcome audit, and shared restart-pending recovery marker handling with fallback sidecar. Allowlisted file replacement stages bytes, validates content, audits intent before publish, creates backup, atomically publishes, records restart-pending recovery through the same helper, and returns controlled post-mutation failures if outcome audit or restart tracking fails. Admin and mod mutation actions also route restart-pending recovery through the shared helper, while destructive mod cleanup/remove paths leave safe manifests or controlled recovery handles. Server job enqueue audits intent before queueing and cancels a newly created job if outcome audit fails. Service/schedule/player-session actions audit intent before mutation and outcome after mutation, but not every flow needs or uses restart-pending recovery markers. Player registry writes use SQLite transactions and idempotent helpers, but job outcome audit happens after DB mutation.
 - Risk: a backend mutation can still happen before an exception returns to the route or job runner. The shared mutation_recovery.RestartPendingRecovery helper now covers restart-pending marker fallback for config/raw-config, file replacement, admin actions, and mod actions, including controlled error text when both primary and fallback marker writes fail. Future moderation, banlist, broader config, and file-editor flows still need to adopt the pattern explicitly before adding new mutation surface.
@@ -369,4 +381,4 @@ Flows that must use the pattern before implementation:
 
 ### Recommended Next Implementation Slice
 
-Before more implementation work, close the public docs trim/move/sanitize slice and decide which dashboard pieces remain clean public-core backports versus future private `armactl-dashboard` baseline. After that, continue with safe file editing/file operations if operators need config/profile file replacement workflows next, or update-flow polish if production update checks expose stale-job recovery pain. Keep Discord/player enrichment, banlist/moderation, and automatic session scheduling behind the existing truth/recovery gates.
+Next, implement the runtime safe file editor UI/save slice as a thin route/template layer over the completed file_replacements reuse helper, without broad file-manager, delete, rename, move, copy, bulk, or arbitrary path scope. Also close the public docs trim/move/sanitize slice, then decide which dashboard pieces remain clean public-core backports versus future private armactl-dashboard baseline. After that, continue with update-flow polish if production update checks expose stale-job recovery pain. Keep Discord/player enrichment, banlist/moderation, and automatic session scheduling behind the existing truth/recovery gates.

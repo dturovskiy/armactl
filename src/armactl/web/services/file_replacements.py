@@ -10,15 +10,18 @@ import shutil
 import tempfile
 from dataclasses import dataclass, replace
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 
 from armactl import paths
+from armactl.redaction import contains_sensitive_text
 from armactl.web.services import config_edit, mutation_recovery, pending_work
 from armactl.web.services.audit import AuditLogError, append_audit_event
 from armactl.web.services.filesystem_errors import (
     FileBrowserError,
     ReplacementInvalidContentError,
+    ReplacementStaleBaselineError,
     ReplacementTooLargeError,
     ReplacementUnavailableError,
 )
@@ -131,11 +134,28 @@ class ReplacedFile:
     directory_relative_path: str
     directory_href: str
     size: int
-    backup_path: Path
+    backup_path: Path | None
     changed_fields: tuple[str, ...]
     pending_work_warning: str = ""
     pending_work_error: str = ""
     audit_written: bool = True
+
+
+@dataclass(frozen=True)
+class EditableReplacement:
+    """Safe editor DTO for one allowlisted replacement target."""
+
+    root_id: str
+    root_label: str
+    relative_path: str
+    directory_relative_path: str
+    directory_href: str
+    display_name: str
+    breadcrumbs: tuple[str, ...]
+    file_kind: str
+    size: int
+    text: str
+    baseline_fingerprint: str
 
 
 def _replacement_parts(relative_path: str) -> tuple[str, ...]:
@@ -250,20 +270,47 @@ def _state_fingerprint(relative_path: str, digest: str) -> str:
     )
 
 
-def _read_text_replacement(path: Path) -> tuple[bytes, str]:
-    try:
-        data = path.read_bytes()
-    except OSError as exc:
-        raise ReplacementUnavailableError(ReplacementUnavailableError.public_message) from exc
+def _decode_replacement_text(data: bytes) -> str:
     if b"\x00" in data:
         raise ReplacementInvalidContentError("Replacement file must be UTF-8 text.")
     if any(byte < 32 and byte not in (9, 10, 13) for byte in data):
         raise ReplacementInvalidContentError("Replacement file must be UTF-8 text.")
     try:
-        text = data.decode("utf-8")
+        return data.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ReplacementInvalidContentError("Replacement file must be UTF-8 text.") from exc
+
+
+def _read_text_replacement(path: Path) -> tuple[bytes, str]:
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise ReplacementUnavailableError(ReplacementUnavailableError.public_message) from exc
+    text = _decode_replacement_text(data)
     return data, text
+
+
+def _read_bounded_text_replacement(path: Path, *, max_bytes: int) -> tuple[bytes, str]:
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes <= 0:
+        raise ReplacementUnavailableError(ReplacementUnavailableError.public_message)
+    try:
+        with path.open("rb") as handle:
+            data = handle.read(max_bytes + 1)
+    except OSError as exc:
+        raise ReplacementUnavailableError(ReplacementUnavailableError.public_message) from exc
+    if len(data) > max_bytes:
+        raise ReplacementTooLargeError(ReplacementTooLargeError.public_message)
+    return data, _decode_replacement_text(data)
+
+
+def _replacement_text_bytes(text: str, *, max_bytes: int) -> bytes:
+    try:
+        data = text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ReplacementInvalidContentError("Replacement file must be UTF-8 text.") from exc
+    if len(data) > max_bytes:
+        raise ReplacementTooLargeError(ReplacementTooLargeError.public_message)
+    return data
 
 
 def _rewrite_staged_text(path: Path, text: str) -> bytes:
@@ -285,6 +332,95 @@ def _validate_json_text(text: str) -> None:
         raise ReplacementInvalidContentError(
             f"Invalid JSON replacement at line {exc.lineno}, column {exc.colno}: {exc.msg}"
         ) from exc
+
+
+def _replacement_file_kind(relative_path: str) -> str:
+    if Path(relative_path).name.casefold() == "config.json":
+        return "config-json"
+    return "profile-file"
+
+
+def _editable_breadcrumbs(resolved: ResolvedBrowserPath) -> tuple[str, ...]:
+    return (resolved.root.label, *_replacement_parts(resolved.relative_path))
+
+
+def _non_config_editor_text_is_safe(text: str) -> bool:
+    return not contains_sensitive_text(text)
+
+
+def _config_editor_text_and_validation(
+    config_path: Path,
+    raw_text: str,
+) -> tuple[str, ReplacementValidation]:
+    try:
+        parsed = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise ReplacementInvalidContentError(
+            f"Invalid JSON replacement at line {exc.lineno}, column {exc.colno}: {exc.msg}"
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise ReplacementInvalidContentError("Config root must be an object.")
+
+    editor_text = config_edit.build_raw_config_editor_text(parsed)
+    try:
+        config_validation = config_edit.validate_raw_config_replacement(
+            config_path,
+            editor_text,
+        )
+    except config_edit.ConfigEditError as exc:
+        raise ReplacementInvalidContentError(str(exc)) from exc
+    return editor_text, ReplacementValidation(
+        changed_fields=config_validation.changed_fields,
+        baseline_fingerprint=config_validation.baseline_fingerprint,
+        current_fingerprint=config_validation.current_fingerprint,
+        requires_restart=bool(config_validation.changed_fields),
+    )
+
+
+def read_editable_replacement_text(
+    data_root: Path | None,
+    root_id: str,
+    relative_path: object | None,
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    max_bytes: int | None = None,
+) -> EditableReplacement:
+    """Read one allowlisted replacement target as safe editor text."""
+    limit = MAX_REPLACEMENT_BYTES if max_bytes is None else max_bytes
+    resolved = _validated_replacement_target(
+        data_root,
+        root_id,
+        relative_path,
+        instance=instance,
+    )
+    data, text = _read_bounded_text_replacement(resolved.requested_path, max_bytes=limit)
+    file_kind = _replacement_file_kind(resolved.relative_path)
+    if file_kind == "config-json":
+        text, validation = _config_editor_text_and_validation(resolved.requested_path, text)
+        if len(text.encode("utf-8")) > limit:
+            raise ReplacementTooLargeError(ReplacementTooLargeError.public_message)
+        baseline_fingerprint = validation.baseline_fingerprint
+    else:
+        if not _non_config_editor_text_is_safe(text):
+            raise ReplacementInvalidContentError(
+                "Editable file contains secret-looking values."
+            )
+        baseline_fingerprint = _state_fingerprint(resolved.relative_path, _sha256_bytes(data))
+
+    directory_relative_path = parent_relative_path(resolved.relative_path)
+    return EditableReplacement(
+        root_id=resolved.root.root_id,
+        root_label=resolved.root.label,
+        relative_path=resolved.relative_path,
+        directory_relative_path=directory_relative_path,
+        directory_href=files_href(resolved.root.root_id, directory_relative_path),
+        display_name=Path(resolved.relative_path).name,
+        breadcrumbs=_editable_breadcrumbs(resolved),
+        file_kind=file_kind,
+        size=len(data),
+        text=text,
+        baseline_fingerprint=baseline_fingerprint,
+    )
 
 
 def _validate_replacement_content(
@@ -567,6 +703,120 @@ def _mark_restart_pending_for_replacement(
     )
 
 
+def _replaced_file_result(
+    staged: StagedReplacement,
+    *,
+    backup_path: Path | None,
+) -> ReplacedFile:
+    return ReplacedFile(
+        root=staged.root,
+        path=staged.target_path,
+        relative_path=staged.relative_path,
+        directory_relative_path=staged.directory_relative_path,
+        directory_href=staged.directory_href,
+        size=staged.size,
+        backup_path=backup_path,
+        changed_fields=staged.validation.changed_fields,
+    )
+
+
+def _publish_staged_replacement_and_audit(
+    data_root: Path | None,
+    staged: StagedReplacement,
+    *,
+    audit_log_path: Path,
+    username: str,
+    db_path: Path | None,
+    instance: str,
+) -> ReplacedFile:
+    backup_path: Path | None = None
+    try:
+        _audit_replace(
+            staged,
+            audit_log_path=audit_log_path,
+            username=username,
+            instance=instance,
+            success=True,
+            message="File replacement requested.",
+            phase="intent",
+        )
+    except AuditLogError as exc:
+        raise FileReplaceAuditError(REPLACE_AUDIT_FAILED_MESSAGE) from exc
+
+    try:
+        backup_path = create_replacement_backup(
+            staged,
+            data_root=data_root,
+            instance=instance,
+        )
+        publish_staged_replacement(staged)
+    except FileBrowserError as exc:
+        try:
+            _audit_replace(
+                staged,
+                audit_log_path=audit_log_path,
+                username=username,
+                instance=instance,
+                success=False,
+                message=exc.public_message,
+                phase="outcome",
+                action="file.replace.publish-failed",
+                backup_path=backup_path,
+            )
+        except AuditLogError:
+            pass
+        raise FileReplacePublishError(REPLACE_PUBLISH_FAILED_MESSAGE) from exc
+
+    result = _replaced_file_result(staged, backup_path=backup_path)
+    pending_result = _mark_restart_pending_for_replacement(
+        staged,
+        db_path=db_path,
+        username=username,
+        instance=instance,
+    )
+    result = replace(
+        result,
+        pending_work_warning=pending_result.warning,
+        pending_work_error=pending_result.error,
+    )
+
+    try:
+        _audit_replace(
+            staged,
+            audit_log_path=audit_log_path,
+            username=username,
+            instance=instance,
+            success=True,
+            message="File replacement published.",
+            phase="outcome",
+            backup_path=backup_path,
+            pending_warning=result.pending_work_warning,
+            pending_error=result.pending_work_error,
+        )
+    except AuditLogError as exc:
+        raise FileReplaceAuditError(
+            REPLACE_OUTCOME_AUDIT_FAILED_MESSAGE,
+            result=replace(result, audit_written=False),
+        ) from exc
+
+    if result.pending_work_error:
+        raise FileReplaceTrackingError(REPLACE_PENDING_FAILED_MESSAGE, result=result)
+    if result.pending_work_warning:
+        raise FileReplaceTrackingError(REPLACE_PENDING_WARNING_MESSAGE, result=result)
+    return result
+
+
+def _require_matching_baseline(
+    staged: StagedReplacement,
+    expected_baseline_fingerprint: str,
+) -> None:
+    expected = str(expected_baseline_fingerprint or "").strip()
+    if not expected or expected != staged.validation.baseline_fingerprint:
+        raise ReplacementStaleBaselineError(
+            ReplacementStaleBaselineError.public_message
+        )
+
+
 def replace_file_and_audit(
     data_root: Path | None,
     root_id: str,
@@ -588,90 +838,63 @@ def replace_file_and_audit(
         instance=instance,
     )
     staged = _stage_replacement_file(resolved, source, max_bytes=limit)
-    backup_path: Path | None = None
     try:
-        try:
-            _audit_replace(
-                staged,
-                audit_log_path=audit_log_path,
-                username=username,
-                instance=instance,
-                success=True,
-                message="File replacement requested.",
-                phase="intent",
-            )
-        except AuditLogError as exc:
-            raise FileReplaceAuditError(REPLACE_AUDIT_FAILED_MESSAGE) from exc
-
-        try:
-            backup_path = create_replacement_backup(
-                staged,
-                data_root=data_root,
-                instance=instance,
-            )
-            publish_staged_replacement(staged)
-        except FileBrowserError as exc:
-            try:
-                _audit_replace(
-                    staged,
-                    audit_log_path=audit_log_path,
-                    username=username,
-                    instance=instance,
-                    success=False,
-                    message=exc.public_message,
-                    phase="outcome",
-                    action="file.replace.publish-failed",
-                    backup_path=backup_path,
-                )
-            except AuditLogError:
-                pass
-            raise FileReplacePublishError(REPLACE_PUBLISH_FAILED_MESSAGE) from exc
-
-        result = ReplacedFile(
-            root=staged.root,
-            path=staged.target_path,
-            relative_path=staged.relative_path,
-            directory_relative_path=staged.directory_relative_path,
-            directory_href=staged.directory_href,
-            size=staged.size,
-            backup_path=backup_path,
-            changed_fields=staged.validation.changed_fields,
-        )
-        pending_result = _mark_restart_pending_for_replacement(
+        return _publish_staged_replacement_and_audit(
+            data_root,
             staged,
-            db_path=db_path,
+            audit_log_path=audit_log_path,
             username=username,
+            db_path=db_path,
             instance=instance,
         )
-        result = replace(
-            result,
-            pending_work_warning=pending_result.warning,
-            pending_work_error=pending_result.error,
-        )
+    finally:
+        cleanup_staged_replacement(staged)
 
-        try:
-            _audit_replace(
-                staged,
-                audit_log_path=audit_log_path,
-                username=username,
-                instance=instance,
-                success=True,
-                message="File replacement published.",
-                phase="outcome",
-                backup_path=backup_path,
-                pending_warning=result.pending_work_warning,
-                pending_error=result.pending_work_error,
+
+def replace_text_and_audit(
+    data_root: Path | None,
+    root_id: str,
+    relative_path: object | None,
+    text: str,
+    *,
+    expected_baseline_fingerprint: str,
+    audit_log_path: Path,
+    username: str,
+    db_path: Path | None = None,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    max_bytes: int | None = None,
+) -> ReplacedFile:
+    """Replace editable text through the existing audited replacement pipeline."""
+    limit = MAX_REPLACEMENT_BYTES if max_bytes is None else max_bytes
+    if not isinstance(text, str):
+        raise ReplacementInvalidContentError("Replacement file must be UTF-8 text.")
+    resolved = _validated_replacement_target(
+        data_root,
+        root_id,
+        relative_path,
+        instance=instance,
+    )
+    if _replacement_file_kind(resolved.relative_path) != "config-json":
+        if not _non_config_editor_text_is_safe(text):
+            raise ReplacementInvalidContentError(
+                "Editable file contains secret-looking values."
             )
-        except AuditLogError as exc:
-            raise FileReplaceAuditError(
-                REPLACE_OUTCOME_AUDIT_FAILED_MESSAGE,
-                result=replace(result, audit_written=False),
-            ) from exc
-
-        if result.pending_work_error:
-            raise FileReplaceTrackingError(REPLACE_PENDING_FAILED_MESSAGE, result=result)
-        if result.pending_work_warning:
-            raise FileReplaceTrackingError(REPLACE_PENDING_WARNING_MESSAGE, result=result)
-        return result
+    staged = _stage_replacement_file(
+        resolved,
+        BytesIO(_replacement_text_bytes(text, max_bytes=limit)),
+        max_bytes=limit,
+    )
+    try:
+        _require_matching_baseline(staged, expected_baseline_fingerprint)
+        if not staged.validation.requires_restart:
+            return _replaced_file_result(staged, backup_path=None)
+        return _publish_staged_replacement_and_audit(
+            data_root,
+            staged,
+            audit_log_path=audit_log_path,
+            username=username,
+            db_path=db_path,
+            instance=instance,
+        )
     finally:
         cleanup_staged_replacement(staged)
