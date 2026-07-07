@@ -40,7 +40,10 @@
 {%- endmacro %}
 {% block title %}{{ t("Players - armactl web") }}{% endblock %}
 {% block heading %}{{ t("Players") }}{% endblock %}
-{% block extra_scripts %}<script defer src="{{ url_for('static', path='/js/player_times.js') }}?v={{ web_static_version }}"></script>{% endblock %}
+{% block extra_scripts %}
+<script defer src="{{ url_for('static', path='/js/player_times.js') }}?v={{ web_static_version }}"></script>
+<script defer src="{{ url_for('static', path='/js/players_history.js') }}?v={{ web_static_version }}"></script>
+{% endblock %}
 {% block topbar_actions %}
 <a class="button-link secondary-link" href="/admins">{{ t("Admins") }}</a>
 <a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
@@ -125,7 +128,7 @@
             <th>{{ t("Evidence time") }}</th>
             <th>{{ t("Event") }}</th>
             <th>{{ t("Player") }}</th>
-            <th>{{ t("Details") }}</th>
+            <th>{{ t("Available actions") }}</th>
           </tr>
         </thead>
         <tbody>
@@ -134,33 +137,43 @@
             <td><span class="player-row-subtle">{{ t(event.event_time_label) }}</span>{{ local_time(event.event_time) }}</td>
             <td><span class="status-pill status-pill-ok player-event-type-pill">{{ t(event.label) }}</span></td>
             <td>{{ event_actor(event) }}</td>
-            <td>{% if event.details %}<span class="muted">{{ t("Details below") }}</span>{% endif %}</td>
+            <td>
+              <div class="player-event-actions">
+                {% if event.details %}
+                  <button type="button" class="button-link secondary-link player-event-action-button" data-player-history-toggle data-player-history-event="{{ loop.index }}" data-player-history-panel="details" data-player-history-target="player-event-details-{{ loop.index }}" aria-controls="player-event-details-{{ loop.index }}" aria-expanded="false">{{ t("Details") }}</button>
+                {% endif %}
+                {% if event.diagnostics %}
+                  <button type="button" class="button-link secondary-link player-event-action-button" data-player-history-toggle data-player-history-event="{{ loop.index }}" data-player-history-panel="diagnostics" data-player-history-target="player-event-diagnostics-{{ loop.index }}" aria-controls="player-event-diagnostics-{{ loop.index }}" aria-expanded="false">{{ t("Diagnostics") }}</button>
+                {% endif %}
+                {% if not event.details and not event.diagnostics %}
+                  <span class="muted">-</span>
+                {% endif %}
+              </div>
+            </td>
           </tr>
           {% if event.details %}
-            <tr class="player-event-details-row">
+            <tr id="player-event-details-{{ loop.index }}" class="player-event-details-row" data-player-history-row data-player-history-event="{{ loop.index }}" data-player-history-panel="details" hidden>
               <td colspan="4">
-                <details class="player-event-details" open>
-                  <summary>{{ t("Details") }}</summary>
+                <div class="player-event-details player-event-reveal-panel" role="region" aria-label="{{ t('Details') }}">
                   <div class="player-event-details-cell">
                     {% for field in event.details %}
                       {{ detail_field(field) }}
                     {% endfor %}
                   </div>
-                </details>
+                </div>
               </td>
             </tr>
           {% endif %}
           {% if event.diagnostics %}
-            <tr class="player-event-diagnostics-row">
+            <tr id="player-event-diagnostics-{{ loop.index }}" class="player-event-diagnostics-row" data-player-history-row data-player-history-event="{{ loop.index }}" data-player-history-panel="diagnostics" hidden>
               <td colspan="4">
-                <details class="player-event-diagnostics">
-                  <summary>{{ t("Diagnostics") }}</summary>
+                <div class="player-event-diagnostics player-event-reveal-panel" role="region" aria-label="{{ t('Diagnostics') }}">
                   <div class="player-diagnostic-stack">
                     {% for field in event.diagnostics %}
                       {{ diagnostic_field(field) }}
                     {% endfor %}
                   </div>
-                </details>
+                </div>
               </td>
             </tr>
           {% endif %}

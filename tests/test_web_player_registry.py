@@ -2412,11 +2412,16 @@ def test_player_history_route_renders_stored_rows_without_raw_sources(
     assert 'title="player_authenticated"' not in html
     assert 'title="teamkill"' not in html
     assert "player-events-table" in html
+    assert "<th>Available actions</th>" in html
     assert "player-event-details-row" in html
+    assert "player-event-details-row" in html and "hidden" in html
     assert "<td colspan=\"4\">" in html
     assert "player-event-diagnostics-row" in html
     assert "player-event-details-cell" in html
-    assert "Details below" in html
+    assert "data-player-history-toggle" in html
+    assert "data-player-history-panel=\"details\"" in html
+    assert "data-player-history-panel=\"diagnostics\"" in html
+    assert "Details below" not in html
     assert "player-event-card" not in html
     assert "<table" in html
     assert "<th>Diagnostics</th>" not in html
@@ -2653,7 +2658,7 @@ def test_player_history_rows_without_useful_details_do_not_render_dash_noise(
     html = response.text
     assert "Server lifecycle" in html
     assert "player-event-details-cell" not in html
-    assert '<span class="muted">-</span>' not in html
+    assert "data-player-history-panel=\"diagnostics\"" in html
     assert "Reference</strong>" not in html
 
 

@@ -1301,8 +1301,8 @@ button.warning {
 
 .player-events-table th:nth-child(1) { width: 150px; }
 .player-events-table th:nth-child(2) { width: 145px; }
-.player-events-table th:nth-child(3) { width: 34%; }
-.player-events-table th:nth-child(4) { width: auto; }
+.player-events-table th:nth-child(3) { width: auto; }
+.player-events-table th:nth-child(4) { width: 190px; }
 
 .player-event-main-row td {
   vertical-align: middle;
@@ -1315,6 +1315,25 @@ button.warning {
   white-space: nowrap;
 }
 
+.player-event-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.player-event-action-button {
+  justify-content: center;
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 0.8rem;
+}
+
+.player-event-action-button[aria-expanded="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .player-event-details-row td {
   padding-top: 0;
 }
@@ -1324,17 +1343,9 @@ button.warning {
   min-width: 0;
 }
 
-.player-event-details {
+.player-event-reveal-panel {
   border-top: 1px solid var(--border);
-  padding-top: 7px;
-}
-
-.player-event-details summary,
-.player-event-diagnostics summary {
-  color: var(--accent);
-  cursor: pointer;
-  font-weight: 700;
-  white-space: nowrap;
+  padding-top: 8px;
 }
 
 .player-event-details-cell {
@@ -1392,11 +1403,9 @@ button.warning {
   color: var(--muted);
 }
 
-.player-event-diagnostics-row details {
-  border-top: 1px solid var(--border);
-  padding-top: 7px;
+.player-event-diagnostics-row td {
+  color: var(--muted);
 }
-
 
 .player-diagnostic-stack {
   margin-top: 6px;
