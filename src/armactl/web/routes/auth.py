@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Form, Request, status
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from armactl.web.auth.cookies import (
     clear_csrf_cookie,
@@ -205,10 +205,7 @@ def logout(
         return _redirect_to_login(config)
 
     if not validate_csrf_token(config.db_path, current.session.id, csrf_token):
-        return PlainTextResponse(
-            "Invalid CSRF token.",
-            status_code=status.HTTP_403_FORBIDDEN,
-        )
+        return _redirect_to_login(config)
 
     revoke_session(config.db_path, current.session.id)
     response = RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)

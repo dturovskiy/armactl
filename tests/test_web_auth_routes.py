@@ -187,7 +187,7 @@ def test_logout_with_valid_csrf_revokes_session_and_clears_cookie(tmp_path: Path
     assert "Max-Age=0" in _session_set_cookie(response)
 
 
-def test_logout_without_or_wrong_csrf_fails_safely(tmp_path: Path):
+def test_logout_without_or_wrong_csrf_clears_local_cookies_without_plain_error(tmp_path: Path):
     from armactl.web.app import create_app
 
     password = "owner logout password"
@@ -204,10 +204,13 @@ def test_logout_without_or_wrong_csrf_fails_safely(tmp_path: Path):
         follow_redirects=False,
     )
 
-    assert missing_response.status_code == 403
-    assert wrong_response.status_code == 403
-    assert "Invalid CSRF token." in missing_response.text
+    assert missing_response.status_code == 303
+    assert missing_response.headers["location"] == "/login"
+    assert wrong_response.status_code == 303
+    assert wrong_response.headers["location"] == "/login"
+    assert "Invalid CSRF token." not in missing_response.text
     assert "Traceback" not in wrong_response.text
+    assert "Max-Age=0" in _session_set_cookie(missing_response)
     assert validate_session(db_path, session.token) is not None
 
 
