@@ -134,16 +134,22 @@
             <td><span class="player-row-subtle">{{ t(event.event_time_label) }}</span>{{ local_time(event.event_time) }}</td>
             <td><span class="status-pill status-pill-ok player-event-type-pill">{{ t(event.label) }}</span></td>
             <td>{{ event_actor(event) }}</td>
-            <td>
-              {% if event.details %}
-                <div class="player-event-details-cell">
-                  {% for field in event.details %}
-                    {{ detail_field(field) }}
-                  {% endfor %}
-                </div>
-              {% endif %}
-            </td>
+            <td>{% if event.details %}<span class="muted">{{ t("Details below") }}</span>{% endif %}</td>
           </tr>
+          {% if event.details %}
+            <tr class="player-event-details-row">
+              <td colspan="4">
+                <details class="player-event-details" open>
+                  <summary>{{ t("Details") }}</summary>
+                  <div class="player-event-details-cell">
+                    {% for field in event.details %}
+                      {{ detail_field(field) }}
+                    {% endfor %}
+                  </div>
+                </details>
+              </td>
+            </tr>
+          {% endif %}
           {% if event.diagnostics %}
             <tr class="player-event-diagnostics-row">
               <td colspan="4">

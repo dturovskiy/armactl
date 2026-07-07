@@ -1301,9 +1301,8 @@ button.warning {
 
 .player-events-table th:nth-child(1) { width: 150px; }
 .player-events-table th:nth-child(2) { width: 145px; }
-.player-events-table th:nth-child(3) { width: 24%; }
-.player-events-table th:nth-child(4) { width: 12%; }
-.player-events-table th:nth-child(5) { width: 42%; }
+.player-events-table th:nth-child(3) { width: 34%; }
+.player-events-table th:nth-child(4) { width: auto; }
 
 .player-event-main-row td {
   vertical-align: middle;
@@ -1316,15 +1315,41 @@ button.warning {
   white-space: nowrap;
 }
 
+.player-event-details-row td {
+  padding-top: 0;
+}
+
+.player-event-details,
+.player-event-diagnostics {
+  min-width: 0;
+}
+
+.player-event-details {
+  border-top: 1px solid var(--border);
+  padding-top: 7px;
+}
+
+.player-event-details summary,
+.player-event-diagnostics summary {
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .player-event-details-cell {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
+  align-items: flex-start;
+  gap: 8px 16px;
+  margin-top: 6px;
   min-width: 0;
 }
 
 .player-event-details-cell > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -1372,16 +1397,6 @@ button.warning {
   padding-top: 7px;
 }
 
-.player-event-diagnostics {
-  min-width: 0;
-}
-
-.player-event-diagnostics summary {
-  color: var(--accent);
-  cursor: pointer;
-  font-weight: 700;
-  white-space: nowrap;
-}
 
 .player-diagnostic-stack {
   margin-top: 6px;

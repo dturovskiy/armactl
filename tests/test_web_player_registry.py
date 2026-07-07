@@ -2412,9 +2412,11 @@ def test_player_history_route_renders_stored_rows_without_raw_sources(
     assert 'title="player_authenticated"' not in html
     assert 'title="teamkill"' not in html
     assert "player-events-table" in html
-    assert "player-event-details-row" not in html
+    assert "player-event-details-row" in html
+    assert "<td colspan=\"4\">" in html
     assert "player-event-diagnostics-row" in html
     assert "player-event-details-cell" in html
+    assert "Details below" in html
     assert "player-event-card" not in html
     assert "<table" in html
     assert "<th>Diagnostics</th>" not in html
