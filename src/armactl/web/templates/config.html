@@ -113,7 +113,7 @@
         <p class="config-field-group-helper muted">{{ t(group.helper_text) }}</p>
         {% endif %}
         <div class="config-control-grid">
-          {% for field in group.fields %}
+          {% for field in group.config_fields %}
           {% if field.ui.control == "checkbox" %}
           <label class="inline-confirm config-checkbox-field config-control-field{% if field.ui.css_class %} {{ field.ui.css_class }}{% endif %}">
             <input type="checkbox" name="{{ field.name }}" value="true"{% if field.value %} checked{% endif %}>

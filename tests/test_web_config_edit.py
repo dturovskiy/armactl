@@ -237,15 +237,20 @@ def test_config_edit_descriptor_registry_covers_current_safe_fields_only():
     assert visible.ui.impact_label == "Discovery"
 
     field_groups = config_edit.build_config_edit_field_groups(_sample_config())
-    assert [
-        (group["section"], tuple(field["name"] for field in group["fields"]))
-        for group in field_groups
-    ] == [
+    expected_groups = [
         ("server_identity", ("name", "scenario_id")),
         ("capacity_visibility", ("max_players", "visible")),
         ("gameplay_security", ("disable_third_person", "battleye")),
         ("view_distance", ("server_max_view_distance", "server_min_grass_distance")),
     ]
+    assert [
+        (group["section"], tuple(field["name"] for field in group["fields"]))
+        for group in field_groups
+    ] == expected_groups
+    assert [
+        (group["section"], tuple(field["name"] for field in group["config_fields"]))
+        for group in field_groups
+    ] == expected_groups
     assert all(
         field["restart_required"]
         for group in field_groups

@@ -345,7 +345,10 @@ def build_config_edit_field_groups(config: Mapping[str, Any]) -> tuple[dict[str,
             group_by_section[section] = group
             groups.append(group)
         group["fields"].append(field)
-    return tuple({**group, "fields": tuple(group["fields"])} for group in groups)
+    return tuple(
+        {**group, "fields": tuple(group["fields"]), "config_fields": tuple(group["fields"])}
+        for group in groups
+    )
 
 
 def _set_nested_value(data: dict[str, Any], path: tuple[str, ...], value: Any) -> None:
