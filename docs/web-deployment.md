@@ -111,8 +111,8 @@ gateway port mappings.
 
 ### Gateway-Managed VM Profile
 
-Use this profile when a separate gateway or Proxmox host listens on external
-operator ports and proxies traffic into a VM that runs `armactl-web`.
+Use this profile when a separate gateway or reverse-proxy host listens on
+external operator ports and proxies traffic into a VM that runs `armactl-web`.
 
 Expected runtime shape:
 
@@ -131,14 +131,14 @@ ARMACTL_WEB_BIND_PORT=8765
 ARMACTL_WEB_HTTPS_REQUIRED=false
 ```
 
-Current private deployment example, without credentials:
+Keep actual gateway hostnames, VM names, LAN IPs, and external port mappings
+in private operator notes. A public-safe shape is:
 
-- Proxmox/deus-gateway external `8766` proxies to Serhiivka
-  `192.168.1.5:8765`.
-- Proxmox/deus-gateway external `8767` proxies to Chervonopilya
-  `192.168.1.7:8765`.
-- The VM web runtime port remains `8765`; do not change it to `8766` or
-  `8767` unless the gateway upstream is changed at the same time.
+- `<external-dashboard-port>` on the gateway proxies to `<vm-lan-ip>:8765`.
+- The VM web runtime port remains `8765`; do not copy external gateway ports
+  into `web.env`.
+- If the gateway upstream changes, update and smoke the private routing config
+  in the same operator change.
 
 `ARMACTL_WEB_HTTPS_REQUIRED=false` is acceptable only when TLS/HTTPS is not
 terminated in the armactl web process and access is protected by a real outer
@@ -277,9 +277,8 @@ For dashboard exposure cleanup, gateway hardening, and incident response guidanc
 Default VM web bind port: `8765/TCP`.
 
 Gateway-managed deployments may expose different external operator ports on the
-gateway, such as `8766` or `8767`, but those ports should proxy to the VM
-runtime port `8765` unless the VM runtime config and gateway upstream are
-changed together.
+gateway, but those ports should proxy to the VM runtime port `8765` unless the
+VM runtime config and gateway upstream are changed together.
 
 Do not reuse default Arma service ports for the dashboard:
 
@@ -356,7 +355,7 @@ For gateway-managed VM:
 - expect `ARMACTL_WEB_BIND_HOST=<vm-lan-ip>` or `0.0.0.0`;
 - expect `ARMACTL_WEB_BIND_PORT=8765`;
 - confirm the gateway upstream still targets `VM_IP:8765`;
-- keep external gateway ports such as `8766` and `8767` out of `web.env`;
+- keep external gateway ports out of `web.env`;
 - do not change the VM bind host back to `127.0.0.1` unless the reverse proxy
   runs on the same VM;
 - set `ARMACTL_WEB_HTTPS_REQUIRED=true` when the browser reaches the dashboard

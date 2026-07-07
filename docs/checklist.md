@@ -2,6 +2,12 @@
 
 This checklist tracks public, user-facing work for the free/local `armactl` core. It is intentionally concise; detailed implementation history and review notes are not kept in public docs.
 
+## Public Merge Boundary
+
+- [ ] Complete the public/private docs boundary review before merging `feat/web-interface` to public `main`.
+- [ ] Decide the future private `armactl-dashboard` extraction/snapshot path separately from public `armactl` backports.
+- [ ] Keep public `armactl` scoped to the free/local Arma core and local dashboard; move private product, hosted, infrastructure, and commercial planning out of public docs first.
+
 ## Current Core
 
 - [x] Repo-local launcher with automatic bootstrap and read-only bootstrap drift diagnostics.
@@ -55,7 +61,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Player data truth Slice 3 session semantics/job UX, with Session not closed/closed and First/Last/Close evidence labels, concise manual session-job guidance, and no online/playtime/K-D/role/faction truth claims.
 - [x] Player data truth Slice 4 operational status telemetry fix, with dashboard/public status sharing precedence that treats fresh FPS telemetry as ready while keeping service failure/startup blockers authoritative.
 - [x] Player data truth Slice 5 wrapper/bootstrap drift recovery, with non-mutating `scripts/bootstrap.sh --check --web`, clearer non-interactive wrapper guidance, and normal bootstrap remaining the stamp refresh path.
-- [ ] Continue production hardening for the local dashboard.
+- [x] Continue production hardening for the local dashboard, including gateway throttle guidance, dashboard stale-refresh recovery, restart timing/source-of-truth clarification, and current VM smoke follow-up.
 - [x] Polish server update browser flow with controlled post-action notices, active job links, retry/failure guidance, and stale active-job notices.
 - [x] Background job worker heartbeat/lease foundation, with opaque worker IDs, bounded heartbeat/lease timestamps on running jobs, heartbeat refresh from worker progress and wrapper heartbeat, terminal states clearing active leases, jobs page fresh/expired lease diagnostics, duplicate queued metadata repair only on mutating maintenance/enqueue paths, no GET job mutation, no process/thread kill, no running-job cancel action, and no automatic expired-lease metadata recovery.
 - [x] Harden generated scheduled restart units with an explicit root-owned bounded restart helper, service stop timeout/kill policy, SIGKILL fallback scoped to the `armareforger*.service` control group, active/running verification, and short post-start stability checking.
@@ -77,7 +83,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Document local/same-host and gateway-managed VM web deployment profiles, including the internal `8765` VM bind port, external gateway ports, and HTTPS-required cookie responsibility.
 - [ ] Close remaining TUI/Web parity gaps that should be web-primary.
 - [x] Run production SSH read-only ops smoke for current `feat/web-interface`, including normal wrapper/bootstrap checks, web service status, public health/status, recent web journals, gateway health, and nginx error logs, without game restarts.
-- [ ] Run authenticated browser UI smoke and final architecture/security/dead-code/docs review before main merge, using a normal admin/operator session for protected pages; unauthenticated public health/status checks alone do not close this item.
+- [x] Run authenticated browser UI smoke and architecture/security/dead-code review for the current `feat/web-interface` deployment baseline; current pass found no P0/P1 code blockers, but this does not close the public `main` merge gate until extraction/docs-boundary decisions are complete.
 
 ## Public Documentation
 
@@ -85,5 +91,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Architecture doc explains source/runtime/service boundaries.
 - [x] Troubleshooting covers install, service, ports, telemetry, Telegram, and web dashboard basics.
 - [x] Web deployment doc covers local/same-host, gateway-managed VM, reverse-proxy, and HTTPS-required cookie guidance.
+- [ ] Sanitize public web deployment/hardening docs so they contain no private hostnames, IPs, routes, or operator-only topology.
+- [ ] Split or move internal dashboard extraction/commercial planning before public `main` merge.
 - [ ] Keep screenshots current after visible UI changes.
 - [ ] Keep release notes concise and operator-focused.

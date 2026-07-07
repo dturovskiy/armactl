@@ -218,7 +218,7 @@ Acceptance criteria:
 
 Goal: confirm the fixes on current code.
 
-Status: public health/status and production SSH read-only ops smoke passed for the current `feat/web-interface` deployment. Authenticated browser UI smoke remains open until protected pages are checked through a normal admin/operator session.
+Status: public health/status, production SSH read-only ops smoke, and authenticated browser UI smoke have passed for the current `feat/web-interface` deployment baseline. Future deploys should repeat the same smoke gate before treating the web UI as deployment-ready; public `main` merge readiness still requires the separate extraction/docs-boundary gate.
 
 Tasks:
 
@@ -226,7 +226,7 @@ Tasks:
 - Restart only `armactl-web.service` unless a slice explicitly requires game service changes.
 - Verify health, public status, service states, restart timer, jobs page state, players pages, and recent journals.
 - Keep private hostnames and IPs out of public docs.
-- Treat unauthenticated health/public-status checks as public smoke only; do not mark authenticated UI smoke passed without a normal admin/operator browser session.
+- Treat unauthenticated health/public-status checks as public smoke only; authenticated UI smoke requires a normal admin/operator browser session.
 
 Acceptance criteria:
 

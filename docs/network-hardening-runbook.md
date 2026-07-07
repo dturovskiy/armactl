@@ -1,10 +1,9 @@
 # Network Hardening And Incident Runbook
 
 This runbook is public-safe guidance for operators who expose an Arma Reforger
-server and the local `armactl` dashboard. Keep deployment-specific
-credentials and provider contacts in private operator notes. Non-secret private
-IP examples may be documented here only when they are intentionally used as
-operator deployment truth.
+server and the local `armactl` dashboard. Keep deployment-specific credentials,
+hostnames, IP addresses, routes, port mappings, and provider contacts in private
+operator notes. Public examples should use placeholders only.
 
 ## Exposure Inventory
 
@@ -61,16 +60,18 @@ Supported dashboard deployment profiles:
 
 - Local/same-host: `armactl-web` binds to `127.0.0.1:8765`; the browser uses a
   local browser, SSH tunnel, or reverse proxy on the same host.
-- Gateway-managed VM: a separate gateway or Proxmox host listens on external
-  operator ports and proxies to `VM_IP:8765`; `armactl-web` on the VM binds to
-  the VM LAN IP or `0.0.0.0:8765` so the gateway can reach it.
+- Gateway-managed VM: a separate gateway or reverse-proxy/virtualization host
+  listens on external operator ports and proxies to `VM_IP:8765`; `armactl-web`
+  on the VM binds to the VM LAN IP or `0.0.0.0:8765` so the gateway can reach it.
 
-Current private deployment example, without credentials:
+Keep actual deployment examples in private operator notes. A public-safe shape
+is:
 
-- deus-gateway external `8766` proxies to Serhiivka `192.168.1.5:8765`.
-- deus-gateway external `8767` proxies to Chervonopilya `192.168.1.7:8765`.
-- The VM web runtime port is still `8765`; external gateway ports are not
-  stored in VM `web.env`.
+- gateway `<external-dashboard-port>` proxies to `<vm-lan-ip>:8765`;
+- the VM web runtime port is still `8765`; external gateway ports are not stored
+  in VM `web.env`;
+- routing changes are smoked against the private gateway config before being
+  treated as operationally ready.
 
 `ARMACTL_WEB_HTTPS_REQUIRED` controls only the web session cookie `Secure`
 flag. It does not configure TLS, nginx, firewall policy, VPN policy, or gateway

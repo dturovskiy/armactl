@@ -2,6 +2,8 @@
 
 Цей документ фіксує cleanup-план після архітектурного аудиту `feat/web-interface`.
 
+Boundary note: this is an internal audit carryover checklist. Do not treat it as public release/user documentation or a public `main` merge signal; move or archive it in private planning docs during public docs cleanup.
+
 Правило для виконання: працювати тільки у WSL checkout `/home/deus/projects/armactl` на `feat/web-interface`. Windows checkout не використовувати для repo edits.
 
 ## P1: Immediate Should-Fix (Closed)

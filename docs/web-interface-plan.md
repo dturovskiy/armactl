@@ -9,6 +9,15 @@ The armactl web dashboard is a local browser interface for managing the same Arm
 - Keep the dashboard local-first and useful without any external service.
 - Keep risky operations explicit, authenticated, and recoverable through CLI/TUI fallback paths.
 
+## Public/Private Boundary
+
+The current `feat/web-interface` branch is a web-dashboard baseline, not an automatic public `main` merge candidate as-is. Before public merge, close a separate extraction/docs-boundary gate:
+
+- keep `armactl` public scope to the free/local Arma core and local dashboard;
+- decide whether a future private `armactl-dashboard` imports a snapshot of the current dashboard baseline;
+- backport only clean local/free core improvements to public `armactl`;
+- trim or move private product, hosted, commercial, and infrastructure planning out of public docs.
+
 ## Current Capabilities
 
 - Login/logout with sessions and CSRF protection.
@@ -190,9 +199,11 @@ Near-term dashboard work focuses on:
 - schedule timezone edge-case smoke after browser/timezone changes;
 - clearer logs and report download/export flows.
 
-## Before Main Merge
+## Before Public Main Merge
 
-Before treating the web dashboard as the primary free/local operator UI, run one final review pass that covers:
+Before treating the web dashboard as the primary free/local operator UI or merging web-dashboard work into public `main`, run one final review pass. This deployment review is necessary but not sufficient for public merge; the extraction/docs-boundary gate above must also be closed.
+
+The review covers:
 
 - VM smoke for login, dashboard, config, mods, admins, files, logs, jobs, updates, and service controls;
 - TUI/Web parity decisions for install, repair, update, config, mods, cleanup, logs, bot, and host-test workflows;
@@ -206,15 +217,16 @@ Before treating the web dashboard as the primary free/local operator UI, run one
 
 This audit snapshot follows the Phase 4 player/session foundation. Keep the next implementation slices narrow: prefer VM smoke, operator feedback, and small hardening fixes over new feature surface.
 
-P1/P2 cleanup pass status: closed for this audit pass. P1 removed obsolete admin/mod pending fallback dead code and routed admin restart-pending recovery through the shared mutation recovery helper. P2 kept the legacy web facade, filesystem facade, pending-restart adapter, and `/players/refresh` alias as explicit compatibility surfaces with regression tests. No new dead-code dependency was added; lower-noise tooling remains future work after an allowlist exists.
+P1/P2 cleanup pass status: closed for this audit pass. P1 removed obsolete admin/mod pending fallback dead code and routed admin restart-pending recovery through the shared mutation recovery helper. P2 kept the legacy web facade, filesystem facade, pending-restart adapter, and `/players/refresh` alias as explicit compatibility surfaces with regression tests. The final architecture/security/dead-code/docs review for the current deployment found no P0/P1 code blockers; lower-noise dead-code tooling remains future work after an allowlist exists.
 
 Do not commit private hostnames, IP addresses, provider details, or router rules to this public repo. Production-host smoke targets belong in private operator notes.
 
 ### Priorities
 
-P0 before merge:
+P0 before public merge:
 
-- Run final authenticated browser smoke across login, dashboard, config, mods, admins, schedule, files, logs/report, jobs, updates, service actions, and players/session pages using a normal admin/operator session for protected pages.
+- Complete the extraction/docs-boundary gate; do not merge the current branch into public `main` as-is.
+- Current pass completed final authenticated browser smoke across the protected web UI using a normal admin/operator session; repeat this smoke after future deploys with visible UI or auth changes.
 - Re-run production SSH read-only ops smoke after future deploys when needed; the current `feat/web-interface` read-only ops pass covered normal wrapper/bootstrap checks, web service status, public health/status, recent web journals, gateway health, and nginx error logs without game restarts.
 - Verify production hardening assumptions: localhost-first binding, HTTPS-required cookies behind TLS, exposure warnings, redacted logs/reports/job output, and `web.db` job integrity diagnostics.
 - Re-smoke update check/update behavior on every production host from private ops notes before treating `/updates` as primary.
@@ -357,4 +369,4 @@ Flows that must use the pattern before implementation:
 
 ### Recommended Next Implementation Slice
 
-Start with the P0 final VM smoke and update-flow UX review. It has the highest merge value, exercises the real production assumptions, and should decide whether `/updates` needs only copy/state polish or a deeper stale-job recovery slice before merge.
+Before more implementation work, close the public docs trim/move/sanitize slice and decide which dashboard pieces remain clean public-core backports versus future private `armactl-dashboard` baseline. After that, continue with safe file editing/file operations if operators need config/profile file replacement workflows next, or update-flow polish if production update checks expose stale-job recovery pain. Keep Discord/player enrichment, banlist/moderation, and automatic session scheduling behind the existing truth/recovery gates.
