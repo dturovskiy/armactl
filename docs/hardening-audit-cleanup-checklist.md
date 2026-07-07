@@ -37,6 +37,7 @@ Closed result:
 
 ## Slice 6 UX/Ops Hardening Note (Closed)
 
+- This closes only dashboard/gateway UX hardening; it is not the final authenticated UI/production smoke gate.
 - Dashboard refresh must keep the last successful snapshot visible across a
   transient failed poll and show stale wording only after a bounded age or
   repeated failures.

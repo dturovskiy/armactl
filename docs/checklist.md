@@ -50,6 +50,11 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Session freshness/operator UX polish on `/players/sessions`, with compact read-only stored-session counts and safe queued/running session-job links to `/jobs`, as UX only and not new session truth, scheduler, poller, raw output, or GET mutation.
 - [x] Phase 4e/4f automatic session tracking planning/prep, with side-effect-free scheduler policy constants, safe automatic job cadence/backoff/close-scope rules, GET no-start tests, and docs that the automatic scheduler remains disabled.
 - [x] Phase 4e/4f explicit opt-in session scheduler runner foundation, with `armactl players sessions scheduler run --once`, read-only `armactl players sessions scheduler status`, safe `web.db` scheduler state, allowed-job enqueue through existing dedupe, bounded failure backoff, missing-state empty/disabled status, and no service/timer/daemon/app-start/GET/JS trigger.
+- [x] Player data truth Slice 1 timestamp contract/storage, with separate occurred/observed/collected times, explicit time source/confidence, and legacy/ambiguous rows kept truthfully labeled.
+- [x] Player data truth Slice 2 player-history noise/details UX, with high-signal default player events, a separate session-evidence diagnostics mode, structured safe details, and no new session/stat truth claims.
+- [x] Player data truth Slice 3 session semantics/job UX, with Stored open/closed and First/Last/Close evidence labels, concise manual session-job guidance, and no online/playtime/K-D/role/faction truth claims.
+- [x] Player data truth Slice 4 operational status telemetry fix, with dashboard/public status sharing precedence that treats fresh FPS telemetry as ready while keeping service failure/startup blockers authoritative.
+- [x] Player data truth Slice 5 wrapper/bootstrap drift recovery, with non-mutating `scripts/bootstrap.sh --check --web`, clearer non-interactive wrapper guidance, and normal bootstrap remaining the stamp refresh path.
 - [ ] Continue production hardening for the local dashboard.
 - [x] Polish server update browser flow with controlled post-action notices, active job links, retry/failure guidance, and stale active-job notices.
 - [x] Background job worker heartbeat/lease foundation, with opaque worker IDs, bounded heartbeat/lease timestamps on running jobs, heartbeat refresh from worker progress and wrapper heartbeat, terminal states clearing active leases, jobs page fresh/expired lease diagnostics, duplicate queued metadata repair only on mutating maintenance/enqueue paths, no GET job mutation, no process/thread kill, no running-job cancel action, and no automatic expired-lease metadata recovery.
@@ -62,7 +67,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [ ] Continue live session tracking with automatic poller/scheduler decisions, full session UI/detail/API beyond the read-only list and manual controls, remaining retention scheduling, richer truth labels, and broader conflict-policy hardening from the Phase 4a design, with no IP storage by default.
 - [ ] Add slice 4 player search/filter over reliable IDs, names, and session metadata.
 - [ ] Add slice 5 audited banlist manager after identity, storage, and rollback rules are documented.
-- [ ] Add richer read-only Discord player columns only after reliable player history/session data exists.
+- [ ] Add richer read-only Discord player columns only after reliable player history/session data is stable and each K/D, playtime, role, faction, or current-session claim has a verified source and truth label.
 - [x] Improve schedule timezone UX with browser-local input/display and UTC backend normalization.
 - [x] Add config-focused editor phase 2 with validation, backups, audit, recovery, and reset/error UX.
 - [x] Add narrow safe replacement foundation for allowlisted /files/config config/profile files, including AdminServerSettings and CMPlayerStatsHUD profile JSON, with no broad editing, delete, rename, or arbitrary file-manager scope.
@@ -71,7 +76,8 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Close hardening-audit P2 compatibility cleanup by explicitly testing retained legacy web facade, filesystem facade, pending-restart adapter, and `/players/refresh` alias, while leaving lower-noise dead-code tooling as future cleanup rather than adding a noisy dependency.
 - [x] Document local/same-host and gateway-managed VM web deployment profiles, including the internal `8765` VM bind port, external gateway ports, and HTTPS-required cookie responsibility.
 - [ ] Close remaining TUI/Web parity gaps that should be web-primary.
-- [ ] Run final VM smoke, architecture/security/dead-code/docs review before main merge.
+- [x] Run production SSH read-only ops smoke for current `feat/web-interface`, including normal wrapper/bootstrap checks, web service status, public health/status, recent web journals, gateway health, and nginx error logs, without game restarts.
+- [ ] Run authenticated browser UI smoke and final architecture/security/dead-code/docs review before main merge, using a normal admin/operator session for protected pages; unauthenticated public health/status checks alone do not close this item.
 
 ## Public Documentation
 

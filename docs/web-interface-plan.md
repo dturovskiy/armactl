@@ -214,7 +214,8 @@ Do not commit private hostnames, IP addresses, provider details, or router rules
 
 P0 before merge:
 
-- Run final VM smoke across login, dashboard, config, mods, admins, schedule, files, logs/report, jobs, updates, service actions, players/session pages, and public status.
+- Run final authenticated browser smoke across login, dashboard, config, mods, admins, schedule, files, logs/report, jobs, updates, service actions, and players/session pages using a normal admin/operator session for protected pages.
+- Re-run production SSH read-only ops smoke after future deploys when needed; the current `feat/web-interface` read-only ops pass covered normal wrapper/bootstrap checks, web service status, public health/status, recent web journals, gateway health, and nginx error logs without game restarts.
 - Verify production hardening assumptions: localhost-first binding, HTTPS-required cookies behind TLS, exposure warnings, redacted logs/reports/job output, and `web.db` job integrity diagnostics.
 - Re-smoke update check/update behavior on every production host from private ops notes before treating `/updates` as primary.
 - Keep future user-affecting mutation flows behind the transaction/recovery pattern below; do not add moderation, banlist, broad config, or file editing unless the flow explicitly adopts that pattern.
@@ -303,7 +304,7 @@ Out of scope:
 
 - Current state: deployment, architecture, checklist, and hardening runbook docs exist. Public docs intentionally do not store production hostnames, IP addresses, or provider/router details.
 - Risk: a code-complete dashboard can still fail on real service state, proxy state, SteamCMD behavior, cookie settings, or logs/report redaction. Merge gates can drift unless exact commands and pages are named.
-- Proposed slice: run final smoke on each production host/instance from private operator notes. Use private notes for hostnames and IPs; keep this repo generic.
+- Proposed slice: run final smoke on each production host/instance from private operator notes. Use private notes for hostnames and IPs; keep this repo generic. Keep unauthenticated public checks separate from authenticated browser smoke; do not create sessions directly in the DB to fake UI coverage.
 - Files/modules likely touched: mostly docs and any small fixes found during smoke. If failures appear, touch only the owning route/service/template/test module.
 - Validation/smoke needed:
 
@@ -322,7 +323,7 @@ sudo journalctl -u armactl-web.service -n 200 --no-pager
 
 Also check optional services when configured: `armactl-bot.service` and `armactl-discord-stats.service`.
 
-Pages to smoke: `/login`, `/dashboard`, `/config`, `/mods`, `/admins`, `/schedule`, `/files`, `/logs`, `/report`, `/jobs`, `/updates`, `/bot`, `/players`, `/players/known`, `/players/history`, `/players/sessions`, and `/public/server-status.json`.
+Pages to smoke with a normal admin/operator browser session where required: `/login`, `/dashboard`, `/config`, `/mods`, `/admins`, `/schedule`, `/files`, `/logs`, `/report`, `/jobs`, `/updates`, `/bot`, `/players`, `/players/known`, `/players/history`, `/players/sessions`, and `/public/server-status.json`. Unauthenticated health/public-status checks are public smoke only; they do not close the authenticated UI pass.
 
 - Stop condition: no P0 smoke failures remain; any P1/P2 findings are documented with owner, risk, and stop condition.
 

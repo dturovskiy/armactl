@@ -113,9 +113,11 @@ Validation:
 - No production writes, no jobs, no service restart.
 - A short report listing timestamp fields, semantics, and migration needs.
 
-### Slice 1: Timestamp Contract, Parser, And Storage
+### Slice 1: Timestamp Contract, Parser, And Storage — implemented
 
 Goal: store and expose truthful event time separately from ingestion/row time.
+
+Status: implemented. Player log events store `occurred_at`, `observed_at`, `collected_at`, `time_source`, and `time_confidence` so exact, derived, and ambiguous/legacy event times stay distinguishable.
 
 Tasks:
 
@@ -132,9 +134,11 @@ Acceptance criteria:
 - UI can still show collection/ingestion metadata in diagnostics if useful.
 - No raw paths, raw log lines, IPs, or secrets are stored/rendered.
 
-### Slice 2: Player History Noise And Details UX
+### Slice 2: Player History Noise And Details UX — implemented
 
 Goal: make player history useful as an operator journal.
+
+Status: implemented. `/players/history` defaults to high-signal player events and keeps lower-level session evidence in a separate diagnostics mode with structured, sanitized details.
 
 Tasks:
 
@@ -151,9 +155,11 @@ Acceptance criteria:
 - Details are useful, structured, and safe.
 - Sessionization still sees the stored evidence it needs; Slice 2 does not expand session truth.
 
-### Slice 3: Session Semantics And Job UX
+### Slice 3: Session Semantics And Job UX — implemented
 
 Goal: remove ambiguity from sessions and background job controls.
+
+Status: implemented. `/players/sessions` uses stored-session/evidence labels and compact job explanations/links for the explicit manual session jobs without claiming online, playtime, K-D, role, or current faction truth.
 
 Tasks:
 
@@ -212,12 +218,15 @@ Acceptance criteria:
 
 Goal: confirm the fixes on current code.
 
+Status: public health/status and production SSH read-only ops smoke passed for the current `feat/web-interface` deployment. Authenticated browser UI smoke remains open until protected pages are checked through a normal admin/operator session.
+
 Tasks:
 
 - Fast-forward production checkouts only when explicitly approved.
 - Restart only `armactl-web.service` unless a slice explicitly requires game service changes.
 - Verify health, public status, service states, restart timer, jobs page state, players pages, and recent journals.
 - Keep private hostnames and IPs out of public docs.
+- Treat unauthenticated health/public-status checks as public smoke only; do not mark authenticated UI smoke passed without a normal admin/operator browser session.
 
 Acceptance criteria:
 
@@ -225,6 +234,7 @@ Acceptance criteria:
 - Web health/public status are stable.
 - Player history timestamps are truthful.
 - Session labels/jobs are understandable.
+- Authenticated browser pages are checked through a normal admin/operator session, not by direct DB session creation or unauthenticated requests.
 - No new tracebacks or warning spikes appear in recent web journals.
 
 ## Out Of Scope For This Plan
