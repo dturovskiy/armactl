@@ -163,7 +163,6 @@
         <thead>
           <tr>
             <th>{{ t("Player") }}</th>
-            <th>{{ t("Player ID") }}</th>
             <th>{{ t("Session state") }}</th>
             <th>{{ t("First evidence") }}</th>
             <th>{{ t("Last evidence") }}</th>
@@ -173,7 +172,7 @@
         </thead>
         <tbody>
         {% for session in sessions %}
-          {% set has_session_details = session.open_source or session.last_seen_source or session.close_source or session.end_reason %}
+          {% set has_session_details = session.reliable_id or session.open_source or session.last_seen_source or session.close_source or session.end_reason %}
           <tr class="player-session-main-row">
             <td>
               <strong class="wrap-value">{{ session.name_last }}</strong>
@@ -181,7 +180,6 @@
                 <span class="player-row-subtle wrap-value">{{ t("First observed as") }}: {{ session.name_at_open }}</span>
               {% endif %}
             </td>
-            <td><span class="player-id-cell player-id-clip" title="{{ session.reliable_id }}">{{ session.reliable_id[:8] }}...{{ session.reliable_id[-5:] }}</span></td>
             <td>
               {% set status_label = page.status_labels.get(session.status, "Unknown status") %}
               <span class="status-pill">{{ t(status_label) }}</span>
@@ -201,9 +199,10 @@
           </tr>
           {% if has_session_details %}
             <tr id="player-session-details-{{ loop.index }}" class="player-session-details-row" data-player-session-row hidden>
-              <td colspan="7">
+              <td colspan="6">
                 <div class="player-session-detail-panel" role="region">
                   <div class="player-session-evidence-cell">
+                    <span class="player-diagnostic-line"><strong>{{ t("Player ID") }}:</strong> <span class="player-id-cell player-id-clip" title="{{ session.reliable_id }}">{{ session.reliable_id }}</span></span>
                     {{ source_line("First evidence", session.open_source, session.open_confidence) }}
                     {{ source_line("Last evidence", session.last_seen_source, session.last_seen_confidence) }}
                     {{ source_line("Close evidence", session.close_source, session.close_confidence) }}

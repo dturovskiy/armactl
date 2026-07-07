@@ -2176,6 +2176,8 @@ def test_player_sessions_summary_counts_existing_sessions_read_only(
     assert "Session state" in html
     assert "Stored status" not in html
     assert "<th>Available actions</th>" in html
+    assert "<th>Player ID</th>" not in html
+    assert "<strong>Player ID:</strong>" in html
     assert "<th>Evidence</th>" not in html
     assert "<th>End reason</th>" not in html
     assert "Online" not in html
@@ -2259,7 +2261,7 @@ def test_player_sessions_route_renders_filtered_sanitized_session_fields(
     assert "data-player-session-toggle" in html
     assert "player-session-details-row" in html
     assert "data-player-session-row hidden" in html
-    assert '<td colspan="7">' in html
+    assert '<td colspan="6">' in html
     assert "player-session-evidence-cell" in html
     assert "First evidence" in html
     assert "Last evidence" in html

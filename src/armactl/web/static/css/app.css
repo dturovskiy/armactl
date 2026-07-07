@@ -1246,28 +1246,27 @@ button.warning {
   table-layout: fixed;
 }
 
-.player-sessions-table th:nth-child(1) { width: 20%; }
-.player-sessions-table th:nth-child(2) { width: 17%; }
-.player-sessions-table th:nth-child(3) { width: 15%; }
+.player-sessions-table th:nth-child(1) { width: 28%; }
+.player-sessions-table th:nth-child(2) { width: 15%; }
+.player-sessions-table th:nth-child(3),
 .player-sessions-table th:nth-child(4),
-.player-sessions-table th:nth-child(5),
-.player-sessions-table th:nth-child(6) { width: 13%; }
-.player-sessions-table th:nth-child(7) { width: 9%; }
+.player-sessions-table th:nth-child(5) { width: 14%; }
+.player-sessions-table th:nth-child(6) { width: 15%; }
 
+.player-sessions-table td:nth-child(3),
 .player-sessions-table td:nth-child(4),
-.player-sessions-table td:nth-child(5),
-.player-sessions-table td:nth-child(6) {
+.player-sessions-table td:nth-child(5) {
   white-space: nowrap;
 }
 
+.player-sessions-table th:nth-child(4),
 .player-sessions-table th:nth-child(5),
-.player-sessions-table th:nth-child(6),
-.player-sessions-table td:nth-child(5),
-.player-sessions-table td:nth-child(6) {
+.player-sessions-table td:nth-child(4),
+.player-sessions-table td:nth-child(5) {
   border-left: 1px solid var(--border);
 }
 
-.player-sessions-table td:nth-child(3) .status-pill {
+.player-sessions-table td:nth-child(2) .status-pill {
   max-width: 100%;
   white-space: normal;
   overflow-wrap: anywhere;
