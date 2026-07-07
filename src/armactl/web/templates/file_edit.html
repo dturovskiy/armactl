@@ -1,0 +1,77 @@
+{% extends "layout.html" %}
+{% block title %}{{ t("Config/Profile Editor - armactl web") }}{% endblock %}
+{% block heading %}{{ t("Config/Profile Editor") }}{% endblock %}
+{% block topbar_actions %}
+<a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
+<a class="button-link secondary-link" href="{{ editor.directory_href }}#file-browser">{{ t("Files") }}</a>
+<form method="post" action="/logout" class="logout-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <span class="user-label">{{ current_user.username }}</span>
+  <button type="submit">{{ t("Log out") }}</button>
+</form>
+{% endblock %}
+{% block content %}
+{% if edit_saved %}
+<section class="notice-panel notice-success full-width result-success config-message">
+  <h2>{{ t("File saved") }}</h2>
+  <p class="muted">{{ t("Config/profile file saved. Restart the server to apply these changes.") }}</p>
+</section>
+{% endif %}
+{% if edit_unchanged %}
+<section class="notice-panel full-width config-message">
+  <h2>{{ t("No file changes") }}</h2>
+  <p class="muted">{{ t("File was unchanged; no restart is required.") }}</p>
+</section>
+{% endif %}
+{% if edit_error %}
+<section class="notice-panel notice-error full-width result-failure config-message">
+  <h2>{{ t("File was not saved.") }}</h2>
+  <p class="error">{{ t(edit_error) }}</p>
+</section>
+{% endif %}
+
+<section id="file-editor" class="panel full-width file-edit-panel">
+  <div class="section-heading-row">
+    <div>
+      <h2>{{ editor.display_name }}</h2>
+      <p class="muted">{{ t("Config/profile text editor") }}</p>
+    </div>
+    <a class="button-link secondary-link" href="{{ editor.directory_href }}#file-browser">{{ t("Back to files") }}</a>
+  </div>
+
+  <nav class="breadcrumbs file-edit-breadcrumbs" aria-label="Path">
+    {% for crumb in editor.breadcrumbs %}
+      {% if not loop.first %}<span class="file-edit-separator">/</span>{% endif %}
+      <span{% if loop.last %} aria-current="page"{% endif %}>{{ t(crumb) if loop.first else crumb }}</span>
+    {% endfor %}
+  </nav>
+
+  <dl class="key-value-list file-edit-metadata">
+    <dt>{{ t("Root") }}</dt><dd>{{ t(editor.root_label) }}</dd>
+    <dt>{{ t("Relative path") }}</dt><dd class="wrap-value">{{ editor.relative_path }}</dd>
+    <dt>{{ t("Kind") }}</dt><dd><span class="status-pill">{{ t(editor.file_kind) }}</span></dd>
+    <dt>{{ t("Size") }}</dt><dd>{{ editor_size_text }}</dd>
+  </dl>
+
+  {% if not can_save_file %}
+    <p class="notice-inline notice-warning muted">{{ t("File write permission is required to save changes.") }}</p>
+  {% endif %}
+
+  <form method="post" action="/files/{{ editor.root_id }}/edit" class="config-edit-form file-edit-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="path" value="{{ editor.relative_path }}">
+    <input type="hidden" name="baseline_fingerprint" value="{{ editor.baseline_fingerprint }}">
+    <label class="config-raw-editor-label">
+      <span>{{ t("Editor") }}</span>
+      <textarea class="config-json-editor file-text-editor" name="text" rows="24" spellcheck="false" required{% if not can_save_file %} readonly{% endif %}>{{ editor_text }}</textarea>
+    </label>
+    <div class="form-actions">
+      {% if can_save_file %}
+        <button type="submit">{{ t("Save file") }}</button>
+      {% endif %}
+      <a class="button-link secondary-link" href="{{ editor_edit_href }}#file-editor">{{ t("Reload from disk") }}</a>
+      <a class="button-link secondary-link" href="{{ editor.directory_href }}#file-browser">{{ t("Back to files") }}</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

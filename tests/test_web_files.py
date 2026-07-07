@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import html
 import importlib
 import json
 import re
 import warnings
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 from starlette.exceptions import StarletteDeprecationWarning
@@ -993,6 +995,59 @@ def _post_replace(
     )
 
 
+def _edit_url(relative_path: str, *, root_id: str = "config") -> str:
+    return "/files/{}/edit?path={}".format(root_id, quote(relative_path, safe=""))
+
+
+def _get_edit(client, relative_path: str, *, root_id: str = "config"):
+    return client.get(_edit_url(relative_path, root_id=root_id), follow_redirects=False)
+
+
+def _post_edit(
+    client,
+    csrf_token: str,
+    baseline_fingerprint: str,
+    relative_path: str,
+    text: str,
+    *,
+    root_id: str = "config",
+):
+    return client.post(
+        f"/files/{root_id}/edit",
+        data={
+            "path": relative_path,
+            "text": text,
+            "baseline_fingerprint": baseline_fingerprint,
+            "csrf_token": csrf_token,
+        },
+        follow_redirects=False,
+    )
+
+
+def _hidden_value(html_text: str, name: str) -> str:
+    pattern = r"name=\"" + re.escape(name) + r"\" value=\"([^\"]*)\""
+    match = re.search(pattern, html_text)
+    assert match is not None
+    return html.unescape(match.group(1))
+
+
+def _edit_csrf_and_baseline(html_text: str) -> tuple[str, str]:
+    return (
+        _hidden_value(html_text, "csrf_token"),
+        _hidden_value(html_text, "baseline_fingerprint"),
+    )
+
+
+def _editor_value(html_text: str) -> str:
+    match = re.search(
+        r"<textarea(?=[^>]*name=\"text\")[^>]*>(.*?)</textarea>",
+        html_text,
+        re.S,
+    )
+    assert match is not None
+    return html.unescape(match.group(1))
+
+
 def _replacement_backups(data_root: Path) -> list[Path]:
     backup_root = data_root / "default" / "backups" / "file-replacements"
     return sorted(backup_root.glob("*.bak"))
@@ -1353,13 +1408,447 @@ def test_replace_text_success_reuses_backup_publish_audit_and_pending_restart(
     assert item.details == "profile_file"
 
 
+def test_edit_link_visible_only_for_safe_config_candidates(tmp_path: Path):
+    config = _config_root(tmp_path)
+    (config / "profile.cfg").write_text("original", encoding="utf-8")
+    (config / "profile.bin").write_bytes(b"binary")
+    (config / "profile" / "OtherTool").mkdir(parents=True)
+    (config / "profile" / "OtherTool" / "state.json").write_text(
+        "{}",
+        encoding="utf-8",
+    )
+    (config / "AdminServerSettings" / "nested").mkdir(parents=True)
+    (config / "AdminServerSettings" / "nested" / "admins.json").write_text(
+        "{}",
+        encoding="utf-8",
+    )
+    (config / "logs" / "run").mkdir(parents=True)
+    (config / "logs" / "run" / "console.log").write_text("log", encoding="utf-8")
+    _write_default_config_json(config)
+    _server_root(tmp_path).joinpath("ArmaReforgerServer").write_bytes(bytes([0x7F]) + b"ELF")
+    backups = tmp_path / "default" / "backups"
+    backups.mkdir(parents=True)
+    (backups / "config.json.old.bak").write_text("backup", encoding="utf-8")
+    client = _login_owner(tmp_path)
+
+    config_response = client.get("/files/config", follow_redirects=False)
+    other_tool_response = client.get(
+        "/files/config?path=profile%2FOtherTool",
+        follow_redirects=False,
+    )
+    nested_settings_response = client.get(
+        "/files/config?path=AdminServerSettings%2Fnested",
+        follow_redirects=False,
+    )
+    config_logs_response = client.get(
+        "/files/config?path=logs%2Frun",
+        follow_redirects=False,
+    )
+    server_response = client.get("/files/server", follow_redirects=False)
+    backups_response = client.get("/files/backups", follow_redirects=False)
+
+    assert config_response.status_code == 200
+    assert "/files/config/edit?path=profile.cfg#file-editor" in config_response.text
+    assert "/files/config/edit?path=config.json#file-editor" in config_response.text
+    assert "/files/config/edit?path=profile.bin" not in config_response.text
+    assert "/files/config/edit?path=profile#file-editor" not in config_response.text
+    assert "/files/config/edit?path=logs" not in config_logs_response.text
+    assert "/files/config/edit?path=profile%2FOtherTool" not in other_tool_response.text
+    assert (
+        "/files/config/edit?path=AdminServerSettings%2Fnested"
+        not in nested_settings_response.text
+    )
+    assert "/files/server/edit" not in server_response.text
+    assert "/files/backups/edit" not in backups_response.text
+
+
+def test_edit_get_auth_permission_and_read_only_render(
+    tmp_path: Path,
+    set_web_owner_permissions,
+):
+    from armactl.web.app import create_app
+    from armactl.web.auth.permissions import FILES_READ
+
+    unauth_root = tmp_path / "unauth"
+    config = _config_root(unauth_root)
+    (config / "profile.cfg").write_text("before\n", encoding="utf-8")
+    unauthenticated = _client(create_app(data_root=unauth_root))
+
+    unauth_response = _get_edit(unauthenticated, "profile.cfg")
+
+    no_read_root = tmp_path / "no-read"
+    no_read_config = _config_root(no_read_root)
+    no_read_config.joinpath("profile.cfg").write_text("before\n", encoding="utf-8")
+    password = "owner files password"
+    setup_owner_user(no_read_root, "owner", password)
+    set_web_owner_permissions(set())
+    no_read_client = _client(create_app(data_root=no_read_root))
+    _login(no_read_client, "owner", password)
+
+    no_read_response = _get_edit(no_read_client, "profile.cfg")
+
+    read_only_root = tmp_path / "read-only"
+    read_only_config = _config_root(read_only_root)
+    read_only_config.joinpath("profile.cfg").write_text("before\n", encoding="utf-8")
+    setup_owner_user(read_only_root, "owner", password)
+    set_web_owner_permissions({FILES_READ})
+    read_only_client = _client(create_app(data_root=read_only_root))
+    _login(read_only_client, "owner", password)
+
+    read_only_response = _get_edit(read_only_client, "profile.cfg")
+
+    assert unauth_response.status_code == 303
+    assert unauth_response.headers["location"] == "/login"
+    assert no_read_response.status_code == 403
+    assert no_read_response.text == "Permission denied."
+    assert read_only_response.status_code == 200
+    assert "name=\"baseline_fingerprint\"" in read_only_response.text
+    assert "name=\"text\"" in read_only_response.text
+    assert "readonly" in read_only_response.text
+    assert "Save file" not in read_only_response.text
+
+
+def test_edit_get_rejects_unsafe_and_non_editable_targets(tmp_path: Path):
+    config = _config_root(tmp_path)
+    (config / "profile.cfg").write_text("safe", encoding="utf-8")
+    (config / "profile.bin").write_bytes(b"binary")
+    (config / "profile").mkdir()
+    (config / "profile" / "OtherTool").mkdir()
+    (config / "profile" / "OtherTool" / "state.json").write_text(
+        "{}",
+        encoding="utf-8",
+    )
+    (config / "logs" / "run").mkdir(parents=True)
+    (config / "logs" / "run" / "console.log").write_text("log", encoding="utf-8")
+    _server_root(tmp_path).joinpath("ArmaReforgerServer").write_bytes(bytes([0x7F]) + b"ELF")
+    client = _login_owner(tmp_path)
+
+    cases = (
+        ("config", "../server/evil.cfg", "Unsafe file path."),
+        ("config", "/etc/passwd", "Unsafe file path."),
+        ("config", "logs/run/console.log", "File replacement unavailable."),
+        ("config", "profile/OtherTool/state.json", "File replacement unavailable."),
+        ("config", "profile.bin", "File replacement unavailable."),
+        ("config", "profile", "File replacement unavailable."),
+        ("server", "ArmaReforgerServer", "File replacement unavailable."),
+    )
+    for root_id, relative_path, message in cases:
+        response = _get_edit(client, relative_path, root_id=root_id)
+        assert response.status_code == 400
+        assert response.text == message
+        assert "Traceback" not in response.text
+        assert str(tmp_path) not in response.text
+
+
+def test_edit_get_does_not_render_raw_paths_or_secrets(tmp_path: Path):
+    config = _config_root(tmp_path)
+    _write_default_config_json(config)
+    client = _login_owner(tmp_path)
+
+    response = _get_edit(client, "config.json")
+
+    assert response.status_code == 200
+    assert "<redacted: unchanged>" in _editor_value(response.text)
+    assert "raw-rcon-secret" not in response.text
+    assert "raw-admin-secret" not in response.text
+    assert str(tmp_path) not in response.text
+    assert ".armactl-replace" not in response.text
+    assert "before-web-file-replace" not in response.text
+    assert SESSION_COOKIE_NAME not in response.text
+    assert CSRF_COOKIE_NAME not in response.text
+    assert "Traceback" not in response.text
+
+
+def test_edit_post_auth_permission_and_csrf_guards(
+    tmp_path: Path,
+    set_web_owner_permissions,
+):
+    from armactl.web.app import create_app
+    from armactl.web.auth.permissions import FILES_READ
+
+    config = _config_root(tmp_path)
+    target = config / "profile.cfg"
+    target.write_text("before\n", encoding="utf-8")
+    unauthenticated = _client(create_app(data_root=tmp_path))
+
+    unauth_response = unauthenticated.post(
+        "/files/config/edit",
+        data={
+            "path": "profile.cfg",
+            "text": "after\n",
+            "baseline_fingerprint": "missing",
+            "csrf_token": "missing",
+        },
+        follow_redirects=False,
+    )
+
+    client = _login_owner(tmp_path)
+    edit_response = _get_edit(client, "profile.cfg")
+    token, baseline = _edit_csrf_and_baseline(edit_response.text)
+    csrf_response = _post_edit(
+        client,
+        "bad-token",
+        baseline,
+        "profile.cfg",
+        "after\n",
+    )
+
+    read_only_root = tmp_path / "read-only-post"
+    read_only_config = _config_root(read_only_root)
+    read_only_target = read_only_config / "profile.cfg"
+    read_only_target.write_text("before\n", encoding="utf-8")
+    password = "owner files password"
+    setup_owner_user(read_only_root, "owner", password)
+    set_web_owner_permissions({FILES_READ})
+    read_only_client = _client(create_app(data_root=read_only_root))
+    _login(read_only_client, "owner", password)
+    read_only_edit = _get_edit(read_only_client, "profile.cfg")
+    read_only_token, read_only_baseline = _edit_csrf_and_baseline(read_only_edit.text)
+
+    permission_response = _post_edit(
+        read_only_client,
+        read_only_token,
+        read_only_baseline,
+        "profile.cfg",
+        "after\n",
+    )
+
+    assert unauth_response.status_code == 303
+    assert unauth_response.headers["location"] == "/login"
+    assert csrf_response.status_code == 403
+    assert csrf_response.text == "Invalid CSRF token."
+    assert permission_response.status_code == 403
+    assert permission_response.text == "Permission denied."
+    assert target.read_text(encoding="utf-8") == "before\n"
+    assert read_only_target.read_text(encoding="utf-8") == "before\n"
+
+
+def test_edit_post_stale_baseline_returns_reload_required_without_mutation(
+    tmp_path: Path,
+):
+    config = _config_root(tmp_path)
+    target = config / "profile.cfg"
+    target.write_text("before\n", encoding="utf-8")
+    client = _login_owner(tmp_path)
+    edit_response = _get_edit(client, "profile.cfg")
+    token, baseline = _edit_csrf_and_baseline(edit_response.text)
+    target.write_text("external change\n", encoding="utf-8")
+
+    response = _post_edit(client, token, baseline, "profile.cfg", "operator save\n")
+
+    assert response.status_code == 409
+    assert "File changed on disk. Reload before saving." in response.text
+    assert "Traceback" not in response.text
+    assert str(tmp_path) not in response.text
+    assert target.read_text(encoding="utf-8") == "external change\n"
+    assert _replacement_backups(tmp_path) == []
+    assert not (tmp_path / "logs" / "web" / "audit.log").exists()
+
+
+def test_edit_post_invalid_config_json_validation_failure_without_backup(
+    tmp_path: Path,
+):
+    config = _config_root(tmp_path)
+    original = _sample_server_config()
+    config_path = _write_default_config_json(config, original)
+    client = _login_owner(tmp_path)
+    edit_response = _get_edit(client, "config.json")
+    token, baseline = _edit_csrf_and_baseline(edit_response.text)
+
+    response = _post_edit(client, token, baseline, "config.json", "{\n")
+
+    assert response.status_code == 400
+    assert "Invalid JSON at line" in response.text
+    assert "Traceback" not in response.text
+    assert str(tmp_path) not in response.text
+    assert json.loads(config_path.read_text(encoding="utf-8")) == original
+    assert _replacement_backups(tmp_path) == []
+
+
+def test_edit_post_config_secret_change_rejected_without_raw_secret(
+    tmp_path: Path,
+):
+    config = _config_root(tmp_path)
+    original = _sample_server_config()
+    config_path = _write_default_config_json(config, original)
+    client = _login_owner(tmp_path)
+    edit_response = _get_edit(client, "config.json")
+    token, baseline = _edit_csrf_and_baseline(edit_response.text)
+    submitted = json.loads(_editor_value(edit_response.text))
+    submitted["rcon"]["password"] = "changed-secret"
+
+    response = _post_edit(
+        client,
+        token,
+        baseline,
+        "config.json",
+        json.dumps(submitted),
+    )
+
+    assert response.status_code == 400
+    assert "Secret fields cannot be changed in the web config editor." in response.text
+    assert "changed-secret" not in response.text
+    assert "raw-rcon-secret" not in response.text
+    assert json.loads(config_path.read_text(encoding="utf-8")) == original
+    assert _replacement_backups(tmp_path) == []
+
+
+def test_edit_post_profile_secret_text_rejected_without_raw_secret(tmp_path: Path):
+    config = _config_root(tmp_path)
+    target = config / "profile.cfg"
+    target.write_text("before\n", encoding="utf-8")
+    client = _login_owner(tmp_path)
+    edit_response = _get_edit(client, "profile.cfg")
+    token, baseline = _edit_csrf_and_baseline(edit_response.text)
+
+    response = _post_edit(
+        client,
+        token,
+        baseline,
+        "profile.cfg",
+        "password=hunter2\n",
+    )
+
+    assert response.status_code == 400
+    assert "Editable file contains secret-looking values." in response.text
+    assert "hunter2" not in response.text
+    assert target.read_text(encoding="utf-8") == "before\n"
+    assert _replacement_backups(tmp_path) == []
+
+
+def test_edit_post_noop_save_redirects_without_backup_audit_or_pending(
+    tmp_path: Path,
+):
+    from armactl.web.services import pending_work
+
+    config = _config_root(tmp_path)
+    target = config / "profile.cfg"
+    target.write_text("before\n", encoding="utf-8")
+    client = _login_owner(tmp_path)
+    edit_response = _get_edit(client, "profile.cfg")
+    token, baseline = _edit_csrf_and_baseline(edit_response.text)
+
+    response = _post_edit(
+        client,
+        token,
+        baseline,
+        "profile.cfg",
+        _editor_value(edit_response.text),
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == (
+        "/files/config/edit?path=profile.cfg&unchanged=1"
+    )
+    assert target.read_text(encoding="utf-8") == "before\n"
+    assert _replacement_backups(tmp_path) == []
+    assert not (tmp_path / "logs" / "web" / "audit.log").exists()
+    assert pending_work.list_pending_work(tmp_path / "web" / "web.db") == []
+
+
+def test_edit_post_success_creates_backup_audit_pending_restart_and_notice(
+    tmp_path: Path,
+):
+    from armactl.web.services import pending_work
+
+    config = _config_root(tmp_path)
+    target = config / "profile.cfg"
+    target.write_text("before\n", encoding="utf-8")
+    client = _login_owner(tmp_path)
+    edit_response = _get_edit(client, "profile.cfg")
+    token, baseline = _edit_csrf_and_baseline(edit_response.text)
+
+    response = _post_edit(client, token, baseline, "profile.cfg", "after\n")
+
+    assert response.status_code == 303
+    assert response.headers["location"] == (
+        "/files/config/edit?path=profile.cfg&saved=1"
+    )
+    notice_response = client.get(response.headers["location"], follow_redirects=False)
+    assert notice_response.status_code == 200
+    assert "File saved" in notice_response.text
+    assert target.read_text(encoding="utf-8") == "after\n"
+    backups = _replacement_backups(tmp_path)
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == "before\n"
+    events = _audit_events(tmp_path)[-2:]
+    assert [event["details"]["phase"] for event in events] == ["intent", "outcome"]
+    assert events[0]["target"] == "config:profile.cfg"
+    item = pending_work.get_pending_work(
+        tmp_path / "web" / "web.db",
+        kind=pending_work.KIND_CONFIG,
+    )
+    assert item is not None
+    assert item.source_action == "file.replace"
+    assert item.source_path == "/files/config"
+    assert item.details == "profile_file"
+
+
+def test_edit_post_pending_restart_fallback_controlled_after_publish(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import pending_work
+
+    config = _config_root(tmp_path)
+    target = config / "profile.cfg"
+    target.write_text("before\n", encoding="utf-8")
+    client = _login_owner(tmp_path)
+    edit_response = _get_edit(client, "profile.cfg")
+    token, baseline = _edit_csrf_and_baseline(edit_response.text)
+
+    def fail_primary_pending(*args, **kwargs):
+        raise RuntimeError("web.db locked token=raw-pending-secret")
+
+    monkeypatch.setattr(pending_work, "mark_restart_pending", fail_primary_pending)
+
+    response = _post_edit(client, token, baseline, "profile.cfg", "after\n")
+
+    assert response.status_code == 500
+    assert response.text == (
+        "File replacement was published but restart tracking used fallback storage."
+    )
+    assert "raw-pending-secret" not in response.text
+    assert target.read_text(encoding="utf-8") == "after\n"
+    fallback = pending_work.get_fallback_pending_work(
+        tmp_path / "web" / "web.db",
+        kind=pending_work.KIND_CONFIG,
+    )
+    assert fallback is not None
+    assert fallback.source_action == "file.replace"
+    sidecar_text = pending_work.fallback_pending_work_path(
+        tmp_path / "web" / "web.db",
+    ).read_text(encoding="utf-8")
+    assert "raw-pending-secret" not in sidecar_text
+
+
+def test_edit_ui_and_routes_do_not_add_broad_file_manager_controls(tmp_path: Path):
+    config = _config_root(tmp_path)
+    (config / "profile.cfg").write_text("before\n", encoding="utf-8")
+    client = _login_owner(tmp_path)
+    files_response = client.get("/files/config", follow_redirects=False)
+    edit_response = _get_edit(client, "profile.cfg")
+
+    assert files_response.status_code == 200
+    assert edit_response.status_code == 200
+    for html_text in (files_response.text, edit_response.text):
+        for action in ("delete", "rename", "move", "copy", "bulk"):
+            assert f"/files/config/{action}" not in html_text
+            assert f"name=\"{action}\"" not in html_text
+            assert f"data-{action}" not in html_text
+
+    for action in ("delete", "rename", "move", "copy", "bulk"):
+        response = client.post(f"/files/config/{action}", follow_redirects=False)
+        assert response.status_code == 404
+
+
 def test_replace_form_visible_only_for_safe_config_candidates(tmp_path: Path):
     config = _config_root(tmp_path)
     (config / "profile.cfg").write_text("original", encoding="utf-8")
     (config / "logs" / "run").mkdir(parents=True)
     (config / "logs" / "run" / "console.log").write_text("log", encoding="utf-8")
     _write_default_config_json(config)
-    _server_root(tmp_path).joinpath("ArmaReforgerServer").write_bytes(b"\x7fELF")
+    _server_root(tmp_path).joinpath("ArmaReforgerServer").write_bytes(bytes([0x7F]) + b"ELF")
     backups = tmp_path / "default" / "backups"
     backups.mkdir(parents=True)
     (backups / "config.json.old.bak").write_text("backup", encoding="utf-8")
@@ -1593,7 +2082,7 @@ def test_replace_config_json_allows_valid_non_secret_change_and_tracks_pending(
 def test_replace_rejects_read_only_roots_and_server_binaries(tmp_path: Path):
     server = _server_root(tmp_path)
     server_binary = server / "ArmaReforgerServer"
-    server_binary.write_bytes(b"\x7fELF")
+    server_binary.write_bytes(bytes([0x7F]) + b"ELF")
     backups = tmp_path / "default" / "backups"
     backups.mkdir(parents=True)
     backup_file = backups / "config.json.1.bak"

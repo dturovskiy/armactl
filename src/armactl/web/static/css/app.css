@@ -1637,6 +1637,35 @@ button.warning {
   overflow: auto;
 }
 
+.file-edit-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.file-edit-breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 0;
+}
+
+.file-edit-separator {
+  color: var(--muted);
+}
+
+.file-edit-metadata {
+  grid-template-columns: minmax(120px, 0.24fr) minmax(0, 1fr);
+  margin-top: 0;
+}
+
+.file-text-editor {
+  min-height: 520px;
+}
+
+.file-text-editor[readonly] {
+  opacity: 0.84;
+}
+
 .service-result {
   border-left: 4px solid var(--border);
 }

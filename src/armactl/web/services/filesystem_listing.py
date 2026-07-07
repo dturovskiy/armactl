@@ -22,6 +22,7 @@ from armactl.web.services.filesystem_paths import (
 from armactl.web.services.filesystem_roots import FileRoot
 from armactl.web.services.filesystem_urls import (
     download_href,
+    edit_href,
     files_href,
     preview_href,
     replace_href,
@@ -83,6 +84,7 @@ class FileMetadata:
     href: str
     preview_href: str = ""
     download_href: str = ""
+    edit_href: str = ""
     replace_href: str = ""
 
 
@@ -134,6 +136,7 @@ def _metadata_from_path(root: FileRoot, path: Path, relative_path: str) -> FileM
         raise PathUnavailableError(PathUnavailableError.public_message) from exc
 
     entry_type = "Directory" if is_dir else "File"
+    can_replace_or_edit = is_file and is_replacement_candidate(root, relative_path, path)
     return FileMetadata(
         name=path.name or root.label,
         relative_path=relative_path,
@@ -150,10 +153,11 @@ def _metadata_from_path(root: FileRoot, path: Path, relative_path: str) -> FileM
             else ""
         ),
         download_href=download_href(root.root_id, relative_path) if is_file else "",
+        edit_href=(
+            edit_href(root.root_id, relative_path) if can_replace_or_edit else ""
+        ),
         replace_href=(
-            replace_href(root.root_id, relative_path)
-            if is_file and is_replacement_candidate(root, relative_path, path)
-            else ""
+            replace_href(root.root_id, relative_path) if can_replace_or_edit else ""
         ),
     )
 

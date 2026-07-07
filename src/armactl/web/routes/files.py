@@ -28,11 +28,12 @@ from armactl.web.services.filesystem_errors import (
     UnknownFileRootError,
     UploadUnavailableError,
 )
-from armactl.web.services.filesystem_listing import list_directory
+from armactl.web.services.filesystem_listing import format_size, list_directory
 from armactl.web.services.filesystem_paths import parent_relative_path
 from armactl.web.services.filesystem_preview import preview_text_file
 from armactl.web.services.filesystem_roots import list_allowed_roots, root_allows_upload
 from armactl.web.services.filesystem_transfer import resolve_download_file
+from armactl.web.services.filesystem_urls import edit_href
 
 router = APIRouter()
 
@@ -107,6 +108,10 @@ def _render_files(
                 and can_write_files
                 and root_allows_upload(directory.root)
             ),
+            "can_edit": (
+                directory is not None
+                and any(entry.edit_href for entry in directory.entries)
+            ),
             "can_replace": (
                 directory is not None
                 and can_write_files
@@ -123,6 +128,66 @@ def _render_files(
 def _controlled_file_error(error: FileBrowserError) -> PlainTextResponse:
     return PlainTextResponse(error.public_message, status_code=error.status_code)
 
+
+def _render_file_edit(
+    request: Request,
+    current: CurrentSession,
+    *,
+    root_id: str,
+    relative_path: str | None,
+    saved: bool = False,
+    unchanged: bool = False,
+    save_error: str = "",
+    status_code: int = status.HTTP_200_OK,
+) -> Response:
+    form_csrf = get_form_csrf_token(request, current)
+    editor = file_replacements.read_editable_replacement_text(
+        current.config.data_root,
+        root_id,
+        relative_path,
+    )
+    response = request.app.state.templates.TemplateResponse(
+        request=request,
+        name="file_edit.html",
+        context={
+            "current_user": current.user,
+            "csrf_token": form_csrf.token,
+            "editor": editor,
+            "editor_text": editor.text,
+            "editor_size_text": format_size(editor.size),
+            "editor_edit_href": edit_href(editor.root_id, editor.relative_path),
+            "can_save_file": require_permission(current, FILES_WRITE),
+            "edit_saved": saved,
+            "edit_unchanged": unchanged,
+            "edit_error": save_error,
+        },
+        status_code=status_code,
+    )
+    if form_csrf.should_set_cookie:
+        set_csrf_cookie(response, form_csrf.token, current.config)
+    return response
+
+
+def _render_file_edit_error(
+    request: Request,
+    current: CurrentSession,
+    *,
+    root_id: str,
+    relative_path: str | None,
+    message: str,
+    status_code: int,
+) -> Response:
+    try:
+        return _render_file_edit(
+            request,
+            current,
+            root_id=root_id,
+            relative_path=relative_path,
+            save_error=message,
+            status_code=status_code,
+        )
+    except FileBrowserError:
+        return PlainTextResponse(message, status_code=status_code)
 
 def _authenticated_files(
     request: Request,
@@ -170,6 +235,30 @@ def files_preview(
     """Render a bounded text preview for one safe file."""
     return _authenticated_files(request, root_id=root_id, preview_path=path)
 
+
+@router.get("/files/{root_id}/edit", response_class=HTMLResponse)
+def files_edit(
+    request: Request,
+    root_id: str,
+    path: str | None = Query(default=None),
+) -> Response:
+    """Render the safe text editor for one allowlisted config/profile file."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, FILES_READ):
+        return permission_denied_response()
+    try:
+        return _render_file_edit(
+            request,
+            current,
+            root_id=root_id,
+            relative_path=path,
+            saved=request.query_params.get("saved") == "1",
+            unchanged=request.query_params.get("unchanged") == "1",
+        )
+    except FileBrowserError as exc:
+        return _controlled_file_error(exc)
 
 @router.post("/files/{root_id}/upload", response_class=HTMLResponse)
 def files_upload(
@@ -263,6 +352,63 @@ def files_replace(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
     return RedirectResponse(replaced.directory_href, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/files/{root_id}/edit", response_class=HTMLResponse)
+async def files_save_edit(request: Request, root_id: str) -> Response:
+    """Save one safe editor payload through the replacement service."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, FILES_WRITE):
+        return permission_denied_response()
+
+    submitted_form = await request.form()
+    csrf_token = str(submitted_form.get("csrf_token") or "")
+    if not validate_csrf_token(current.config.db_path, current.session.id, csrf_token):
+        return PlainTextResponse(
+            "Invalid CSRF token.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+    relative_path = str(submitted_form.get("path") or "")
+    editor_text = str(submitted_form.get("text") or "")
+    baseline_fingerprint = str(submitted_form.get("baseline_fingerprint") or "")
+    try:
+        replaced = file_replacements.replace_text_and_audit(
+            current.config.data_root,
+            root_id,
+            relative_path,
+            editor_text,
+            expected_baseline_fingerprint=baseline_fingerprint,
+            audit_log_path=current.config.audit_log_path,
+            username=current.user.username,
+            db_path=current.config.db_path,
+        )
+    except FileBrowserError as exc:
+        return _render_file_edit_error(
+            request,
+            current,
+            root_id=root_id,
+            relative_path=relative_path,
+            message=exc.public_message,
+            status_code=exc.status_code,
+        )
+    except (
+        file_replacements.FileReplaceAuditError,
+        file_replacements.FileReplacePublishError,
+        file_replacements.FileReplaceTrackingError,
+    ) as exc:
+        return PlainTextResponse(
+            str(exc),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    notice = "unchanged" if not replaced.changed_fields else "saved"
+    return RedirectResponse(
+        f"{edit_href(replaced.root.root_id, replaced.relative_path)}&{notice}=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 @router.get("/files/{root_id}/download")

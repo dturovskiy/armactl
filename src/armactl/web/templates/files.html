@@ -17,7 +17,7 @@
   <div class="section-heading-row">
     <div>
       <h2>{{ t("File browser") }}</h2>
-      <p class="muted">{{ t("Single-file download is available; upload is limited to server files. Replacement is limited to allowlisted config/profile files; delete/rename actions are not available.") }}</p>
+      <p class="muted">{{ t("Single-file download is available; upload is limited to server files. Editing and replacement are limited to allowlisted config/profile files; delete/rename actions are not available.") }}</p>
     </div>
   </div>
 
@@ -80,6 +80,9 @@
             <th>{{ t("Modified") }}</th>
             <th>{{ t("Preview") }}</th>
             <th>{{ t("Download") }}</th>
+            {% if can_edit %}
+              <th>{{ t("Edit") }}</th>
+            {% endif %}
             {% if can_replace %}
               <th>{{ t("Replace") }}</th>
             {% endif %}
@@ -112,6 +115,15 @@
                   <span class="muted">{{ t("Download unavailable") }}</span>
                 {% endif %}
               </td>
+              {% if can_edit %}
+                <td>
+                  {% if entry.edit_href %}
+                    <a class="text-link" href="{{ entry.edit_href }}#file-editor">{{ t("Edit") }}</a>
+                  {% else %}
+                    <span class="muted">{{ t("Edit unavailable") }}</span>
+                  {% endif %}
+                </td>
+              {% endif %}
               {% if can_replace %}
                 <td>
                   {% if entry.replace_href %}

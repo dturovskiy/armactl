@@ -381,4 +381,4 @@ Flows that must use the pattern before implementation:
 
 ### Recommended Next Implementation Slice
 
-Next, implement the runtime safe file editor UI/save slice as a thin route/template layer over the completed file_replacements reuse helper, without broad file-manager, delete, rename, move, copy, bulk, or arbitrary path scope. Also close the public docs trim/move/sanitize slice, then decide which dashboard pieces remain clean public-core backports versus future private armactl-dashboard baseline. After that, continue with update-flow polish if production update checks expose stale-job recovery pain. Keep Discord/player enrichment, banlist/moderation, and automatic session scheduling behind the existing truth/recovery gates.
+Next, close the public docs trim/move/sanitize slice, then decide which dashboard pieces remain clean public-core backports versus future private armactl-dashboard baseline. After that, continue with update-flow polish if production update checks expose stale-job recovery pain. Keep Discord/player enrichment, banlist/moderation, and automatic session scheduling behind the existing truth/recovery gates.

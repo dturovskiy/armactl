@@ -27,6 +27,11 @@ def replace_href(root_id: str, relative_path: str) -> str:
     return f"/files/{root_id}/replace?path={query_path(relative_path)}"
 
 
+def edit_href(root_id: str, relative_path: str) -> str:
+    """Return the safe text editor href for one browser path."""
+    return f"/files/{root_id}/edit?path={query_path(relative_path)}"
+
+
 def download_href(root_id: str, relative_path: str) -> str:
     """Return the download href for one browser path."""
     return f"/files/{root_id}/download?path={query_path(relative_path)}"
