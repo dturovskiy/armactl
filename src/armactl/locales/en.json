@@ -825,6 +825,7 @@
     "Boolean field value is invalid.": "Boolean field value is invalid.",
     "Failed to create config backup.": "Failed to create config backup.",
     "Live refresh active": "Live refresh active",
+    "Live refresh paused/reconnecting.": "Live refresh paused/reconnecting.",
     "Waiting for telemetry...": "Waiting for telemetry...",
     "Dashboard data may be stale.": "Dashboard data may be stale.",
     "Pending restart": "Pending restart",

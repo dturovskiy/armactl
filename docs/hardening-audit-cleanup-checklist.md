@@ -35,6 +35,20 @@ Closed result:
   - focused pytest для touched admin/mod/config/file replacement/mutation recovery tests;
   - full `.venv/bin/python -m pytest -q`, якщо зміни зачепили shared services.
 
+## Slice 6 UX/Ops Hardening Note (Closed)
+
+- Dashboard refresh must keep the last successful snapshot visible across a
+  transient failed poll and show stale wording only after a bounded age or
+  repeated failures.
+- Hidden/offline/background-return dashboard states should use neutral
+  paused/reconnecting wording until an immediate refresh succeeds.
+- Gateway docs should make login throttles explicit 429 responses, avoid strict
+  GET `/login` limits that turn expired multi-tab sessions into false 503
+  outages, and keep `/dashboard/status.json` bounded without breaking normal
+  polling.
+- Production nginx config, deploy, SSH, restart, auth/session semantics, CSRF,
+  polling frequency, WebSocket/SSE, and player/session truth stay out of scope.
+
 ## P2: Follow-Up Cleanup (Closed For This Audit Pass)
 
 Closed result:

@@ -9,16 +9,57 @@
   const intervalMs = Number.isFinite(parsedInterval)
     ? Math.min(Math.max(parsedInterval, 5000), 10000)
     : 7000;
+  const staleAfterMs = Math.min(Math.max(intervalMs * 4, 30000), 60000);
+  const repeatedFailureThreshold = 3;
   const liveStatus = document.querySelector("[data-dashboard-live-status]");
+  const refreshState = {
+    lastSuccessAt: null,
+    failureCount: 0,
+    inFlight: false,
+  };
 
-  function setLiveStatus(stale) {
+  function statusLabel(state) {
+    if (!liveStatus) {
+      return "";
+    }
+    if (state === "stale") {
+      return liveStatus.dataset.staleLabel || "Dashboard data may be stale.";
+    }
+    if (state === "paused") {
+      return liveStatus.dataset.pausedLabel || "Live refresh paused/reconnecting.";
+    }
+    return liveStatus.dataset.freshLabel || "Live refresh active";
+  }
+
+  function setLiveStatus(state) {
     if (!liveStatus) {
       return;
     }
-    liveStatus.dataset.stale = stale ? "true" : "false";
-    liveStatus.textContent = stale
-      ? liveStatus.dataset.staleLabel || "Dashboard data may be stale."
-      : liveStatus.dataset.freshLabel || "Live refresh active";
+    const safeState = state === "stale" || state === "paused" ? state : "fresh";
+    liveStatus.dataset.refreshState = safeState;
+    liveStatus.dataset.stale = safeState === "stale" ? "true" : "false";
+    liveStatus.textContent = statusLabel(safeState);
+  }
+
+  function browserOffline() {
+    return typeof navigator !== "undefined" && navigator.onLine === false;
+  }
+
+  function refreshShouldPause() {
+    return document.hidden || browserOffline();
+  }
+
+  function applyFailureStatus() {
+    if (refreshShouldPause()) {
+      setLiveStatus("paused");
+      return;
+    }
+    const now = Date.now();
+    const lastSuccessAge =
+      refreshState.lastSuccessAt === null ? null : now - refreshState.lastSuccessAt;
+    const staleByAge = lastSuccessAge !== null && lastSuccessAge > staleAfterMs;
+    const staleByFailures = refreshState.failureCount >= repeatedFailureThreshold;
+    setLiveStatus(staleByAge || staleByFailures ? "stale" : "fresh");
   }
 
   function setFieldValue(field, value) {
@@ -134,10 +175,20 @@
     updateLifecycleClass(data.lifecycle);
     root.dataset.dashboardLifecycle = data.lifecycle || "unknown";
     updateMeters(data.metrics);
-    setLiveStatus(false);
+    refreshState.lastSuccessAt = Date.now();
+    refreshState.failureCount = 0;
+    setLiveStatus("fresh");
   }
 
   async function refreshDashboard() {
+    if (refreshShouldPause()) {
+      setLiveStatus("paused");
+      return;
+    }
+    if (refreshState.inFlight) {
+      return;
+    }
+    refreshState.inFlight = true;
     try {
       const response = await fetch(endpoint, {
         headers: { Accept: "application/json" },
@@ -149,10 +200,36 @@
       }
       applyStatus(await response.json());
     } catch (_error) {
-      setLiveStatus(true);
+      refreshState.failureCount += 1;
+      applyFailureStatus();
+    } finally {
+      refreshState.inFlight = false;
     }
   }
 
+  function triggerImmediateRefresh() {
+    if (!refreshState.inFlight) {
+      refreshDashboard();
+    }
+  }
+
+  if (refreshShouldPause()) {
+    setLiveStatus("paused");
+  }
   window.setTimeout(refreshDashboard, 1000);
   window.setInterval(refreshDashboard, intervalMs);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      setLiveStatus("paused");
+      return;
+    }
+    setLiveStatus("paused");
+    triggerImmediateRefresh();
+  });
+  window.addEventListener("focus", triggerImmediateRefresh);
+  window.addEventListener("online", () => {
+    setLiveStatus("paused");
+    triggerImmediateRefresh();
+  });
+  window.addEventListener("offline", () => setLiveStatus("paused"));
 })();

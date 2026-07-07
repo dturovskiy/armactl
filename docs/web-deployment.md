@@ -270,7 +270,7 @@ CLI/TUI access available as the fallback management path. `HTTPS_REQUIRED`
 only controls cookie behavior; gateway mappings and network access controls are
 separate deployment responsibilities.
 
-For dashboard exposure cleanup, gateway hardening, and incident response guidance, see [network-hardening-runbook.md](network-hardening-runbook.md).
+For dashboard exposure cleanup, gateway hardening, and incident response guidance, see [network-hardening-runbook.md](network-hardening-runbook.md). Gateway rate limits should return 429 for throttles, should primarily protect credential submissions/auth attempts rather than hard-limiting GET `/login`, and should leave normal `/dashboard/status.json` polling bounded but usable across several open tabs.
 
 ## Ports
 
@@ -307,6 +307,8 @@ Do not reuse default Arma service ports for the dashboard:
 ### Login Is Blocked By Rate Limiting
 
 Wait for the cooldown, then retry with the correct username and password. The error intentionally does not reveal whether a username exists.
+
+If nginx shows `limiting requests ... zone "armactl_login"`, the gateway should return HTTP 429 rather than nginx's default-looking 503. A 429 on `/login` is gateway throttling, not proof that `armactl-web` crashed. Verify local `/healthz` before restarting services. Do not apply a strict GET `/login` limiter that can turn many expired dashboard tabs into a false outage; prefer limiting `POST /login` or use a much softer GET limit.
 
 ### Dashboard Says No Server Found
 

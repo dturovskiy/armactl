@@ -147,8 +147,19 @@ Use these as implementation patterns, not as a drop-in config. Apply only after
 reviewing the live gateway config and running `nginx -t`.
 
 ```nginx
-limit_req_zone $binary_remote_addr zone=armactl_login:10m rate=5r/m;
-limit_req_zone $binary_remote_addr zone=armactl_status:10m rate=30r/m;
+# Return an explicit throttle code instead of nginx's default 503 for limit_req.
+limit_req_status 429;
+
+# Prefer throttling login writes/auth attempts. Empty keys are not accounted, so
+# ordinary GET /login renders and redirect storms from expired tabs are not
+# treated as failed auth attempts.
+map $request_method $armactl_login_limit_key {
+    default "";
+    POST $binary_remote_addr;
+}
+
+limit_req_zone $armactl_login_limit_key zone=armactl_login:10m rate=10r/m;
+limit_req_zone $binary_remote_addr zone=armactl_dashboard_status:10m rate=120r/m;
 proxy_cache_path /var/cache/nginx/armactl-status
     levels=1:2
     keys_zone=armactl_public_status:10m
@@ -180,7 +191,7 @@ server {
     }
 
     location = /login {
-        limit_req zone=armactl_login burst=5 nodelay;
+        limit_req zone=armactl_login burst=10 nodelay;
         proxy_pass http://armactl_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -190,7 +201,7 @@ server {
     }
 
     location = /dashboard/status.json {
-        limit_req zone=armactl_status burst=20 nodelay;
+        limit_req zone=armactl_dashboard_status burst=60 nodelay;
         proxy_pass http://armactl_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -227,6 +238,18 @@ server {
 Preserve normal authenticated browser flow: session cookies, CSRF cookies,
 redirects to `/login`, static assets, and dashboard polling must continue to
 work. Do not rate-limit `/healthz` so tightly that health checks flap.
+
+GET `/login` must not be hard-limited in a way that turns many expired tabs or a
+redirect storm into `503 Service Temporarily Unavailable`. If the gateway needs a
+GET-side limit, keep it much softer than auth-attempt limits and validate it with
+multiple already-open dashboard tabs. Prefer putting the stricter limiter on
+`POST /login` or equivalent credential-submission/auth-attempt paths. Keep
+`/dashboard/status.json` bounded, but size the rate and burst for normal 7-second
+polling across a small set of concurrently open tabs.
+
+When nginx logs `limiting requests ... zone "armactl_login"` and returns 429,
+treat it as gateway throttling, not an armactl web app outage. Confirm app health
+separately with local `/healthz` and upstream logs before restarting services.
 
 ## Game DDoS Decision Record
 

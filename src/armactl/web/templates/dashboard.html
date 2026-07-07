@@ -43,7 +43,7 @@
 {% endblock %}
 {% block content %}
 <div data-dashboard-root data-dashboard-endpoint="/dashboard/status.json" data-dashboard-interval-ms="7000">
-  <div class="dashboard-live-status" data-dashboard-live-status data-fresh-label="{{ t('Live refresh active') }}" data-stale-label="{{ t('Dashboard data may be stale.') }}">{{ t("Live refresh active") }}</div>
+  <div class="dashboard-live-status" data-dashboard-live-status data-fresh-label="{{ t('Live refresh active') }}" data-paused-label="{{ t('Live refresh paused/reconnecting.') }}" data-stale-label="{{ t('Dashboard data may be stale.') }}">{{ t("Live refresh active") }}</div>
 
 <section class="dashboard-section">
   <h2>{{ t("Overview") }}</h2>

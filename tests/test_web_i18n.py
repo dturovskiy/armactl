@@ -82,6 +82,18 @@ def test_web_template_literal_translation_keys_exist_in_locales():
     assert missing_uk == [], missing_uk
 
 
+def test_dashboard_live_refresh_translation_keys_exist_in_locales():
+    keys = {
+        "Live refresh active",
+        "Live refresh paused/reconnecting.",
+        "Dashboard data may be stale.",
+    }
+
+    assert sorted(keys - _locale_keys("en")) == []
+    assert sorted(keys - _locale_keys("uk")) == []
+
+
+
 def test_player_history_dynamic_translation_keys_exist_in_locales():
     keys = {
         "Authenticated",

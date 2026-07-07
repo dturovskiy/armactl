@@ -13,6 +13,7 @@ from web_route_helpers import (
     _client,
     _login,
     _session_cookie_name,
+    _set_cookie,
 )
 
 from armactl.metrics import (
@@ -351,6 +352,29 @@ def test_session_cookie_authenticates_dashboard(tmp_path: Path, monkeypatch):
     assert 'action="/preferences/language"' in response.text
     assert 'action="/preferences/theme"' in response.text
     assert calls == ["default"]
+
+
+def test_dashboard_live_refresh_status_labels_are_localized(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    _set_cookie(client, LANGUAGE_COOKIE_NAME, "uk")
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "data-dashboard-live-status" in response.text
+    assert 'data-fresh-label="Оновлення наживо активне"' in response.text
+    assert (
+        'data-paused-label="Оновлення наживо призупинене або перепідключається."'
+        in response.text
+    )
+    assert 'data-stale-label="Дані dashboard можуть бути застарілими."' in response.text
+
 
 
 def test_authenticated_owner_can_fetch_dashboard_status_json(
@@ -1371,3 +1395,92 @@ def test_dashboard_version_check_failure_degrades_to_controlled_signal(
     assert "Partial data" in response.text
     assert "version boom" in response.text
     assert "Traceback" not in response.text
+
+
+_DASHBOARD_JS = (
+    Path(__file__).parents[1]
+    / "src"
+    / "armactl"
+    / "web"
+    / "static"
+    / "js"
+    / "dashboard.js"
+)
+_NETWORK_RUNBOOK = Path(__file__).parents[1] / "docs" / "network-hardening-runbook.md"
+_WEB_DEPLOYMENT_DOC = Path(__file__).parents[1] / "docs" / "web-deployment.md"
+_HARDENING_CHECKLIST = (
+    Path(__file__).parents[1] / "docs" / "hardening-audit-cleanup-checklist.md"
+)
+
+
+def _dashboard_js() -> str:
+    return _DASHBOARD_JS.read_text(encoding="utf-8")
+
+
+def test_dashboard_refresh_js_uses_bounded_state_machine() -> None:
+    content = _dashboard_js()
+
+    assert "lastSuccessAt" in content
+    assert "failureCount" in content
+    assert "staleAfterMs" in content
+    assert "repeatedFailureThreshold = 3" in content
+    assert "Math.min(Math.max(intervalMs * 4, 30000), 60000)" in content
+    assert "refreshState.failureCount += 1" in content
+    assert "applyFailureStatus();" in content
+    assert "refreshState.lastSuccessAt = Date.now();" in content
+    assert "refreshState.failureCount = 0;" in content
+
+
+def test_dashboard_refresh_js_pauses_for_background_or_offline() -> None:
+    content = _dashboard_js()
+
+    assert "document.hidden" in content
+    assert "navigator.onLine === false" in content
+    assert 'setLiveStatus("paused")' in content
+    assert 'document.addEventListener("visibilitychange"' in content
+    assert 'window.addEventListener("focus", triggerImmediateRefresh)' in content
+    assert 'window.addEventListener("online"' in content
+    assert 'window.addEventListener("offline"' in content
+
+
+def test_dashboard_single_failed_poll_does_not_immediately_show_stale() -> None:
+    content = _dashboard_js()
+
+    assert re.search(r"catch \(_error\) \{\s+refreshState\.failureCount \+= 1;", content)
+    assert 'catch (_error) {\n      setLiveStatus("stale");' not in content
+    assert 'catch (_error) {\n      setLiveStatus(true);' not in content
+    assert 'setLiveStatus(staleByAge || staleByFailures ? "stale" : "fresh");' in content
+
+
+def test_network_hardening_login_limit_returns_429_and_avoids_strict_get_login() -> None:
+    content = _NETWORK_RUNBOOK.read_text(encoding="utf-8")
+
+    assert "limit_req_status 429;" in content
+    assert re.search(r"^\s*POST \$binary_remote_addr;", content, flags=re.MULTILINE)
+    assert "GET `/login` must not be hard-limited" in content
+    assert "Prefer putting the stricter limiter on\n`POST /login`" in content
+    assert "not an armactl web app outage" in content
+
+
+def test_network_hardening_keeps_dashboard_status_bounded_but_browser_safe() -> None:
+    content = _NETWORK_RUNBOOK.read_text(encoding="utf-8")
+
+    assert "zone=armactl_dashboard_status:10m rate=120r/m" in content
+    assert "limit_req zone=armactl_dashboard_status burst=60 nodelay;" in content
+    assert "normal 7-second\npolling across a small set of concurrently open tabs" in content
+
+
+def test_web_deployment_troubleshooting_explains_gateway_throttle_not_outage() -> None:
+    content = _WEB_DEPLOYMENT_DOC.read_text(encoding="utf-8")
+
+    assert "should return HTTP 429 rather than nginx's default-looking 503" in content
+    assert "gateway throttling, not proof that `armactl-web` crashed" in content
+    assert "Verify local `/healthz` before restarting services" in content
+
+
+def test_hardening_checklist_records_slice6_scope_note() -> None:
+    content = _HARDENING_CHECKLIST.read_text(encoding="utf-8")
+
+    assert "Slice 6 UX/Ops Hardening Note" in content
+    assert "Production nginx config, deploy, SSH, restart" in content
+    assert "polling frequency, WebSocket/SSE, and player/session truth stay out of scope" in content
