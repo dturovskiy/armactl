@@ -15,6 +15,7 @@ from armactl.web.page_models.common import (
     _state_status,
 )
 from armactl.web.services.config_edit import (
+    build_config_edit_field_groups,
     build_config_edit_fields,
     build_config_edit_form,
     build_raw_config_editor_text,
@@ -39,6 +40,7 @@ def load_config_page(
         summary = _decorate_config(_plain_dict(status_summary.summarize_config(config)))
         edit_form = build_config_edit_form(config)
         edit_fields = build_config_edit_fields(config)
+        edit_field_groups = build_config_edit_field_groups(config)
         raw_config_loaded_text = build_raw_config_editor_text(config)
         raw_config_text = (
             raw_config_text_override
@@ -57,6 +59,7 @@ def load_config_page(
         "config": summary,
         "edit": edit_form,
         "edit_fields": edit_fields,
+        "edit_field_groups": edit_field_groups,
         "raw_config_text": raw_config_text,
         "raw_config_loaded_text": raw_config_loaded_text,
     }

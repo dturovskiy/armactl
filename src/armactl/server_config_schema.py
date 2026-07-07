@@ -48,6 +48,15 @@ RESTART_BEHAVIOR_UNKNOWN = "unknown"
 
 UI_GROUP_FORM_GRID = "form_grid"
 UI_GROUP_CHECKBOX_GRID = "checkbox_grid"
+UI_SECTION_SERVER_IDENTITY = "server_identity"
+UI_SECTION_CAPACITY_VISIBILITY = "capacity_visibility"
+UI_SECTION_GAMEPLAY_SECURITY = "gameplay_security"
+UI_SECTION_VIEW_DISTANCE = "view_distance"
+
+UI_IMPACT_DISCOVERY = "discovery"
+UI_IMPACT_GAMEPLAY = "gameplay"
+UI_IMPACT_PERFORMANCE = "performance"
+UI_IMPACT_SECURITY = "security"
 
 DEFAULT_CONFIG_TEMPLATE_NAME = "config.json.j2"
 FULL_EXAMPLE_CONFIG_PATH = Path("docs/examples/config.full-example.json")
@@ -64,6 +73,11 @@ class ServerConfigFieldUi:
     min_value: int | None = None
     step: int | None = None
     helper_text: str = ""
+    section: str = ""
+    section_label: str = ""
+    section_helper_text: str = ""
+    impact_class: str = ""
+    impact_label: str = ""
 
 
 @dataclass(frozen=True)
@@ -269,7 +283,20 @@ SERVER_CONFIG_FIELDS: tuple[ServerConfigField, ...] = (
         template_variable="server_name",
         required=True,
         max_length=STRING_LIMIT,
-        ui=U("Server name", "text", UI_GROUP_FORM_GRID, "field-wide", True, STRING_LIMIT),
+        ui=U(
+            "Server name",
+            "text",
+            UI_GROUP_FORM_GRID,
+            "field-wide",
+            True,
+            STRING_LIMIT,
+            helper_text="Displayed to players in server lists and summaries.",
+            section=UI_SECTION_SERVER_IDENTITY,
+            section_label="Server identity",
+            section_helper_text="Public listing labels and mission identity.",
+            impact_class=UI_IMPACT_DISCOVERY,
+            impact_label="Discovery",
+        ),
         tui_input_id="inp_name",
         cli_command="set-name",
     ),
@@ -311,7 +338,23 @@ SERVER_CONFIG_FIELDS: tuple[ServerConfigField, ...] = (
         template_variable="scenario_id",
         required=True,
         max_length=STRING_LIMIT,
-        ui=U("Scenario ID", "text", UI_GROUP_FORM_GRID, "field-wide", True, STRING_LIMIT),
+        ui=U(
+            "Scenario ID",
+            "text",
+            UI_GROUP_FORM_GRID,
+            "field-wide",
+            True,
+            STRING_LIMIT,
+            helper_text=(
+                "Selects the scenario loaded after restart; "
+                "invalid paths can break startup."
+            ),
+            section=UI_SECTION_SERVER_IDENTITY,
+            section_label="Server identity",
+            section_helper_text="Public listing labels and mission identity.",
+            impact_class=UI_IMPACT_GAMEPLAY,
+            impact_label="Gameplay",
+        ),
         tui_input_id="inp_scenario",
         cli_command="set-scenario",
     ),
@@ -326,7 +369,20 @@ SERVER_CONFIG_FIELDS: tuple[ServerConfigField, ...] = (
         template_variable="max_players",
         required=True,
         minimum=1,
-        ui=U("Max players", "number", UI_GROUP_FORM_GRID, required=True, min_value=1, step=1),
+        ui=U(
+            "Max players",
+            "number",
+            UI_GROUP_FORM_GRID,
+            required=True,
+            min_value=1,
+            step=1,
+            helper_text="Higher limits can increase CPU, memory, and bandwidth load.",
+            section=UI_SECTION_CAPACITY_VISIBILITY,
+            section_label="Capacity and visibility",
+            section_helper_text="Player capacity and public browser listing controls.",
+            impact_class=UI_IMPACT_PERFORMANCE,
+            impact_label="Performance",
+        ),
         tui_input_id="inp_players",
         cli_command="set-maxplayers",
     ),
@@ -343,6 +399,15 @@ SERVER_CONFIG_FIELDS: tuple[ServerConfigField, ...] = (
             "Show server in server browser",
             "checkbox",
             UI_GROUP_CHECKBOX_GRID,
+            helper_text=(
+                "Controls server-browser discovery only; it does not change "
+                "bind or firewall settings."
+            ),
+            section=UI_SECTION_CAPACITY_VISIBILITY,
+            section_label="Capacity and visibility",
+            section_helper_text="Player capacity and public browser listing controls.",
+            impact_class=UI_IMPACT_DISCOVERY,
+            impact_label="Discovery",
         ),
     ),
     F(
@@ -363,6 +428,12 @@ SERVER_CONFIG_FIELDS: tuple[ServerConfigField, ...] = (
             required=True,
             min_value=1,
             step=1,
+            helper_text="Higher values can increase server and client load.",
+            section=UI_SECTION_VIEW_DISTANCE,
+            section_label="View distance",
+            section_helper_text="Distance settings affect performance and client experience.",
+            impact_class=UI_IMPACT_PERFORMANCE,
+            impact_label="Performance",
         ),
     ),
     F(
@@ -383,6 +454,12 @@ SERVER_CONFIG_FIELDS: tuple[ServerConfigField, ...] = (
             required=True,
             min_value=0,
             step=1,
+            helper_text="Lower values can increase grass rendering load.",
+            section=UI_SECTION_VIEW_DISTANCE,
+            section_label="View distance",
+            section_helper_text="Distance settings affect performance and client experience.",
+            impact_class=UI_IMPACT_PERFORMANCE,
+            impact_label="Performance",
         ),
     ),
     F(
@@ -404,7 +481,17 @@ SERVER_CONFIG_FIELDS: tuple[ServerConfigField, ...] = (
         audit_field_name="disable_third_person",
         generated_default=True,
         template_variable="disable_third_person",
-        ui=U("Disable third-person view", "checkbox", UI_GROUP_CHECKBOX_GRID),
+        ui=U(
+            "Disable third-person view",
+            "checkbox",
+            UI_GROUP_CHECKBOX_GRID,
+            helper_text="Applies a gameplay camera rule after restart.",
+            section=UI_SECTION_GAMEPLAY_SECURITY,
+            section_label="Gameplay and security",
+            section_helper_text="Rules and anti-cheat settings applied by the game server.",
+            impact_class=UI_IMPACT_GAMEPLAY,
+            impact_label="Gameplay",
+        ),
     ),
     F(
         "fast_validation",
@@ -424,7 +511,17 @@ SERVER_CONFIG_FIELDS: tuple[ServerConfigField, ...] = (
         audit_field_name="battleye",
         generated_default=True,
         template_variable="battleye",
-        ui=U("BattlEye", "checkbox", UI_GROUP_CHECKBOX_GRID),
+        ui=U(
+            "BattlEye",
+            "checkbox",
+            UI_GROUP_CHECKBOX_GRID,
+            helper_text="Disabling BattlEye lowers anti-cheat protection.",
+            section=UI_SECTION_GAMEPLAY_SECURITY,
+            section_label="Gameplay and security",
+            section_helper_text="Rules and anti-cheat settings applied by the game server.",
+            impact_class=UI_IMPACT_SECURITY,
+            impact_label="Security",
+        ),
     ),
     F(
         "game_mods",

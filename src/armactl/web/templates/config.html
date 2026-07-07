@@ -97,7 +97,7 @@
 </section>
 
 {% if page.available and can_edit_config %}
-{% set edit_fields = page.edit_fields if page.edit_fields is defined else [] %}
+{% set edit_field_groups = page.edit_field_groups if page.edit_field_groups is defined else [] %}
 <section class="panel full-width config-edit-panel">
   <div class="section-heading-row">
     <h2>{{ t("Basic server settings") }}</h2>
@@ -105,29 +105,53 @@
   <p class="notice-inline notice-restart config-restart-note muted" data-config-dirty-note hidden><strong>{{ t("Restart required") }}:</strong> {{ t("Restart the server to apply saved config changes.") }}</p>
   <form method="post" action="/config" class="config-edit-form" data-config-edit-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <div class="form-grid">
-      {% for field in edit_fields %}
-      {% if field.ui.group == "form_grid" %}
-      <label{% if field.ui.css_class %} class="{{ field.ui.css_class }}"{% endif %}>
-        <span>{{ t(field.ui.label) }}</span>
-        <input type="{{ field.ui.control }}" name="{{ field.name }}" value="{{ field.value }}"{% if field.ui.min_value is not none %} min="{{ field.ui.min_value }}"{% endif %}{% if field.ui.step is not none %} step="{{ field.ui.step }}"{% endif %}{% if field.ui.required %} required{% endif %}{% if field.ui.max_length is not none %} maxlength="{{ field.ui.max_length }}"{% endif %}>
-      </label>
-      {% endif %}
-      {% endfor %}
-    </div>
-    <div class="checkbox-grid">
-      {% for field in edit_fields %}
-      {% if field.ui.group == "checkbox_grid" %}
-      <label class="inline-confirm config-checkbox-field">
-        <input type="checkbox" name="{{ field.name }}" value="true"{% if field.value %} checked{% endif %}>
-        <span class="config-checkbox-copy">
-          <span>{{ t(field.ui.label) }}</span>
-          {% if field.ui.helper_text %}
-          <span class="config-checkbox-helper">{{ t(field.ui.helper_text) }}</span>
+    <div class="config-control-groups">
+      {% for group in edit_field_groups %}
+      <fieldset class="config-field-group">
+        <legend>{{ t(group.label) }}</legend>
+        {% if group.helper_text %}
+        <p class="config-field-group-helper muted">{{ t(group.helper_text) }}</p>
+        {% endif %}
+        <div class="config-control-grid">
+          {% for field in group.fields %}
+          {% if field.ui.control == "checkbox" %}
+          <label class="inline-confirm config-checkbox-field config-control-field{% if field.ui.css_class %} {{ field.ui.css_class }}{% endif %}">
+            <input type="checkbox" name="{{ field.name }}" value="true"{% if field.value %} checked{% endif %}>
+            <span class="config-control-copy">
+              <span class="config-control-label">{{ t(field.ui.label) }}</span>
+              {% if field.ui.helper_text %}
+              <span class="config-control-helper">{{ t(field.ui.helper_text) }}</span>
+              {% endif %}
+              <span class="config-field-meta">
+                {% if field.restart_required and field.restart_label %}
+                <span class="config-meta-chip config-meta-restart">{{ t(field.restart_label) }}</span>
+                {% endif %}
+                {% if field.ui.impact_label %}
+                <span class="config-meta-chip config-meta-impact config-meta-impact-{{ field.ui.impact_class }}">{{ t(field.ui.impact_label) }}</span>
+                {% endif %}
+              </span>
+            </span>
+          </label>
+          {% else %}
+          <label class="config-control-field{% if field.ui.css_class %} {{ field.ui.css_class }}{% endif %}">
+            <span class="config-control-label">{{ t(field.ui.label) }}</span>
+            <input type="{{ field.ui.control }}" name="{{ field.name }}" value="{{ field.value }}"{% if field.ui.min_value is not none %} min="{{ field.ui.min_value }}"{% endif %}{% if field.ui.step is not none %} step="{{ field.ui.step }}"{% endif %}{% if field.ui.required %} required{% endif %}{% if field.ui.max_length is not none %} maxlength="{{ field.ui.max_length }}"{% endif %}>
+            {% if field.ui.helper_text %}
+            <span class="config-control-helper">{{ t(field.ui.helper_text) }}</span>
+            {% endif %}
+            <span class="config-field-meta">
+              {% if field.restart_required and field.restart_label %}
+              <span class="config-meta-chip config-meta-restart">{{ t(field.restart_label) }}</span>
+              {% endif %}
+              {% if field.ui.impact_label %}
+              <span class="config-meta-chip config-meta-impact config-meta-impact-{{ field.ui.impact_class }}">{{ t(field.ui.impact_label) }}</span>
+              {% endif %}
+            </span>
+          </label>
           {% endif %}
-        </span>
-      </label>
-      {% endif %}
+          {% endfor %}
+        </div>
+      </fieldset>
       {% endfor %}
     </div>
     <div class="form-actions">
@@ -142,6 +166,7 @@
   </div>
   <p class="notice-inline notice-warning muted">{{ t("Use this only when the basic fields are not enough. JSON is validated, a backup is created, and restart tracking is updated.") }}</p>
   <p class="muted">{{ t("Secret values are redacted here and cannot be changed from the web editor.") }}</p>
+  <p class="muted">{{ t("Network, RCON, and secret fields are not exposed as safe controls; secret edits are rejected by the guarded raw editor.") }}</p>
   <form method="post" action="/config/raw" class="config-edit-form config-raw-edit-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label class="config-raw-editor-label">

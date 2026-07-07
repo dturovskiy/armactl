@@ -82,6 +82,29 @@ def test_web_template_literal_translation_keys_exist_in_locales():
     assert missing_uk == [], missing_uk
 
 
+def test_config_editor_descriptor_translation_keys_exist_in_locales():
+    from armactl.web.services import config_edit
+
+    keys = {"Restart required"}
+    for descriptor in config_edit.editable_config_field_descriptors():
+        ui = descriptor.ui
+        assert ui is not None
+        keys.update(
+            value
+            for value in (
+                ui.label,
+                ui.helper_text,
+                ui.section_label,
+                ui.section_helper_text,
+                ui.impact_label,
+            )
+            if value
+        )
+
+    assert sorted(keys - _locale_keys("en")) == []
+    assert sorted(keys - _locale_keys("uk")) == []
+
+
 def test_dashboard_live_refresh_translation_keys_exist_in_locales():
     keys = {
         "Live refresh active",

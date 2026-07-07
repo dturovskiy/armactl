@@ -14,6 +14,7 @@ from typing import Any
 from armactl import config_manager, discovery, paths
 from armactl.redaction import redact_sensitive_text
 from armactl.server_config_schema import (
+    RESTART_BEHAVIOR_CHANGED_ONLY,
     ServerConfigField,
     ServerConfigSchemaError,
     config_field_input_value,
@@ -280,33 +281,71 @@ def build_config_edit_form(config: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _config_edit_field_dto(
+    descriptor: ServerConfigField,
+    form: Mapping[str, Any],
+) -> dict[str, Any]:
+    ui = descriptor.ui
+    assert ui is not None
+    restart_required = descriptor.restart_behavior == RESTART_BEHAVIOR_CHANGED_ONLY
+    return {
+        "name": descriptor.form_name,
+        "value": form[descriptor.form_name],
+        "config_path": ".".join(descriptor.config_path),
+        "risk_class": descriptor.risk_class,
+        "permission": descriptor.permission,
+        "secret_behavior": descriptor.secret_behavior,
+        "audit_field_name": descriptor.audit_field_name,
+        "restart_behavior": descriptor.restart_behavior,
+        "restart_required": restart_required,
+        "restart_label": "Restart required" if restart_required else "",
+        "ui": {
+            "label": ui.label,
+            "control": ui.control,
+            "group": ui.group,
+            "css_class": ui.css_class,
+            "required": ui.required,
+            "max_length": ui.max_length,
+            "min_value": ui.min_value,
+            "step": ui.step,
+            "helper_text": ui.helper_text,
+            "section": ui.section,
+            "section_label": ui.section_label,
+            "section_helper_text": ui.section_helper_text,
+            "impact_class": ui.impact_class,
+            "impact_label": ui.impact_label,
+        },
+    }
+
+
 def build_config_edit_fields(config: Mapping[str, Any]) -> tuple[dict[str, Any], ...]:
     """Return safe editable values plus UI metadata for the config form."""
     form = build_config_edit_form(config)
     return tuple(
-        {
-            "name": descriptor.form_name,
-            "value": form[descriptor.form_name],
-            "config_path": ".".join(descriptor.config_path),
-            "risk_class": descriptor.risk_class,
-            "permission": descriptor.permission,
-            "secret_behavior": descriptor.secret_behavior,
-            "audit_field_name": descriptor.audit_field_name,
-            "restart_behavior": descriptor.restart_behavior,
-            "ui": {
-                "label": descriptor.ui.label,
-                "control": descriptor.ui.control,
-                "group": descriptor.ui.group,
-                "css_class": descriptor.ui.css_class,
-                "required": descriptor.ui.required,
-                "max_length": descriptor.ui.max_length,
-                "min_value": descriptor.ui.min_value,
-                "step": descriptor.ui.step,
-                "helper_text": descriptor.ui.helper_text,
-            },
-        }
+        _config_edit_field_dto(descriptor, form)
         for descriptor in CONFIG_FIELD_DESCRIPTORS
     )
+
+
+def build_config_edit_field_groups(config: Mapping[str, Any]) -> tuple[dict[str, Any], ...]:
+    """Return safe editable fields grouped by descriptor UI metadata."""
+    groups: list[dict[str, Any]] = []
+    group_by_section: dict[str, dict[str, Any]] = {}
+    for field in build_config_edit_fields(config):
+        ui = field["ui"]
+        section = str(ui.get("section") or ui.get("group") or "default")
+        group = group_by_section.get(section)
+        if group is None:
+            group = {
+                "section": section,
+                "label": ui.get("section_label") or "",
+                "helper_text": ui.get("section_helper_text") or "",
+                "fields": [],
+            }
+            group_by_section[section] = group
+            groups.append(group)
+        group["fields"].append(field)
+    return tuple({**group, "fields": tuple(group["fields"])} for group in groups)
 
 
 def _set_nested_value(data: dict[str, Any], path: tuple[str, ...], value: Any) -> None:

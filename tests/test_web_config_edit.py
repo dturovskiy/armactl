@@ -226,11 +226,37 @@ def test_config_edit_descriptor_registry_covers_current_safe_fields_only():
     assert third_person.ui is not None
     assert third_person.ui.control == "checkbox"
     assert third_person.ui.label == "Disable third-person view"
-    assert third_person.ui.helper_text == ""
+    assert third_person.ui.helper_text == "Applies a gameplay camera rule after restart."
+    assert third_person.ui.impact_label == "Gameplay"
     visible = next(descriptor for descriptor in descriptors if descriptor.form_name == "visible")
     assert visible.ui is not None
     assert visible.ui.label == "Show server in server browser"
-    assert visible.ui.helper_text == ""
+    assert visible.ui.helper_text == (
+        "Controls server-browser discovery only; it does not change bind or firewall settings."
+    )
+    assert visible.ui.impact_label == "Discovery"
+
+    field_groups = config_edit.build_config_edit_field_groups(_sample_config())
+    assert [
+        (group["section"], tuple(field["name"] for field in group["fields"]))
+        for group in field_groups
+    ] == [
+        ("server_identity", ("name", "scenario_id")),
+        ("capacity_visibility", ("max_players", "visible")),
+        ("gameplay_security", ("disable_third_person", "battleye")),
+        ("view_distance", ("server_max_view_distance", "server_min_grass_distance")),
+    ]
+    assert all(
+        field["restart_required"]
+        for group in field_groups
+        for field in group["fields"]
+    )
+    assert {field["ui"]["impact_label"] for group in field_groups for field in group["fields"]} == {
+        "Discovery",
+        "Gameplay",
+        "Performance",
+        "Security",
+    }
 
 
 def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
@@ -249,6 +275,13 @@ def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
     assert "notice-inline notice-restart" in response.text
     for heading in ("Status", "Server", "Network", "Files", "Basic server settings"):
         assert f">{heading}<" in response.text
+    for group_heading in (
+        "Server identity",
+        "Capacity and visibility",
+        "Gameplay and security",
+        "View distance",
+    ):
+        assert f">{group_heading}<" in response.text
     assert 'method="post" action="/config"' in response.text
     assert 'name="name"' in response.text
     assert 'value="Old Server"' in response.text
@@ -257,7 +290,10 @@ def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
     assert 'name="server_max_view_distance"' in response.text
     assert 'name="server_min_grass_distance"' in response.text
     assert "Restart the server to apply saved config changes." in response.text
-    assert response.text.count('class="field-wide"') >= 2
+    assert response.text.count("field-wide") >= 2
+    assert response.text.count("config-meta-restart") == 8
+    for impact_label in ("Discovery", "Gameplay", "Performance", "Security"):
+        assert f">{impact_label}<" in response.text
 
     form_match = re.search(
         r'<form method="post" action="/config" class="config-edit-form"[^>]*>(.*?)</form>',
@@ -283,14 +319,13 @@ def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
     assert "disableThirdPerson" not in form_match.group(1)
     assert "Show server in server browser" in response.text
     assert (
-        "When disabled, the server can run but is hidden from the public server list."
-        not in response.text
+        "Controls server-browser discovery only; it does not change bind or firewall settings."
+        in response.text
     )
     assert "Disable third-person view" in response.text
-    assert (
-        "When enabled, third-person camera/player third-person view is disabled."
-        not in response.text
-    )
+    assert "Applies a gameplay camera rule after restart." in response.text
+    assert "Disabling BattlEye lowers anti-cheat protection." in response.text
+    assert "Higher values can increase server and client load." in response.text
     assert 'name="disable_third_person" value="true" checked' in response.text
 
 
@@ -897,6 +932,10 @@ def test_config_page_shows_redacted_advanced_json_editor(tmp_path: Path, monkeyp
     assert response.status_code == 200
     assert 'method="post" action="/config/raw"' in response.text
     assert "Advanced config JSON" in response.text
+    assert (
+        "Network, RCON, and secret fields are not exposed as safe controls; "
+        "secret edits are rejected by the guarded raw editor."
+    ) in response.text
     assert "&lt;redacted: unchanged&gt;" in response.text
     assert "raw-rcon-secret" not in response.text
     assert "admin-password-secret" not in response.text

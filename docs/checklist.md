@@ -25,6 +25,8 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Local web setup through `./armactl web`.
 - [x] Authenticated dashboard and live status polling.
 - [x] Safe config editing for selected non-secret fields.
+- [x] Safe config controls audit/design for the current safe field set, forbidden scope, and reuse contract.
+- [x] Safe config controls runtime grouping, helper text, impact labels, and restart labels for the current safe field set.
 - [x] Mods management with add/remove, enable/disable, bulk paste, import/export, dedupe, and unused-addon cleanup.
 - [x] Game-admin management foundation.
 - [x] Restart schedule and autostart controls.
@@ -67,7 +69,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Harden generated scheduled restart units with an explicit root-owned bounded restart helper, service stop timeout/kill policy, SIGKILL fallback scoped to the `armareforger*.service` control group, active/running verification, and short post-start stability checking.
 - [x] Improve server update check/update UX after VM smoke feedback with stale-cache notices, clearer active queued/running check/update labels, failed check/update job links, server-running update blocks, and expired running-job diagnostics only.
 - [ ] Decide any future stale-job recovery/cancel model as an explicit worker lease/cancel slice; do not add fake cancel, process/thread kill, destructive repair, or GET mutation.
-- [ ] Expand safe config controls after field behavior is verified.
+- [ ] Expand safe config controls after field behavior is verified, using `docs/safe-config-controls-plan.md` and the existing config editor pipeline.
 - [x] Improve mod cleanup/mod mutation edge-case recovery workflows with controlled partial-change results, audit-safe diagnostics, and pending-work recovery markers.
 - [x] Add narrow `/mods` stale profile settings cleanup for allowlisted disabled-mod module blocks only, with backup, counts-only audit, pending restart tracking, and no addon deletion, sidecar removal, active `game.mods` change, or generic file editing.
 - [x] Build slice 2 read-only players page / improved players view from existing sources.

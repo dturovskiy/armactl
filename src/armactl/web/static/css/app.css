@@ -1578,6 +1578,139 @@ button.warning {
   }
 }
 
+.config-control-groups {
+  display: grid;
+  gap: 18px;
+}
+
+.config-field-group {
+  min-width: 0;
+  margin: 0;
+  padding: 16px 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.config-field-group:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.config-field-group legend {
+  padding: 0;
+  color: var(--text);
+  font-size: 0.94rem;
+  font-weight: 800;
+}
+
+.config-field-group-helper {
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+}
+
+.config-control-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.config-control-field {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.config-control-field.field-wide {
+  grid-column: 1 / -1;
+}
+
+.config-control-grid .config-checkbox-field {
+  max-width: none;
+}
+
+.config-control-label,
+.config-control-helper {
+  overflow-wrap: anywhere;
+}
+
+.config-control-label {
+  color: var(--muted);
+}
+
+.config-control-helper {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.config-control-field input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.config-control-copy {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.config-field-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.config-meta-chip {
+  display: inline-flex;
+  max-width: 100%;
+  min-height: 22px;
+  align-items: center;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.config-meta-restart,
+.config-meta-impact-performance {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.config-meta-impact-gameplay,
+.config-meta-impact-discovery {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.config-meta-impact-security {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+@media (max-width: 760px) {
+  .config-control-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .checkbox-grid,
 .form-actions {
   display: flex;

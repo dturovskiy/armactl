@@ -118,11 +118,33 @@ def test_web_tui_cli_safe_fields_share_registry_paths() -> None:
     assert third_person.audit_field_name == "disable_third_person"
     assert third_person.ui is not None
     assert third_person.ui.label == "Disable third-person view"
-    assert third_person.ui.helper_text == ""
+    assert third_person.ui.section == schema.UI_SECTION_GAMEPLAY_SECURITY
+    assert third_person.ui.section_label == "Gameplay and security"
+    assert third_person.ui.helper_text == "Applies a gameplay camera rule after restart."
+    assert third_person.ui.impact_class == schema.UI_IMPACT_GAMEPLAY
+    assert third_person.ui.impact_label == "Gameplay"
     visible = web_fields["visible"]
     assert visible.ui is not None
     assert visible.ui.label == "Show server in server browser"
-    assert visible.ui.helper_text == ""
+    assert visible.ui.section == schema.UI_SECTION_CAPACITY_VISIBILITY
+    assert visible.ui.helper_text == (
+        "Controls server-browser discovery only; it does not change bind or firewall settings."
+    )
+    assert visible.ui.impact_class == schema.UI_IMPACT_DISCOVERY
+    battleye = web_fields["battleye"]
+    assert battleye.ui is not None
+    assert battleye.ui.impact_class == schema.UI_IMPACT_SECURITY
+    assert battleye.ui.impact_label == "Security"
+    assert [field.ui.section for field in web_fields.values()] == [
+        schema.UI_SECTION_SERVER_IDENTITY,
+        schema.UI_SECTION_SERVER_IDENTITY,
+        schema.UI_SECTION_CAPACITY_VISIBILITY,
+        schema.UI_SECTION_CAPACITY_VISIBILITY,
+        schema.UI_SECTION_GAMEPLAY_SECURITY,
+        schema.UI_SECTION_GAMEPLAY_SECURITY,
+        schema.UI_SECTION_VIEW_DISTANCE,
+        schema.UI_SECTION_VIEW_DISTANCE,
+    ]
     assert {"name", "scenario_id", "max_players"} <= tui_fields.keys()
     assert {"name", "scenario_id", "max_players"} <= cli_fields.keys()
     assert "disable_third_person" not in tui_fields

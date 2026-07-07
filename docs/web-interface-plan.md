@@ -102,7 +102,7 @@ Operators should keep CLI/TUI access available for recovery and maintenance.
 
 ## Config Editing
 
-The normal web config page edits selected non-secret fields backed by shared config metadata so validation, labels, restart behavior, and pending work stay consistent.
+The normal web config page edits selected non-secret fields backed by shared config metadata so validation, labels, restart behavior, and pending work stay consistent. The current field audit and runtime expansion contract live in [safe-config-controls-plan.md](safe-config-controls-plan.md). Runtime grouping, helper text, impact labels, and restart labels are implemented for the current safe field set; future expansion must keep routes/templates thin, mutation/recovery in `config_edit` and `mutation_recovery`, and avoid a second config editor or save pipeline.
 
 The config page also includes a guarded advanced JSON editor for `config.json`. It validates JSON and server-facing config shape, creates a backup before saving, writes audit intent/outcome events, redacts existing secret values in the browser, rejects secret changes from the web editor, and updates restart-pending tracking. Broad arbitrary file editing remains separate future work.
 
@@ -194,7 +194,7 @@ Near-term dashboard work focuses on:
 
 - production hardening;
 - server update flow polish;
-- safer config controls after behavior is verified;
+- safer config controls after behavior is verified, using the safe config controls plan;
 - mod cleanup edge-case recovery improvements;
 - player history/moderation improvements with reliable identity rules;
 - read-only community statistics smoke and operational polish for Discord/Telegram publishing automation;
@@ -284,6 +284,7 @@ Out of scope:
 
 - Current state: basic web config editing is limited to non-secret fields: `name`, `scenario_id`, `max_players`, `visible`, `disable_third_person`, `battleye`, `server_max_view_distance`, and `server_min_grass_distance`. The guarded raw JSON editor validates JSON/config shape, blocks secret changes, creates backups, preserves safe error input, and updates pending restart tracking.
 - Risk: advanced network fields can break reachability or expose services. Secrets must not be echoed, diffed, or changed through generic web editors. Raw JSON remains powerful even with validation and backups.
+- Planning status: [safe-config-controls-plan.md](safe-config-controls-plan.md) records the existing editor audit, the minimum safe-controls field list, forbidden scope, and the implementation contract. Runtime UI grouping and labels are implemented for the current safe field set; future work is field expansion only after behavior is verified.
 - Proposed slice: expand only one field group at a time after real server behavior is verified. Each new field needs schema metadata, UI copy, validation, backup, pending restart behavior, and rollback/recovery instructions. Keep bind addresses, public address/ports, RCON address/permission/password, generated secrets, and game passwords out of normal web editing.
 - Files/modules likely touched: `src/armactl/server_config_schema.py`, `src/armactl/web/services/config_edit.py`, `src/armactl/web/page_models/config.py`, `src/armactl/web/templates/config.html`, `tests/test_server_config_schema.py`, `tests/test_web_config_edit.py`.
 - Validation/smoke needed: unit tests for validation, secret rejection, backups, pending restart, no-op saves, raw reset/error UX; VM save/restart/verify/revert smoke for each new field.
