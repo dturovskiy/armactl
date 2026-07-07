@@ -2170,6 +2170,9 @@ def test_player_sessions_summary_counts_existing_sessions_read_only(
     assert "Stored closed" in html
     assert "Inferred/stale close evidence" in html
     assert "Stored status" in html
+    assert "<th>Available actions</th>" in html
+    assert "<th>Evidence</th>" not in html
+    assert "<th>End reason</th>" not in html
     assert "Online" not in html
     assert "Offline" not in html
     assert "online" not in html.lower()
@@ -2247,6 +2250,12 @@ def test_player_sessions_route_renders_filtered_sanitized_session_fields(
     assert "Alpha token=*** ***" in html
     assert PLAYER_ALPHA_ID in html
     assert "Bravo One" not in html
+    assert "/static/js/players_sessions.js" in html
+    assert "data-player-session-toggle" in html
+    assert "player-session-details-row" in html
+    assert "data-player-session-row hidden" in html
+    assert '<td colspan="7">' in html
+    assert "player-session-evidence-cell" in html
     assert "First evidence" in html
     assert "Last evidence" in html
     assert "Close evidence" in html

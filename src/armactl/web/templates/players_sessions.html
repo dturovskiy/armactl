@@ -15,6 +15,7 @@
 {%- endmacro %}
 {% block title %}{{ t("Players - armactl web") }}{% endblock %}
 {% block heading %}{{ t("Players") }}{% endblock %}
+{% block extra_scripts %}<script defer src="{{ url_for('static', path='/js/players_sessions.js') }}?v={{ web_static_version }}"></script>{% endblock %}
 {% block topbar_actions %}
 <a class="button-link secondary-link" href="/admins">{{ t("Admins") }}</a>
 <a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
@@ -167,13 +168,13 @@
             <th>{{ t("First evidence") }}</th>
             <th>{{ t("Last evidence") }}</th>
             <th>{{ t("Close evidence") }}</th>
-            <th>{{ t("Evidence") }}</th>
-            <th>{{ t("End reason") }}</th>
+            <th>{{ t("Available actions") }}</th>
           </tr>
         </thead>
         <tbody>
         {% for session in sessions %}
-          <tr>
+          {% set has_session_details = session.open_source or session.last_seen_source or session.close_source or session.end_reason %}
+          <tr class="player-session-main-row">
             <td>
               <strong class="wrap-value">{{ session.name_last }}</strong>
               {% if session.name_at_open and session.name_at_open != session.name_last %}
@@ -189,18 +190,31 @@
             <td>{{ local_time(session.last_seen_at) }}</td>
             <td>{{ local_time(session.close_observed_at) }}</td>
             <td>
-              <div class="player-session-evidence-cell">
-                {{ source_line("First evidence", session.open_source, session.open_confidence) }}
-                {{ source_line("Last evidence", session.last_seen_source, session.last_seen_confidence) }}
-                {{ source_line("Close evidence", session.close_source, session.close_confidence) }}
+              <div class="player-session-actions">
+                {% if has_session_details %}
+                  <button type="button" class="button-link secondary-link player-session-action-button" data-player-session-toggle data-player-session-target="player-session-details-{{ loop.index }}" aria-controls="player-session-details-{{ loop.index }}" aria-expanded="false">{{ t("Details") }}</button>
+                {% else %}
+                  <span class="muted">-</span>
+                {% endif %}
               </div>
             </td>
-            <td>
-              {% if session.end_reason %}
-                <span class="wrap-value">{{ t(page.end_reason_labels.get(session.end_reason, "Unknown close reason")) }}</span>
-              {% endif %}
-            </td>
           </tr>
+          {% if has_session_details %}
+            <tr id="player-session-details-{{ loop.index }}" class="player-session-details-row" data-player-session-row hidden>
+              <td colspan="7">
+                <div class="player-session-detail-panel" role="region">
+                  <div class="player-session-evidence-cell">
+                    {{ source_line("First evidence", session.open_source, session.open_confidence) }}
+                    {{ source_line("Last evidence", session.last_seen_source, session.last_seen_confidence) }}
+                    {{ source_line("Close evidence", session.close_source, session.close_confidence) }}
+                    {% if session.end_reason %}
+                      <span class="player-diagnostic-line"><strong>{{ t("End reason") }}:</strong> <span>{{ t(page.end_reason_labels.get(session.end_reason, "Unknown close reason")) }}</span></span>
+                    {% endif %}
+                  </div>
+                </div>
+              </td>
+            </tr>
+          {% endif %}
         {% endfor %}
         </tbody>
       </table>
