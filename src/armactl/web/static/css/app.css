@@ -1627,10 +1627,6 @@ button.warning {
   grid-column: 1 / -1;
 }
 
-.config-control-grid .config-checkbox-field {
-  max-width: none;
-}
-
 .config-control-label,
 .config-control-helper {
   overflow-wrap: anywhere;
@@ -1660,49 +1656,94 @@ button.warning {
   font: inherit;
 }
 
-.config-control-copy {
-  display: grid;
+.config-boolean-field {
+  align-content: start;
+}
+
+.config-segmented-control {
+  display: inline-grid;
+  width: min(100%, 360px);
   min-width: 0;
-  gap: 5px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.config-segmented-option {
+  position: relative;
+  display: block;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.config-segmented-option input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-height: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.config-segmented-option span {
+  display: flex;
+  min-width: 0;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 8px;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.config-segmented-option input:checked + span {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.config-segmented-option input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .config-field-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px 8px;
 }
 
 .config-meta-chip {
   display: inline-flex;
   max-width: 100%;
-  min-height: 22px;
   align-items: center;
-  padding: 2px 7px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface);
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--muted);
-  font-size: 0.74rem;
-  font-weight: 800;
+  font-size: 0.72rem;
+  font-weight: 650;
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
 
-.config-meta-restart,
-.config-meta-impact-performance {
-  border-color: var(--warning);
+.config-meta-restart {
   color: var(--warning);
 }
 
-.config-meta-impact-gameplay,
-.config-meta-impact-discovery {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.config-meta-impact-security {
-  border-color: var(--error);
-  color: var(--error);
+.config-meta-impact {
+  color: var(--muted);
 }
 
 @media (max-width: 760px) {
@@ -1723,26 +1764,67 @@ button.warning {
   max-width: 360px;
 }
 
-.config-checkbox-copy {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-
-.config-checkbox-helper {
-  color: var(--muted);
-  font-size: 0.84rem;
-  font-weight: 500;
-  line-height: 1.35;
-}
-
 .config-message h2 {
   margin-bottom: 6px;
 }
 
 
 .config-raw-panel {
-  border-left: 4px solid var(--warning);
+  padding: 0;
+  overflow: hidden;
+}
+
+.config-raw-disclosure {
+  min-width: 0;
+}
+
+.config-raw-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 800;
+  list-style: none;
+}
+
+.config-raw-summary::-webkit-details-marker {
+  display: none;
+}
+
+.config-raw-summary::after {
+  content: "+";
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.config-raw-disclosure[open] .config-raw-summary::after {
+  content: "-";
+}
+
+.config-raw-title {
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.config-raw-disclosure-body {
+  display: grid;
+  gap: 10px;
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--border);
 }
 
 .config-raw-editor-label {

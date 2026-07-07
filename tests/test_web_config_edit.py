@@ -299,6 +299,17 @@ def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
     assert response.text.count("config-meta-restart") == 8
     for impact_label in ("Discovery", "Gameplay", "Performance", "Security"):
         assert f">{impact_label}<" in response.text
+    assert "config-segmented-control" in response.text
+    assert response.text.count('type="radio"') == 6
+    for option_label in (
+        "Visible",
+        "Hidden",
+        "Third-person disabled",
+        "Third-person allowed",
+        "Enabled",
+        "Disabled",
+    ):
+        assert f">{option_label}<" in response.text
 
     form_match = re.search(
         r'<form method="post" action="/config" class="config-edit-form"[^>]*>(.*?)</form>',
@@ -331,7 +342,10 @@ def test_get_config_page_shows_edit_form_for_owner(tmp_path: Path, monkeypatch):
     assert "Applies a gameplay camera rule after restart." in response.text
     assert "Disabling BattlEye lowers anti-cheat protection." in response.text
     assert "Higher values can increase server and client load." in response.text
+    assert 'type="radio" name="visible" value="true"' in response.text
+    assert 'type="radio" name="visible" value="false" checked' in response.text
     assert 'name="disable_third_person" value="true" checked' in response.text
+    assert 'type="radio" name="battleye" value="false" checked' in response.text
 
 
 def test_config_page_uses_generated_default_for_missing_disable_third_person(
@@ -346,6 +360,42 @@ def test_config_page_uses_generated_default_for_missing_disable_third_person(
 
     assert response.status_code == 200
     assert 'name="disable_third_person" value="true" checked' in response.text
+
+
+def test_config_edit_boolean_selector_values_submit_true_and_false(
+    tmp_path: Path,
+    monkeypatch,
+):
+    config_path = _write_config(tmp_path)
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+    csrf_token = _form_token(client.get("/config").text)
+    false_data = _valid_post_data(csrf_token)
+    false_data.update(
+        {
+            "visible": "false",
+            "disable_third_person": "false",
+            "battleye": "false",
+        }
+    )
+
+    response = client.post("/config", data=false_data, follow_redirects=False)
+
+    assert response.status_code == 303
+    updated = json.loads(config_path.read_text())
+    assert updated["game"]["visible"] is False
+    assert updated["game"]["gameProperties"]["disableThirdPerson"] is False
+    assert updated["game"]["gameProperties"]["battlEye"] is False
+
+    csrf_token = _form_token(client.get("/config").text)
+    true_data = _valid_post_data(csrf_token)
+
+    response = client.post("/config", data=true_data, follow_redirects=False)
+
+    assert response.status_code == 303
+    updated = json.loads(config_path.read_text())
+    assert updated["game"]["visible"] is True
+    assert updated["game"]["gameProperties"]["disableThirdPerson"] is True
+    assert updated["game"]["gameProperties"]["battlEye"] is True
 
 
 def test_config_page_groups_summary_and_escapes_long_values(tmp_path: Path, monkeypatch):
@@ -601,6 +651,7 @@ def test_config_edit_disable_third_person_toggle_tracks_pending_state(
         ({"max_players": "12.5"}, "game.maxPlayers must be a positive integer."),
         ({"visible": "maybe"}, "Boolean field value is invalid."),
         ({"disable_third_person": "maybe"}, "Boolean field value is invalid."),
+        ({"battleye": "maybe"}, "Boolean field value is invalid."),
         (
             {"server_max_view_distance": "0"},
             "game.gameProperties.serverMaxViewDistance must be a positive integer.",
@@ -937,10 +988,18 @@ def test_config_page_shows_redacted_advanced_json_editor(tmp_path: Path, monkeyp
     assert response.status_code == 200
     assert 'method="post" action="/config/raw"' in response.text
     assert "Advanced config JSON" in response.text
+    raw_details = re.search(
+        r'<details class="config-raw-disclosure"(?P<attrs>[^>]*)>(?P<body>.*?)</details>',
+        response.text,
+        re.S,
+    )
+    assert raw_details is not None
+    assert "open" not in raw_details.group("attrs")
+    assert 'method="post" action="/config/raw"' in raw_details.group("body")
     assert (
         "Network, RCON, and secret fields are not exposed as safe controls; "
         "secret edits are rejected by the guarded raw editor."
-    ) in response.text
+    ) in raw_details.group("body")
     assert "&lt;redacted: unchanged&gt;" in response.text
     assert "raw-rcon-secret" not in response.text
     assert "admin-password-secret" not in response.text

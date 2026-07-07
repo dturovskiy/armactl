@@ -115,23 +115,39 @@
         <div class="config-control-grid">
           {% for field in group.config_fields %}
           {% if field.ui.control == "checkbox" %}
-          <label class="inline-confirm config-checkbox-field config-control-field{% if field.ui.css_class %} {{ field.ui.css_class }}{% endif %}">
-            <input type="checkbox" name="{{ field.name }}" value="true"{% if field.value %} checked{% endif %}>
-            <span class="config-control-copy">
-              <span class="config-control-label">{{ t(field.ui.label) }}</span>
-              {% if field.ui.helper_text %}
-              <span class="config-control-helper">{{ t(field.ui.helper_text) }}</span>
+          {% set true_label = "Enabled" %}
+          {% set false_label = "Disabled" %}
+          {% if field.name == "visible" %}
+          {% set true_label = "Visible option" %}
+          {% set false_label = "Hidden option" %}
+          {% elif field.name == "disable_third_person" %}
+          {% set true_label = "Third-person disabled" %}
+          {% set false_label = "Third-person allowed" %}
+          {% endif %}
+          <div class="config-control-field config-boolean-field{% if field.ui.css_class %} {{ field.ui.css_class }}{% endif %}">
+            <span class="config-control-label">{{ t(field.ui.label) }}</span>
+            <div class="config-segmented-control" role="radiogroup" aria-label="{{ t(field.ui.label) }}">
+              <label class="config-segmented-option">
+                <input type="radio" name="{{ field.name }}" value="true"{% if field.value %} checked{% endif %}>
+                <span>{{ t(true_label) }}</span>
+              </label>
+              <label class="config-segmented-option">
+                <input type="radio" name="{{ field.name }}" value="false"{% if not field.value %} checked{% endif %}>
+                <span>{{ t(false_label) }}</span>
+              </label>
+            </div>
+            {% if field.ui.helper_text %}
+            <span class="config-control-helper">{{ t(field.ui.helper_text) }}</span>
+            {% endif %}
+            <span class="config-field-meta">
+              {% if field.restart_required and field.restart_label %}
+              <span class="config-meta-chip config-meta-restart">{{ t(field.restart_label) }}</span>
               {% endif %}
-              <span class="config-field-meta">
-                {% if field.restart_required and field.restart_label %}
-                <span class="config-meta-chip config-meta-restart">{{ t(field.restart_label) }}</span>
-                {% endif %}
-                {% if field.ui.impact_label %}
-                <span class="config-meta-chip config-meta-impact config-meta-impact-{{ field.ui.impact_class }}">{{ t(field.ui.impact_label) }}</span>
-                {% endif %}
-              </span>
+              {% if field.ui.impact_label %}
+              <span class="config-meta-chip config-meta-impact config-meta-impact-{{ field.ui.impact_class }}">{{ t(field.ui.impact_label) }}</span>
+              {% endif %}
             </span>
-          </label>
+          </div>
           {% else %}
           <label class="config-control-field{% if field.ui.css_class %} {{ field.ui.css_class }}{% endif %}">
             <span class="config-control-label">{{ t(field.ui.label) }}</span>
@@ -161,28 +177,32 @@
 </section>
 
 <section class="panel full-width config-raw-panel">
-  <div class="section-heading-row">
-    <h2>{{ t("Advanced config JSON") }}</h2>
-  </div>
-  <p class="notice-inline notice-warning muted">{{ t("Use this only when the basic fields are not enough. JSON is validated, a backup is created, and restart tracking is updated.") }}</p>
-  <p class="muted">{{ t("Secret values are redacted here and cannot be changed from the web editor.") }}</p>
-  <p class="muted">{{ t("Network, RCON, and secret fields are not exposed as safe controls; secret edits are rejected by the guarded raw editor.") }}</p>
-  <form method="post" action="/config/raw" class="config-edit-form config-raw-edit-form">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label class="config-raw-editor-label">
-      <span>{{ t("config.json") }}</span>
-      <textarea class="config-json-editor" name="raw_config" rows="24" spellcheck="false" data-config-raw-editor data-loaded-config="{{ page.raw_config_loaded_text|default("")|e }}" required>{{ page.raw_config_text|default("") }}</textarea>
-    </label>
-    <label class="inline-confirm config-checkbox-field">
-      <input type="checkbox" name="confirm" value="raw-config-save" required>
-      <span>{{ t("I understand this saves the full config JSON") }}</span>
-    </label>
-    <div class="form-actions">
-      <button type="submit" class="danger">{{ t("Save advanced config") }}</button>
-      <button type="button" class="secondary" data-config-raw-reset>{{ t("Reset to loaded config") }}</button>
-      <a class="button-link secondary-link" href="/config/raw">{{ t("Reload config from disk") }}</a>
+  <details class="config-raw-disclosure">
+    <summary class="config-raw-summary">
+      <span class="config-raw-title">{{ t("Advanced config JSON") }}</span>
+    </summary>
+    <div class="config-raw-disclosure-body">
+      <p class="notice-inline notice-warning muted">{{ t("Use this only when the basic fields are not enough. JSON is validated, a backup is created, and restart tracking is updated.") }}</p>
+      <p class="muted">{{ t("Secret values are redacted here and cannot be changed from the web editor.") }}</p>
+      <p class="muted">{{ t("Network, RCON, and secret fields are not exposed as safe controls; secret edits are rejected by the guarded raw editor.") }}</p>
+      <form method="post" action="/config/raw" class="config-edit-form config-raw-edit-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label class="config-raw-editor-label">
+          <span>{{ t("config.json") }}</span>
+          <textarea class="config-json-editor" name="raw_config" rows="24" spellcheck="false" data-config-raw-editor data-loaded-config="{{ page.raw_config_loaded_text|default("")|e }}" required>{{ page.raw_config_text|default("") }}</textarea>
+        </label>
+        <label class="inline-confirm config-checkbox-field">
+          <input type="checkbox" name="confirm" value="raw-config-save" required>
+          <span>{{ t("I understand this saves the full config JSON") }}</span>
+        </label>
+        <div class="form-actions">
+          <button type="submit" class="danger">{{ t("Save advanced config") }}</button>
+          <button type="button" class="secondary" data-config-raw-reset>{{ t("Reset to loaded config") }}</button>
+          <a class="button-link secondary-link" href="/config/raw">{{ t("Reload config from disk") }}</a>
+        </div>
+      </form>
     </div>
-  </form>
+  </details>
 </section>
 {% endif %}
 {% endblock %}
