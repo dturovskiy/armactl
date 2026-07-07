@@ -38,6 +38,10 @@ def _job_summary(job: JobRecord) -> dict[str, object]:
         "updated_at": job.updated_at,
         "started_at": job.started_at or "",
         "finished_at": job.finished_at or "",
+        "current_step": job.current_step,
+        "worker_lease_state": job.worker_lease_state,
+        "worker_heartbeat_at": job.worker_heartbeat_at or "",
+        "worker_lease_expires_at": job.worker_lease_expires_at or "",
     }
 
 
@@ -76,7 +80,6 @@ def _latest_failed_update_job_summary(
             continue
         return _job_summary(job) if job.status == JOB_STATUS_FAILED else None
     return None
-
 
 
 def load_updates_page(

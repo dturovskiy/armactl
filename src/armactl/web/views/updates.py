@@ -68,15 +68,61 @@ def _job_timestamp(job: Mapping[str, Any]) -> Any:
     )
 
 
-def _job_may_be_stale(job: Mapping[str, Any]) -> bool:
+def _job_status(job: Mapping[str, Any]) -> str:
     status = _text(job.get("status"), "")
-    if status not in {"queued", "running"}:
+    return status if status in {"queued", "running"} else ""
+
+
+def _job_status_label(status: str) -> str:
+    if status == "queued":
+        return "already queued"
+    if status == "running":
+        return "already running"
+    return "active job"
+
+
+def _job_lease_expires_at(job: Mapping[str, Any]) -> Any:
+    return job.get("worker_lease_expires_at") or job.get("workerLeaseExpiresAt")
+
+
+def _job_has_expired_lease(job: Mapping[str, Any]) -> bool:
+    if _job_status(job) != "running":
         return False
+    lease_state = _text(
+        job.get("worker_lease_state") or job.get("workerLeaseState"),
+        "",
+    )
+    if lease_state == "expired":
+        return True
+    return _timestamp_is_older_than(_job_lease_expires_at(job), 0)
+
+
+def _job_may_be_stale(job: Mapping[str, Any]) -> bool:
+    if not _job_status(job):
+        return False
+    if _job_has_expired_lease(job):
+        return True
     return _timestamp_is_older_than(_job_timestamp(job), STALE_ACTIVE_JOB_SECONDS)
 
 
 def _job_link(job_id: int, label: str) -> dict[str, Any]:
     return {"id": job_id, "label": label, "jobs_url": "/jobs#background-jobs"}
+
+
+def _active_job_notice(*, check_state: str, status: str) -> str:
+    if check_state == server_versions.SERVER_VERSION_CHECK_CHECKING:
+        if status == "queued":
+            return "Update check job already queued."
+        if status == "running":
+            return "Update check job already running."
+        return "An update check job is already active."
+    if check_state == server_versions.SERVER_VERSION_CHECK_UPDATING:
+        if status == "queued":
+            return "Server update job already queued."
+        if status == "running":
+            return "Server update job already running."
+        return "A server update job is already active."
+    return ""
 
 
 def _active_job_view(
@@ -98,11 +144,26 @@ def _active_job_view(
     if active_id is None:
         return None
 
+    status = _job_status(job)
+    lease_expired = _job_has_expired_lease(job)
     active_job = _job_link(active_id, label)
+    active_job["status"] = status
+    active_job["status_label"] = _job_status_label(status) if status else ""
+    active_job["notice"] = _active_job_notice(
+        check_state=check_state,
+        status=status,
+    )
+    active_job["lease_expired"] = lease_expired
     active_job["may_be_stale"] = _job_may_be_stale(job)
     active_job["stale_guidance"] = (
-        "This job may be stale. Open Jobs to review the active row; "
-        "use the CLI fallback if the web worker is no longer running."
+        "Worker lease expired for this running job. This is diagnostics only; "
+        "the web UI did not cancel, repair, or stop processes."
+        if lease_expired
+        else (
+            "This job may be stale. This is diagnostics only; open Jobs to "
+            "review the active row; use the CLI fallback if the web worker "
+            "is no longer running."
+        )
     )
     return active_job
 
@@ -112,6 +173,19 @@ def _failed_update_job_view(job: Mapping[str, Any]) -> dict[str, Any] | None:
     if job_id is None:
         return None
     return _job_link(job_id, "Last failed update job")
+
+
+def _cache_result_is_stale(*, check_state: str, last_checked: str) -> bool:
+    if check_state not in {
+        server_versions.SERVER_VERSION_CHECK_UPTODATE,
+        server_versions.SERVER_VERSION_CHECK_AVAILABLE,
+        server_versions.SERVER_VERSION_CHECK_FAILED,
+    }:
+        return False
+    return _timestamp_is_older_than(
+        last_checked,
+        server_versions.SERVER_VERSION_CHECK_CACHE_TTL_SECONDS,
+    )
 
 
 def _check_action_label(
@@ -124,12 +198,24 @@ def _check_action_label(
         return "Check for updates"
     if check_state == server_versions.SERVER_VERSION_CHECK_FAILED:
         return "Check again"
-    if _timestamp_is_older_than(
-        last_checked,
-        server_versions.SERVER_VERSION_CHECK_CACHE_TTL_SECONDS,
+    if _cache_result_is_stale(
+        check_state=check_state,
+        last_checked=last_checked,
     ):
         return "Check again"
     return "Check for updates"
+
+
+def _cache_notice(*, check_state: str, last_checked: str) -> str:
+    if not _cache_result_is_stale(
+        check_state=check_state,
+        last_checked=last_checked,
+    ):
+        return ""
+    return (
+        "Cached check result is stale. Check again to refresh latest build "
+        "metadata before updating."
+    )
 
 
 def _failure_guidance(check_state: str, check_job_id: int | None) -> str:
@@ -238,9 +324,9 @@ def _update_note(
     if not can_update_server:
         return "Server update permission is required."
     if check_state == server_versions.SERVER_VERSION_CHECK_CHECKING:
-        return "A build check is already running."
+        return "An update check job is already active."
     if check_state == server_versions.SERVER_VERSION_CHECK_UPDATING:
-        return "A server update is already running."
+        return "A server update job is already active."
     if update_available and server_running:
         return server_job_actions.STOP_RUNNING_SERVER_UPDATE_MESSAGE
     if check_state == server_versions.SERVER_VERSION_CHECK_UPTODATE:
@@ -361,6 +447,10 @@ def build_updates_view(
             "Retry update" if failed_update_job and backend_allows_update else "Update server"
         ),
         update_note=note,
+        cache_notice=_cache_notice(
+            check_state=check_state,
+            last_checked=last_checked,
+        ),
         failure_reason=failure_reason,
         failure_guidance=_failure_guidance(check_state, check_job_id),
         failed_check_job=failed_check_job,

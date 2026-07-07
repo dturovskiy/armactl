@@ -232,6 +232,30 @@ def test_failed_update_check_renders_retry_and_jobs_guidance(
     assert 'action="/updates/update"' not in response.text
 
 
+def test_stale_cached_check_result_renders_check_again_notice(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner updates password"
+    setup_owner_user(tmp_path, "owner", password)
+    page = _updates_page(server_versions.SERVER_VERSION_CHECK_AVAILABLE)
+    page["version"]["last_checked"] = "2000-01-01T00:00:00+00:00"
+    page["version"]["lastChecked"] = "2000-01-01T00:00:00+00:00"
+    _install_updates_page(monkeypatch, page)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/updates", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Cached check result is stale" in response.text
+    assert "Check again" in response.text
+    assert "Update server" in response.text
+    assert "action=\"/updates/update\"" in response.text
+
+
 def test_failed_update_renders_retry_only_when_stopped_without_active_job(
     tmp_path: Path,
     monkeypatch,
@@ -292,6 +316,35 @@ def test_failed_update_does_not_render_retry_when_server_running(
     assert "Stop the game server before retrying" in response.text
     assert "Retry update" not in response.text
     assert 'action="/updates/update"' not in response.text
+
+
+def test_active_update_check_renders_running_status_without_duplicate_actions(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+
+    password = "owner updates password"
+    setup_owner_user(tmp_path, "owner", password)
+    page = _updates_page(server_versions.SERVER_VERSION_CHECK_CHECKING)
+    page["version"]["active_job"] = {
+        "id": 7,
+        "kind": "server:update-check",
+        "status": "running",
+        "updated_at": "2030-01-01T00:00:00+00:00",
+    }
+    _install_updates_page(monkeypatch, page)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/updates", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Active update check job" in response.text
+    assert "Update check job already running." in response.text
+    assert "already running" in response.text
+    assert "disabled aria-disabled=\"true\"" in response.text
+    assert "action=\"/updates/update\"" not in response.text
 
 
 def test_active_update_job_renders_background_jobs_link(
@@ -382,6 +435,84 @@ def test_stale_active_job_metadata_renders_guidance_without_cancelling(
     assert "This job may be stale" in response.text
     assert "use the CLI fallback" in response.text
     assert 'href="/jobs#background-jobs"' in response.text
+    assert before is not None
+    assert after is not None
+    assert before.status == "running"
+    assert after.status == "running"
+    assert [job.id for job in list_recent_jobs(db_path)] == [running.id]
+
+
+def test_expired_active_update_worker_lease_renders_diagnostics_only(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import (
+        SERVER_UPDATE_JOB_KIND,
+        create_job,
+        get_job,
+        list_recent_jobs,
+        mark_job_running,
+    )
+    from armactl.web.page_models import updates as updates_page_model
+    from armactl.web.runtime import ensure_web_db
+
+    password = "owner updates password"
+    setup_owner_user(tmp_path, "owner", password)
+    state = ServerState(
+        server_installed=True,
+        binary_exists=True,
+        config_exists=True,
+        server_running=False,
+        install_dir=str(tmp_path / "default" / "server"),
+    )
+    save_state(state, tmp_path / "default" / "state.json")
+    db_path = tmp_path / "web" / "web.db"
+    ensure_web_db(db_path)
+    queued = create_job(
+        db_path,
+        kind=SERVER_UPDATE_JOB_KIND,
+        requested_by_username="owner",
+    )
+    running = mark_job_running(
+        db_path,
+        queued.id,
+        current_step="Updating",
+        worker_id="worker1234",
+    )
+    expired_at = "2000-01-01T00:00:00+00:00"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE web_jobs
+            SET worker_heartbeat_at = ?, worker_lease_expires_at = ?
+            WHERE id = ?
+            """,
+            (expired_at, expired_at, running.id),
+        )
+
+    class FakeServiceAdapter:
+        def get_service_status(self, service_name):
+            del service_name
+            return {"active_state": "inactive", "sub_state": "dead"}
+
+    monkeypatch.setattr(
+        updates_page_model,
+        "get_service_adapter",
+        lambda: FakeServiceAdapter(),
+    )
+    before = get_job(db_path, running.id)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/updates", follow_redirects=False)
+
+    after = get_job(db_path, running.id)
+    assert response.status_code == 200
+    assert "Worker lease expired for this running job" in response.text
+    assert "diagnostics only" in response.text
+    assert "did not cancel, repair, or stop processes" in response.text
+    assert "worker1234" not in response.text
     assert before is not None
     assert after is not None
     assert before.status == "running"

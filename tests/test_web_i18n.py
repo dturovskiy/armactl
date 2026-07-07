@@ -93,6 +93,66 @@ def test_dashboard_live_refresh_translation_keys_exist_in_locales():
     assert sorted(keys - _locale_keys("uk")) == []
 
 
+def test_updates_dynamic_translation_keys_exist_in_locales():
+    keys = {
+        "Check again",
+        "Retry update",
+        "Active update job",
+        "Active update check job",
+        "already queued",
+        "already running",
+        "active job",
+        "Update check job already queued.",
+        "Update check job already running.",
+        "Server update job already queued.",
+        "Server update job already running.",
+        "An update check job is already active.",
+        "A server update job is already active.",
+        "Failed update check job",
+        "Last failed update job",
+        (
+            "Cached check result is stale. Check again to refresh latest build "
+            "metadata before updating."
+        ),
+        (
+            "Worker lease expired for this running job. This is diagnostics only; "
+            "the web UI did not cancel, repair, or stop processes."
+        ),
+        (
+            "This job may be stale. This is diagnostics only; open Jobs to review "
+            "the active row; use the CLI fallback if the web worker is no longer "
+            "running."
+        ),
+        (
+            "Check again to refresh latest build metadata. Open Jobs for the failed "
+            "check; use the CLI fallback if SteamCMD keeps failing."
+        ),
+        (
+            "Check again to refresh latest build metadata. Use the CLI fallback if "
+            "SteamCMD keeps failing."
+        ),
+        (
+            "The last update job failed. Retry update is available because the game "
+            "server appears stopped and no update job is active. Open Jobs for "
+            "details; use the CLI fallback if the web retry fails."
+        ),
+        (
+            "The last update job failed. Stop the game server before retrying. "
+            "Open Jobs for details; use the CLI fallback if needed."
+        ),
+        (
+            "The last update job failed. Wait for the active job to finish, then "
+            "open Jobs for details or use the CLI fallback if needed."
+        ),
+        (
+            "The last update job failed. Run a build check before retrying. Open "
+            "Jobs for details; use the CLI fallback if needed."
+        ),
+    }
+
+    assert sorted(keys - _locale_keys("en")) == []
+    assert sorted(keys - _locale_keys("uk")) == []
+
 
 def test_player_history_dynamic_translation_keys_exist_in_locales():
     keys = {
