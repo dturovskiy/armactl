@@ -26,7 +26,9 @@ The current `feat/web-interface` branch is a web-dashboard baseline, not an auto
 - Mods management with add/remove, enable/disable, bulk paste, import/export, dedupe, and unused-addon cleanup.
 - Game-admin management foundation.
 - Restart schedule and game-service autostart controls with browser-local input/display and UTC backend normalization.
-- File browser with bounded preview, single-file download, and no-overwrite upload.
+- File browser with bounded preview, single-file download, no-overwrite upload,
+  and narrow allowlisted config/profile editing through the shared replacement
+  workflow.
 - Logs and diagnostic report views.
 - Background jobs for install, repair, update checks, and updates.
 - Safe generated runtime FPS profile selector for service start/restart, with one dashboard control backed by an armactl-only instance settings sidecar rather than `config.json`; allowed values are 60/120, running servers require restart to apply, and there is no arbitrary launch-args editor.
@@ -240,7 +242,7 @@ P1 next slices:
 - Remaining mod cleanup recovery beyond the current manifests and controlled partial-failure messaging: restore/quarantine design before more deletion behavior.
 - Project-wide reuse/SOLID duplication audit is complete; keep [reuse-solid-duplication-audit.md](reuse-solid-duplication-audit.md) as the source for reuse owners, P1/P2 findings, and compatibility classifications.
 - File editor reuse-helper slice is complete: editor read/save DTOs now live in file_replacements with stale baseline protection, config_edit reuse, mutation_recovery reuse, and focused tests.
-- Lightweight file editing UI/save slice can now start as a thin route/template layer over the reuse helper, with allowlists, size limits, diff preview, backups, validation, audit, and recovery.
+- Runtime file editing UI/save slice is complete: `/files/{root_id}/edit` stays a thin route/template layer over the reuse helper, with allowlists, size limits, backups, validation, audit, pending-restart tracking, no-op handling, and stale-baseline protection. Delete, rename, move, copy, bulk operations, server-root overwrites, and arbitrary path editing remain out of scope.
 
 P2 later:
 
@@ -298,12 +300,12 @@ Out of scope:
 
 #### 5. Safe File Editing Scope
 
-- Current state: the file browser has fixed roots, containment checks, source/system path denial, bounded redacted previews, single-file download, no-overwrite upload only under the server root, and explicit replacement only for allowlisted small UTF-8 text/JSON config/profile files under /files/config, including top-level config text files, AdminServerSettings/*.json, and profile/CMPlayerStatsHUD/*.json. config.json replacement reuses the existing raw-config secret and shape protections. Logs, backups, server binaries, source-tree paths, system paths, traversal, and symlinks remain read-only or rejected.
+- Current state: the file browser has fixed roots, containment checks, source/system path denial, bounded redacted previews, single-file download, no-overwrite upload only under the server root, and explicit replacement/editing only for allowlisted small UTF-8 text/JSON config/profile files under /files/config, including top-level config text files, AdminServerSettings/*.json, and profile/CMPlayerStatsHUD/*.json. config.json replacement and editing reuse the existing raw-config secret and shape protections. Non-config editor reads/saves reject secret-looking values. Logs, backups, server binaries, source-tree paths, system paths, traversal, and symlinks remain read-only or rejected.
 - Risk: general web editing could become an accidental arbitrary file manager. Editing server files without validation can break installs, overwrite Workshop content, or leak secrets in previews/diffs.
-- Slice 1 design/audit contract: [safe-file-editing-contract.md](safe-file-editing-contract.md) defines the current file-browser/upload/replacement audit, future editable targets, must-not-edit boundaries, exact Slice 2 save/UI contract, and missing tests before runtime editor work starts.
-- Proposed slice: keep broad file editing out of scope. Slice 2 may add only a narrow `/files/config` text editor for existing editable candidates from the contract, reusing the replacement validation, backup, audit, atomic publish, and mutation recovery pattern. Do not add recursive delete/move, arbitrary path editing, server-root overwrites, generic backup/log mutation, or a general file manager.
-- Files/modules touched by the replacement foundation: src/armactl/web/services/file_replacements.py, src/armactl/web/services/filesystem_listing.py, src/armactl/web/routes/files.py, src/armactl/web/templates/files.html, tests/test_web_files.py.
-- Validation/smoke needed: existing replacement tests plus Slice 2 editor tests for edit-link visibility, GET edit read-only rendering, size/UTF-8/secret rejection before render, stale baseline rejection, JSON/config validation, backup creation, same-directory temp staging, atomic publish, audit/pending fallback, failed-write recovery, no raw path/secret/traceback in UI or errors, and absence of delete/rename/move/copy/bulk controls.
+- Contract/status: [safe-file-editing-contract.md](safe-file-editing-contract.md) defines the current file-browser/upload/replacement/editor audit, editable targets, must-not-edit boundaries, runtime save/UI contract, and focused editor test coverage.
+- Closed slice: broad file editing stays out of scope. The runtime editor adds only a narrow `/files/config` text editor for existing editable candidates from the contract, reusing the replacement validation, backup, audit, atomic publish, and mutation recovery pattern. Do not add recursive delete/move, arbitrary path editing, server-root overwrites, generic backup/log mutation, or a general file manager.
+- Files/modules touched by the replacement/editor foundation: src/armactl/web/services/file_replacements.py, src/armactl/web/services/filesystem_listing.py, src/armactl/web/routes/files.py, src/armactl/web/templates/files.html, src/armactl/web/templates/file_edit.html, src/armactl/locales/en.json, src/armactl/locales/uk.json, tests/test_web_files.py.
+- Validation/smoke status: focused tests cover replacement plus editor link visibility, GET edit read-only rendering, size/UTF-8/secret rejection before render, stale baseline rejection before mutation work, JSON/config validation, backup creation, same-directory temp staging, atomic publish, audit/pending fallback, controlled recovery, no raw path/secret/traceback in UI or errors, and absence of delete/rename/move/copy/bulk controls. Manual browser smoke should still verify the operator flow before deploy.
 - Stop condition: operators can replace or edit only explicitly allowed small existing config/profile text targets through backup, validation, atomic publish, audit, pending restart, and controlled recovery. Broad editing and delete remain out of scope.
 
 #### 6. Project-Wide Reuse And SOLID Duplication Audit

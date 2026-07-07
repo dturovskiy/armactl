@@ -1,7 +1,7 @@
 # Safe File Editing Contract
 
-This is the Slice 1 read-only design and allowlist audit for future narrow file
-editing. It documents the contract for Slice 2; it does not implement an editor.
+This is the current narrow safe file editing contract. It began as the Slice 1
+read-only design and now also records the implemented runtime editor contract.
 
 ## Current File Browser Audit
 
@@ -57,9 +57,9 @@ Current recovery and audit rules:
 - Replacement writes outcome audit after publish and avoids raw absolute paths
   and secrets in audit details.
 
-## Editable Targets For Slice 2
+## Editable Runtime Targets
 
-Slice 2 must add a narrow text editor, not a general file manager. A file is
+The runtime editor is a narrow text editor, not a general file manager. A file is
 editable only when all of these are true:
 
 - It is under `/files/config`.
@@ -83,10 +83,10 @@ Initial editable target classes:
 - `AdminServerSettings/*.json`.
 - `profile/CMPlayerStatsHUD/*.json`.
 
-For nested config/profile directories, Slice 2 should start JSON-only unless the
-replacement allowlist is intentionally broadened and tests lock that broader
-scope. If a replacement candidate is valid but outside the editor allowlist, the
-UI may keep the existing replace upload action but must not show `Edit`.
+Nested config/profile directories stay JSON-only unless the replacement
+allowlist is intentionally broadened and tests lock that broader scope. If a
+replacement candidate is valid but outside the editor allowlist, the UI may keep
+the existing replace upload action but must not show `Edit`.
 
 ## Must Not Edit
 
@@ -108,7 +108,7 @@ The editor must not edit:
 - Recursive, bulk, delete, rename, move, copy, chmod/chown, or archive
   operations.
 
-## Reuse Contract For Slice 2
+## Runtime Reuse Contract
 
 The runtime editor must not create a second editing pipeline. It must reuse the
 existing owning modules unless
@@ -155,7 +155,7 @@ Do not duplicate:
   path denial, .git/.venv denial, or symlink rejection.
 - Preview/read redaction logic, especially saving redacted preview text.
 
-Allowed new code:
+The implemented code shape should stay limited to:
 
 - A small service-layer editor DTO/read/save helper in file_replacements, or a
   deliberately extracted helper used by both replacement upload and editor save.
@@ -167,7 +167,7 @@ Allowed new code:
 - Minimal page copy or translation strings needed to expose the narrow editor
   safely.
 
-## Slice 2 Save Contract
+## Runtime Save Contract
 
 GET edit page:
 
@@ -209,7 +209,7 @@ POST save:
 No-op saves should not create backups, write mutation audits, or mark restart
 pending.
 
-## Slice 2 UI Contract
+## Runtime UI Contract
 
 - Show `Edit` only for files that pass the editor allowlist.
 - Do not show `Edit` for directories or non-editable files.
@@ -245,7 +245,7 @@ Existing tests already cover:
   pending restart tracking, no-op behavior, and audit redaction.
 - Shared mutation recovery fallback behavior.
 
-Missing Slice 2 tests:
+Runtime editor tests now cover:
 
 - `Edit` link visibility only for editable files, including no edit links for
   directories, logs, backups, server files, binaries, deep nested files, and

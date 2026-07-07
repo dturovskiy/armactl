@@ -1614,6 +1614,10 @@
     "Edit unavailable": "Редагування недоступне",
     "Single-file download is available; upload is limited to server files. Editing and replacement are limited to allowlisted config/profile files; delete/rename actions are not available.": "Доступне завантаження окремих файлів; upload обмежено файлами сервера. Редагування і заміна обмежені allowlist для config/profile файлів; delete/rename недоступні.",
     "File changed on disk. Reload before saving.": "Файл змінився на диску. Перезавантажте перед збереженням.",
+    "File replacement unavailable.": "Заміна файлу недоступна.",
+    "Replacement file too large.": "Файл заміни завеликий.",
+    "Replacement file is not valid for this target.": "Файл заміни недійсний для цієї цілі.",
+    "Replacement file must be UTF-8 text.": "Файл заміни має бути текстом UTF-8.",
     "Editable file contains secret-looking values.": "Файл для редагування містить значення, схожі на секрети.",
     "Edit": "Редагувати",
     "Editor": "Редактор"

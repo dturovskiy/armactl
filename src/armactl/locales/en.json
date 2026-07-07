@@ -1031,6 +1031,10 @@
     "Edit unavailable": "Edit unavailable",
     "Single-file download is available; upload is limited to server files. Editing and replacement are limited to allowlisted config/profile files; delete/rename actions are not available.": "Single-file download is available; upload is limited to server files. Editing and replacement are limited to allowlisted config/profile files; delete/rename actions are not available.",
     "File changed on disk. Reload before saving.": "File changed on disk. Reload before saving.",
+    "File replacement unavailable.": "File replacement unavailable.",
+    "Replacement file too large.": "Replacement file too large.",
+    "Replacement file is not valid for this target.": "Replacement file is not valid for this target.",
+    "Replacement file must be UTF-8 text.": "Replacement file must be UTF-8 text.",
     "Editable file contains secret-looking values.": "Editable file contains secret-looking values.",
     "Edit": "Edit",
     "Editor": "Editor"
