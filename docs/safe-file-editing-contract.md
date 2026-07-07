@@ -81,10 +81,12 @@ Initial editable target classes:
 - One-level profile/config files under `profile/`, `profiles/`, and `settings/`
   with the same safe text suffixes.
 - `AdminServerSettings/*.json`.
-- `profile/CMPlayerStatsHUD/*.json`.
+- Nested JSON files under `profile/`, for example `profile/DOE_config/*.json` and `profile/CMPlayerStatsHUD/*.json`.
+- Nested JSON files under `AdminServerSettings/`, for mod/admin-server settings owned by server operators.
 
-Nested config/profile directories stay JSON-only unless the replacement
-allowlist is intentionally broadened and tests lock that broader scope. If a
+Nested `profile/` and `AdminServerSettings/` directories stay JSON-only.
+Other nested config directories remain denied unless the replacement allowlist is
+intentionally broadened and tests lock that broader scope. If a
 replacement candidate is valid but outside the editor allowlist, the UI may keep
 the existing replace upload action but must not show `Edit`.
 
@@ -235,10 +237,12 @@ Existing tests already cover:
   audit failure behavior.
 - Replacement visibility for safe config candidates only.
 - Replacement of top-level profile text files, `config.json`,
-  `AdminServerSettings/*.json`, and `profile/CMPlayerStatsHUD/*.json`.
+  `AdminServerSettings/*.json`, nested `AdminServerSettings/**/*.json`, and
+  nested `profile/**/*.json` files.
 - Replacement rejection for read-only roots, server binaries, logs, backups,
   invalid JSON, binary content, oversize content, traversal, absolute paths,
-  `.git`, `.venv`, symlinks, and unknown/deep nested config paths.
+  `.git`, `.venv`, symlinks, unknown nested config paths, and nested
+  non-JSON profile/AdminServerSettings paths.
 - Replacement backup creation, intent/outcome audit order, pending restart
   tracking, pending fallback, outcome-audit failure, and controlled error text.
 - Config editor safe field allowlist, raw config secret protections, backups,

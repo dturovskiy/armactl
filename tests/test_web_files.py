@@ -1061,9 +1061,25 @@ def test_read_editable_replacement_text_returns_safe_dto_for_allowed_targets(
     config = _config_root(tmp_path)
     profile_path = config / "profile.cfg"
     profile_path.write_text("hostname = Test Server\n", encoding="utf-8")
+    nested_profile_path = config / "profile" / "DOE_config" / "DOE_GMBudgets.json"
+    nested_profile_path.parent.mkdir(parents=True)
+    nested_profile_path.write_text('{"budget": 42}\n', encoding="utf-8")
+    nested_admin_path = config / "AdminServerSettings" / "DOE_mod" / "settings.json"
+    nested_admin_path.parent.mkdir(parents=True)
+    nested_admin_path.write_text('{"enabled": true}\n', encoding="utf-8")
     config_path = _write_default_config_json(config)
 
     profile = read_editable_replacement_text(tmp_path, "config", "profile.cfg")
+    nested_profile = read_editable_replacement_text(
+        tmp_path,
+        "config",
+        "profile/DOE_config/DOE_GMBudgets.json",
+    )
+    nested_admin = read_editable_replacement_text(
+        tmp_path,
+        "config",
+        "AdminServerSettings/DOE_mod/settings.json",
+    )
     config_json = read_editable_replacement_text(tmp_path, "config", "config.json")
 
     assert profile.root_id == "config"
@@ -1075,6 +1091,24 @@ def test_read_editable_replacement_text_returns_safe_dto_for_allowed_targets(
     assert profile.text == "hostname = Test Server\n"
     assert profile.baseline_fingerprint.startswith("sha256:")
 
+    assert nested_profile.root_id == "config"
+    assert nested_profile.relative_path == "profile/DOE_config/DOE_GMBudgets.json"
+    assert nested_profile.display_name == "DOE_GMBudgets.json"
+    assert nested_profile.breadcrumbs[-2:] == ("DOE_config", "DOE_GMBudgets.json")
+    assert nested_profile.file_kind == "profile-file"
+    assert nested_profile.size == nested_profile_path.stat().st_size
+    assert nested_profile.text == '{"budget": 42}\n'
+    assert nested_profile.baseline_fingerprint.startswith("sha256:")
+
+    assert nested_admin.root_id == "config"
+    assert nested_admin.relative_path == "AdminServerSettings/DOE_mod/settings.json"
+    assert nested_admin.display_name == "settings.json"
+    assert nested_admin.breadcrumbs[-2:] == ("DOE_mod", "settings.json")
+    assert nested_admin.file_kind == "profile-file"
+    assert nested_admin.size == nested_admin_path.stat().st_size
+    assert nested_admin.text == '{"enabled": true}\n'
+    assert nested_admin.baseline_fingerprint.startswith("sha256:")
+
     assert config_json.root_id == "config"
     assert config_json.relative_path == "config.json"
     assert config_json.file_kind == "config-json"
@@ -1084,7 +1118,7 @@ def test_read_editable_replacement_text_returns_safe_dto_for_allowed_targets(
     assert "raw-admin-secret" not in config_json.text
     assert config_json.baseline_fingerprint.startswith("sha256:")
 
-    for dto in (profile, config_json):
+    for dto in (profile, nested_profile, nested_admin, config_json):
         safe_projection = json.dumps(dto.__dict__, ensure_ascii=False, default=str)
         assert str(tmp_path) not in safe_projection
         assert str(config) not in safe_projection
@@ -1099,8 +1133,9 @@ def test_read_editable_replacement_text_returns_safe_dto_for_allowed_targets(
         ".venv/secret.txt",
         "missing.cfg",
         "profile",
-        "profile/OtherTool/state.json",
-        "AdminServerSettings/nested/admins.json",
+        "profile/OtherTool/state.cfg",
+        "profiles/OtherTool/state.json",
+        "AdminServerSettings/nested/admins.cfg",
     ],
 )
 def test_read_editable_replacement_text_rejects_unsafe_or_unavailable_targets(
@@ -1417,9 +1452,17 @@ def test_edit_link_visible_only_for_safe_config_candidates(tmp_path: Path):
         "{}",
         encoding="utf-8",
     )
+    (config / "profile" / "OtherTool" / "state.cfg").write_text(
+        "ok=true\n",
+        encoding="utf-8",
+    )
     (config / "AdminServerSettings" / "nested").mkdir(parents=True)
     (config / "AdminServerSettings" / "nested" / "admins.json").write_text(
         "{}",
+        encoding="utf-8",
+    )
+    (config / "AdminServerSettings" / "nested" / "admins.cfg").write_text(
+        "admins=[]\n",
         encoding="utf-8",
     )
     (config / "logs" / "run").mkdir(parents=True)
@@ -1453,9 +1496,17 @@ def test_edit_link_visible_only_for_safe_config_candidates(tmp_path: Path):
     assert "/files/config/edit?path=profile.bin" not in config_response.text
     assert "/files/config/edit?path=profile#file-editor" not in config_response.text
     assert "/files/config/edit?path=logs" not in config_logs_response.text
-    assert "/files/config/edit?path=profile%2FOtherTool" not in other_tool_response.text
     assert (
-        "/files/config/edit?path=AdminServerSettings%2Fnested"
+        "/files/config/edit?path=profile%2FOtherTool%2Fstate.json#file-editor"
+        in other_tool_response.text
+    )
+    assert "/files/config/edit?path=profile%2FOtherTool%2Fstate.cfg" not in other_tool_response.text
+    assert (
+        "/files/config/edit?path=AdminServerSettings%2Fnested%2Fadmins.json#file-editor"
+        in nested_settings_response.text
+    )
+    assert (
+        "/files/config/edit?path=AdminServerSettings%2Fnested%2Fadmins.cfg"
         not in nested_settings_response.text
     )
     assert "/files/server/edit" not in server_response.text
@@ -1518,16 +1569,35 @@ def test_edit_get_rejects_unsafe_and_non_editable_targets(tmp_path: Path):
         "{}",
         encoding="utf-8",
     )
+    (config / "profile" / "OtherTool" / "state.cfg").write_text(
+        "ok=true\n",
+        encoding="utf-8",
+    )
+    (config / "AdminServerSettings" / "nested").mkdir(parents=True)
+    (config / "AdminServerSettings" / "nested" / "admins.json").write_text(
+        "{}",
+        encoding="utf-8",
+    )
+    (config / "AdminServerSettings" / "nested" / "admins.cfg").write_text(
+        "admins=[]\n",
+        encoding="utf-8",
+    )
     (config / "logs" / "run").mkdir(parents=True)
     (config / "logs" / "run" / "console.log").write_text("log", encoding="utf-8")
     _server_root(tmp_path).joinpath("ArmaReforgerServer").write_bytes(bytes([0x7F]) + b"ELF")
     client = _login_owner(tmp_path)
 
+    allowed_profile = _get_edit(client, "profile/OtherTool/state.json")
+    allowed_admin = _get_edit(client, "AdminServerSettings/nested/admins.json")
+    assert allowed_profile.status_code == 200
+    assert allowed_admin.status_code == 200
+
     cases = (
         ("config", "../server/evil.cfg", "Unsafe file path."),
         ("config", "/etc/passwd", "Unsafe file path."),
         ("config", "logs/run/console.log", "File replacement unavailable."),
-        ("config", "profile/OtherTool/state.json", "File replacement unavailable."),
+        ("config", "profile/OtherTool/state.cfg", "File replacement unavailable."),
+        ("config", "AdminServerSettings/nested/admins.cfg", "File replacement unavailable."),
         ("config", "profile.bin", "File replacement unavailable."),
         ("config", "profile", "File replacement unavailable."),
         ("server", "ArmaReforgerServer", "File replacement unavailable."),
@@ -1914,6 +1984,96 @@ def test_replace_profile_text_file_creates_backup_audit_and_pending_restart(
     assert item.details == "profile_file"
 
 
+def test_replace_nested_profile_json_file(
+    tmp_path: Path,
+):
+    config = _config_root(tmp_path)
+    profile_dir = config / "profile" / "DOE_config"
+    profile_dir.mkdir(parents=True)
+    target = profile_dir / "DOE_GMBudgets.json"
+    target.write_text('{"budget": 42}\n', encoding="utf-8")
+    client = _login_owner(tmp_path)
+
+    listing = client.get(
+        "/files/config?path=profile%2FDOE_config",
+        follow_redirects=False,
+    )
+    token = _replace_token(client)
+    response = _post_replace(
+        client,
+        token,
+        "profile/DOE_config/DOE_GMBudgets.json",
+        b'{"budget": 84}\n',
+        filename="DOE_GMBudgets.json",
+    )
+
+    assert listing.status_code == 200
+    assert (
+        "/files/config/edit?path=profile%2FDOE_config%2FDOE_GMBudgets.json#file-editor"
+        in listing.text
+    )
+    assert (
+        'action="/files/config/replace?path='
+        "profile%2FDOE_config%2FDOE_GMBudgets.json"
+        '#file-browser"'
+    ) in listing.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/files/config?path=profile%2FDOE_config"
+    assert json.loads(target.read_text(encoding="utf-8")) == {"budget": 84}
+    backups = _replacement_backups(tmp_path)
+    assert len(backups) == 1
+    assert json.loads(backups[0].read_text(encoding="utf-8")) == {"budget": 42}
+    assert "profile__DOE_config" in backups[0].name
+    events = _audit_events(tmp_path)[-2:]
+    assert events[0]["target"] == "config:profile/DOE_config/DOE_GMBudgets.json"
+    assert events[1]["details"]["file_kind"] == "profile-file"
+
+
+def test_replace_nested_admin_server_settings_json_file(
+    tmp_path: Path,
+):
+    config = _config_root(tmp_path)
+    settings_dir = config / "AdminServerSettings" / "DOE_mod"
+    settings_dir.mkdir(parents=True)
+    target = settings_dir / "settings.json"
+    target.write_text('{"enabled": false}\n', encoding="utf-8")
+    client = _login_owner(tmp_path)
+
+    listing = client.get(
+        "/files/config?path=AdminServerSettings%2FDOE_mod",
+        follow_redirects=False,
+    )
+    token = _replace_token(client)
+    response = _post_replace(
+        client,
+        token,
+        "AdminServerSettings/DOE_mod/settings.json",
+        b'{"enabled": true}\n',
+        filename="settings.json",
+    )
+
+    assert listing.status_code == 200
+    assert (
+        "/files/config/edit?path=AdminServerSettings%2FDOE_mod%2Fsettings.json#file-editor"
+        in listing.text
+    )
+    assert (
+        'action="/files/config/replace?path='
+        "AdminServerSettings%2FDOE_mod%2Fsettings.json"
+        '#file-browser"'
+    ) in listing.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/files/config?path=AdminServerSettings%2FDOE_mod"
+    assert json.loads(target.read_text(encoding="utf-8")) == {"enabled": True}
+    backups = _replacement_backups(tmp_path)
+    assert len(backups) == 1
+    assert json.loads(backups[0].read_text(encoding="utf-8")) == {"enabled": False}
+    assert "AdminServerSettings__DOE_mod" in backups[0].name
+    events = _audit_events(tmp_path)[-2:]
+    assert events[0]["target"] == "config:AdminServerSettings/DOE_mod/settings.json"
+    assert events[1]["details"]["file_kind"] == "profile-file"
+
+
 def test_replace_nested_cm_player_stats_profile_json_file(
     tmp_path: Path,
 ):
@@ -1999,9 +2159,9 @@ def test_replace_admin_server_settings_json_file(
 @pytest.mark.parametrize(
     "relative_path",
     [
-        "profile/OtherTool/state.json",
-        "profile/CMPlayerStatsHUD/nested/state.json",
-        "AdminServerSettings/nested/admins.json",
+        "profile/OtherTool/state.cfg",
+        "profiles/OtherTool/state.json",
+        "AdminServerSettings/nested/admins.cfg",
     ],
 )
 def test_replace_rejects_unknown_or_too_deep_nested_config_paths(

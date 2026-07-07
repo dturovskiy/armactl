@@ -51,8 +51,8 @@ _TEXT_SUFFIXES = frozenset(
 _MUTABLE_CONFIG_DIRS = frozenset({"profile", "profiles", "settings"})
 _MUTABLE_NESTED_CONFIG_DIRS = {
     "adminserversettings": 2,
-    "profile/cmplayerstatshud": 3,
 }
+_MUTABLE_RECURSIVE_JSON_DIRS = frozenset({"adminserversettings", "profile"})
 _READ_ONLY_CONFIG_DIRS = frozenset({"logs", "backups"})
 _DENIED_REPLACEMENT_SUFFIXES = (
     ".bak",
@@ -198,6 +198,9 @@ def _is_safe_config_replacement_path(relative_path: str) -> bool:
         return suffix in _TEXT_SUFFIXES
     if len(parts) == 2 and lowered[0] in _MUTABLE_CONFIG_DIRS:
         return suffix in _TEXT_SUFFIXES
+
+    if len(parts) >= 3 and lowered[0] in _MUTABLE_RECURSIVE_JSON_DIRS:
+        return suffix == ".json"
 
     normalized_dir = "/".join(lowered[:-1])
     expected_depth = _MUTABLE_NESTED_CONFIG_DIRS.get(normalized_dir)
