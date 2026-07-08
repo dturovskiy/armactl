@@ -364,11 +364,268 @@ def test_jobs_page_shows_expired_worker_lease_diagnostic_safely(tmp_path: Path):
     assert response.status_code == 200
     assert "Worker lease expired." in response.text
     assert "expired lease" in response.text
-    assert "diagnostics only" in response.text
+    assert "Mark abandoned" in response.text
+    assert "Does not kill a worker; only marks expired metadata" in response.text
+    assert "Review job details to mark abandoned." in response.text
     assert "The running job remains visible" in response.text
     assert "worker1234" not in response.text
     assert "Traceback" not in response.text
     assert "ARMACTL_WEB_SESSION_SECRET" not in response.text
+
+
+def test_post_mark_stale_running_job_abandoned_updates_expired_running_metadata(
+    tmp_path: Path,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import create_job, get_job, mark_job_running
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    db_path = tmp_path / "web" / "web.db"
+    job = create_job(db_path, kind="safe:expired", requested_by_username="owner")
+    running = mark_job_running(db_path, job.id, worker_id="worker1234")
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE web_jobs
+            SET worker_heartbeat_at = ?, worker_lease_expires_at = ?
+            WHERE id = ?
+            """,
+            (
+                "2000-01-01T00:00:00+00:00",
+                "2000-01-01T00:00:00+00:00",
+                running.id,
+            ),
+        )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+
+    response = client.post(
+        f"/jobs/{running.id}/mark-abandoned",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    refreshed = get_job(db_path, running.id)
+    audit_events = _audit_events(tmp_path)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/jobs"
+    assert refreshed.status == "abandoned"
+    assert refreshed.finished_at is not None
+    assert "no worker process was killed" in refreshed.result_message
+    assert audit_events[-1]["action"] == "job.stale-running.mark-abandoned"
+    assert audit_events[-1]["success"] is True
+    assert audit_events[-1]["details"]["marked"] == "true"
+    assert audit_events[-1]["details"]["job_status"] == "abandoned"
+    assert "worker1234" not in _audit_log_text(tmp_path)
+
+
+def test_post_mark_stale_running_job_abandoned_rejects_fresh_running_lease(
+    tmp_path: Path,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import create_job, get_job, mark_job_running
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    db_path = tmp_path / "web" / "web.db"
+    job = create_job(db_path, kind="safe:fresh", requested_by_username="owner")
+    running = mark_job_running(db_path, job.id, worker_id="worker1234")
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+
+    response = client.post(
+        f"/jobs/{running.id}/mark-abandoned",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 409
+    assert response.text == "Job was not eligible for stale metadata recovery."
+    assert get_job(db_path, running.id).status == "running"
+    assert "worker1234" not in response.text
+    assert "Traceback" not in response.text
+
+
+def test_mark_stale_running_job_abandoned_route_keeps_auth_permission_csrf_guards(
+    tmp_path: Path,
+    set_web_owner_permissions,
+):
+    from armactl.web.app import create_app
+    from armactl.web.auth import permissions
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+
+    unauthenticated = _client(create_app(data_root=tmp_path))
+    unauth_response = unauthenticated.post(
+        "/jobs/1/mark-abandoned",
+        data={},
+        follow_redirects=False,
+    )
+
+    set_web_owner_permissions(set())
+    denied = _client(create_app(data_root=tmp_path))
+    _login(denied, "owner", password)
+    denied_response = denied.post(
+        "/jobs/1/mark-abandoned",
+        data={},
+        follow_redirects=False,
+    )
+
+    set_web_owner_permissions(permissions.ALL_PERMISSIONS)
+    csrf_client = _client(create_app(data_root=tmp_path))
+    _login(csrf_client, "owner", password)
+    csrf_response = csrf_client.post(
+        "/jobs/1/mark-abandoned",
+        data={"csrf_token": "bad-token"},
+        follow_redirects=False,
+    )
+
+    assert unauth_response.status_code == 303
+    assert unauth_response.headers["location"] == "/login"
+    assert denied_response.status_code == 403
+    assert denied_response.text == "Permission denied."
+    assert csrf_response.status_code == 403
+    assert csrf_response.text == "Invalid CSRF token."
+
+
+def test_jobs_page_mark_abandoned_button_only_for_eligible_stale_running_rows(
+    tmp_path: Path,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import create_job, mark_job_running
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    db_path = tmp_path / "web" / "web.db"
+    expired_job = create_job(db_path, kind="safe:expired", requested_by_username="owner")
+    expired = mark_job_running(db_path, expired_job.id, worker_id="worker1234")
+    fresh_job = create_job(db_path, kind="safe:fresh", requested_by_username="owner")
+    fresh = mark_job_running(db_path, fresh_job.id, worker_id="worker5678")
+    unknown_job = create_job(db_path, kind="safe:unknown", requested_by_username="owner")
+    unknown = mark_job_running(db_path, unknown_job.id)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE web_jobs
+            SET worker_heartbeat_at = ?, worker_lease_expires_at = ?
+            WHERE id = ?
+            """,
+            (
+                "2000-01-01T00:00:00+00:00",
+                "2000-01-01T00:00:00+00:00",
+                expired.id,
+            ),
+        )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/jobs", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert f"action=\"/jobs/{expired.id}/mark-abandoned\"" in response.text
+    assert f"action=\"/jobs/{unknown.id}/mark-abandoned\"" in response.text
+    assert f"action=\"/jobs/{fresh.id}/mark-abandoned\"" not in response.text
+    assert response.text.count("Mark abandoned") == 2
+    assert "Does not kill a worker; only marks expired metadata" in response.text
+    assert "worker1234" not in response.text
+    assert "worker5678" not in response.text
+
+
+def test_mark_stale_running_job_abandoned_audit_failure_is_controlled(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import create_job, get_job, mark_job_running
+    from armactl.web.services import job_recovery
+    from armactl.web.services.audit import AuditLogError
+
+    def fail_audit(*args, **kwargs):
+        raise AuditLogError("disk full token=raw-job-secret")
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    db_path = tmp_path / "web" / "web.db"
+    job = create_job(db_path, kind="safe:expired", requested_by_username="owner")
+    running = mark_job_running(db_path, job.id, worker_id="worker1234")
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE web_jobs
+            SET worker_heartbeat_at = ?, worker_lease_expires_at = ?
+            WHERE id = ?
+            """,
+            (
+                "2000-01-01T00:00:00+00:00",
+                "2000-01-01T00:00:00+00:00",
+                running.id,
+            ),
+        )
+    monkeypatch.setattr(job_recovery, "append_audit_event", fail_audit)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+
+    response = client.post(
+        f"/jobs/{running.id}/mark-abandoned",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 500
+    assert response.text == (
+        "Job recovery action could not be completed because audit logging failed."
+    )
+    assert get_job(db_path, running.id).status == "running"
+    assert "raw-job-secret" not in response.text
+    assert "Traceback" not in response.text
+
+
+def test_mark_stale_running_job_abandoned_response_does_not_render_raw_output(
+    tmp_path: Path,
+):
+    from armactl.web.app import create_app
+    from armactl.web.jobs import create_job, mark_job_running
+
+    password = "owner jobs password"
+    setup_owner_user(tmp_path, "owner", password)
+    db_path = tmp_path / "web" / "web.db"
+    job = create_job(db_path, kind="safe:expired", requested_by_username="owner")
+    running = mark_job_running(db_path, job.id, worker_id="worker1234")
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE web_jobs
+            SET stdout_tail = ?, stderr_tail = ?, worker_heartbeat_at = ?,
+                worker_lease_expires_at = ?
+            WHERE id = ?
+            """,
+            (
+                "raw command /srv/arma/password-file secret=hunter2",
+                "ARMACTL_WEB_SESSION_SECRET=raw-secret",
+                "2000-01-01T00:00:00+00:00",
+                "2000-01-01T00:00:00+00:00",
+                running.id,
+            ),
+        )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _jobs_csrf_token(client)
+
+    response = client.post(
+        f"/jobs/{running.id}/mark-abandoned",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert "/srv/arma/password-file" not in response.text
+    assert "hunter2" not in response.text
+    assert "raw-secret" not in response.text
 
 
 def test_get_jobs_does_not_mutate_duplicate_or_expired_running_jobs(tmp_path: Path):

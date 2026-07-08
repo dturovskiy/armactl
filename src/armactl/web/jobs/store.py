@@ -4,18 +4,21 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from armactl import paths
 from armactl.redaction import redact_sensitive_text
 from armactl.web.jobs.models import (
+    JOB_STATUS_ABANDONED,
     JOB_STATUS_CANCELLED,
     JOB_STATUS_FAILED,
     JOB_STATUS_QUEUED,
     JOB_STATUS_RUNNING,
     JOB_STATUS_SUCCEEDED,
     JOB_STATUSES,
+    JOB_WORKER_LEASE_FRESH,
     TERMINAL_JOB_STATUSES,
     JobRecord,
 )
@@ -36,6 +39,12 @@ MAX_WORKER_ID_LENGTH = 120
 DEFAULT_WORKER_LEASE_SECONDS = 120
 DEFAULT_RECENT_JOB_LIMIT = 20
 MAX_RECENT_JOB_LIMIT = 100
+STALE_RUNNING_JOB_ABANDONED_STEP = "Stale running job marked abandoned"
+STALE_RUNNING_JOB_ABANDONED_MESSAGE = (
+    "Marked abandoned after worker lease became stale; no worker process was killed."
+)
+
+ActiveWorkerTokenChecker = Callable[[int, str], bool]
 
 _KIND_RE = re.compile(r"^[a-z][a-z0-9:_-]{0,79}$")
 _WORKER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,120}$")
@@ -323,6 +332,7 @@ def _ensure_transition(current_status: str, new_status: str) -> None:
     if current_status == JOB_STATUS_RUNNING and new_status in {
         JOB_STATUS_SUCCEEDED,
         JOB_STATUS_FAILED,
+        JOB_STATUS_ABANDONED,
     }:
         return
     raise JobTransitionError("Invalid web job status transition.")
@@ -844,6 +854,70 @@ def refresh_job_heartbeat(
             return _fetch_job(connection, normalized_job_id)
     except sqlite3.Error as exc:
         raise JobStoreError("Failed to refresh web job heartbeat.") from exc
+
+
+def _has_active_worker_token(
+    job: JobRecord,
+    active_worker_token_checker: ActiveWorkerTokenChecker | None,
+) -> bool:
+    if active_worker_token_checker is None or not job.worker_id:
+        return False
+    return active_worker_token_checker(job.id, job.worker_id)
+
+
+def mark_stale_running_job_abandoned(
+    db_path: Path,
+    job_id: int,
+    *,
+    result_message: str = STALE_RUNNING_JOB_ABANDONED_MESSAGE,
+    active_worker_token_checker: ActiveWorkerTokenChecker | None = None,
+) -> JobRecord | None:
+    """Mark stale running metadata abandoned without touching worker processes."""
+    normalized_job_id = _normalize_job_id(job_id)
+    normalized_message = _normalize_optional_text(
+        result_message,
+        max_length=MAX_JOB_MESSAGE_LENGTH,
+    )
+    now = _utc_now()
+
+    try:
+        with _connect(db_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            job = _fetch_job(connection, normalized_job_id)
+            if job.status != JOB_STATUS_RUNNING:
+                return None
+            if job.worker_lease_state == JOB_WORKER_LEASE_FRESH:
+                return None
+            if _has_active_worker_token(job, active_worker_token_checker):
+                return None
+
+            _ensure_transition(job.status, JOB_STATUS_ABANDONED)
+            cursor = connection.execute(
+                """
+                UPDATE web_jobs
+                SET status = ?,
+                    current_step = ?,
+                    result_message = ?,
+                    updated_at = ?,
+                    finished_at = COALESCE(finished_at, ?)
+                WHERE id = ?
+                  AND status = ?
+                """,
+                (
+                    JOB_STATUS_ABANDONED,
+                    STALE_RUNNING_JOB_ABANDONED_STEP,
+                    normalized_message,
+                    now,
+                    now,
+                    normalized_job_id,
+                    JOB_STATUS_RUNNING,
+                ),
+            )
+            if cursor.rowcount != 1:
+                return None
+            return _fetch_job(connection, normalized_job_id)
+    except sqlite3.Error as exc:
+        raise JobStoreError("Failed to mark stale web job abandoned.") from exc
 
 
 def mark_job_succeeded(

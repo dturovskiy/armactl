@@ -17,8 +17,8 @@ from armactl.web.auth.dependencies import (
     require_permission,
 )
 from armactl.web.auth.permissions import ACTIONS_RUN, JOBS_VIEW, SERVER_UPDATE
-from armactl.web.jobs.store import list_recent_jobs
-from armactl.web.services import job_integrity, server_job_actions
+from armactl.web.jobs.store import JobStoreError, list_recent_jobs
+from armactl.web.services import job_integrity, job_recovery, server_job_actions
 from armactl.web.services.pending_work import list_pending_work_with_fallback
 
 router = APIRouter()
@@ -42,6 +42,13 @@ def _render_jobs(request: Request, current: CurrentSession) -> Response:
         instance=paths.DEFAULT_INSTANCE_NAME,
     )
     jobs = list_recent_jobs(current.config.db_path, limit=25)
+    can_recover_stale_jobs = require_permission(current, ACTIONS_RUN)
+    stale_running_recovery_job_ids = {
+        job.id
+        for job in jobs
+        if can_recover_stale_jobs
+        and job_recovery.is_stale_running_job_recovery_eligible(job)
+    }
     response = request.app.state.templates.TemplateResponse(
         request=request,
         name="jobs.html",
@@ -49,6 +56,7 @@ def _render_jobs(request: Request, current: CurrentSession) -> Response:
             "current_user": current.user,
             "csrf_token": form_csrf.token,
             "jobs": jobs,
+            "stale_running_recovery_job_ids": stale_running_recovery_job_ids,
             "pending_work_items": pending_work_items,
             "job_store_diagnostics": job_store_diagnostics,
         },
@@ -190,6 +198,51 @@ def enqueue_server_update_route(
 ) -> Response:
     """Queue server update only after the service-layer version gate passes."""
     return _enqueue_server_update_job(request, csrf_token)
+
+
+@router.post("/jobs/{job_id}/mark-abandoned")
+def mark_stale_running_job_abandoned_route(
+    request: Request,
+    job_id: int,
+    csrf_token: str = Form(default=""),
+) -> Response:
+    """Mark stale running metadata abandoned without killing workers."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, ACTIONS_RUN):
+        return permission_denied_response()
+    if not validate_csrf_token(current.config.db_path, current.session.id, csrf_token):
+        return PlainTextResponse(
+            "Invalid CSRF token.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+    try:
+        result = job_recovery.mark_stale_running_job_abandoned_for_operator(
+            current.config.db_path,
+            job_id,
+            audit_log_path=current.config.audit_log_path,
+            username=current.user.username,
+            instance=paths.DEFAULT_INSTANCE_NAME,
+        )
+    except job_recovery.JobRecoveryAuditError as exc:
+        return PlainTextResponse(
+            str(exc),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    except JobStoreError:
+        return PlainTextResponse(
+            "Job recovery action failed.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    if not result.marked:
+        return PlainTextResponse(
+            result.message,
+            status_code=status.HTTP_409_CONFLICT,
+        )
+    return RedirectResponse("/jobs", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/jobs", response_class=HTMLResponse)

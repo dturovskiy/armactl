@@ -10,6 +10,7 @@ JOB_STATUS_RUNNING = "running"
 JOB_STATUS_SUCCEEDED = "succeeded"
 JOB_STATUS_FAILED = "failed"
 JOB_STATUS_CANCELLED = "cancelled"
+JOB_STATUS_ABANDONED = "abandoned"
 
 JOB_STATUSES = frozenset(
     {
@@ -18,6 +19,7 @@ JOB_STATUSES = frozenset(
         JOB_STATUS_SUCCEEDED,
         JOB_STATUS_FAILED,
         JOB_STATUS_CANCELLED,
+        JOB_STATUS_ABANDONED,
     }
 )
 TERMINAL_JOB_STATUSES = frozenset(
@@ -25,6 +27,7 @@ TERMINAL_JOB_STATUSES = frozenset(
         JOB_STATUS_SUCCEEDED,
         JOB_STATUS_FAILED,
         JOB_STATUS_CANCELLED,
+        JOB_STATUS_ABANDONED,
     }
 )
 

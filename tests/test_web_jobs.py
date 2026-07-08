@@ -11,6 +11,7 @@ from threading import Barrier, Lock
 import pytest
 
 from armactl.web.jobs import (
+    JOB_STATUS_ABANDONED,
     JOB_STATUS_CANCELLED,
     JOB_STATUS_FAILED,
     JOB_STATUS_QUEUED,
@@ -42,6 +43,7 @@ from armactl.web.jobs import (
     mark_job_failed,
     mark_job_running,
     mark_job_succeeded,
+    mark_stale_running_job_abandoned,
     refresh_job_heartbeat,
 )
 from armactl.web.jobs.store import MAX_JOB_OUTPUT_CHARS, TRUNCATED_JOB_OUTPUT_PREFIX
@@ -178,7 +180,7 @@ def test_ensure_web_db_creates_jobs_table(tmp_path: Path):
         "worker_lease_expires_at",
     }.issubset(_sqlite_columns(db_path, "web_jobs"))
     ensure_web_db(db_path)
-    assert _schema_meta(db_path)["schema_version"] == "14"
+    assert _schema_meta(db_path)["schema_version"] == "15"
 
 
 def test_enqueue_repairs_duplicate_queued_jobs_idempotently(tmp_path: Path):
@@ -499,6 +501,113 @@ def test_expired_running_worker_lease_is_diagnostic_only(tmp_path: Path):
     assert diagnostics[0].job_id == running.id
     assert diagnostics[0].recovery_action == "diagnostics_only"
     assert diagnostics[0].active_worker_known is False
+
+
+def test_expired_running_worker_lease_can_be_marked_abandoned(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+    job = create_job(db_path, kind="safe:expired", requested_by_username="owner")
+    running = mark_job_running(
+        db_path,
+        job.id,
+        worker_id="worker1234",
+        worker_lease_seconds=60,
+    )
+    expired_at = "2000-01-01T00:00:00+00:00"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE web_jobs
+            SET worker_heartbeat_at = ?, worker_lease_expires_at = ?
+            WHERE id = ?
+            """,
+            (expired_at, expired_at, running.id),
+        )
+
+    abandoned = mark_stale_running_job_abandoned(db_path, running.id)
+
+    assert abandoned is not None
+    assert abandoned.status == JOB_STATUS_ABANDONED
+    assert abandoned.is_terminal is True
+    assert abandoned.finished_at is not None
+    assert abandoned.current_step == "Stale running job marked abandoned"
+    assert "no worker process was killed" in abandoned.result_message
+    assert abandoned.worker_lease_state == "inactive"
+    assert [job.id for job in list_active_jobs(db_path)] == []
+
+
+def test_unknown_running_worker_lease_can_be_marked_abandoned(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+    job = create_job(db_path, kind="safe:unknown", requested_by_username="owner")
+    running = mark_job_running(db_path, job.id)
+
+    abandoned = mark_stale_running_job_abandoned(db_path, running.id)
+
+    assert abandoned is not None
+    assert abandoned.status == JOB_STATUS_ABANDONED
+    assert abandoned.finished_at is not None
+
+
+def test_fresh_or_live_running_worker_lease_cannot_be_marked_abandoned(
+    tmp_path: Path,
+):
+    db_path = _db_path(tmp_path)
+    fresh_job = create_job(db_path, kind="safe:fresh", requested_by_username="owner")
+    fresh = mark_job_running(
+        db_path,
+        fresh_job.id,
+        worker_id="worker1234",
+        worker_lease_seconds=60,
+    )
+
+    assert mark_stale_running_job_abandoned(db_path, fresh.id) is None
+    assert get_job(db_path, fresh.id).status == JOB_STATUS_RUNNING
+
+    live_job = create_job(db_path, kind="safe:live", requested_by_username="owner")
+    live = mark_job_running(
+        db_path,
+        live_job.id,
+        worker_id="worker5678",
+        worker_lease_seconds=60,
+    )
+    expired_at = "2000-01-01T00:00:00+00:00"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE web_jobs
+            SET worker_heartbeat_at = ?, worker_lease_expires_at = ?
+            WHERE id = ?
+            """,
+            (expired_at, expired_at, live.id),
+        )
+
+    assert (
+        mark_stale_running_job_abandoned(
+            db_path,
+            live.id,
+            active_worker_token_checker=lambda job_id, worker_id: True,
+        )
+        is None
+    )
+    assert get_job(db_path, live.id).status == JOB_STATUS_RUNNING
+
+
+def test_active_dedupe_ignores_abandoned_stale_running_row(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+    first = create_job(
+        db_path,
+        kind=SERVER_INSTALL_JOB_KIND,
+        requested_by_username="owner",
+    )
+    running = mark_job_running(db_path, first.id)
+
+    abandoned = mark_stale_running_job_abandoned(db_path, running.id)
+    created = enqueue_server_install(db_path, requested_by_username="owner")
+
+    assert abandoned is not None
+    assert abandoned.status == JOB_STATUS_ABANDONED
+    assert created.id != abandoned.id
+    assert created.status == JOB_STATUS_QUEUED
+    assert _active_job_ids(db_path, kind=SERVER_INSTALL_JOB_KIND) == [created.id]
 
 
 def test_fresh_running_worker_lease_is_not_repaired_or_reported(tmp_path: Path):

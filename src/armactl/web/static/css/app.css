@@ -2294,11 +2294,13 @@ button.warning {
   color: var(--accent);
 }
 
-.job-card-queued {
+.job-card-queued,
+.job-card-abandoned {
   border-left-color: var(--warning);
 }
 
-.job-status-queued {
+.job-status-queued,
+.job-status-abandoned {
   color: var(--warning);
 }
 

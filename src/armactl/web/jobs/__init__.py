@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from armactl.web.jobs.models import (
+    JOB_STATUS_ABANDONED,
     JOB_STATUS_CANCELLED,
     JOB_STATUS_FAILED,
     JOB_STATUS_QUEUED,
@@ -90,6 +91,7 @@ from armactl.web.jobs.store import (
     mark_job_failed,
     mark_job_running,
     mark_job_succeeded,
+    mark_stale_running_job_abandoned,
     refresh_job_heartbeat,
 )
 
@@ -140,6 +142,7 @@ __all__ = [
     "handle_server_update_check",
     "handle_server_update",
     "start_server_job_worker",
+    "JOB_STATUS_ABANDONED",
     "JOB_STATUS_CANCELLED",
     "JOB_STATUS_FAILED",
     "JOB_STATUS_QUEUED",
@@ -168,6 +171,7 @@ __all__ = [
     "list_recent_jobs",
     "mark_job_failed",
     "mark_job_running",
+    "mark_stale_running_job_abandoned",
     "mark_job_succeeded",
     "refresh_job_heartbeat",
 ]

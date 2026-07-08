@@ -7,7 +7,7 @@ import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 
-WEB_SCHEMA_VERSION = "14"
+WEB_SCHEMA_VERSION = "15"
 PRIVATE_FILE_MODE = 0o600
 _LEGACY_DEFAULT_TIMESTAMP = "1970-01-01T00:00:00+00:00"
 
@@ -194,6 +194,32 @@ def _ensure_web_csrf_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+_WEB_JOBS_COPY_COLUMNS = (
+    "id",
+    "kind",
+    "status",
+    "requested_by_user_id",
+    "requested_by_username",
+    "instance",
+    "progress_current",
+    "progress_total",
+    "current_step",
+    "result_message",
+    "stdout_tail",
+    "stderr_tail",
+    "error_message",
+    "error_class",
+    "created_at",
+    "updated_at",
+    "started_at",
+    "finished_at",
+    "worker_id",
+    "worker_started_at",
+    "worker_heartbeat_at",
+    "worker_lease_expires_at",
+)
+
+
 def _ensure_web_jobs_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
@@ -205,7 +231,8 @@ def _ensure_web_jobs_schema(connection: sqlite3.Connection) -> None:
                 'running',
                 'succeeded',
                 'failed',
-                'cancelled'
+                'cancelled',
+                'abandoned'
             )),
             requested_by_user_id INTEGER,
             requested_by_username TEXT NOT NULL CHECK(length(trim(requested_by_username)) > 0),
@@ -307,6 +334,83 @@ def _ensure_web_jobs_schema(connection: sqlite3.Connection) -> None:
         WHERE status = 'running'
         """
     )
+
+
+def _web_jobs_status_check_allows_abandoned(connection: sqlite3.Connection) -> bool:
+    row = connection.execute(
+        """
+        SELECT sql
+        FROM sqlite_master
+        WHERE type = ?
+          AND name = ?
+        """,
+        ("table", "web_jobs"),
+    ).fetchone()
+    if row is None:
+        return True
+    return 'abandoned' in str(row[0] or "")
+
+
+def _rebuild_web_jobs_with_current_status_check(connection: sqlite3.Connection) -> None:
+    columns = ", ".join(_quote_identifier(column) for column in _WEB_JOBS_COPY_COLUMNS)
+    foreign_keys_enabled = bool(connection.execute("PRAGMA foreign_keys").fetchone()[0])
+    connection.commit()
+    connection.execute("PRAGMA foreign_keys = OFF")
+    try:
+        connection.execute("DROP TABLE IF EXISTS web_jobs_new")
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS web_jobs_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL CHECK(length(trim(kind)) > 0),
+                status TEXT NOT NULL CHECK(status IN (
+                    'queued',
+                    'running',
+                    'succeeded',
+                    'failed',
+                    'cancelled',
+                    'abandoned'
+                )),
+                requested_by_user_id INTEGER,
+                requested_by_username TEXT NOT NULL CHECK(length(trim(requested_by_username)) > 0),
+                instance TEXT NOT NULL DEFAULT 'default' CHECK(length(trim(instance)) > 0),
+                progress_current INTEGER NOT NULL DEFAULT 0 CHECK(progress_current >= 0),
+                progress_total INTEGER NOT NULL DEFAULT 0 CHECK(progress_total >= 0),
+                current_step TEXT NOT NULL DEFAULT '',
+                result_message TEXT NOT NULL DEFAULT '',
+                stdout_tail TEXT NOT NULL DEFAULT '',
+                stderr_tail TEXT NOT NULL DEFAULT '',
+                error_message TEXT NOT NULL DEFAULT '',
+                error_class TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL CHECK(length(created_at) > 0),
+                updated_at TEXT NOT NULL CHECK(length(updated_at) > 0),
+                started_at TEXT,
+                finished_at TEXT,
+                worker_id TEXT NOT NULL DEFAULT '',
+                worker_started_at TEXT,
+                worker_heartbeat_at TEXT,
+                worker_lease_expires_at TEXT,
+                FOREIGN KEY(requested_by_user_id) REFERENCES web_users(id) ON DELETE SET NULL
+            )
+            """
+        )
+        connection.execute(
+            f"INSERT INTO web_jobs_new ({columns}) SELECT {columns} FROM web_jobs"
+        )
+        connection.execute("DROP TABLE web_jobs")
+        connection.execute("ALTER TABLE web_jobs_new RENAME TO web_jobs")
+        _ensure_web_jobs_schema(connection)
+        if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+            raise RuntimeError(
+                "web.db foreign key check failed while migrating web_jobs."
+            )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        if foreign_keys_enabled:
+            connection.execute("PRAGMA foreign_keys = ON")
 
 
 def _ensure_web_server_version_checks_schema(connection: sqlite3.Connection) -> None:
@@ -856,6 +960,13 @@ def _migration_14_web_job_worker_lease(connection: sqlite3.Connection) -> None:
     _ensure_web_jobs_schema(connection)
 
 
+def _migration_15_web_job_abandoned_status(connection: sqlite3.Connection) -> None:
+    _ensure_web_jobs_schema(connection)
+    if _web_jobs_status_check_allows_abandoned(connection):
+        return
+    _rebuild_web_jobs_with_current_status_check(connection)
+
+
 _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (1, _migration_1_auth_schema),
     (2, _migration_2_jobs_schema),
@@ -871,6 +982,7 @@ _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (12, _migration_12_current_roster_cache_counts),
     (13, _migration_13_player_session_scheduler_state),
     (14, _migration_14_web_job_worker_lease),
+    (15, _migration_15_web_job_abandoned_status),
 )
 
 def _read_schema_version(connection: sqlite3.Connection) -> int:

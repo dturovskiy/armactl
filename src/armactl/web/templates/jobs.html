@@ -99,7 +99,7 @@
             <dt>{{ t("Last heartbeat") }}</dt><dd>{% if diagnostic.worker_heartbeat_at %}{{ format_web_timestamp(diagnostic.worker_heartbeat_at) }}{% else %}{{ t("unknown") }}{% endif %}</dd>
             <dt>{{ t("Lease expired") }}</dt><dd>{% if diagnostic.worker_lease_expires_at %}{{ format_web_timestamp(diagnostic.worker_lease_expires_at) }}{% else %}{{ t("unknown") }}{% endif %}</dd>
             <dt>{{ t("Active in this process") }}</dt><dd>{% if diagnostic.active_worker_known %}{{ t("yes") }}{% else %}{{ t("no") }}{% endif %}</dd>
-            <dt>{{ t("Recovery") }}</dt><dd>{{ t("diagnostics only") }}</dd>
+            <dt>{{ t("Recovery") }}</dt><dd>{% if diagnostic.job_id in stale_running_recovery_job_ids %}{{ t("Review job details to mark abandoned.") }}{% else %}{{ t("diagnostics only") }}{% endif %}</dd>
           </dl>
         {% elif diagnostic.report_type == 'maintenance_report' %}
           <h3>{{ t("Job-store maintenance completed.") }}</h3>
@@ -185,7 +185,18 @@
               {% if job.worker_started_at %}<div><dt>{{ t("Worker started") }}</dt><dd>{{ format_web_timestamp(job.worker_started_at) }}</dd></div>{% endif %}
               {% if job.worker_heartbeat_at %}<div><dt>{{ t("Last heartbeat") }}</dt><dd>{{ format_web_timestamp(job.worker_heartbeat_at) }}</dd></div>{% endif %}
               {% if job.worker_lease_expires_at %}<div><dt>{{ t("Lease expires") }}</dt><dd>{{ format_web_timestamp(job.worker_lease_expires_at) }}</dd></div>{% endif %}
-              {% if job.status == "running" and job.worker_lease_state == "expired" %}<div><dt>{{ t("Recovery") }}</dt><dd>{{ t("diagnostics only") }}</dd></div>{% endif %}
+              {% if job.id in stale_running_recovery_job_ids %}
+                <div class="job-recovery-action">
+                  <dt>{{ t("Recovery") }}</dt>
+                  <dd>
+                    <form method="post" action="/jobs/{{ job.id }}/mark-abandoned" class="job-recovery-form">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <button type="submit">{{ t("Mark abandoned") }}</button>
+                      <p class="muted">{{ t("Does not kill a worker; only marks expired metadata after lease is stale.") }}</p>
+                    </form>
+                  </dd>
+                </div>
+              {% elif job.status == "running" and job.worker_lease_state == "expired" %}<div><dt>{{ t("Recovery") }}</dt><dd>{{ t("diagnostics only") }}</dd></div>{% endif %}
             </dl>
             {% if job.stdout_tail or job.stderr_tail %}
               <div class="job-output-grid">

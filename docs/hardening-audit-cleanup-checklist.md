@@ -6,6 +6,18 @@ Boundary note: this is an internal audit carryover checklist. Do not treat it as
 
 Правило для виконання: працювати тільки у WSL checkout `/home/deus/projects/armactl` на `feat/web-interface`. Windows checkout не використовувати для repo edits.
 
+## P1: Stale Running Job Recovery (Closed)
+
+Closed result:
+
+- The Jobs page has an explicit POST-only operator action for stale running job metadata.
+- Eligible rows are marked abandoned, not cancelled or handler failed.
+- Recovery requires a non-fresh worker lease and refuses rows with a live in-process worker token.
+- The action does not kill worker processes, does not fake cancellation, and does not run automatic destructive repair.
+- Abandoned rows remain visible for audit/history but no longer block active queued/running dedupe.
+- Intent/outcome audit uses safe counts/status metadata only; raw command output, paths, worker tokens, and secrets are not emitted by the recovery result.
+
+
 ## P1: Web Service Restart CLI Ambiguity (Closed)
 
 Closed result:

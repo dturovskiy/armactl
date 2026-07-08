@@ -303,6 +303,125 @@ def test_ensure_web_db_migrates_v7_minimal_jobs_before_maintenance(tmp_path: Pat
     assert _schema_meta(db_path) == first_meta
 
 
+def test_ensure_web_db_migrates_v14_jobs_status_check_for_abandoned(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "web" / "web.db"
+    db_path.parent.mkdir(parents=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE web_schema_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO web_schema_meta(key, value)
+            VALUES ("schema_version", "14")
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE web_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE CHECK(length(trim(username)) > 0),
+                password_hash TEXT NOT NULL CHECK(length(password_hash) > 0),
+                role TEXT NOT NULL CHECK(role = "owner"),
+                is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+                created_at TEXT NOT NULL CHECK(length(created_at) > 0),
+                updated_at TEXT NOT NULL CHECK(length(updated_at) > 0)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE web_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL CHECK(length(trim(kind)) > 0),
+                status TEXT NOT NULL CHECK(status IN (
+                    "queued",
+                    "running",
+                    "succeeded",
+                    "failed",
+                    "cancelled"
+                )),
+                requested_by_user_id INTEGER,
+                requested_by_username TEXT NOT NULL CHECK(length(trim(requested_by_username)) > 0),
+                instance TEXT NOT NULL DEFAULT "default" CHECK(length(trim(instance)) > 0),
+                progress_current INTEGER NOT NULL DEFAULT 0 CHECK(progress_current >= 0),
+                progress_total INTEGER NOT NULL DEFAULT 0 CHECK(progress_total >= 0),
+                current_step TEXT NOT NULL DEFAULT "",
+                result_message TEXT NOT NULL DEFAULT "",
+                stdout_tail TEXT NOT NULL DEFAULT "",
+                stderr_tail TEXT NOT NULL DEFAULT "",
+                error_message TEXT NOT NULL DEFAULT "",
+                error_class TEXT NOT NULL DEFAULT "",
+                created_at TEXT NOT NULL CHECK(length(created_at) > 0),
+                updated_at TEXT NOT NULL CHECK(length(updated_at) > 0),
+                started_at TEXT,
+                finished_at TEXT,
+                worker_id TEXT NOT NULL DEFAULT "",
+                worker_started_at TEXT,
+                worker_heartbeat_at TEXT,
+                worker_lease_expires_at TEXT
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO web_jobs(
+                kind,
+                status,
+                requested_by_username,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                "safe:old",
+                "running",
+                "owner",
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T00:00:00+00:00"
+            )
+            """
+        )
+
+    ensure_web_db(db_path)
+
+    assert _schema_version(db_path) == WEB_SCHEMA_VERSION
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO web_jobs(
+                kind,
+                status,
+                requested_by_username,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                "safe:old",
+                "abandoned",
+                "owner",
+                "2026-01-01T00:00:01+00:00",
+                "2026-01-01T00:00:01+00:00"
+            )
+            """
+        )
+        rows = connection.execute(
+            """
+            SELECT status
+            FROM web_jobs
+            ORDER BY id
+            """
+        ).fetchall()
+
+    assert rows == [("running",), ("abandoned",)]
+
+
 def test_ensure_web_runtime_creates_env_db_and_auth_tables(tmp_path: Path):
     config = ensure_web_runtime(tmp_path)
 
