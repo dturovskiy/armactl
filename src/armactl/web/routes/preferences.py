@@ -85,7 +85,7 @@ def set_theme_preference(
 ) -> Response:
     """Set a web-owned light/dark theme preference cookie."""
     csrf_ok, authenticated = _validate_authenticated_csrf(request, csrf_token)
-    if not csrf_ok:
+    if not csrf_ok and not _wants_async_response(request):
         return PlainTextResponse(
             "Invalid CSRF token.",
             status_code=status.HTTP_403_FORBIDDEN,

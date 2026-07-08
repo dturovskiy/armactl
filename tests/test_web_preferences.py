@@ -27,7 +27,7 @@ def test_login_template_has_language_and_theme_controls(tmp_path: Path):
     assert 'class="icon-control language-summary"' in response.text
     assert 'class="language-option language-option-active"' in response.text
     assert 'class="icon-control theme-toggle-button"' in response.text
-    assert 'data-theme-label' in response.text
+    assert "data-theme-label" in response.text
     assert 'class="control-svg language-icon"' in response.text
     assert "data-theme-icon-dark" in response.text
     assert "data-theme-icon-light" in response.text
@@ -36,10 +36,10 @@ def test_login_template_has_language_and_theme_controls(tmp_path: Path):
     assert "◎" not in response.text
     assert "☾" not in response.text
     assert "☀" not in response.text
-    assert '/static/js/preferences.js' in response.text
-    assert '/static/img/armactl_dashboard.png?v=' in response.text
-    assert '/static/css/app.css?v=' in response.text
-    assert '/static/js/preferences.js?v=' in response.text
+    assert "/static/js/preferences.js" in response.text
+    assert "/static/img/armactl_dashboard.png?v=" in response.text
+    assert "/static/css/app.css?v=" in response.text
+    assert "/static/js/preferences.js?v=" in response.text
     assert 'data-theme="light"' in response.text
     assert "English" in response.text
     assert "Українська" in response.text
@@ -167,6 +167,28 @@ def test_authenticated_theme_preference_requires_valid_csrf(
     assert response.status_code == 403
     assert response.text == "Invalid CSRF token."
     assert response.cookies.get(THEME_COOKIE_NAME) is None
+
+
+def test_authenticated_theme_preference_async_accepts_stale_csrf_for_cookie_only_update(
+    tmp_path: Path,
+):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.post(
+        "/preferences/theme",
+        data={"theme": "dark", "csrf_token": "stale-token", "next": "/dashboard"},
+        headers={"X-Requested-With": "fetch", "Accept": "application/json"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"theme": "dark"}
+    assert response.cookies.get(THEME_COOKIE_NAME) == "dark"
 
 
 def test_authenticated_language_preference_requires_valid_csrf(tmp_path: Path):
