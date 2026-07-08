@@ -885,6 +885,18 @@ def _echo_web_service_result_and_wait_for_http(action: str, result) -> None:
     sys.exit(0 if http_result.success else http_result.exit_code or 1)
 
 
+def _echo_web_service_restart_result(result) -> None:
+    click.echo("Web service restart.")
+    systemctl_marker = "✓" if result.systemctl_result.success else "✗"
+    click.echo(f"  {systemctl_marker} {result.systemctl_result.message}")
+    if result.http_result is not None:
+        http_marker = "✓" if result.http_result.success else "✗"
+        click.echo(f"  {http_marker} {result.http_result.message}")
+    if not result.success:
+        click.echo(f"  ✗ {result.message}")
+    sys.exit(0 if result.success else result.exit_code or 1)
+
+
 @web.group("service", help="Manage the production armactl web systemd service.")
 def web_service() -> None:
     pass
@@ -927,9 +939,9 @@ def web_service_stop() -> None:
 
 @web_service.command("restart", help="Restart armactl-web.service.")
 def web_service_restart() -> None:
-    from armactl.web.service import restart_web_service
+    from armactl.web.service import restart_web_service_and_wait_for_health
 
-    _echo_web_service_result_and_wait_for_http("restart", restart_web_service())
+    _echo_web_service_restart_result(restart_web_service_and_wait_for_health())
 
 
 @web_service.command("enable", help="Enable armactl-web.service on boot.")

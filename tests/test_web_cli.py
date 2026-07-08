@@ -785,9 +785,23 @@ def test_web_service_lifecycle_cli_calls_service_helpers(monkeypatch):
 
         return wrapped
 
+    def restart_result() -> web_service.WebServiceRestartResult:
+        calls.append("restart")
+        return web_service.WebServiceRestartResult(
+            systemctl_result=ServiceResult(True, "restart armactl-web.service"),
+            http_result=ServiceResult(True, "http ready"),
+            success=True,
+            message="restart and health ok",
+            exit_code=0,
+        )
+
     monkeypatch.setattr(web_service, "start_web_service", result_for("start"))
     monkeypatch.setattr(web_service, "stop_web_service", result_for("stop"))
-    monkeypatch.setattr(web_service, "restart_web_service", result_for("restart"))
+    monkeypatch.setattr(
+        web_service,
+        "restart_web_service_and_wait_for_health",
+        restart_result,
+    )
     monkeypatch.setattr(web_service, "enable_web_service", result_for("enable"))
     monkeypatch.setattr(web_service, "disable_web_service", result_for("disable"))
     monkeypatch.setattr(
@@ -804,6 +818,83 @@ def test_web_service_lifecycle_cli_calls_service_helpers(monkeypatch):
         assert f"{command} armactl-web.service" in result.output
 
     assert calls == ["start", "stop", "restart", "enable", "disable"]
+
+
+def test_web_service_restart_cli_reports_health_failure(monkeypatch):
+    from armactl.service_manager import ServiceResult
+    from armactl.web import service as web_service
+
+    monkeypatch.setattr(
+        web_service,
+        "restart_web_service_and_wait_for_health",
+        lambda: web_service.WebServiceRestartResult(
+            systemctl_result=ServiceResult(True, "systemctl restart ok", 0),
+            http_result=ServiceResult(False, "http health timed out", 1),
+            success=False,
+            message="Web service restart command succeeded, but HTTP health wait failed.",
+            exit_code=1,
+        ),
+    )
+
+    result = invoke_web("service", "restart")
+
+    assert result.exit_code == 1
+    assert "Web service restart." in result.output
+    assert "✓ systemctl restart ok" in result.output
+    assert "✗ http health timed out" in result.output
+    assert "Web service restart command succeeded, but HTTP health wait failed." in result.output
+    assert "Traceback" not in result.output
+
+
+def test_web_service_restart_cli_systemctl_failure_stays_failure(monkeypatch):
+    from armactl.service_manager import ServiceResult
+    from armactl.web import service as web_service
+
+    monkeypatch.setattr(
+        web_service,
+        "restart_web_service_and_wait_for_health",
+        lambda: web_service.WebServiceRestartResult(
+            systemctl_result=ServiceResult(False, "systemctl restart failed", 7),
+            http_result=ServiceResult(True, "http ready", 0),
+            success=False,
+            message=(
+                "Web service restart command failed; HTTP health was not used as success proof."
+            ),
+            exit_code=7,
+        ),
+    )
+
+    result = invoke_web("service", "restart")
+
+    assert result.exit_code == 7
+    assert "✗ systemctl restart failed" in result.output
+    assert "✓ http ready" in result.output
+    assert "HTTP health was not used as success proof" in result.output
+
+
+def test_web_service_restart_cli_redacts_health_exception_noise(monkeypatch):
+    from armactl.service_manager import ServiceResult
+    from armactl.web import service as web_service
+
+    def fake_restart(service_name: str, *, timeout_seconds: int | None = None) -> ServiceResult:
+        assert service_name == "armactl-web.service"
+        assert timeout_seconds == web_service.WEB_SERVICE_RESTART_SYSTEMCTL_TIMEOUT_SECONDS
+        return ServiceResult(True, "systemctl restart ok", 0)
+
+    def fail_health(*, timeout_seconds: float = 0.0) -> ServiceResult:
+        raise RuntimeError("password=super-secret at /home/deus/projects/armactl/web.env")
+
+    monkeypatch.setattr(web_service, "restart_service", fake_restart)
+    monkeypatch.setattr(web_service, "check_web_http_health", fail_health)
+
+    result = invoke_web("service", "restart")
+
+    assert result.exit_code == 1
+    assert "Web HTTP health wait failed:" in result.output
+    assert "password=***" in result.output
+    assert "super-secret" not in result.output
+    assert "/home/deus" not in result.output
+    assert "Traceback" not in result.output
 
 
 def test_web_service_status_prints_safe_summary(tmp_path: Path, monkeypatch):

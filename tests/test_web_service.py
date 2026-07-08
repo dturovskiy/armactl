@@ -191,6 +191,88 @@ def test_web_service_lifecycle_helpers_call_fixed_unit(monkeypatch):
     ]
 
 
+def test_restart_web_service_with_health_success_returns_ok_promptly(monkeypatch):
+    from armactl.web import service
+
+    calls: list[tuple[str, object]] = []
+
+    def fake_restart(service_name: str, *, timeout_seconds: int | None = None) -> ServiceResult:
+        calls.append(("restart", service_name, timeout_seconds))
+        return ServiceResult(True, "systemctl restart ok", 0)
+
+    def fake_health(*, timeout_seconds: float = 0.0) -> ServiceResult:
+        calls.append(("health", timeout_seconds))
+        return ServiceResult(True, "http ready", 0)
+
+    monkeypatch.setattr(service, "restart_service", fake_restart)
+    monkeypatch.setattr(service, "check_web_http_health", fake_health)
+
+    result = service.restart_web_service_and_wait_for_health()
+
+    assert result.success is True
+    assert result.exit_code == 0
+    assert result.message == "Web service restart command succeeded and HTTP health is ready."
+    assert result.systemctl_result.message == "systemctl restart ok"
+    assert result.http_result is not None
+    assert result.http_result.message == "http ready"
+    assert calls == [
+        ("restart", "armactl-web.service", service.WEB_SERVICE_RESTART_SYSTEMCTL_TIMEOUT_SECONDS),
+        ("health", service.WEB_SERVICE_RESTART_HEALTH_TIMEOUT_SECONDS),
+    ]
+
+
+def test_restart_web_service_health_failure_returns_partial_diagnostic(monkeypatch):
+    from armactl.web import service
+
+    def fake_restart(service_name: str, *, timeout_seconds: int | None = None) -> ServiceResult:
+        assert service_name == "armactl-web.service"
+        assert timeout_seconds == service.WEB_SERVICE_RESTART_SYSTEMCTL_TIMEOUT_SECONDS
+        return ServiceResult(True, "systemctl restart ok", 0)
+
+    def fake_health(*, timeout_seconds: float = 0.0) -> ServiceResult:
+        assert timeout_seconds == service.WEB_SERVICE_RESTART_HEALTH_TIMEOUT_SECONDS
+        return ServiceResult(False, "http health timed out", 1)
+
+    monkeypatch.setattr(service, "restart_service", fake_restart)
+    monkeypatch.setattr(service, "check_web_http_health", fake_health)
+
+    result = service.restart_web_service_and_wait_for_health()
+
+    assert result.success is False
+    assert result.exit_code == 1
+    assert result.systemctl_result.success is True
+    assert result.http_result is not None
+    assert result.http_result.success is False
+    assert result.message == "Web service restart command succeeded, but HTTP health wait failed."
+
+
+def test_restart_web_service_systemctl_failure_stays_failure(monkeypatch):
+    from armactl.web import service
+
+    def fake_restart(service_name: str, *, timeout_seconds: int | None = None) -> ServiceResult:
+        assert service_name == "armactl-web.service"
+        assert timeout_seconds == service.WEB_SERVICE_RESTART_SYSTEMCTL_TIMEOUT_SECONDS
+        return ServiceResult(False, "systemctl restart failed", 7)
+
+    def fake_health(*, timeout_seconds: float = 0.0) -> ServiceResult:
+        assert timeout_seconds == 0.0
+        return ServiceResult(True, "http ready", 0)
+
+    monkeypatch.setattr(service, "restart_service", fake_restart)
+    monkeypatch.setattr(service, "check_web_http_health", fake_health)
+
+    result = service.restart_web_service_and_wait_for_health()
+
+    assert result.success is False
+    assert result.exit_code == 7
+    assert result.systemctl_result.success is False
+    assert result.http_result is not None
+    assert result.http_result.success is True
+    assert result.message == (
+        "Web service restart command failed; HTTP health was not used as success proof."
+    )
+
+
 def test_web_service_status_uses_service_manager_and_redacts_config(
     tmp_path: Path,
     monkeypatch,

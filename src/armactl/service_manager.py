@@ -925,7 +925,11 @@ def stop_service(service_name: str = "armareforger.service") -> ServiceResult:
     return _run_systemctl("stop", service_name)
 
 
-def restart_service(service_name: str = "armareforger.service") -> ServiceResult:
+def restart_service(
+    service_name: str = "armareforger.service",
+    *,
+    timeout_seconds: int | None = None,
+) -> ServiceResult:
     """Restart the server service."""
     guard_result = _run_pre_start_guards(service_name)
     if guard_result is not None:
@@ -937,7 +941,9 @@ def restart_service(service_name: str = "armareforger.service") -> ServiceResult
             restart_unit,
             timeout_seconds=RESTART_TIMING.caller_timeout_seconds,
         )
-    return _run_systemctl("restart", service_name)
+    if timeout_seconds is None:
+        return _run_systemctl("restart", service_name)
+    return _run_systemctl("restart", service_name, timeout_seconds=timeout_seconds)
 
 
 def is_active(service_name: str = "armareforger.service") -> bool:

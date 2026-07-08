@@ -38,6 +38,9 @@ from armactl.web.runtime import (
 )
 from armactl.web.security.exposure import get_exposure_warning
 
+WEB_SERVICE_RESTART_SYSTEMCTL_TIMEOUT_SECONDS = 20
+WEB_SERVICE_RESTART_HEALTH_TIMEOUT_SECONDS = 10.0
+
 
 @dataclass(frozen=True)
 class WebServiceInstallResult:
@@ -45,6 +48,15 @@ class WebServiceInstallResult:
     service_name: str
     service_path: Path
     results: tuple[ServiceResult, ...]
+
+
+@dataclass(frozen=True)
+class WebServiceRestartResult:
+    systemctl_result: ServiceResult
+    http_result: ServiceResult | None
+    success: bool
+    message: str
+    exit_code: int = 0
 
 
 def web_service_name() -> str:
@@ -304,6 +316,72 @@ def stop_web_service() -> ServiceResult:
 
 def restart_web_service() -> ServiceResult:
     return restart_service(web_service_name())
+
+
+def _run_web_service_restart_command(timeout_seconds: int) -> ServiceResult:
+    try:
+        return restart_service(web_service_name(), timeout_seconds=timeout_seconds)
+    except Exception as error:
+        return ServiceResult(
+            False,
+            tr(
+                "Web service restart command failed: {error}",
+                error=redact_sensitive_text(error),
+            ),
+            1,
+        )
+
+
+def _run_web_http_health_wait(timeout_seconds: float) -> ServiceResult:
+    try:
+        return check_web_http_health(timeout_seconds=timeout_seconds)
+    except Exception as error:
+        return ServiceResult(
+            False,
+            tr(
+                "Web HTTP health wait failed: {error}",
+                error=redact_sensitive_text(error),
+            ),
+            1,
+        )
+
+
+def restart_web_service_and_wait_for_health(
+    *,
+    restart_timeout_seconds: int = WEB_SERVICE_RESTART_SYSTEMCTL_TIMEOUT_SECONDS,
+    health_timeout_seconds: float = WEB_SERVICE_RESTART_HEALTH_TIMEOUT_SECONDS,
+) -> WebServiceRestartResult:
+    """Restart armactl-web.service and report systemctl and HTTP health separately."""
+    systemctl_result = _run_web_service_restart_command(restart_timeout_seconds)
+    if not systemctl_result.success:
+        diagnostic_health = _run_web_http_health_wait(0.0)
+        return WebServiceRestartResult(
+            systemctl_result=systemctl_result,
+            http_result=diagnostic_health,
+            success=False,
+            message=_(
+                "Web service restart command failed; HTTP health was not used as success proof."
+            ),
+            exit_code=systemctl_result.exit_code or 1,
+        )
+
+    http_result = _run_web_http_health_wait(health_timeout_seconds)
+    if http_result.success:
+        return WebServiceRestartResult(
+            systemctl_result=systemctl_result,
+            http_result=http_result,
+            success=True,
+            message=_("Web service restart command succeeded and HTTP health is ready."),
+            exit_code=0,
+        )
+
+    return WebServiceRestartResult(
+        systemctl_result=systemctl_result,
+        http_result=http_result,
+        success=False,
+        message=_("Web service restart command succeeded, but HTTP health wait failed."),
+        exit_code=http_result.exit_code or 1,
+    )
 
 
 def enable_web_service() -> ServiceResult:

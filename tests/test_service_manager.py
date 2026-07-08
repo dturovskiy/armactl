@@ -398,6 +398,21 @@ def test_restart_service_keeps_non_game_service_restart_path() -> None:
     systemctl_mock.assert_called_once_with("restart", "armactl-web.service")
 
 
+def test_restart_service_allows_bounded_timeout_for_non_game_service() -> None:
+    with patch(
+        "armactl.service_manager._run_systemctl",
+        return_value=ServiceResult(True, "web restarted"),
+    ) as systemctl_mock:
+        result = restart_service("armactl-web.service", timeout_seconds=12)
+
+    assert result.success is True
+    systemctl_mock.assert_called_once_with(
+        "restart",
+        "armactl-web.service",
+        timeout_seconds=12,
+    )
+
+
 def test_restart_helper_service_runs_sat_admin_guard_for_instance(tmp_path: Path) -> None:
     config_path = tmp_path / "alpha" / "config" / "config.json"
     config_path.parent.mkdir(parents=True)

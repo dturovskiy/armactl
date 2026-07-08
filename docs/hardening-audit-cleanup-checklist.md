@@ -6,6 +6,15 @@ Boundary note: this is an internal audit carryover checklist. Do not treat it as
 
 Правило для виконання: працювати тільки у WSL checkout `/home/deus/projects/armactl` на `feat/web-interface`. Windows checkout не використовувати для repo edits.
 
+## P1: Web Service Restart CLI Ambiguity (Closed)
+
+Closed result:
+
+- `armactl web service restart` reports `systemctl restart` and `/healthz` wait as separate bounded outcomes.
+- Success requires both `systemctl restart armactl-web.service` success and HTTP health success.
+- `systemctl` failure/timeout and HTTP health wait failure return controlled diagnostics; HTTP OK is not treated as proof of restart success after a failed restart command.
+- Scope is only `armactl-web.service`; game server restart/helper behavior stays out of scope.
+
 ## P1: Immediate Should-Fix (Closed)
 
 Closed result:
