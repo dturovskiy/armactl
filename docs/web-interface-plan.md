@@ -330,6 +330,7 @@ Out of scope:
 #### 8. Final VM Smoke And Merge Review
 
 - Current state: deployment, architecture, checklist, and hardening runbook docs exist. Public docs intentionally do not store production hostnames, IP addresses, or provider/router details.
+- Current smoke status: the latest VM web-service smoke after web-restart diagnostics, async theme preference recovery, and stale-job abandoned recovery passed normal wrapper/bootstrap checks, web service status, local `/healthz`, public status, and recent web-journal review on the current deployment baseline. One composite nested SSH smoke command hit an outer timeout while the service and health checks were already healthy and the same checks passed when split into shorter commands; classify that as a P2 smoke-command/ops note, not an `armactl-web.service` blocker.
 - Risk: a code-complete dashboard can still fail on real service state, proxy state, SteamCMD behavior, cookie settings, or logs/report redaction. Merge gates can drift unless exact commands and pages are named.
 - Proposed slice: run final smoke on each production host/instance from private operator notes. Use private notes for hostnames and IPs; keep this repo generic. Keep unauthenticated public checks separate from authenticated browser smoke; do not create sessions directly in the DB to fake UI coverage.
 - Files/modules likely touched: mostly docs and any small fixes found during smoke. If failures appear, touch only the owning route/service/template/test module.

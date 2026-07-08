@@ -27,6 +27,24 @@ Closed result:
 - `systemctl` failure/timeout and HTTP health wait failure return controlled diagnostics; HTTP OK is not treated as proof of restart success after a failed restart command.
 - Scope is only `armactl-web.service`; game server restart/helper behavior stays out of scope.
 
+## P1: Long-Lived Theme Toggle CSRF Drift (Closed)
+
+Closed result:
+
+- Long-open authenticated pages can refresh the theme cookie through the async preference endpoint even when their hidden form CSRF token is stale.
+- The exception is intentionally narrow: it applies only to the fetch-style cookie-only theme preference update.
+- Normal form posts and other mutating routes still fail closed on invalid CSRF.
+- VM smoke confirmed the theme preference route returns controlled 200 responses after the fix.
+
+## P2: Composite SSH Smoke Timeout (Classified)
+
+Classification:
+
+- Split web-service checks pass quickly: wrapper/bootstrap check, `armactl web service status`, `systemctl is-active armactl-web.service`, local `/healthz`, public status, and recent web journals are healthy.
+- A previous long nested SSH smoke command timed out while the service was already active and health checks were OK.
+- Treat this as an outer SSH/smoke-command guard issue unless local `systemctl`, `/healthz`, or web journals show service failure.
+- Future smoke should prefer short commands or an outer timeout that accounts for SSH overhead; do not add code-level restart delays or fake success states for this symptom.
+
 ## P1: Immediate Should-Fix (Closed)
 
 Closed result:

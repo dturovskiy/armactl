@@ -64,11 +64,14 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Player data truth Slice 4 operational status telemetry fix, with dashboard/public status sharing precedence that treats fresh FPS telemetry as ready while keeping service failure/startup blockers authoritative.
 - [x] Player data truth Slice 5 wrapper/bootstrap drift recovery, with non-mutating `scripts/bootstrap.sh --check --web`, clearer non-interactive wrapper guidance, and normal bootstrap remaining the stamp refresh path.
 - [x] Continue production hardening for the local dashboard, including gateway throttle guidance, dashboard stale-refresh recovery, restart timing/source-of-truth clarification, and current VM smoke follow-up.
+- [x] Clarify web-service restart diagnostics so `armactl web service restart` reports the `systemctl` result and `/healthz` readiness as separate bounded outcomes, without changing game restart behavior.
+- [x] Keep long-lived async theme preference toggles usable after stale page CSRF by allowing only the cookie-only fetch preference update to recover safely, while normal mutating POST CSRF checks remain fail-closed.
 - [x] Polish server update browser flow with controlled post-action notices, active job links, retry/failure guidance, and stale active-job notices.
 - [x] Background job worker heartbeat/lease foundation, with opaque worker IDs, bounded heartbeat/lease timestamps on running jobs, heartbeat refresh from worker progress and wrapper heartbeat, terminal states clearing active leases, jobs page fresh/expired lease diagnostics, duplicate queued metadata repair only on mutating maintenance/enqueue paths, no GET job mutation, no process/thread kill, no running-job cancel action, and no automatic expired-lease metadata recovery.
 - [x] Harden generated scheduled restart units with an explicit root-owned bounded restart helper, service stop timeout/kill policy, SIGKILL fallback scoped to the `armareforger*.service` control group, active/running verification, and short post-start stability checking.
 - [x] Improve server update check/update UX after VM smoke feedback with stale-cache notices, clearer active queued/running check/update labels, failed check/update job links, server-running update blocks, and expired running-job diagnostics only.
-- [ ] Decide any future stale-job recovery/cancel model as an explicit worker lease/cancel slice; do not add fake cancel, process/thread kill, destructive repair, or GET mutation.
+- [x] Add explicit stale-running job metadata recovery through a POST-only Mark abandoned action gated by worker lease freshness, with no fake cancel, process/thread kill, destructive repair, output deletion, or GET mutation.
+- [ ] Decide any future live job cancellation/worker termination model as a separate explicit worker lease/cancel slice; do not treat abandoned metadata recovery as process cancellation.
 - [ ] Expand safe config controls after field behavior is verified, using `docs/safe-config-controls-plan.md` and the existing config editor pipeline.
 - [x] Improve mod cleanup/mod mutation edge-case recovery workflows with controlled partial-change results, audit-safe diagnostics, and pending-work recovery markers.
 - [x] Add narrow `/mods` stale profile settings cleanup for allowlisted disabled-mod module blocks only, with backup, counts-only audit, pending restart tracking, and no addon deletion, sidecar removal, active `game.mods` change, or generic file editing.
@@ -90,6 +93,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Document local/same-host and gateway-managed VM web deployment profiles, including the internal `8765` VM bind port, external gateway ports, and HTTPS-required cookie responsibility.
 - [ ] Close remaining TUI/Web parity gaps that should be web-primary.
 - [x] Run production SSH read-only ops smoke for current `feat/web-interface`, including normal wrapper/bootstrap checks, web service status, public health/status, recent web journals, gateway health, and nginx error logs, without game restarts.
+- [x] Run post-hardening VM web smoke for the current `feat/web-interface` baseline after web-restart diagnostics, async theme preference recovery, and stale-job abandoned recovery; web status, `/healthz`, public status, and recent web journals were healthy, and no game restart was required.
 - [x] Run authenticated browser UI smoke and architecture/security/dead-code review for the current `feat/web-interface` deployment baseline; current pass found no P0/P1 code blockers, but this does not close the public `main` merge gate until extraction/docs-boundary decisions are complete.
 
 ## Public Documentation
