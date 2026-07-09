@@ -30,9 +30,13 @@
     details: root.dataset.currentPlayersDetailsLabel || "Details",
     identityId: root.dataset.currentPlayersIdentityIdLabel || "Identity ID",
     noReliableId: root.dataset.currentPlayersNoReliableIdLabel || "No reliable ID",
+    placeholder: root.dataset.currentPlayersPlaceholderLabel || "—",
+    rosterSource: root.dataset.currentPlayersRosterSourceLabel || "RCON roster",
     source: root.dataset.currentPlayersSourceLabel || "Source",
     stale: root.dataset.currentPlayersStaleLabel || "Stale",
+    technicalSource: root.dataset.currentPlayersTechnicalSourceLabel || "Technical source",
     updated: root.dataset.currentPlayersUpdatedLabel || "Updated",
+    joinedTime: root.dataset.currentPlayersJoinedTimeLabel || "Joined time",
     unavailable: root.dataset.currentPlayersUnavailableLabel || "unavailable",
     unknown: root.dataset.currentPlayersUnknownLabel || "Unknown",
   };
@@ -143,6 +147,15 @@
     return cell;
   }
 
+  function placeholderCell(className = "") {
+    const cell = document.createElement("td");
+    cell.className = ["player-current-placeholder", className]
+      .filter(Boolean)
+      .join(" ");
+    cell.textContent = labels.placeholder;
+    return cell;
+  }
+
   function statusCell(data) {
     const cell = document.createElement("td");
     const pill = document.createElement("span");
@@ -189,10 +202,16 @@
     return timeNode;
   }
 
-  function hasCurrentPlayerDetails(player, data) {
-    return Boolean(
-      player.reliable_id || player.source || data.updated_at || data.collected_at,
-    );
+  function humanSourceText(data) {
+    const source = String((data && data.source) || "");
+    if (source.toLowerCase().startsWith("rcon.roster") || data.roster_available === true) {
+      return labels.rosterSource;
+    }
+    return source || labels.unavailable;
+  }
+
+  function hasCurrentPlayerDetails() {
+    return true;
   }
 
   function currentPlayerDetails(player, data) {
@@ -210,14 +229,22 @@
         detailLine(labels.identityId, labels.noReliableId, { className: "muted" }),
       );
     }
+    details.push(detailLine(labels.source, humanSourceText(data)));
     const source = String(player.source || "");
     if (source) {
-      details.push(detailLine(labels.source, source));
+      details.push(detailLine(labels.technicalSource, source));
+    } else {
+      details.push(
+        detailLine(labels.technicalSource, labels.unknown, { className: "muted" }),
+      );
     }
     const updatedAt = String(data.updated_at || data.collected_at || "");
     if (updatedAt) {
       details.push(detailLine(labels.updated, "", { valueNode: timestampNode(updatedAt) }));
+    } else {
+      details.push(detailLine(labels.updated, labels.unknown, { className: "muted" }));
     }
+    details.push(detailLine(labels.joinedTime, labels.placeholder, { className: "muted" }));
     return details;
   }
 
@@ -252,7 +279,7 @@
     row.dataset.currentPlayerRow = "";
     row.setAttribute("hidden", "");
     const cell = document.createElement("td");
-    cell.colSpan = 3;
+    cell.colSpan = 8;
     const panel = document.createElement("div");
     panel.className = "player-current-detail-panel";
     panel.setAttribute("role", "region");
@@ -273,6 +300,11 @@
     mainRow.append(
       textCell(player.display_name || "", "strong"),
       statusCell(data),
+      placeholderCell("player-stat-number"),
+      placeholderCell("player-stat-number"),
+      placeholderCell("player-stat-number"),
+      placeholderCell(),
+      placeholderCell(),
       actionsCell(hasDetails, detailsId),
     );
     if (!hasDetails) {

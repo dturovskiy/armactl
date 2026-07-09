@@ -37,8 +37,12 @@
   data-current-players-details-label="{{ t("Details") }}"
   data-current-players-identity-id-label="{{ t("Identity ID") }}"
   data-current-players-no-reliable-id-label="{{ t("No reliable ID") }}"
+  data-current-players-placeholder-label="—"
+  data-current-players-roster-source-label="{{ t("RCON roster") }}"
   data-current-players-source-label="{{ t("Source") }}"
+  data-current-players-technical-source-label="{{ t("Technical source") }}"
   data-current-players-updated-label="{{ t("Updated") }}"
+  data-current-players-joined-time-label="{{ t("Joined time") }}"
   data-current-players-unknown-label="{{ t("Unknown") }}"
   data-current-players-unavailable-label="{{ t("unavailable") }}"
   data-current-players-stale-label="{{ t("Stale") }}">
@@ -88,18 +92,28 @@
         <tr>
           <th>{{ t("Player") }}</th>
           <th>{{ t("Status") }}</th>
+          <th>{{ t("Kills") }}</th>
+          <th>{{ t("Deaths") }}</th>
+          <th>{{ t("TK") }}</th>
+          <th>{{ t("Faction") }}</th>
+          <th>{{ t("Role") }}</th>
           <th>{{ t("Available actions") }}</th>
         </tr>
       </thead>
       <tbody data-current-players-tbody>
       {% for player in players %}
-        {% set has_player_details = player.reliable_id or player.source or page.updated_at %}
+        {% set has_player_details = true %}
         <tr class="player-current-main-row">
           <td><strong class="player-current-name wrap-value">{{ player.display_name }}</strong></td>
           <td>
             <span class="status-pill">{{ page.status }}</span>
             <span class="player-row-subtle">{% if page.age_seconds is not none %}{{ tr("{seconds}s ago", seconds=page.age_seconds) }}{% else %}{{ t("Unknown") }}{% endif %}</span>
           </td>
+          <td class="player-current-placeholder player-stat-number">—</td>
+          <td class="player-current-placeholder player-stat-number">—</td>
+          <td class="player-current-placeholder player-stat-number">—</td>
+          <td class="player-current-placeholder">—</td>
+          <td class="player-current-placeholder">—</td>
           <td>
             <div class="player-current-actions">
               {% if has_player_details %}
@@ -112,16 +126,18 @@
         </tr>
         {% if has_player_details %}
           <tr id="current-player-details-{{ loop.index }}" class="player-current-details-row" data-current-player-row hidden>
-            <td colspan="3">
+            <td colspan="8">
               <div class="player-current-detail-panel" role="region">
                 <div class="player-current-detail-cell">
                   <span class="player-diagnostic-line"><strong>{{ t("Identity ID") }}:</strong> {% if player.reliable_id %}<span class="player-id-cell player-id-clip" title="{{ player.reliable_id }}">{{ player.reliable_id[:8] }}...{{ player.reliable_id[-5:] }}</span>{% else %}<span class="muted">{{ t("No reliable ID") }}</span>{% endif %}</span>
-                  {% if player.source %}
-                    <span class="player-diagnostic-line"><strong>{{ t("Source") }}:</strong> <span>{{ player.source }}</span></span>
-                  {% endif %}
+                  <span class="player-diagnostic-line"><strong>{{ t("Source") }}:</strong> <span>{{ t("RCON roster") }}</span></span>
+                  <span class="player-diagnostic-line"><strong>{{ t("Technical source") }}:</strong> {% if player.source %}<span>{{ player.source }}</span>{% else %}<span class="muted">{{ t("Unknown") }}</span>{% endif %}</span>
                   {% if page.updated_at %}
                     <span class="player-diagnostic-line"><strong>{{ t("Updated") }}:</strong> <span>{{ format_web_timestamp(page.updated_at) }}</span></span>
+                  {% else %}
+                    <span class="player-diagnostic-line"><strong>{{ t("Updated") }}:</strong> <span class="muted">{{ t("Unknown") }}</span></span>
                   {% endif %}
+                  <span class="player-diagnostic-line"><strong>{{ t("Joined time") }}:</strong> <span class="muted">—</span></span>
                 </div>
               </div>
             </td>
@@ -133,6 +149,6 @@
   </div>
   {% set count_only_unavailable = page.observed_count > 0 and not page.roster_available %}
   <p class="muted" data-current-players-empty{% if players %} hidden{% endif %}>{% if count_only_unavailable %}{{ tr("Roster unavailable; A2S reports {count} current player(s).", count=page.observed_count) }}{% elif query %}{{ t("No current players match search.") }}{% elif page.available %}{{ t("No current players online.") }}{% else %}{{ t("Current player list unavailable.") }}{% endif %}</p>
-  <p class="muted">{{ t("Joined time, role, and current-session K/D need session tracking before they can be shown reliably.") }}</p>
+  <p class="muted">{{ t("Stats, faction, role, and joined time stay blank until reliable source data is available.") }}</p>
 </section>
 {% endblock %}

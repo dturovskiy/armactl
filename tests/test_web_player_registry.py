@@ -1446,8 +1446,23 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
     assert "rcon.guid" in html
     assert "rcon.roster" in html
     assert "<th>Player</th>" in html
-    assert "<th>Status</th>" in html
-    assert "<th>Available actions</th>" in html
+    header_match = re.search(
+        r'<table class="player-current-table">.*?<thead>.*?<tr>(.*?)</tr>',
+        html,
+        re.S,
+    )
+    assert header_match is not None
+    headers = re.findall(r"<th>(.*?)</th>", header_match.group(1), re.S)
+    assert headers == [
+        "Player",
+        "Status",
+        "Kills",
+        "Deaths",
+        "TK",
+        "Faction",
+        "Role",
+        "Available actions",
+    ]
     assert "<th>Identity ID</th>" not in html
     assert "<th>Source</th>" not in html
     assert "data-current-player-toggle" in html
@@ -1465,10 +1480,16 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
     assert any("Live Alpha" in row for row in main_rows)
     assert any("Live Slot" in row for row in main_rows)
     for row in main_rows:
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)
+        assert len(cells) == 8
+        assert all("data-current-player-toggle" not in cell for cell in cells[:-1])
+        assert "data-current-player-toggle" in cells[-1]
+        assert row.count("player-current-placeholder") == 5
         assert "Identity ID" not in row
         assert PLAYER_ALPHA_ID not in row
         assert "rcon.guid" not in row
         assert "rcon.roster" not in row
+        assert ">0<" not in row
     detail_rows = re.findall(
         (
             r'<tr id="current-player-details-\d+" '
@@ -1479,13 +1500,18 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
         re.S,
     )
     assert len(detail_rows) == 2
+    assert '<td colspan="8">' in html
+    assert all("Identity ID" in row for row in detail_rows)
+    assert all("Source" in row and "RCON roster" in row for row in detail_rows)
+    assert all("Technical source" in row for row in detail_rows)
+    assert all("Joined time" in row and ">—<" in row for row in detail_rows)
+    assert all('data-local-time datetime="' in row for row in detail_rows)
     assert any(PLAYER_ALPHA_ID in row and "rcon.guid" in row for row in detail_rows)
     assert any("No reliable ID" in row and "rcon.roster" in row for row in detail_rows)
     assert "<th>Last seen</th>" not in html
     assert "<th>K/D</th>" not in html
-    assert "<th>Faction</th>" not in html
-    assert "<th>Role</th>" not in html
     assert "<th>Joined</th>" not in html
+    assert "K/D" not in html
     assert "Not tracked" not in html
     assert "Known player table" not in html
     assert "Player event log" not in html
@@ -1628,9 +1654,19 @@ def test_current_players_polling_js_uses_no_store_and_preserves_search():
     assert "currentPlayersDetailsLabel" in script
     assert "function playerRows" in script
     assert "data-current-player-toggle" in script
+    assert "function placeholderCell" in script
+    assert 'placeholderCell("player-stat-number")' in script
+    assert "placeholderCell()" in script
     assert "tableBody.replaceChildren(...rows)" in script
+    assert "cell.colSpan = 8" in script
+    assert "labels.rosterSource" in script
+    assert "labels.technicalSource" in script
+    assert "labels.joinedTime" in script
     assert "row.append(idCell" not in script
     assert "row.append(textCell(player.source" not in script
+    assert "player.kills" not in script
+    assert "player.deaths" not in script
+    assert "player.teamkills" not in script
     assert "armactlFormatLocalTime" in script
     assert "target instanceof Element" in script
     assert "removeAttribute(\"hidden\")" in script

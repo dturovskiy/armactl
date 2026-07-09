@@ -116,6 +116,23 @@ def test_dashboard_live_refresh_translation_keys_exist_in_locales():
     assert sorted(keys - _locale_keys("uk")) == []
 
 
+def test_current_player_roster_layout_translation_keys_exist_in_locales():
+    keys = {
+        "Kills",
+        "Deaths",
+        "TK",
+        "Faction",
+        "Role",
+        "RCON roster",
+        "Technical source",
+        "Joined time",
+        "Stats, faction, role, and joined time stay blank until reliable source data is available.",
+    }
+
+    assert sorted(keys - _locale_keys("en")) == []
+    assert sorted(keys - _locale_keys("uk")) == []
+
+
 def test_updates_dynamic_translation_keys_exist_in_locales():
     keys = {
         "Check again",
