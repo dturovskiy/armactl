@@ -616,6 +616,7 @@
     "Session first observed": "Session first observed",
     "Stats source": "Stats source",
     "Stored current-session evidence": "Stored current-session evidence",
+    "Stored current-server evidence": "Stored current-server evidence",
     "Last-known faction from stored current-session evidence.": "Last-known faction from stored current-session evidence.",
     "K/D": "K/D",
     "Current-session stats and last-known faction use stored open-session evidence; role stays blank until reliable source data is available.": "Current-session stats and last-known faction use stored open-session evidence; role stays blank until reliable source data is available.",

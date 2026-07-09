@@ -142,7 +142,7 @@
                   {% endif %}
                   <span class="player-diagnostic-line"><strong>{{ t("Session first observed") }}:</strong> {% if player.first_observed_at %}<span data-local-time datetime="{{ player.first_observed_at }}" title="{{ player.first_observed_at }}">{{ format_web_timestamp(player.first_observed_at) }}</span>{% else %}<span class="muted">—</span>{% endif %}</span>
                   {% if player.stats_available %}
-                    <span class="player-diagnostic-line"><strong>{{ t("Stats source") }}:</strong> <span>{{ t("Stored current-session evidence") }}</span></span>
+                    <span class="player-diagnostic-line"><strong>{{ t("Stats source") }}:</strong> <span>{{ t(player.stats_source_label) }}</span></span>
                   {% endif %}
                 </div>
               </div>

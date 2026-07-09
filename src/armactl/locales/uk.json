@@ -1204,6 +1204,7 @@
     "Session first observed": "Сесію вперше помічено",
     "Stats source": "Джерело статистики",
     "Stored current-session evidence": "Збережені докази поточної сесії",
+    "Stored current-server evidence": "Збережені докази поточного запуску сервера",
     "Last-known faction from stored current-session evidence.": "Остання відома фракція зі збережених доказів поточної сесії.",
     "K/D": "K/D",
     "Current-session stats and last-known faction use stored open-session evidence; role stays blank until reliable source data is available.": "Статистика поточної сесії й остання відома фракція використовують збережені докази відкритої сесії; роль лишається порожньою, доки немає надійного джерела даних.",

@@ -293,7 +293,8 @@
       );
     }
     if (player.stats_available === true) {
-      details.push(detailLine(labels.statsSource, labels.statsSourceValue));
+      const statsSource = String(player.stats_source_label || labels.statsSourceValue);
+      details.push(detailLine(labels.statsSource, statsSource));
     }
     return details;
   }
