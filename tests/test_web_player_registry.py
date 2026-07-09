@@ -199,6 +199,17 @@ def _player_session_count(db_path: Path) -> int:
     return int(row[0])
 
 
+def _sqlite_table_count(db_path: Path, table_name: str) -> int:
+    if not db_path.exists():
+        return 0
+    if table_name not in {"player_log_events", "player_sessions"}:
+        raise ValueError(f"Unexpected table name: {table_name}")
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+    assert row is not None
+    return int(row[0])
+
+
 def _audit_events(data_root: Path) -> list[dict]:
     audit_path = data_root / "logs" / "web" / "audit.log"
     if not audit_path.exists():
@@ -1504,7 +1515,8 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
     assert all("Identity ID" in row for row in detail_rows)
     assert all("Source" in row and "RCON roster" in row for row in detail_rows)
     assert all("Technical source" in row for row in detail_rows)
-    assert all("Joined time" in row and ">—<" in row for row in detail_rows)
+    assert all("Session first observed" in row and ">—<" in row for row in detail_rows)
+    assert all("Stats source" not in row for row in detail_rows)
     assert all('data-local-time datetime="' in row for row in detail_rows)
     assert any(PLAYER_ALPHA_ID in row and "rcon.guid" in row for row in detail_rows)
     assert any("No reliable ID" in row and "rcon.roster" in row for row in detail_rows)
@@ -1516,6 +1528,282 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
     assert "Known player table" not in html
     assert "Player event log" not in html
     assert not (tmp_path / "default" / "players.db").exists()
+
+
+
+
+def test_current_players_enrichment_uses_open_session_evidence_window(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl import player_log_events
+    from armactl.web.services import player_current_cache, player_registry, player_sources
+
+    player_current_cache.clear_current_roster_cache()
+    db_path = tmp_path / "default" / "players.db"
+    session_opened_at = "2026-06-16T12:00:00+00:00"
+    player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Live Alpha",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at=session_opened_at,
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_HIGH,
+    )
+
+    def event(event_type: str, occurred_at: str | None, **kwargs):
+        is_faction = event_type == player_log_events.EVENT_TYPE_FACTION_JOIN
+        return player_log_events.PlayerLogEvent(
+            event_type=event_type,
+            source=(
+                player_log_events.SOURCE_SCRIPT_FACTION_JOIN
+                if is_faction
+                else player_log_events.SOURCE_SCRIPT_KILL
+            ),
+            confidence=player_log_events.CONFIDENCE_HIGH,
+            occurred_at=occurred_at,
+            observed_at=occurred_at,
+            time_source=kwargs.pop(
+                "time_source",
+                player_log_events.EVENT_TIME_SOURCE_CALLER_OCCURRED_AT,
+            ),
+            time_confidence=kwargs.pop(
+                "time_confidence",
+                player_log_events.EVENT_TIME_CONFIDENCE_EXACT,
+            ),
+            raw_source_ref=kwargs.pop(
+                "raw_source_ref",
+                f"/home/deus/private.log:{occurred_at} token=raw-event-secret",
+            ),
+            **kwargs,
+        )
+
+    ingest = player_registry.ingest_player_log_events(
+        db_path,
+        [
+            event(
+                player_log_events.EVENT_TYPE_KILL,
+                "2026-06-16T11:59:00+00:00",
+                victim_id=PLAYER_BRAVO_ID,
+                victim_name="Bravo",
+                victim_faction="USSR",
+                instigator_id=PLAYER_ALPHA_ID,
+                instigator_name="Live Alpha",
+                instigator_faction="US",
+            ),
+            event(
+                player_log_events.EVENT_TYPE_KILL,
+                "2026-06-16T12:05:00+00:00",
+                victim_id=PLAYER_BRAVO_ID,
+                victim_name="Bravo",
+                victim_faction="USSR",
+                instigator_id=PLAYER_ALPHA_ID,
+                instigator_name="Live Alpha",
+                instigator_faction="US",
+            ),
+            event(
+                player_log_events.EVENT_TYPE_TEAMKILL,
+                "2026-06-16T12:06:00+00:00",
+                victim_id=PLAYER_CHARLIE_ID,
+                victim_name="Charlie",
+                victim_faction="US",
+                instigator_id=PLAYER_ALPHA_ID,
+                instigator_name="Live Alpha",
+                instigator_faction="US",
+                teamkill=True,
+            ),
+            event(
+                player_log_events.EVENT_TYPE_KILL,
+                "2026-06-16T12:07:00+00:00",
+                victim_id=PLAYER_ALPHA_ID,
+                victim_name="Live Alpha",
+                victim_faction="US",
+                instigator_id=PLAYER_BRAVO_ID,
+                instigator_name="Bravo",
+                instigator_faction="USSR",
+            ),
+            event(
+                player_log_events.EVENT_TYPE_SUICIDE,
+                "2026-06-16T12:08:00+00:00",
+                victim_id=PLAYER_ALPHA_ID,
+                victim_name="Live Alpha",
+                victim_faction="US",
+                suicide=True,
+            ),
+            event(
+                player_log_events.EVENT_TYPE_OTHER_DEATH,
+                "2026-06-16T12:09:00+00:00",
+                victim_id=PLAYER_ALPHA_ID,
+                victim_name="Live Alpha",
+                victim_faction="US",
+            ),
+            event(
+                player_log_events.EVENT_TYPE_TEAMKILL,
+                "2026-06-16T12:10:00+00:00",
+                victim_id=PLAYER_ALPHA_ID,
+                victim_name="Live Alpha",
+                victim_faction="US",
+                instigator_id=PLAYER_BRAVO_ID,
+                instigator_name="Bravo",
+                instigator_faction="US",
+                teamkill=True,
+            ),
+            event(
+                player_log_events.EVENT_TYPE_KILL,
+                "2026-06-16T12:11:00+00:00",
+                victim_id=PLAYER_CHARLIE_ID,
+                victim_name="Charlie",
+                victim_faction="USSR",
+                instigator_id=PLAYER_ALPHA_ID,
+                instigator_name="AI Alpha Echo",
+                instigator_faction="US",
+                ai_instigator=True,
+            ),
+            event(
+                player_log_events.EVENT_TYPE_KILL,
+                "2026-06-16T12:12:00+00:00",
+                victim_id="",
+                victim_name="Unknown",
+                instigator_id=PLAYER_BRAVO_ID,
+                instigator_name="Bravo",
+                instigator_faction="USSR",
+            ),
+            event(
+                player_log_events.EVENT_TYPE_KILL,
+                "2026-06-16T12:13:00+00:00",
+                victim_id=PLAYER_BRAVO_ID,
+                victim_name="Bravo",
+                instigator_id=PLAYER_ALPHA_ID,
+                instigator_name="Live Alpha",
+                time_confidence=player_log_events.EVENT_TIME_CONFIDENCE_AMBIGUOUS,
+            ),
+            event(
+                player_log_events.EVENT_TYPE_FACTION_JOIN,
+                "2026-06-16T12:14:00+00:00",
+                player_id=PLAYER_ALPHA_ID,
+                player_name="Live Alpha",
+                player_faction="US_Army",
+            ),
+        ],
+        ingested_at="2026-06-16T12:30:00+00:00",
+    )
+    assert ingest.stored_count == 11
+    before_sessions = _sqlite_table_count(db_path, "player_sessions")
+    before_events = _sqlite_table_count(db_path, "player_log_events")
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _roster(_current_player("Live Alpha", PLAYER_ALPHA_ID)),
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    page_response = client.get("/players", follow_redirects=False)
+    json_response = client.get("/players/current.json", follow_redirects=False)
+    rendered = page_response.text + json.dumps(json_response.json(), sort_keys=True)
+
+    assert page_response.status_code == 200
+    assert json_response.status_code == 200
+    payload = json_response.json()
+    assert payload["players"] == [
+        {
+            "display_name": "Live Alpha",
+            "reliable_id": PLAYER_ALPHA_ID,
+            "source": "rcon.guid",
+            "kills": 1,
+            "deaths": 4,
+            "teamkills": 1,
+            "faction": "US_Army",
+            "first_observed_at": session_opened_at,
+            "stats_available": True,
+            "stats_source_label": "Stored current-session evidence",
+        }
+    ]
+    main_rows = re.findall(
+        r'<tr class="player-current-main-row">(.*?)</tr>',
+        page_response.text,
+        re.S,
+    )
+    assert len(main_rows) == 1
+    cells = re.findall(r"<td[^>]*>(.*?)</td>", main_rows[0], re.S)
+    assert cells[2] == "1"
+    assert cells[3] == "4"
+    assert cells[4] == "1"
+    assert "US_Army" in cells[5]
+    assert cells[6] == "—"
+    assert "Session first observed" in page_response.text
+    assert "Stats source" in page_response.text
+    assert "Stored current-session evidence" in page_response.text
+    assert "Last-known faction from stored current-session evidence." in page_response.text
+    assert "raw-event-secret" not in rendered
+    assert "/home/deus/private.log" not in rendered
+    assert _sqlite_table_count(db_path, "player_sessions") == before_sessions
+    assert _sqlite_table_count(db_path, "player_log_events") == before_events
+
+
+def test_current_players_enrichment_requires_open_session_without_fake_zeroes(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl import player_log_events
+    from armactl.web.services import player_current_cache, player_registry, player_sources
+
+    player_current_cache.clear_current_roster_cache()
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.ingest_player_log_events(
+        db_path,
+        [
+            player_log_events.PlayerLogEvent(
+                event_type=player_log_events.EVENT_TYPE_KILL,
+                source=player_log_events.SOURCE_SCRIPT_KILL,
+                confidence=player_log_events.CONFIDENCE_HIGH,
+                occurred_at="2026-06-16T12:05:00+00:00",
+                observed_at="2026-06-16T12:05:00+00:00",
+                time_source=player_log_events.EVENT_TIME_SOURCE_CALLER_OCCURRED_AT,
+                time_confidence=player_log_events.EVENT_TIME_CONFIDENCE_EXACT,
+                victim_id=PLAYER_BRAVO_ID,
+                victim_name="Bravo",
+                instigator_id=PLAYER_ALPHA_ID,
+                instigator_name="Live Alpha",
+                instigator_faction="US",
+            )
+        ],
+        ingested_at="2026-06-16T12:30:00+00:00",
+    )
+    before_sessions = _sqlite_table_count(db_path, "player_sessions")
+    before_events = _sqlite_table_count(db_path, "player_log_events")
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _roster(_current_player("Live Alpha", PLAYER_ALPHA_ID)),
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    page_response = client.get("/players", follow_redirects=False)
+    json_response = client.get("/players/current.json", follow_redirects=False)
+
+    assert page_response.status_code == 200
+    assert json_response.status_code == 200
+    row = json_response.json()["players"][0]
+    assert row["kills"] is None
+    assert row["deaths"] is None
+    assert row["teamkills"] is None
+    assert row["faction"] is None
+    assert row["first_observed_at"] is None
+    assert row["stats_available"] is False
+    assert row["stats_source_label"] == ""
+    main_rows = re.findall(
+        r'<tr class="player-current-main-row">(.*?)</tr>',
+        page_response.text,
+        re.S,
+    )
+    assert len(main_rows) == 1
+    assert main_rows[0].count("player-current-placeholder") == 5
+    assert ">0<" not in main_rows[0]
+    assert "Stats source:</strong>" not in page_response.text
+    assert _sqlite_table_count(db_path, "player_sessions") == before_sessions
+    assert _sqlite_table_count(db_path, "player_log_events") == before_events
 
 
 def test_players_route_empty_current_roster_state_is_stable(
@@ -1661,12 +1949,16 @@ def test_current_players_polling_js_uses_no_store_and_preserves_search():
     assert "cell.colSpan = 8" in script
     assert "labels.rosterSource" in script
     assert "labels.technicalSource" in script
-    assert "labels.joinedTime" in script
+    assert "labels.firstObserved" in script
+    assert "labels.statsSource" in script
+    assert "labels.factionEvidenceTitle" in script
+    assert "function statCell" in script
+    assert "function nullableTextCell" in script
     assert "row.append(idCell" not in script
     assert "row.append(textCell(player.source" not in script
-    assert "player.kills" not in script
-    assert "player.deaths" not in script
-    assert "player.teamkills" not in script
+    assert "statCell(player.kills)" in script
+    assert "statCell(player.deaths)" in script
+    assert "statCell(player.teamkills)" in script
     assert "armactlFormatLocalTime" in script
     assert "target instanceof Element" in script
     assert "removeAttribute(\"hidden\")" in script
@@ -1754,6 +2046,13 @@ def test_players_current_json_uses_fresh_persistent_cache_without_live_source(
             "display_name": "Persistent Alpha",
             "reliable_id": PLAYER_ALPHA_ID,
             "source": "rcon.guid",
+            "kills": None,
+            "deaths": None,
+            "teamkills": None,
+            "faction": None,
+            "first_observed_at": None,
+            "stats_available": False,
+            "stats_source_label": "",
         }
     ]
     assert payload["updated_at"]
@@ -1946,6 +2245,13 @@ def test_players_current_json_uses_current_roster_cache_without_db_writes(
             "display_name": "Json Alpha",
             "reliable_id": PLAYER_ALPHA_ID,
             "source": "rcon.guid",
+            "kills": None,
+            "deaths": None,
+            "teamkills": None,
+            "faction": None,
+            "first_observed_at": None,
+            "stats_available": False,
+            "stats_source_label": "",
         }
     ]
     persistent = player_current_cache.get_persistent_current_roster_snapshot(
@@ -2047,6 +2353,13 @@ def test_player_get_routes_do_not_write_player_sessions(
             "display_name": "Live Alpha",
             "reliable_id": PLAYER_ALPHA_ID,
             "source": "rcon.guid",
+            "kills": None,
+            "deaths": None,
+            "teamkills": None,
+            "faction": None,
+            "first_observed_at": None,
+            "stats_available": False,
+            "stats_source_label": "",
         }
     ]
     assert not db_path.exists()

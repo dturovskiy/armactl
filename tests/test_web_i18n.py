@@ -125,8 +125,14 @@ def test_current_player_roster_layout_translation_keys_exist_in_locales():
         "Role",
         "RCON roster",
         "Technical source",
-        "Joined time",
-        "Stats, faction, role, and joined time stay blank until reliable source data is available.",
+        "Session first observed",
+        "Stats source",
+        "Stored current-session evidence",
+        "Last-known faction from stored current-session evidence.",
+        (
+            "Current-session stats and last-known faction use stored open-session "
+            "evidence; role stays blank until reliable source data is available."
+        ),
     }
 
     assert sorted(keys - _locale_keys("en")) == []

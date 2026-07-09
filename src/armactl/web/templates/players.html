@@ -42,7 +42,10 @@
   data-current-players-source-label="{{ t("Source") }}"
   data-current-players-technical-source-label="{{ t("Technical source") }}"
   data-current-players-updated-label="{{ t("Updated") }}"
-  data-current-players-joined-time-label="{{ t("Joined time") }}"
+  data-current-players-first-observed-label="{{ t("Session first observed") }}"
+  data-current-players-stats-source-label="{{ t("Stats source") }}"
+  data-current-players-stats-source-value="{{ t("Stored current-session evidence") }}"
+  data-current-players-faction-evidence-title="{{ t("Last-known faction from stored current-session evidence.") }}"
   data-current-players-unknown-label="{{ t("Unknown") }}"
   data-current-players-unavailable-label="{{ t("unavailable") }}"
   data-current-players-stale-label="{{ t("Stale") }}">
@@ -109,10 +112,10 @@
             <span class="status-pill">{{ page.status }}</span>
             <span class="player-row-subtle">{% if page.age_seconds is not none %}{{ tr("{seconds}s ago", seconds=page.age_seconds) }}{% else %}{{ t("Unknown") }}{% endif %}</span>
           </td>
-          <td class="player-current-placeholder player-stat-number">—</td>
-          <td class="player-current-placeholder player-stat-number">—</td>
-          <td class="player-current-placeholder player-stat-number">—</td>
-          <td class="player-current-placeholder">—</td>
+          <td class="{% if player.kills is none %}player-current-placeholder {% endif %}player-stat-number">{% if player.kills is none %}—{% else %}{{ player.kills }}{% endif %}</td>
+          <td class="{% if player.deaths is none %}player-current-placeholder {% endif %}player-stat-number">{% if player.deaths is none %}—{% else %}{{ player.deaths }}{% endif %}</td>
+          <td class="{% if player.teamkills is none %}player-current-placeholder {% endif %}player-stat-number">{% if player.teamkills is none %}—{% else %}{{ player.teamkills }}{% endif %}</td>
+          <td{% if not player.faction %} class="player-current-placeholder"{% else %} title="{{ t("Last-known faction from stored current-session evidence.") }}"{% endif %}>{% if player.faction %}{{ player.faction }}{% else %}—{% endif %}</td>
           <td class="player-current-placeholder">—</td>
           <td>
             <div class="player-current-actions">
@@ -137,7 +140,10 @@
                   {% else %}
                     <span class="player-diagnostic-line"><strong>{{ t("Updated") }}:</strong> <span class="muted">{{ t("Unknown") }}</span></span>
                   {% endif %}
-                  <span class="player-diagnostic-line"><strong>{{ t("Joined time") }}:</strong> <span class="muted">—</span></span>
+                  <span class="player-diagnostic-line"><strong>{{ t("Session first observed") }}:</strong> {% if player.first_observed_at %}<span data-local-time datetime="{{ player.first_observed_at }}" title="{{ player.first_observed_at }}">{{ format_web_timestamp(player.first_observed_at) }}</span>{% else %}<span class="muted">—</span>{% endif %}</span>
+                  {% if player.stats_available %}
+                    <span class="player-diagnostic-line"><strong>{{ t("Stats source") }}:</strong> <span>{{ t("Stored current-session evidence") }}</span></span>
+                  {% endif %}
                 </div>
               </div>
             </td>
@@ -149,6 +155,6 @@
   </div>
   {% set count_only_unavailable = page.observed_count > 0 and not page.roster_available %}
   <p class="muted" data-current-players-empty{% if players %} hidden{% endif %}>{% if count_only_unavailable %}{{ tr("Roster unavailable; A2S reports {count} current player(s).", count=page.observed_count) }}{% elif query %}{{ t("No current players match search.") }}{% elif page.available %}{{ t("No current players online.") }}{% else %}{{ t("Current player list unavailable.") }}{% endif %}</p>
-  <p class="muted">{{ t("Stats, faction, role, and joined time stay blank until reliable source data is available.") }}</p>
+  <p class="muted">{{ t("Current-session stats and last-known faction use stored open-session evidence; role stays blank until reliable source data is available.") }}</p>
 </section>
 {% endblock %}

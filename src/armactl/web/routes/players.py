@@ -102,6 +102,13 @@ def _current_players_json_payload(
                 "display_name": player.display_name,
                 "reliable_id": player.reliable_id,
                 "source": player.source,
+                "kills": player.kills,
+                "deaths": player.deaths,
+                "teamkills": player.teamkills,
+                "faction": player.faction,
+                "first_observed_at": player.first_observed_at,
+                "stats_available": player.stats_available,
+                "stats_source_label": player.stats_source_label,
             }
             for player in page.players
         ],

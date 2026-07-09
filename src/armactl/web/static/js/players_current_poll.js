@@ -36,7 +36,14 @@
     stale: root.dataset.currentPlayersStaleLabel || "Stale",
     technicalSource: root.dataset.currentPlayersTechnicalSourceLabel || "Technical source",
     updated: root.dataset.currentPlayersUpdatedLabel || "Updated",
-    joinedTime: root.dataset.currentPlayersJoinedTimeLabel || "Joined time",
+    firstObserved:
+      root.dataset.currentPlayersFirstObservedLabel || "Session first observed",
+    statsSource: root.dataset.currentPlayersStatsSourceLabel || "Stats source",
+    statsSourceValue:
+      root.dataset.currentPlayersStatsSourceValue || "Stored current-session evidence",
+    factionEvidenceTitle:
+      root.dataset.currentPlayersFactionEvidenceTitle ||
+      "Last-known faction from stored current-session evidence.",
     unavailable: root.dataset.currentPlayersUnavailableLabel || "unavailable",
     unknown: root.dataset.currentPlayersUnknownLabel || "Unknown",
   };
@@ -147,12 +154,41 @@
     return cell;
   }
 
+  function isMissingValue(value) {
+    return value === null || value === undefined || value === "";
+  }
+
   function placeholderCell(className = "") {
     const cell = document.createElement("td");
     cell.className = ["player-current-placeholder", className]
       .filter(Boolean)
       .join(" ");
     cell.textContent = labels.placeholder;
+    return cell;
+  }
+
+  function nullableTextCell(value, className = "", options = {}) {
+    if (isMissingValue(value)) {
+      return placeholderCell(className);
+    }
+    const cell = textCell(value, className);
+    if (options.title) {
+      cell.title = options.title;
+    }
+    return cell;
+  }
+
+  function statCell(value) {
+    if (isMissingValue(value)) {
+      return placeholderCell("player-stat-number");
+    }
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+      return placeholderCell("player-stat-number");
+    }
+    const cell = document.createElement("td");
+    cell.className = "player-stat-number";
+    cell.textContent = String(Math.trunc(number));
     return cell;
   }
 
@@ -244,7 +280,21 @@
     } else {
       details.push(detailLine(labels.updated, labels.unknown, { className: "muted" }));
     }
-    details.push(detailLine(labels.joinedTime, labels.placeholder, { className: "muted" }));
+    const firstObservedAt = String(player.first_observed_at || "");
+    if (firstObservedAt) {
+      details.push(
+        detailLine(labels.firstObserved, "", {
+          valueNode: timestampNode(firstObservedAt),
+        }),
+      );
+    } else {
+      details.push(
+        detailLine(labels.firstObserved, labels.placeholder, { className: "muted" }),
+      );
+    }
+    if (player.stats_available === true) {
+      details.push(detailLine(labels.statsSource, labels.statsSourceValue));
+    }
     return details;
   }
 
@@ -300,10 +350,10 @@
     mainRow.append(
       textCell(player.display_name || "", "strong"),
       statusCell(data),
-      placeholderCell("player-stat-number"),
-      placeholderCell("player-stat-number"),
-      placeholderCell("player-stat-number"),
-      placeholderCell(),
+      statCell(player.kills),
+      statCell(player.deaths),
+      statCell(player.teamkills),
+      nullableTextCell(player.faction, "", { title: labels.factionEvidenceTitle }),
       placeholderCell(),
       actionsCell(hasDetails, detailsId),
     );

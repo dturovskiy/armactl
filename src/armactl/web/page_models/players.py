@@ -9,7 +9,12 @@ from armactl import paths, player_log_events
 from armactl.web.jobs import models as job_models
 from armactl.web.jobs import player_sessions as player_session_jobs
 from armactl.web.jobs import store as job_store
-from armactl.web.services import player_current_cache, player_registry, player_sources
+from armactl.web.services import (
+    player_current_cache,
+    player_current_enrichment,
+    player_registry,
+    player_sources,
+)
 from armactl.web.services.player_identity import normalize_player_query, safe_player_text
 
 PLAYER_HISTORY_EVENT_TYPE_LABELS = {
@@ -205,11 +210,18 @@ class PlayerRegistryPage:
 
 @dataclass(frozen=True)
 class CurrentPlayerTableRow:
-    """One live current-roster row without session-derived claims."""
+    """One safe current-roster row with nullable stored-evidence enrichment."""
 
     display_name: str
     reliable_id: str
     source: str
+    kills: int | None = None
+    deaths: int | None = None
+    teamkills: int | None = None
+    faction: str | None = None
+    first_observed_at: str | None = None
+    stats_available: bool = False
+    stats_source_label: str = ""
 
 
 @dataclass(frozen=True)
@@ -386,11 +398,25 @@ def load_player_moderation_panel(
 
 def _current_player_row(
     player: player_current_cache.CurrentRosterPlayerSnapshot,
+    enrichment: player_current_enrichment.CurrentPlayerEnrichment | None = None,
 ) -> CurrentPlayerTableRow:
     return CurrentPlayerTableRow(
         display_name=safe_player_text(player.display_name) or "Unknown player",
         reliable_id=safe_player_text(player.reliable_id),
         source=safe_player_text(player.source) or "unknown",
+        kills=enrichment.kills if enrichment else None,
+        deaths=enrichment.deaths if enrichment else None,
+        teamkills=enrichment.teamkills if enrichment else None,
+        faction=safe_player_text(enrichment.faction, max_length=80)
+        if enrichment and enrichment.faction
+        else None,
+        first_observed_at=safe_player_text(enrichment.first_observed_at, max_length=80)
+        if enrichment and enrichment.first_observed_at
+        else None,
+        stats_available=bool(enrichment and enrichment.stats_available),
+        stats_source_label=safe_player_text(enrichment.stats_source_label, max_length=80)
+        if enrichment
+        else "",
     )
 
 
@@ -423,7 +449,18 @@ def load_current_players_page(
     )
     snapshot = result.snapshot
 
-    rows = tuple(_current_player_row(player) for player in snapshot.players)
+    reliable_ids = tuple(
+        safe_player_text(player.reliable_id) for player in snapshot.players
+    )
+    enrichments = player_current_enrichment.load_current_player_enrichment(
+        normalized_instance,
+        data_root=data_root,
+        reliable_ids=reliable_ids,
+    )
+    rows = tuple(
+        _current_player_row(player, enrichments.get(safe_player_text(player.reliable_id)))
+        for player in snapshot.players
+    )
     filtered = tuple(row for row in rows if _matches_current_player(row, normalized_query))
     return CurrentPlayersPage(
         instance=normalized_instance,
