@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from web_route_helpers import _client
@@ -66,3 +67,34 @@ def test_template_and_static_paths_are_package_local():
     assert ".notice-restart" in response.text
     assert ".auth-panel" in response.text
     assert "[data-theme=\"dark\"]" in response.text
+
+
+def test_static_asset_version_tracks_all_css_and_js_assets(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web import app as web_app
+
+    static_dir = tmp_path / "static"
+    css_dir = static_dir / "css"
+    js_dir = static_dir / "js"
+    img_dir = static_dir / "img"
+    css_dir.mkdir(parents=True)
+    js_dir.mkdir(parents=True)
+    img_dir.mkdir(parents=True)
+    app_css = css_dir / "app.css"
+    current_players_js = js_dir / "players_current_poll.js"
+    nested_js = js_dir / "nested" / "tool.js"
+    ignored_image = img_dir / "logo.png"
+    nested_js.parent.mkdir()
+    app_css.write_text("body {}", encoding="utf-8")
+    current_players_js.write_text("window.currentPlayers = true;", encoding="utf-8")
+    nested_js.write_text("window.nested = true;", encoding="utf-8")
+    ignored_image.write_bytes(b"png")
+    os.utime(app_css, ns=(1_000, 1_000))
+    os.utime(current_players_js, ns=(2_000, 2_000))
+    os.utime(nested_js, ns=(3_000, 3_000))
+    os.utime(ignored_image, ns=(9_000, 9_000))
+    monkeypatch.setattr(web_app, "STATIC_DIR", static_dir)
+
+    assert web_app._static_asset_version() == "3000"

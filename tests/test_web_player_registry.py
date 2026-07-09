@@ -1633,6 +1633,8 @@ def test_current_players_polling_js_uses_no_store_and_preserves_search():
     assert "row.append(textCell(player.source" not in script
     assert "armactlFormatLocalTime" in script
     assert "target instanceof Element" in script
+    assert "removeAttribute(\"hidden\")" in script
+    assert "setAttribute(\"hidden\", \"\")" in script
 
 
 def test_players_route_uses_fresh_current_roster_cache(tmp_path: Path, monkeypatch):

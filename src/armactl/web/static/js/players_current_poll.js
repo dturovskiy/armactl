@@ -250,7 +250,7 @@
     row.id = detailsId;
     row.className = "player-current-details-row";
     row.dataset.currentPlayerRow = "";
-    row.hidden = true;
+    row.setAttribute("hidden", "");
     const cell = document.createElement("td");
     cell.colSpan = 3;
     const panel = document.createElement("div");
@@ -316,6 +316,15 @@
     button.setAttribute("aria-expanded", expanded ? "true" : "false");
   }
 
+  function setDetailsRowOpen(row, open) {
+    if (open) {
+      row.removeAttribute("hidden");
+    } else {
+      row.setAttribute("hidden", "");
+    }
+  }
+
+
   root.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) {
@@ -333,8 +342,8 @@
     if (!target) {
       return;
     }
-    const shouldOpen = target.hidden;
-    target.hidden = !shouldOpen;
+    const shouldOpen = target.hasAttribute("hidden");
+    setDetailsRowOpen(target, shouldOpen);
     setExpanded(button, shouldOpen);
   });
 

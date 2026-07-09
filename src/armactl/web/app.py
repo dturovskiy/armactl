@@ -34,18 +34,17 @@ STATIC_DIR = PACKAGE_DIR / "static"
 WEB_DATA_ROOT_ENV = "ARMACTL_WEB_DATA_ROOT"
 
 
+def _iter_versioned_static_assets() -> list[Path]:
+    assets: list[Path] = []
+    for directory in (STATIC_DIR / "css", STATIC_DIR / "js"):
+        if directory.is_dir():
+            assets.extend(path for path in directory.rglob("*") if path.is_file())
+    return assets
+
+
 def _static_asset_version() -> str:
-    candidates = (
-        STATIC_DIR / "css" / "app.css",
-        STATIC_DIR / "js" / "dashboard.js",
-        STATIC_DIR / "js" / "csrf.js",
-        STATIC_DIR / "js" / "preferences.js",
-        STATIC_DIR / "js" / "admins.js",
-        STATIC_DIR / "js" / "service_actions.js",
-        STATIC_DIR / "js" / "jobs.js",
-    )
     mtimes: list[int] = []
-    for candidate in candidates:
+    for candidate in _iter_versioned_static_assets():
         try:
             mtimes.append(candidate.stat().st_mtime_ns)
         except OSError:
