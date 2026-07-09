@@ -38,6 +38,7 @@ def _static_asset_version() -> str:
     candidates = (
         STATIC_DIR / "css" / "app.css",
         STATIC_DIR / "js" / "dashboard.js",
+        STATIC_DIR / "js" / "csrf.js",
         STATIC_DIR / "js" / "preferences.js",
         STATIC_DIR / "js" / "admins.js",
         STATIC_DIR / "js" / "service_actions.js",

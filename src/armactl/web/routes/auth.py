@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Form, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from armactl.web.auth.cookies import (
     clear_csrf_cookie,
@@ -15,7 +15,11 @@ from armactl.web.auth.cookies import (
     validate_login_csrf,
 )
 from armactl.web.auth.csrf import create_csrf_token, validate_csrf_token
-from armactl.web.auth.dependencies import get_current_session, get_web_runtime_config
+from armactl.web.auth.dependencies import (
+    get_current_session,
+    get_form_csrf_token,
+    get_web_runtime_config,
+)
 from armactl.web.auth.models import InvalidAuthInputError, WebAuthError
 from armactl.web.auth.rate_limit import (
     check_login_allowed,
@@ -67,6 +71,32 @@ def _redirect_to_login(config) -> RedirectResponse:
     response = RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
     clear_session_cookie(response, config)
     clear_csrf_cookie(response, config)
+    return response
+
+
+def _no_store_json(
+    payload: dict[str, str], *, status_code: int = status.HTTP_200_OK
+) -> JSONResponse:
+    response = JSONResponse(payload, status_code=status_code)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+@router.get("/auth/csrf-token")
+def refresh_csrf_token(request: Request) -> Response:
+    """Return a fresh authenticated CSRF token for long-lived operator pages."""
+    current = get_current_session(request)
+    if current is None:
+        return _no_store_json(
+            {"error": "authentication_required"}, status_code=status.HTTP_401_UNAUTHORIZED
+        )
+
+    form_csrf = get_form_csrf_token(request, current)
+    response = _no_store_json({"csrf_token": form_csrf.token})
+    if form_csrf.should_set_cookie:
+        set_csrf_cookie(response, form_csrf.token, current.config)
     return response
 
 

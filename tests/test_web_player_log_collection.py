@@ -117,6 +117,36 @@ def test_collect_logs_route_requires_auth_players_permission_and_csrf(
     assert response.text == "Invalid CSRF token."
 
 
+def test_collect_logs_accepts_refreshed_form_csrf_token(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from armactl.web.jobs import player_logs
+
+    started_jobs: list[int] = []
+    monkeypatch.setattr(
+        player_logs,
+        "start_player_log_collection_worker",
+        lambda db_path, job_id: started_jobs.append(job_id),
+    )
+    client = _setup_owner_client(tmp_path)
+    page = client.get("/players/history", follow_redirects=False)
+    token_response = client.get("/auth/csrf-token")
+
+    assert page.status_code == 200
+    assert token_response.status_code == 200
+    csrf_token = token_response.json()["csrf_token"]
+    response = client.post(
+        "/players/history/collect-logs",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/players/history?log_collection=queued")
+    assert started_jobs
+
+
 def test_history_ui_renders_collect_button_notice_and_no_raw_paths(
     tmp_path: Path,
     monkeypatch,

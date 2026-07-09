@@ -38,6 +38,7 @@ def test_login_template_has_language_and_theme_controls(tmp_path: Path):
     assert "☀" not in response.text
     assert "/static/js/preferences.js" in response.text
     assert "/static/img/armactl_dashboard.png?v=" in response.text
+    assert "/static/js/csrf.js?v=" in response.text
     assert "/static/css/app.css?v=" in response.text
     assert "/static/js/preferences.js?v=" in response.text
     assert 'data-theme="light"' in response.text
@@ -61,6 +62,25 @@ def test_preferences_js_asset_is_served(tmp_path: Path):
     assert "window.location.reload()" in response.text
     assert "armactl_web_session" not in response.text
     assert "csrf_token" not in response.text
+
+
+def test_csrf_refresh_js_asset_is_served(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.get("/static/js/csrf.js")
+
+    assert response.status_code == 200
+    assert "text/javascript" in response.headers["content-type"]
+    assert "/auth/csrf-token" in response.text
+    assert 'input[name="csrf_token"]' in response.text
+    assert "form.dataset.preferenceForm" in response.text
+    assert 'pathname === "/login"' in response.text
+    assert "HTMLFormElement.prototype.submit.call(form)" in response.text
+    assert "data-csrf-submit-clone" in response.text
+    assert "armactl_web_session" not in response.text
+    assert "armactl_web_csrf" not in response.text
 
 
 def test_preferences_js_persists_requested_theme_before_flipping_next_value():
@@ -167,6 +187,38 @@ def test_authenticated_theme_preference_requires_valid_csrf(
     assert response.status_code == 403
     assert response.text == "Invalid CSRF token."
     assert response.cookies.get(THEME_COOKIE_NAME) is None
+
+
+def test_authenticated_csrf_refresh_endpoint_returns_form_token(tmp_path: Path):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+
+    anonymous_response = client.get("/auth/csrf-token")
+
+    assert anonymous_response.status_code == 401
+    assert anonymous_response.json() == {"error": "authentication_required"}
+    assert anonymous_response.headers["cache-control"] == "no-store, max-age=0"
+
+    _login(client, "owner", password)
+    token_response = client.get("/auth/csrf-token")
+
+    assert token_response.status_code == 200
+    assert token_response.headers["cache-control"] == "no-store, max-age=0"
+    token = token_response.json()["csrf_token"]
+    assert isinstance(token, str)
+    assert token
+
+    preference_response = client.post(
+        "/preferences/theme",
+        data={"theme": "dark", "csrf_token": token, "next": "/dashboard"},
+        follow_redirects=False,
+    )
+
+    assert preference_response.status_code == 303
+    assert preference_response.cookies.get(THEME_COOKIE_NAME) == "dark"
 
 
 def test_authenticated_theme_preference_async_accepts_stale_csrf_for_cookie_only_update(
