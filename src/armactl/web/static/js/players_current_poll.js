@@ -27,8 +27,12 @@
       root.dataset.currentPlayersEmptySearchLabel || "No current players match search.",
     emptyUnavailable:
       root.dataset.currentPlayersEmptyUnavailableLabel || "Current player list unavailable.",
+    details: root.dataset.currentPlayersDetailsLabel || "Details",
+    identityId: root.dataset.currentPlayersIdentityIdLabel || "Identity ID",
     noReliableId: root.dataset.currentPlayersNoReliableIdLabel || "No reliable ID",
+    source: root.dataset.currentPlayersSourceLabel || "Source",
     stale: root.dataset.currentPlayersStaleLabel || "Stale",
+    updated: root.dataset.currentPlayersUpdatedLabel || "Updated",
     unavailable: root.dataset.currentPlayersUnavailableLabel || "unavailable",
     unknown: root.dataset.currentPlayersUnknownLabel || "Unknown",
   };
@@ -132,35 +136,149 @@
     if (className && className !== "strong") {
       span.className = className;
     } else if (className === "strong") {
-      span.className = "wrap-value";
+      span.className = "player-current-name wrap-value";
     }
     span.textContent = String(text || "");
     cell.append(span);
     return cell;
   }
 
-  function idCell(reliableId) {
+  function statusCell(data) {
     const cell = document.createElement("td");
-    const id = String(reliableId || "");
-    const span = document.createElement("span");
-    if (id) {
-      span.className = "player-id-cell player-id-clip";
-      span.title = id;
-      span.textContent = clippedReliableId(id);
-    } else {
-      span.className = "muted";
-      span.textContent = labels.noReliableId;
-    }
-    cell.append(span);
+    const pill = document.createElement("span");
+    pill.className = "status-pill";
+    pill.textContent = String(data.status || labels.unknown);
+    const freshness = document.createElement("span");
+    freshness.className = "player-row-subtle";
+    freshness.textContent = ageText(data.age_seconds);
+    cell.append(pill, freshness);
     return cell;
   }
 
-  function playerRow(player) {
+  function detailLine(label, value, options = {}) {
+    const line = document.createElement("span");
+    line.className = "player-diagnostic-line";
+    const labelNode = document.createElement("strong");
+    labelNode.textContent = label + ":";
+    const valueNode = document.createElement("span");
+    let renderedValue = valueNode;
+    if (options.valueNode instanceof Node) {
+      renderedValue = options.valueNode;
+    } else {
+      if (options.className) {
+        valueNode.className = options.className;
+      }
+      if (options.title) {
+        valueNode.title = options.title;
+      }
+      valueNode.textContent = String(value || "");
+    }
+    line.append(labelNode, document.createTextNode(" "), renderedValue);
+    return line;
+  }
+
+  function timestampNode(value) {
+    const timestamp = String(value || "");
+    const timeNode = document.createElement("time");
+    timeNode.dataset.localTime = "";
+    timeNode.setAttribute("datetime", timestamp);
+    timeNode.setAttribute("title", timestamp);
+    const formatter = window.armactlFormatLocalTime;
+    timeNode.textContent =
+      typeof formatter === "function" ? formatter(timestamp) || timestamp : timestamp;
+    return timeNode;
+  }
+
+  function hasCurrentPlayerDetails(player, data) {
+    return Boolean(
+      player.reliable_id || player.source || data.updated_at || data.collected_at,
+    );
+  }
+
+  function currentPlayerDetails(player, data) {
+    const details = [];
+    const reliableId = String(player.reliable_id || "");
+    if (reliableId) {
+      details.push(
+        detailLine(labels.identityId, clippedReliableId(reliableId), {
+          className: "player-id-cell player-id-clip",
+          title: reliableId,
+        }),
+      );
+    } else {
+      details.push(
+        detailLine(labels.identityId, labels.noReliableId, { className: "muted" }),
+      );
+    }
+    const source = String(player.source || "");
+    if (source) {
+      details.push(detailLine(labels.source, source));
+    }
+    const updatedAt = String(data.updated_at || data.collected_at || "");
+    if (updatedAt) {
+      details.push(detailLine(labels.updated, "", { valueNode: timestampNode(updatedAt) }));
+    }
+    return details;
+  }
+
+  function actionsCell(hasDetails, detailsId) {
+    const cell = document.createElement("td");
+    const actions = document.createElement("div");
+    actions.className = "player-current-actions";
+    if (hasDetails) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "button-link secondary-link player-current-action-button";
+      button.dataset.currentPlayerToggle = "";
+      button.dataset.currentPlayerTarget = detailsId;
+      button.setAttribute("aria-controls", detailsId);
+      button.setAttribute("aria-expanded", "false");
+      button.textContent = labels.details;
+      actions.append(button);
+    } else {
+      const empty = document.createElement("span");
+      empty.className = "muted";
+      empty.textContent = "-";
+      actions.append(empty);
+    }
+    cell.append(actions);
+    return cell;
+  }
+
+  function detailRow(player, data, detailsId) {
     const row = document.createElement("tr");
-    row.append(textCell(player.display_name || "", "strong"));
-    row.append(idCell(player.reliable_id));
-    row.append(textCell(player.source || "", "wrap-value"));
+    row.id = detailsId;
+    row.className = "player-current-details-row";
+    row.dataset.currentPlayerRow = "";
+    row.hidden = true;
+    const cell = document.createElement("td");
+    cell.colSpan = 3;
+    const panel = document.createElement("div");
+    panel.className = "player-current-detail-panel";
+    panel.setAttribute("role", "region");
+    const detailCell = document.createElement("div");
+    detailCell.className = "player-current-detail-cell";
+    detailCell.append(...currentPlayerDetails(player, data));
+    panel.append(detailCell);
+    cell.append(panel);
+    row.append(cell);
     return row;
+  }
+
+  function playerRows(player, index, data) {
+    const detailsId = "current-player-details-poll-" + String(index);
+    const hasDetails = hasCurrentPlayerDetails(player, data);
+    const mainRow = document.createElement("tr");
+    mainRow.className = "player-current-main-row";
+    mainRow.append(
+      textCell(player.display_name || "", "strong"),
+      statusCell(data),
+      actionsCell(hasDetails, detailsId),
+    );
+    if (!hasDetails) {
+      return [mainRow];
+    }
+    return [mainRow, detailRow(player, data, detailsId)];
   }
 
   function emptyMessage(data) {
@@ -182,13 +300,43 @@
       return;
     }
     const players = Array.isArray(data.players) ? data.players : [];
-    tableBody.replaceChildren(...players.map(playerRow));
+    const rows = [];
+    players.forEach((player, index) => {
+      rows.push(...playerRows(player, index + 1, data));
+    });
+    tableBody.replaceChildren(...rows);
     tableWrap.hidden = players.length === 0;
     emptyNode.hidden = players.length > 0;
     if (players.length === 0) {
       emptyNode.textContent = emptyMessage(data);
     }
   }
+
+  function setExpanded(button, expanded) {
+    button.setAttribute("aria-expanded", expanded ? "true" : "false");
+  }
+
+  root.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    const button = target.closest("[data-current-player-toggle]");
+    if (!button || !root.contains(button)) {
+      return;
+    }
+    const targetId = button.dataset.currentPlayerTarget;
+    if (!targetId) {
+      return;
+    }
+    const target = document.getElementById(targetId);
+    if (!target) {
+      return;
+    }
+    const shouldOpen = target.hidden;
+    target.hidden = !shouldOpen;
+    setExpanded(button, shouldOpen);
+  });
 
   function applyPayload(data) {
     if (!data || typeof data !== "object" || !Array.isArray(data.players)) {

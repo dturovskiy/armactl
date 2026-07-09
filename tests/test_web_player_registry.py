@@ -1421,7 +1421,9 @@ def test_known_players_page_is_identity_directory_not_stat_board(
 
 
 def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypatch):
-    from armactl.web.services import player_sources
+    from armactl.web.services import player_current_cache, player_sources
+
+    player_current_cache.clear_current_roster_cache()
 
     monkeypatch.setattr(
         player_sources,
@@ -1441,6 +1443,16 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
     assert "Live Alpha" in html
     assert "Live Slot" in html
     assert PLAYER_ALPHA_ID in html
+    assert "rcon.guid" in html
+    assert "rcon.roster" in html
+    assert "<th>Player</th>" in html
+    assert "<th>Status</th>" in html
+    assert "<th>Available actions</th>" in html
+    assert "<th>Identity ID</th>" not in html
+    assert "<th>Source</th>" not in html
+    assert "data-current-player-toggle" in html
+    assert "data-current-player-row hidden" in html
+    assert 'aria-expanded="false"' in html
     assert "Refresh current players" in html
     assert "players_current_poll.js" in html
     assert "data-current-players-root" in html
@@ -1448,7 +1460,27 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
     assert "data-current-players-interval-ms=\"60000\"" in html
     assert "data-current-players-search" in html
     assert 'action="/players/refresh-current"' in html
-    assert "<th>Source</th>" in html
+    main_rows = re.findall(r'<tr class="player-current-main-row">(.*?)</tr>', html, re.S)
+    assert len(main_rows) == 2
+    assert any("Live Alpha" in row for row in main_rows)
+    assert any("Live Slot" in row for row in main_rows)
+    for row in main_rows:
+        assert "Identity ID" not in row
+        assert PLAYER_ALPHA_ID not in row
+        assert "rcon.guid" not in row
+        assert "rcon.roster" not in row
+    detail_rows = re.findall(
+        (
+            r'<tr id="current-player-details-\d+" '
+            r'class="player-current-details-row" data-current-player-row hidden>'
+            r"(.*?)</tr>"
+        ),
+        html,
+        re.S,
+    )
+    assert len(detail_rows) == 2
+    assert any(PLAYER_ALPHA_ID in row and "rcon.guid" in row for row in detail_rows)
+    assert any("No reliable ID" in row and "rcon.roster" in row for row in detail_rows)
     assert "<th>Last seen</th>" not in html
     assert "<th>K/D</th>" not in html
     assert "<th>Faction</th>" not in html
@@ -1457,6 +1489,32 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
     assert "Not tracked" not in html
     assert "Known player table" not in html
     assert "Player event log" not in html
+    assert not (tmp_path / "default" / "players.db").exists()
+
+
+def test_players_route_empty_current_roster_state_is_stable(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_current_cache, player_sources
+
+    player_current_cache.clear_current_roster_cache()
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: _roster(),
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get("/players", follow_redirects=False)
+    html = response.text
+
+    assert response.status_code == 200
+    assert "No current players online." in html
+    assert "data-current-players-table hidden" in html
+    assert "data-current-player-toggle" not in html
+    assert "data-current-player-row" not in html
+    assert "Showing 0 of 0 current player(s)" in html
     assert not (tmp_path / "default" / "players.db").exists()
 
 
@@ -1528,7 +1586,9 @@ def test_current_players_polling_hook_only_on_current_page(
     tmp_path: Path,
     monkeypatch,
 ):
-    from armactl.web.services import player_sources
+    from armactl.web.services import player_current_cache, player_sources
+
+    player_current_cache.clear_current_roster_cache()
 
     monkeypatch.setattr(
         player_sources,
@@ -1565,6 +1625,14 @@ def test_current_players_polling_js_uses_no_store_and_preserves_search():
     assert "data.observed_count" in script
     assert "data.roster_available === false" in script
     assert "window.setInterval(refreshCurrentPlayers, intervalMs)" in script
+    assert "currentPlayersDetailsLabel" in script
+    assert "function playerRows" in script
+    assert "data-current-player-toggle" in script
+    assert "tableBody.replaceChildren(...rows)" in script
+    assert "row.append(idCell" not in script
+    assert "row.append(textCell(player.source" not in script
+    assert "armactlFormatLocalTime" in script
+    assert "target instanceof Element" in script
 
 
 def test_players_route_uses_fresh_current_roster_cache(tmp_path: Path, monkeypatch):

@@ -1214,18 +1214,30 @@ button.warning {
 }
 
 .player-current-table {
-  min-width: 1120px;
+  min-width: 0;
   table-layout: fixed;
 }
 
-.player-current-table th:nth-child(1) { width: 18%; }
+.player-current-table th:nth-child(1) { width: 46%; }
 .player-current-table th:nth-child(2) { width: 24%; }
-.player-current-table th:nth-child(3) { width: 12%; }
-.player-current-table th:nth-child(4),
-.player-current-table th:nth-child(5),
-.player-current-table th:nth-child(6),
-.player-current-table th:nth-child(7) { width: 7%; }
-.player-current-table th:nth-child(8) { width: 18%; }
+.player-current-table th:nth-child(3) { width: 30%; }
+
+.player-current-main-row td {
+  vertical-align: middle;
+}
+
+.player-current-main-row td:nth-child(1) {
+  overflow: hidden;
+}
+
+.player-current-name {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
 
 .player-registry-table {
   min-width: 720px;
@@ -1266,6 +1278,7 @@ button.warning {
   border-left: 1px solid var(--border);
 }
 
+.player-current-table td:nth-child(2) .status-pill,
 .player-sessions-table td:nth-child(2) .status-pill {
   max-width: 100%;
   white-space: normal;
@@ -1275,14 +1288,6 @@ button.warning {
   justify-content: center;
 }
 
-.player-current-table th:nth-child(4),
-.player-current-table th:nth-child(5),
-.player-current-table th:nth-child(6),
-.player-current-table th:nth-child(7) {
-  text-align: center;
-}
-
-.player-current-table td:nth-child(2),
 .player-registry-table td:nth-child(2) {
   overflow: hidden;
 }
@@ -1391,6 +1396,7 @@ button.warning {
   gap: 6px;
 }
 
+.player-current-actions,
 .player-session-actions {
   display: flex;
   flex-direction: column;
@@ -1398,6 +1404,7 @@ button.warning {
   gap: 6px;
 }
 
+.player-current-action-button,
 .player-session-action-button {
   justify-content: center;
   min-height: 30px;
@@ -1405,20 +1412,24 @@ button.warning {
   font-size: 0.8rem;
 }
 
+.player-current-action-button[aria-expanded="true"],
 .player-session-action-button[aria-expanded="true"] {
   border-color: var(--accent);
   color: var(--accent);
 }
 
+.player-current-details-row td,
 .player-session-details-row td {
   padding-top: 0;
 }
 
+.player-current-detail-panel,
 .player-session-detail-panel {
   border-top: 1px solid var(--border);
   padding-top: 8px;
 }
 
+.player-current-detail-cell,
 .player-session-evidence-cell {
   display: flex;
   flex-wrap: wrap;
