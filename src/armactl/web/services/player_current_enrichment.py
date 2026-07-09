@@ -16,7 +16,6 @@ from armactl.web.services.player_identity import (
 )
 
 CURRENT_STATS_SOURCE_LABEL = "Stored current-session evidence"
-CURRENT_SERVER_STATS_SOURCE_LABEL = "Stored current-server evidence"
 
 _PLAYER_SESSIONS_REQUIRED_COLUMNS = frozenset(
     {
@@ -181,23 +180,6 @@ def _latest_valid_event_at(connection: sqlite3.Connection) -> str:
     return safe_player_text(row["occurred_at"], max_length=80)
 
 
-def _latest_server_boundary_at(connection: sqlite3.Connection) -> str:
-    row = connection.execute(
-        f"""
-        SELECT occurred_at
-        FROM player_log_events
-        WHERE event_type = ?
-        {_valid_current_event_window_sql(include_bounds=False)}
-        ORDER BY occurred_at DESC, event_id DESC
-        LIMIT 1
-        """,
-        (player_log_events.EVENT_TYPE_SERVER_LIFECYCLE, *_valid_event_params()),
-    ).fetchone()
-    if row is None:
-        return ""
-    return safe_player_text(row["occurred_at"], max_length=80)
-
-
 def _load_one_enrichment(
     connection: sqlite3.Connection,
     reliable_id: str,
@@ -215,79 +197,31 @@ def _load_one_enrichment(
         (reliable_id, player_registry.PLAYER_SESSION_STATUS_OPEN),
     ).fetchone()
     if session is None:
-        lower_bound = _latest_server_boundary_at(connection)
-        first_observed_at = None
-        source_label = CURRENT_SERVER_STATS_SOURCE_LABEL
-    else:
-        lower_bound = safe_player_text(session["open_observed_at"], max_length=80)
-        first_observed_at = lower_bound
-        source_label = CURRENT_STATS_SOURCE_LABEL
-    if not lower_bound:
         return None
 
-    has_combat_evidence = _has_combat_counter_evidence(
-        connection, reliable_id, lower_bound, upper_bound
-    )
+    open_observed_at = safe_player_text(session["open_observed_at"], max_length=80)
+    if not open_observed_at:
+        return None
+
     return CurrentPlayerEnrichment(
-        kills=_count_kills(connection, reliable_id, lower_bound, upper_bound)
-        if has_combat_evidence
-        else None,
-        deaths=_count_deaths(connection, reliable_id, lower_bound, upper_bound)
-        if has_combat_evidence
-        else None,
+        kills=_count_kills(connection, reliable_id, open_observed_at, upper_bound),
+        deaths=_count_deaths(connection, reliable_id, open_observed_at, upper_bound),
         teamkills=_count_teamkills(
             connection,
             reliable_id,
-            lower_bound,
+            open_observed_at,
             upper_bound,
-        )
-        if has_combat_evidence
-        else None,
+        ),
         faction=_last_known_faction(
             connection,
             reliable_id,
-            lower_bound,
+            open_observed_at,
             upper_bound,
         ),
-        first_observed_at=first_observed_at,
-        stats_available=has_combat_evidence,
-        stats_source_label=source_label if has_combat_evidence else "",
+        first_observed_at=open_observed_at,
+        stats_available=True,
+        stats_source_label=CURRENT_STATS_SOURCE_LABEL,
     )
-
-
-def _has_combat_counter_evidence(
-    connection: sqlite3.Connection,
-    reliable_id: str,
-    lower_bound: str,
-    upper_bound: str,
-) -> bool:
-    row = connection.execute(
-        f"""
-        SELECT 1
-        FROM player_log_events
-        WHERE (
-            (
-              event_type IN ({_COMBAT_INSTIGATOR_EVENT_PLACEHOLDERS})
-              AND instigator_id = ?
-              AND COALESCE(ai_instigator, 0) != 1
-            )
-            OR (
-              event_type IN ({_DEATH_EVENT_PLACEHOLDERS})
-              AND victim_id = ?
-            )
-        )
-        {_valid_current_event_window_sql()}
-        LIMIT 1
-        """,
-        (
-            *_COMBAT_INSTIGATOR_EVENT_TYPES,
-            reliable_id,
-            *_DEATH_EVENT_TYPES,
-            reliable_id,
-            *_window_params(lower_bound, upper_bound),
-        ),
-    ).fetchone()
-    return row is not None
 
 
 def _valid_current_event_window_sql(*, include_bounds: bool = True) -> str:
@@ -300,16 +234,20 @@ def _valid_current_event_window_sql(*, include_bounds: bool = True) -> str:
       AND occurred_at != ''
       {bounds}
       AND COALESCE(time_source, '') != ?
+      AND COALESCE(time_confidence, '') != ?
     """
 
 
-def _valid_event_params() -> tuple[str]:
-    return (player_log_events.EVENT_TIME_SOURCE_UNAVAILABLE,)
-
-
-def _window_params(lower_bound: str, upper_bound: str) -> tuple[str, str, str]:
+def _valid_event_params() -> tuple[str, str]:
     return (
-        lower_bound,
+        player_log_events.EVENT_TIME_SOURCE_UNAVAILABLE,
+        player_log_events.EVENT_TIME_CONFIDENCE_AMBIGUOUS,
+    )
+
+
+def _window_params(open_observed_at: str, upper_bound: str) -> tuple[str, str, str, str]:
+    return (
+        open_observed_at,
         upper_bound,
         *_valid_event_params(),
     )

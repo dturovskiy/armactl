@@ -1710,7 +1710,7 @@ def test_current_players_enrichment_uses_open_session_evidence_window(
             "display_name": "Live Alpha",
             "reliable_id": PLAYER_ALPHA_ID,
             "source": "rcon.guid",
-            "kills": 2,
+            "kills": 1,
             "deaths": 4,
             "teamkills": 1,
             "faction": "US_Army",
@@ -1726,7 +1726,7 @@ def test_current_players_enrichment_uses_open_session_evidence_window(
     )
     assert len(main_rows) == 1
     cells = re.findall(r"<td[^>]*>(.*?)</td>", main_rows[0], re.S)
-    assert cells[2] == "2"
+    assert cells[2] == "1"
     assert cells[3] == "4"
     assert cells[4] == "1"
     assert "US_Army" in cells[5]
@@ -1737,83 +1737,6 @@ def test_current_players_enrichment_uses_open_session_evidence_window(
     assert "Last-known faction from stored current-session evidence." in page_response.text
     assert "raw-event-secret" not in rendered
     assert "/home/deus/private.log" not in rendered
-    assert _sqlite_table_count(db_path, "player_sessions") == before_sessions
-    assert _sqlite_table_count(db_path, "player_log_events") == before_events
-
-
-def test_current_players_enrichment_can_use_server_run_window_without_open_session(
-    tmp_path: Path,
-    monkeypatch,
-):
-    from armactl import player_log_events
-    from armactl.web.services import player_current_cache, player_registry, player_sources
-
-    player_current_cache.clear_current_roster_cache()
-    db_path = tmp_path / "default" / "players.db"
-    player_registry.ingest_player_log_events(
-        db_path,
-        [
-            player_log_events.PlayerLogEvent(
-                event_type=player_log_events.EVENT_TYPE_SERVER_LIFECYCLE,
-                source=player_log_events.SOURCE_SERVER_LIFECYCLE,
-                confidence=player_log_events.CONFIDENCE_HIGH,
-                occurred_at="2026-06-16T12:00:00+00:00",
-                observed_at="2026-06-16T12:00:00+00:00",
-                time_source=player_log_events.EVENT_TIME_SOURCE_CALLER_OCCURRED_AT,
-                time_confidence=player_log_events.EVENT_TIME_CONFIDENCE_EXACT,
-            ),
-            player_log_events.PlayerLogEvent(
-                event_type=player_log_events.EVENT_TYPE_KILL,
-                source=player_log_events.SOURCE_SCRIPT_KILL,
-                confidence=player_log_events.CONFIDENCE_HIGH,
-                occurred_at="2026-06-16T12:05:00+00:00",
-                observed_at="2026-06-16T12:05:00+00:00",
-                time_source=player_log_events.EVENT_TIME_SOURCE_CALLER_OCCURRED_AT,
-                time_confidence=player_log_events.EVENT_TIME_CONFIDENCE_AMBIGUOUS,
-                victim_id=PLAYER_ALPHA_ID,
-                victim_name="Live Alpha",
-                victim_faction="US",
-                instigator_id=PLAYER_BRAVO_ID,
-                instigator_name="Bravo",
-                instigator_faction="USSR",
-            ),
-        ],
-        ingested_at="2026-06-16T12:30:00+00:00",
-    )
-    before_sessions = _sqlite_table_count(db_path, "player_sessions")
-    before_events = _sqlite_table_count(db_path, "player_log_events")
-
-    monkeypatch.setattr(
-        player_sources,
-        "load_current_player_roster",
-        lambda instance: _roster(_current_player("Live Alpha", PLAYER_ALPHA_ID)),
-    )
-    client = _authed_client(tmp_path, monkeypatch)
-
-    page_response = client.get("/players", follow_redirects=False)
-    json_response = client.get("/players/current.json", follow_redirects=False)
-
-    assert page_response.status_code == 200
-    assert json_response.status_code == 200
-    row = json_response.json()["players"][0]
-    assert row["kills"] == 0
-    assert row["deaths"] == 1
-    assert row["teamkills"] == 0
-    assert row["faction"] == "US"
-    assert row["first_observed_at"] is None
-    assert row["stats_available"] is True
-    assert row["stats_source_label"] == "Stored current-server evidence"
-    main_rows = re.findall(
-        r'<tr class="player-current-main-row">(.*?)</tr>',
-        page_response.text,
-        re.S,
-    )
-    assert len(main_rows) == 1
-    cells = re.findall(r"<td[^>]*>(.*?)</td>", main_rows[0], re.S)
-    assert cells[2] == "0"
-    assert cells[3] == "1"
-    assert cells[4] == "0"
-    assert "Stored current-server evidence" in page_response.text
     assert _sqlite_table_count(db_path, "player_sessions") == before_sessions
     assert _sqlite_table_count(db_path, "player_log_events") == before_events
 
