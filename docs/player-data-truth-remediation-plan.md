@@ -177,6 +177,52 @@ Acceptance criteria:
 - Existing session rows remain readable without claiming false precision.
 - Slice 3 does not add online/playtime/K-D/role/current faction truth and does not enable automatic session scheduling.
 
+### Player Stats Truth Audit
+
+Goal: document which already-collected player stats/attributes can safely back future `/players` current-player columns. This is docs-only audit scope; it does not add backend enrichment, UI data fields, Discord enrichment, DB migrations, jobs, schedulers, or production actions.
+
+#### Field Verdicts
+
+| Field | Existing source/type | Reliable ID and current-player aggregation | Edge cases | Verdict |
+| --- | --- | --- | --- | --- |
+| `Kills` | `player_log_events` stores `kill` and `teamkill` parsed from script `INFO: KILL ENEMY` / `INFO: KILL TK`; optional ServerAdminTools wrapper is only a hint. | Killer is reliable only when the script line includes `instigator_id`/UUID. Current-player aggregation must join the current roster reliable ID to a stored open-session window or explicitly labelled stored-log window. Existing `PlayerSummary` counters are global stored-event counters, not current-session truth. | AI kills have no killer ID and must not count for a player. Suicide is not a kill. Unknown/missing killer is not assignable. Duplicate log collection is mitigated by event keys, but future aggregation must count stored event IDs once, not raw lines. Teamkills may count as kills only if the UI label states the policy. | `needs implementation slice` |
+| `Deaths` | No separate generic death event exists. Deaths can be derived from combat event victim fields on `kill`, `teamkill`, `suicide`, and `other_death`. | Victim is reliable only when `victim_id`/UUID is present. Current-player aggregation needs the same stored-session/window service as kills. | AI or environment deaths can still have a player victim and should count as death when victim ID is reliable. Unknown victim cannot be assigned. Suicide counts as a death. Missing or ambiguous event time cannot be treated as current-session truth. | `needs implementation slice` |
+| `TK` | `teamkill` event type and `teamkill` boolean are stored from `INFO: KILL TK`; optional ServerAdminTools hint may confirm `friendly: true` but has no reliable IDs by itself. | Count for killer only when `instigator_id` is reliable. Victim ID is needed for details/audit, but the column counter belongs to the reliable killer. | Do not derive teamkill from matching faction labels alone. Faction/team labels are evidence, not authoritative team truth. Unknown killer, AI, or hint-only wrapper rows cannot increment a player TK counter. | `needs implementation slice` |
+| `Faction` | `faction_join` stores `faction_resource` and `player_faction`; combat rows store victim/instigator faction labels; `player_sessions` stores optional `faction`/`side` snapshots from evidence. | Current roster rows do not carry faction. A future current-player row can show only last stored faction/session faction evidence for the same reliable ID, with a label such as `Last faction evidence`. | Show `—` for unreliable roster rows, missing `players.db`, no open session/evidence, stale/closed-only evidence, or conflicting old evidence. Do not call it current faction unless a recent reliable source is defined. | `safe only as last-known / inferred with label` |
+| `Role` | No reliable per-player role/loadout event source is parsed or stored. | There is no existing source to join to current players. | Do not infer role from faction, name, loadout component log spam, Discord data, or current roster. | `blocked` |
+| `Joined time` | `player_sessions.open_observed_at` exists. For auth/update it can be first connect/update evidence; for live scanner it is first observed in a reliable roster; for faction/combat it can be inferred presence evidence. | It can back `First observed` / `Session first observed` for an open stored session matched to the current reliable roster ID. It is not exact join time by default. | After restart/lifecycle close, stale-close, imported old logs, missing close evidence, or inferred combat/faction openings, show `—` or a truth-labelled first-observed value with confidence/source. Do not show `Joined time` as exact unless the source is an explicit connect/auth event and the UI says so. | `safe only as last-known / inferred with label` |
+
+#### Source-Of-Truth Matrix
+
+| Source | Existing storage | Safe future use for current players | Not safe for |
+| --- | --- | --- | --- |
+| Current roster cache (`web_current_roster_cache*`) | Sanitized display name, reliable ID when present, source, count/source/freshness flags. | Current row identity and current roster availability only. It can select which reliable IDs to enrich. | Kills, deaths, TK, role, faction, joined time, or session truth. |
+| `player_log_events` | Sanitized auth/update/faction/combat/disconnect/lifecycle events with source refs, confidence, stable IDs where present, combat booleans, and dedupe keys. | Read-only event evidence for stored-log counters and last faction evidence, bounded by reliable ID and a defined time/session window. | Live online truth, public player IDs, raw log lines/paths, or Discord enrichment. |
+| `player_sessions` | One-open-session-per-reliable-ID evidence rows with `open_observed_at`, `last_seen_at`, close evidence, confidence/source, optional faction/side, and safe scanner checkpoints. | Match current roster IDs to open stored evidence; label `First observed`, `Last observed`, `Last faction evidence`, and source/confidence. | Exact joined time, exact disconnect time, role, or complete online truth. |
+| `PlayerSummary` / `list_player_summaries*` | Compact global counters derived from all stored events for known players. | Useful for a future known-player/history summary page if labelled as stored-event totals. | Current-player current-session columns. |
+| `public_stats` / Discord | Safe public roster names/counts and status text. | No change for the web stats slice. | Any combat/session/faction/role enrichment before the authenticated web truth slice is implemented and tested. |
+
+#### Allowed And Blocked Implementation Slices
+
+Allowed next slice: authenticated web-only current-player truth enrichment. It should add a read-only aggregation service that accepts current roster reliable IDs, opens `players.db` read-only, reads existing `player_log_events` and `player_sessions`, and returns nullable/placeholder-safe values for the current table. It should not require a new DB schema or migration for the first slice; existing `player_log_events` and `player_sessions` are sufficient for a bounded proof. A separate aggregation service is preferable so route/page models do not mix current roster cache loading, session evidence, and combat counting rules.
+
+Blocked until a later explicit slice: materialized counters, new jobs, automatic log pollers, current-roster cache schema expansion, Discord/public enrichment, role/loadout display, K/D, ban/kick coupling, public player IDs, and any source that stores or renders raw log lines, raw paths, RCON rows, IPs, or secrets.
+
+GET handling: no stats/session GET writes. The stats service must not call `observe_player_session`, `close_player_session`, sessionizer/scanner/maintenance helpers, enqueue jobs, create `players.db`, or persist aggregation results. It should return `—` when `players.db` is absent, the roster row lacks a reliable ID, no matching open/evidence window exists, or the query cannot prove the value. Keep current roster cache freshness separate from session truth: the roster says who is currently observed; sessions/events explain stored evidence for those IDs.
+
+Web labels: use `Kills`, `Deaths`, and `TK` only with a stored-session/stored-event label or tooltip in the implementation; use `Faction` only as last evidence; keep `Role` as `—`; replace or qualify `Joined time` as `First observed` / `Session first observed` before showing a timestamp. Do not show fake zeroes. A zero is allowed only when a defined read-only evidence window exists and the completed query proves no matching stored events in that window; otherwise show `—`.
+
+Acceptance criteria for the next slice:
+
+- Current roster rows without reliable IDs keep all future stat/faction/session fields as `—`.
+- Missing `players.db`, missing `player_log_events`, or missing `player_sessions` degrades to `—` without creating files or tables.
+- Kills count only stored `kill`/policy-approved `teamkill` rows with reliable `instigator_id`; AI or unknown instigators do not increment a player.
+- Deaths count only reliable victims from `kill`, `teamkill`, `suicide`, and `other_death` rows.
+- TK counts only reliable killers from stored teamkill evidence, not faction equality.
+- Faction is labelled as last evidence/inferred, never current faction truth.
+- Joined-time UI uses first-observed/evidence wording and confidence/source rules; exact `Joined time` remains `—` unless backed by explicit connect evidence.
+- No fake zeroes, no K/D column, no Discord enrichment before web truth, no GET writes, no public player IDs, and no raw log lines/paths/IPs/secrets.
+
 ### Slice 4: Operational Status Telemetry Fix — implemented
 
 Goal: fix false `waiting_for_telemetry` during log spam.
