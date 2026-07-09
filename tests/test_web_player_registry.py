@@ -1635,6 +1635,7 @@ def test_current_players_polling_js_uses_no_store_and_preserves_search():
     assert "target instanceof Element" in script
     assert "removeAttribute(\"hidden\")" in script
     assert "setAttribute(\"hidden\", \"\")" in script
+    assert "const detailsRow = document.getElementById(targetId)" in script
 
 
 def test_players_route_uses_fresh_current_roster_cache(tmp_path: Path, monkeypatch):

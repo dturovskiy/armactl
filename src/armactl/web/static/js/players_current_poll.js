@@ -338,12 +338,12 @@
     if (!targetId) {
       return;
     }
-    const target = document.getElementById(targetId);
-    if (!target) {
+    const detailsRow = document.getElementById(targetId);
+    if (!detailsRow) {
       return;
     }
-    const shouldOpen = target.hasAttribute("hidden");
-    setDetailsRowOpen(target, shouldOpen);
+    const shouldOpen = detailsRow.hasAttribute("hidden");
+    setDetailsRowOpen(detailsRow, shouldOpen);
     setExpanded(button, shouldOpen);
   });
 
