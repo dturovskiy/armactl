@@ -1231,7 +1231,13 @@ button.warning {
   vertical-align: middle;
 }
 
+.player-current-table th:nth-child(n+3):nth-child(-n+7),
 .player-current-main-row td:nth-child(n+3):nth-child(-n+7) {
+  text-align: center;
+}
+
+.player-current-table th:nth-child(8),
+.player-current-main-row td:nth-child(8) {
   text-align: center;
 }
 
