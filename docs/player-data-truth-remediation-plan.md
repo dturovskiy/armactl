@@ -204,7 +204,9 @@ Goal: document which already-collected player stats/attributes can safely back f
 
 #### Allowed And Blocked Implementation Slices
 
-Implemented slice: authenticated web-only current-player truth enrichment. It adds a read-only aggregation service that accepts current roster reliable IDs, opens an existing `players.db` read-only, reads existing `player_log_events` and `player_sessions`, and returns nullable/placeholder-safe values for the current table. It does not add a DB schema migration, materialized counters, new jobs, Discord/public stats changes, or GET-time session writes. The separate service keeps current roster cache loading, session evidence, and combat counting rules out of route handlers.
+Initial slice: authenticated web-only current-player enrichment. It adds a read-only aggregation service that accepts current roster reliable IDs, opens an existing players.db read-only, reads existing player_log_events and player_sessions, and returns nullable/placeholder-safe values for the current table. It does not add a DB schema migration, materialized counters, new jobs, Discord/public stats changes, or GET-time session writes. The separate service keeps current roster cache loading, session evidence, and combat counting rules out of route handlers.
+
+Correction after VM/manual smoke: this initial slice is not final accepted current-session stat truth. The follow-up source of truth is [player-session-stats-contract.md](player-session-stats-contract.md). It requires automatic log ingest freshness, stable parser fixtures, play-session boundaries, reconnect grace, session-scoped aggregation, and no fake zeroes before current-player combat/faction columns can be considered stable.
 
 Blocked until a later explicit slice: materialized counters, new jobs, automatic log pollers, current-roster cache schema expansion, Discord/public enrichment, role/loadout display, K/D, ban/kick coupling, public player IDs, and any source that stores or renders raw log lines, raw paths, RCON rows, IPs, or secrets. Role remains `—`.
 
