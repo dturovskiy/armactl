@@ -142,6 +142,18 @@ def test_render_discord_stats_message_is_public_and_mention_safe(monkeypatch) ->
     assert "/srv/secret" not in text
 
 
+def test_render_discord_stats_message_has_single_roster_block(monkeypatch) -> None:
+    _patch_public_stats_sources(monkeypatch)
+
+    snapshot = public_stats.load_public_stats("default")
+    text = public_stats.render_discord_stats_message(snapshot)
+
+    assert text.count("👥 Online:") == 1
+    assert text.count("- @ here Player") == 1
+    assert text.count("- Normal Player") == 1
+
+
+
 def test_render_discord_stats_message_includes_nine_roster_names(monkeypatch) -> None:
     player_names = tuple(f"Player {index}" for index in range(1, 10))
     _patch_public_stats_sources(monkeypatch, player_names=player_names)
@@ -222,6 +234,116 @@ def test_public_stats_uses_current_roster_cache_when_direct_view_is_count_only(
         assert f"- {name}" in text
 
 
+def test_public_stats_does_not_query_direct_roster_when_cache_unavailable(
+    monkeypatch,
+) -> None:
+    _patch_public_stats_sources(monkeypatch, player_names=())
+    include_roster_values: list[bool] = []
+
+    def direct_count_only_view(*args, **kwargs):
+        include_roster = bool(kwargs.get("include_roster"))
+        include_roster_values.append(include_roster)
+        if include_roster:
+            raise AssertionError("public stats must not query direct roster fallback")
+        return PlayerView(
+            available=True,
+            current=4,
+            max_players=64,
+            map_name="ARM-Campaign_ScenarioName_Everon",
+            entries=(types.SimpleNamespace(name="Synthetic Alpha"),),
+            roster_available=False,
+            count_source="a2s",
+        )
+
+    monkeypatch.setattr(
+        public_stats.player_view,
+        "query_player_view",
+        direct_count_only_view,
+    )
+    monkeypatch.setattr(
+        public_stats.player_current_cache,
+        "load_current_roster_snapshot",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("cache down")),
+    )
+
+    snapshot = public_stats.load_public_stats("default")
+    text = public_stats.render_discord_stats_message(snapshot)
+
+    assert include_roster_values == [False]
+    assert snapshot.player_count == 4
+    assert snapshot.player_names == ()
+    assert "- Synthetic Alpha" not in text
+    assert "- count-only: 4 players; roster unavailable" in text
+
+
+def test_public_stats_labels_stale_cached_roster_in_discord(monkeypatch) -> None:
+    _patch_public_stats_sources(monkeypatch, player_names=())
+
+    monkeypatch.setattr(
+        public_stats.player_view,
+        "query_player_view",
+        lambda *args, **kwargs: PlayerView(
+            available=True,
+            current=5,
+            max_players=64,
+            map_name="ARM-Campaign_ScenarioName_Everon",
+            entries=(),
+            roster_available=False,
+            count_source="a2s",
+        ),
+    )
+
+    def stale_cached_roster(instance: str, **kwargs):
+        cache = public_stats.player_current_cache
+        snapshot = cache.CurrentRosterSnapshot(
+            instance=instance,
+            players=(
+                cache.CurrentRosterPlayerSnapshot(
+                    display_name="Alpha",
+                    reliable_id="11111111-1111-4111-8111-111111111111",
+                    source="rcon.guid",
+                ),
+                cache.CurrentRosterPlayerSnapshot(
+                    display_name="Bravo",
+                    reliable_id="22222222-2222-4222-8222-222222222222",
+                    source="rcon.guid",
+                ),
+            ),
+            source="rcon.roster",
+            status="available",
+            error="",
+            collected_at="2026-07-03T20:00:00+00:00",
+            observed_count=2,
+            count_source="rcon",
+            roster_available=True,
+            roster_configured=True,
+        )
+        return cache.CurrentRosterSnapshotResult(
+            snapshot=snapshot,
+            age_seconds=30,
+            is_stale=True,
+            cache_status="stale_roster_unavailable",
+            refresh_error="RCON command timed out.",
+        )
+
+    monkeypatch.setattr(
+        public_stats.player_current_cache,
+        "load_current_roster_snapshot",
+        stale_cached_roster,
+    )
+
+    snapshot = public_stats.load_public_stats("default")
+    text = public_stats.render_discord_stats_message(snapshot)
+
+    assert snapshot.roster_stale is True
+    assert snapshot.roster_cache_status == "stale_roster_unavailable"
+    assert "- Alpha" in text
+    assert "- Bravo" in text
+    assert "- count-only:" not in text
+    assert "- roster cache: stale (30s old); live roster unavailable" in text
+
+
+
 def test_discord_stats_message_marks_count_only_without_roster_rows() -> None:
     snapshot = public_stats.PublicStatsSnapshot(
         instance="default",
@@ -284,7 +406,7 @@ def test_discord_stats_message_marks_count_mismatch_without_synthetic_rows() -> 
 
     assert "👥 Players: 3/128" in text
     assert "- SGL_Taran" in text
-    assert "- count-only remainder: 2 players without roster names" in text
+    assert "- partial roster: showing 1 of 3 players; 2 players without roster names" in text
     assert "Unknown player" not in text
 
 

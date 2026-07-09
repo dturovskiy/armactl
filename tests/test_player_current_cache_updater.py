@@ -197,6 +197,147 @@ def test_current_roster_cache_keeps_recent_rcon_snapshot_on_a2s_zero_fallback(
     assert loaded.count_source == "rcon"
 
 
+def test_current_roster_cache_keeps_recent_rcon_snapshot_on_a2s_count_only_fallback(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_current_cache
+
+    stale_snapshot = player_current_cache.CurrentRosterSnapshot(
+        instance="default",
+        players=(
+            player_current_cache.CurrentRosterPlayerSnapshot(
+                display_name="Alpha",
+                reliable_id=PLAYER_ALPHA_ID,
+                source="rcon.guid",
+            ),
+            player_current_cache.CurrentRosterPlayerSnapshot(
+                display_name="Bravo",
+                reliable_id=PLAYER_BRAVO_ID,
+                source="rcon.guid",
+            ),
+        ),
+        source="rcon.roster",
+        status="available",
+        error="",
+        collected_at=_utc_age_text(30),
+        observed_count=2,
+        count_source="rcon",
+        roster_available=True,
+        roster_configured=True,
+    )
+    player_current_cache.store_persistent_current_roster_snapshot(
+        stale_snapshot,
+        data_root=tmp_path,
+    )
+    player_current_cache.clear_current_roster_cache()
+
+    def count_only_roster(instance: str = "default") -> CurrentPlayerRoster:
+        return CurrentPlayerRoster(
+            available=True,
+            players=(),
+            total_count=5,
+            source="a2s",
+            status="available",
+            error="RCON command timed out.",
+            observed_count=5,
+            count_source="a2s",
+            roster_available=False,
+            roster_configured=True,
+        )
+
+    monkeypatch.setattr(
+        player_current_cache.player_sources,
+        "load_current_player_roster",
+        count_only_roster,
+    )
+
+    result = player_current_cache.load_current_roster_snapshot(
+        "default",
+        data_root=tmp_path,
+        max_age_seconds=1,
+        max_stale_age_seconds=120,
+    )
+    loaded = player_current_cache.get_persistent_current_roster_snapshot(
+        "default",
+        data_root=tmp_path,
+    )
+
+    assert result.is_stale is True
+    assert result.cache_status == "stale_roster_unavailable"
+    assert result.snapshot.total_count == 2
+    assert [player.display_name for player in result.snapshot.players] == ["Alpha", "Bravo"]
+    assert result.refresh_error == "RCON command timed out."
+    assert loaded is not None
+    assert loaded.total_count == 2
+    assert loaded.count_source == "rcon"
+
+
+def test_current_roster_cache_allows_a2s_zero_after_stale_roster_expires(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_current_cache
+
+    expired_snapshot = player_current_cache.CurrentRosterSnapshot(
+        instance="default",
+        players=(
+            player_current_cache.CurrentRosterPlayerSnapshot(
+                display_name="Expired Alpha",
+                reliable_id=PLAYER_ALPHA_ID,
+                source="rcon.guid",
+            ),
+        ),
+        source="rcon.roster",
+        status="available",
+        error="",
+        collected_at=_utc_age_text(300),
+        observed_count=1,
+        count_source="rcon",
+        roster_available=True,
+        roster_configured=True,
+    )
+    player_current_cache.store_persistent_current_roster_snapshot(
+        expired_snapshot,
+        data_root=tmp_path,
+    )
+    player_current_cache.clear_current_roster_cache()
+
+    def count_only_zero_roster(instance: str = "default") -> CurrentPlayerRoster:
+        return CurrentPlayerRoster(
+            available=True,
+            players=(),
+            total_count=0,
+            source="a2s",
+            status="available",
+            error="RCON command timed out.",
+            observed_count=0,
+            count_source="a2s",
+            roster_available=False,
+            roster_configured=True,
+        )
+
+    monkeypatch.setattr(
+        player_current_cache.player_sources,
+        "load_current_player_roster",
+        count_only_zero_roster,
+    )
+
+    result = player_current_cache.load_current_roster_snapshot(
+        "default",
+        data_root=tmp_path,
+        max_age_seconds=1,
+        max_stale_age_seconds=120,
+    )
+
+    assert result.is_stale is False
+    assert result.cache_status == "refresh"
+    assert result.snapshot.total_count == 0
+    assert result.snapshot.players == ()
+    assert result.snapshot.count_source == "a2s"
+
+
+
 def test_persistent_current_roster_cache_migrates_v11_count_fields(tmp_path: Path):
     from armactl.web.runtime import ensure_web_db
     from armactl.web.runtime.db import WEB_SCHEMA_VERSION

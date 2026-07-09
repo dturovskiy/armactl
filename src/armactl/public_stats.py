@@ -27,6 +27,24 @@ KNOWN_SCENARIO_MAPS = {
 
 
 @dataclass(frozen=True)
+class PublicPlayerStats:
+    """Normalized public player count and roster contract."""
+
+    map_name: str
+    players_available: bool
+    player_count: int | None
+    max_players: int | None
+    player_names: tuple[str, ...]
+    roster_available: bool
+    count_source: str = "unknown"
+    roster_source: str = "unavailable"
+    roster_cache_status: str = "unavailable"
+    roster_age_seconds: int | None = None
+    roster_stale: bool = False
+    roster_status: str = "unknown"
+
+
+@dataclass(frozen=True)
 class PublicStatsSnapshot:
     """Safe public statistics intended for Discord/website-style status messages."""
 
@@ -51,6 +69,12 @@ class PublicStatsSnapshot:
     mod_count: int | None
     mod_preview: tuple[str, ...]
     remaining_mod_count: int
+    player_count_source: str = "unknown"
+    roster_source: str = "unavailable"
+    roster_cache_status: str = "unavailable"
+    roster_age_seconds: int | None = None
+    roster_stale: bool = False
+    roster_status: str = "unknown"
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation."""
@@ -173,7 +197,8 @@ def _count_only_note_text(snapshot: PublicStatsSnapshot) -> str:
     if named_count:
         missing_count = player_count - named_count
         return (
-            "count-only remainder: "
+            "partial roster: "
+            f"showing {named_count} of {player_count} {_player_word(player_count)}; "
             f"{missing_count} {_player_word(missing_count)} without roster names"
         )
 
@@ -211,10 +236,41 @@ def _discord_player_count_note_lines(snapshot: PublicStatsSnapshot) -> list[str]
     return [f"- {note}"] if note else []
 
 
+def _roster_freshness_note_text(snapshot: PublicStatsSnapshot) -> str:
+    if not snapshot.roster_stale or not snapshot.player_names:
+        return ""
+    if isinstance(snapshot.roster_age_seconds, int) and snapshot.roster_age_seconds >= 0:
+        age_text = f"{snapshot.roster_age_seconds}s old"
+    else:
+        age_text = "age unknown"
+    if snapshot.roster_cache_status == "stale_roster_unavailable":
+        detail = "live roster unavailable"
+    else:
+        cache_status = _safe_text(
+            snapshot.roster_cache_status,
+            "stale",
+            max_length=40,
+        )
+        detail = f"cache={cache_status}"
+    return f"roster cache: stale ({age_text}); {detail}"
+
+
+def _discord_player_freshness_note_lines(snapshot: PublicStatsSnapshot) -> list[str]:
+    note = _roster_freshness_note_text(snapshot)
+    return [f"- {note}"] if note else []
+
+
+def _discord_player_note_lines(snapshot: PublicStatsSnapshot) -> list[str]:
+    return [
+        *_discord_player_count_note_lines(snapshot),
+        *_discord_player_freshness_note_lines(snapshot),
+    ]
+
+
 def _discord_player_lines(snapshot: PublicStatsSnapshot) -> list[str]:
     name_lines = _discord_player_name_lines(snapshot)
     if name_lines:
-        return [*name_lines, *_discord_player_count_note_lines(snapshot)]
+        return [*name_lines, *_discord_player_note_lines(snapshot)]
     return [f"- {_player_list_text(snapshot)}"]
 
 
@@ -250,11 +306,11 @@ def _discord_message_text(
 
 def _discord_player_lines_within_limit(snapshot: PublicStatsSnapshot) -> list[str]:
     player_name_lines = _discord_player_name_lines(snapshot)
-    count_note_lines = _discord_player_count_note_lines(snapshot)
+    note_lines = _discord_player_note_lines(snapshot)
     if not player_name_lines:
         return _discord_player_lines(snapshot)
 
-    player_lines = [*player_name_lines, *count_note_lines]
+    player_lines = [*player_name_lines, *note_lines]
     if len(_discord_message_text(snapshot, player_lines)) <= MAX_DISCORD_MESSAGE_LENGTH:
         return player_lines
 
@@ -263,12 +319,12 @@ def _discord_player_lines_within_limit(snapshot: PublicStatsSnapshot) -> list[st
         candidate = [
             *player_name_lines[:visible_count],
             _discord_player_limit_line(hidden_count),
-            *count_note_lines,
+            *note_lines,
         ]
         if len(_discord_message_text(snapshot, candidate)) <= MAX_DISCORD_MESSAGE_LENGTH:
             return candidate
 
-    candidate = [_discord_player_limit_line(len(player_name_lines)), *count_note_lines]
+    candidate = [_discord_player_limit_line(len(player_name_lines)), *note_lines]
     if len(_discord_message_text(snapshot, candidate)) <= MAX_DISCORD_MESSAGE_LENGTH:
         return candidate
     return [_discord_player_limit_line(len(player_name_lines))]
@@ -346,19 +402,6 @@ def _load_public_player_view(instance: str, state: Any) -> player_view.PlayerVie
     )
 
 
-def _load_public_player_view_with_roster(
-    instance: str,
-    state: Any,
-) -> player_view.PlayerView:
-    return player_view.query_player_view(
-        instance,
-        timeout=PLAYER_QUERY_TIMEOUT_SECONDS,
-        roster_timeout=ROSTER_QUERY_TIMEOUT_SECONDS,
-        state=state,
-        include_roster=True,
-    )
-
-
 def _load_public_current_roster(
     instance: str,
 ) -> player_current_cache.CurrentRosterSnapshotResult | None:
@@ -367,7 +410,7 @@ def _load_public_current_roster(
             instance,
             max_age_seconds=PUBLIC_STATS_CURRENT_ROSTER_CACHE_MAX_AGE_SECONDS,
         )
-    except Exception:  # noqa: BLE001 - public stats should degrade to direct view.
+    except Exception:  # noqa: BLE001 - public stats should degrade to direct count view.
         return None
 
 
@@ -375,39 +418,88 @@ def _public_player_fields(
     instance: str,
     state: Any,
     config: status_summary.ConfigSummary,
-) -> tuple[str, bool, int | None, int | None, tuple[str, ...], bool]:
+) -> PublicPlayerStats:
     players = _load_public_player_view(instance, state)
     max_players = _safe_optional_int(players.max_players) or _safe_optional_int(
         config.max_players
     )
+    map_name = _safe_text(players.map_name, "", max_length=80)
     roster_result = _load_public_current_roster(instance)
-    if roster_result is not None and roster_result.snapshot.available:
+
+    if roster_result is not None:
         snapshot = roster_result.snapshot
-        names = tuple(
-            _safe_text(player.display_name, max_length=48)
-            for player in snapshot.players
-        )
-        return (
-            _safe_text(players.map_name, "", max_length=80),
-            True,
-            snapshot.total_count,
-            max_players,
-            names,
-            bool(snapshot.roster_available),
+        if snapshot.available:
+            names = tuple(
+                _safe_text(player.display_name, max_length=48)
+                for player in snapshot.players
+            )
+            return PublicPlayerStats(
+                map_name=map_name,
+                players_available=True,
+                player_count=snapshot.total_count,
+                max_players=max_players,
+                player_names=names,
+                roster_available=bool(snapshot.roster_available),
+                count_source=_safe_text(snapshot.count_source, "unknown", max_length=80),
+                roster_source=_safe_text(snapshot.source, "unavailable", max_length=80),
+                roster_cache_status=_safe_text(
+                    roster_result.cache_status,
+                    "unknown",
+                    max_length=80,
+                ),
+                roster_age_seconds=roster_result.age_seconds,
+                roster_stale=bool(roster_result.is_stale),
+                roster_status=_safe_text(snapshot.status, "unknown", max_length=80),
+            )
+
+        if players.available:
+            return PublicPlayerStats(
+                map_name=map_name,
+                players_available=True,
+                player_count=players.current if isinstance(players.current, int) else None,
+                max_players=max_players,
+                player_names=(),
+                roster_available=False,
+                count_source=_safe_text(players.count_source, "unknown", max_length=80),
+                roster_source=_safe_text(snapshot.source, "unavailable", max_length=80),
+                roster_cache_status=_safe_text(
+                    roster_result.cache_status,
+                    "unknown",
+                    max_length=80,
+                ),
+                roster_age_seconds=roster_result.age_seconds,
+                roster_stale=bool(roster_result.is_stale),
+                roster_status=_safe_text(snapshot.status, "unknown", max_length=80),
+            )
+
+        return PublicPlayerStats(
+            map_name=map_name,
+            players_available=False,
+            player_count=None,
+            max_players=max_players,
+            player_names=(),
+            roster_available=False,
+            count_source=_safe_text(snapshot.count_source, "unknown", max_length=80),
+            roster_source=_safe_text(snapshot.source, "unavailable", max_length=80),
+            roster_cache_status=_safe_text(
+                roster_result.cache_status,
+                "unknown",
+                max_length=80,
+            ),
+            roster_age_seconds=roster_result.age_seconds,
+            roster_stale=bool(roster_result.is_stale),
+            roster_status=_safe_text(snapshot.status, "unknown", max_length=80),
         )
 
-    if roster_result is None:
-        players = _load_public_player_view_with_roster(instance, state)
-        max_players = _safe_optional_int(players.max_players) or max_players
-
-    names = tuple(_safe_text(name, max_length=48) for name in players.player_lines)
-    return (
-        _safe_text(players.map_name, "", max_length=80),
-        bool(players.available),
-        players.current if isinstance(players.current, int) else None,
-        max_players,
-        names,
-        bool(players.roster_available),
+    return PublicPlayerStats(
+        map_name=map_name,
+        players_available=bool(players.available),
+        player_count=players.current if isinstance(players.current, int) else None,
+        max_players=max_players,
+        player_names=(),
+        roster_available=False,
+        count_source=_safe_text(players.count_source, "unknown", max_length=80),
+        roster_cache_status="unavailable",
     )
 
 
@@ -420,22 +512,17 @@ def load_public_stats(instance: str = paths.DEFAULT_INSTANCE_NAME) -> PublicStat
         getattr(state, "config_path", "") if getattr(state, "config_exists", False) else ""
     )
     if getattr(state, "server_installed", False):
-        (
-            map_name,
-            players_available,
-            player_count,
-            max_players,
-            player_names,
-            roster_available,
-        ) = _public_player_fields(instance, state, config)
+        player_stats = _public_player_fields(instance, state, config)
         fps = metrics.query_server_fps_metrics(paths.config_dir(instance))
     else:
-        map_name = ""
-        players_available = False
-        player_count = None
-        max_players = None
-        player_names = ()
-        roster_available = False
+        player_stats = PublicPlayerStats(
+            map_name="",
+            players_available=False,
+            player_count=None,
+            max_players=None,
+            player_names=(),
+            roster_available=False,
+        )
         fps = metrics.ServerFpsMetrics(False)
 
     mod_preview = tuple(_safe_text(item.label, max_length=80) for item in mods.preview[:3])
@@ -448,12 +535,12 @@ def load_public_stats(instance: str = paths.DEFAULT_INSTANCE_NAME) -> PublicStat
         service_state=_safe_text(service.get("active_state"), "unknown", max_length=64),
         server_name=_safe_text(config.server_name, "Unknown server"),
         scenario_id=_safe_text(config.scenario_id, "unknown"),
-        map_name=map_name,
-        players_available=players_available,
-        player_count=player_count,
-        max_players=max_players,
-        player_names=player_names,
-        roster_available=roster_available,
+        map_name=player_stats.map_name,
+        players_available=player_stats.players_available,
+        player_count=player_stats.player_count,
+        max_players=player_stats.max_players,
+        player_names=player_stats.player_names,
+        roster_available=player_stats.roster_available,
         fps_available=bool(fps.available),
         fps_stale=bool(fps.stale),
         fps_text=(
@@ -466,6 +553,12 @@ def load_public_stats(instance: str = paths.DEFAULT_INSTANCE_NAME) -> PublicStat
         mod_count=mods.count if isinstance(mods.count, int) else None,
         mod_preview=mod_preview,
         remaining_mod_count=mods.remaining_count,
+        player_count_source=player_stats.count_source,
+        roster_source=player_stats.roster_source,
+        roster_cache_status=player_stats.roster_cache_status,
+        roster_age_seconds=player_stats.roster_age_seconds,
+        roster_stale=player_stats.roster_stale,
+        roster_status=player_stats.roster_status,
     )
 
 

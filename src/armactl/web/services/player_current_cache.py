@@ -176,15 +176,27 @@ def _should_keep_stale_roster_snapshot(
         return False
     if not stale_snapshot.available or not stale_snapshot.roster_available:
         return False
-    if stale_snapshot.total_count <= 0:
-        return False
-    if live_snapshot.total_count != 0:
+    if not stale_snapshot.players:
         return False
     if live_snapshot.roster_available:
         return False
     if not live_snapshot.roster_configured:
         return False
     return live_snapshot.count_source != "rcon"
+
+
+def _roster_unavailable_refresh_error(snapshot: CurrentRosterSnapshot) -> str:
+    if snapshot.error:
+        return snapshot.error
+    count_source = _safe_snapshot_text(
+        snapshot.count_source,
+        max_length=40,
+        default="count-only source",
+    )
+    return (
+        "RCON roster unavailable; "
+        f"{count_source} reported {snapshot.total_count} player(s)."
+    )
 
 
 def _redact_ips_and_paths(text: str) -> str:
@@ -683,7 +695,7 @@ def load_current_roster_snapshot(
             stale_snapshot,
             data_root=data_root,
         )
-        safe_error = snapshot.error or "RCON roster unavailable; A2S reported zero players."
+        safe_error = _roster_unavailable_refresh_error(snapshot)
         return CurrentRosterSnapshotResult(
             snapshot=stale_snapshot,
             age_seconds=current_roster_snapshot_age_seconds(stale_snapshot),
