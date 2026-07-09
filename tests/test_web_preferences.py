@@ -202,10 +202,31 @@ def test_authenticated_language_preference_requires_valid_csrf(tmp_path: Path):
     response = client.post(
         "/preferences/language",
         data={"language": "uk", "csrf_token": "wrong-token", "next": "/dashboard"},
-        headers={"X-Requested-With": "fetch", "Accept": "application/json"},
         follow_redirects=False,
     )
 
     assert response.status_code == 403
     assert response.text == "Invalid CSRF token."
     assert response.cookies.get(LANGUAGE_COOKIE_NAME) is None
+
+
+def test_authenticated_language_preference_async_accepts_stale_csrf_for_cookie_only_update(
+    tmp_path: Path,
+):
+    from armactl.web.app import create_app
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.post(
+        "/preferences/language",
+        data={"language": "uk", "csrf_token": "stale-token", "next": "/dashboard"},
+        headers={"X-Requested-With": "fetch", "Accept": "application/json"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"language": "uk"}
+    assert response.cookies.get(LANGUAGE_COOKIE_NAME) == "uk"
