@@ -493,6 +493,12 @@ def test_combat_events_are_presence_only_without_stat_claims(tmp_path: Path):
     assert {row["open_confidence"] for row in rows} == {
         player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM
     }
+    assert {row["last_gameplay_evidence_at"] for row in rows} == {
+        "2026-06-16T12:04:00+00:00"
+    }
+    assert {row["last_gameplay_source"] for row in rows} == {
+        player_registry.PLAYER_SESSION_SOURCE_SCRIPT_KILL
+    }
     encoded_rows = json.dumps(rows, sort_keys=True)
     for stat_claim in ("kill_count", "death_count", "kd", "teamkill_count"):
         assert stat_claim not in encoded_rows.casefold()
@@ -1653,3 +1659,105 @@ def test_sessionizer_skips_log_events_without_trusted_event_time(
     assert summary.sessions_created == 0
     assert _session_rows(db_path) == []
     assert _player_rows(db_path) == []
+
+
+def test_sessionizer_reconnect_within_grace_reopens_same_play_session_idempotently(
+    tmp_path: Path,
+):
+    from armactl.web.services import player_registry, player_sessionizer
+
+    db_path = tmp_path / "default" / "players.db"
+    events = [
+        _parse_log_event(
+            "BACKEND : Authenticated player: "
+            f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One",
+            observed_at="2026-06-16T12:00:00+00:00",
+            raw_source_ref="journal:auth:1",
+        ),
+        _parse_log_event(
+            "RPL : ServerImpl event: disconnected (identity=42), "
+            "group=5, reason=timeout",
+            observed_at="2026-06-16T12:05:00+00:00",
+            raw_source_ref="journal:rpl-disconnect:2",
+        ),
+        _parse_log_event(
+            "BACKEND : Authenticated player: "
+            f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha Back",
+            observed_at="2026-06-16T12:10:00+00:00",
+            raw_source_ref="journal:auth:3",
+        ),
+    ]
+    player_registry.ingest_player_log_events(db_path, events)
+
+    first = player_sessionizer.sessionize_stored_player_log_events(db_path)
+    rows_after_first = _session_rows(db_path)
+    second = player_sessionizer.sessionize_stored_player_log_events(db_path)
+    rows_after_second = _session_rows(db_path)
+
+    assert first.sessions_created == 1
+    assert first.sessions_closed == 1
+    assert first.sessions_updated == 1
+    assert second.observations_applied == 0
+    assert rows_after_second == rows_after_first
+    assert len(rows_after_first) == 1
+    row = rows_after_first[0]
+    assert row["status"] == player_registry.PLAYER_SESSION_STATUS_OPEN
+    assert row["play_session_id"] == row["session_id"]
+    assert row["open_observed_at"] == "2026-06-16T12:00:00+00:00"
+    assert row["last_seen_at"] == "2026-06-16T12:10:00+00:00"
+    assert row["close_observed_at"] is None
+    assert row["reconnect_merge_count"] == 1
+    assert row["last_reconnect_close_observed_at"] == "2026-06-16T12:05:00+00:00"
+
+
+def test_sessionizer_records_lifecycle_boundary_to_block_closed_gap_merge(
+    tmp_path: Path,
+):
+    from armactl.web.services import player_registry, player_sessionizer
+
+    db_path = tmp_path / "default" / "players.db"
+    events = [
+        _parse_log_event(
+            "BACKEND : Authenticated player: "
+            f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One",
+            observed_at="2026-06-16T12:00:00+00:00",
+            raw_source_ref="journal:auth:1",
+        ),
+        _parse_log_event(
+            "RPL : ServerImpl event: disconnected (identity=42), "
+            "group=5, reason=timeout",
+            observed_at="2026-06-16T12:05:00+00:00",
+            raw_source_ref="journal:rpl-disconnect:2",
+        ),
+        _parse_log_event(
+            "DEFAULT : [PERSISTENCE] Save (SHUTDOWN) started.",
+            observed_at="2026-06-16T12:06:00+00:00",
+            raw_source_ref="journal:shutdown:3",
+        ),
+        _parse_log_event(
+            "BACKEND : Authenticated player: "
+            f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha New Run",
+            observed_at="2026-06-16T12:08:00+00:00",
+            raw_source_ref="journal:auth:4",
+        ),
+    ]
+    player_registry.ingest_player_log_events(db_path, events)
+
+    summary = player_sessionizer.sessionize_stored_player_log_events(db_path)
+    rows = _session_rows(db_path)
+
+    assert summary.sessions_created == 2
+    assert summary.sessions_closed == 1
+    assert len(rows) == 2
+    open_row = next(
+        row
+        for row in rows
+        if row["status"] == player_registry.PLAYER_SESSION_STATUS_OPEN
+    )
+    closed_row = next(
+        row
+        for row in rows
+        if row["status"] == player_registry.PLAYER_SESSION_STATUS_CLOSED
+    )
+    assert open_row["server_run_key"].startswith("boundary:")
+    assert closed_row["reconnect_merge_count"] == 0

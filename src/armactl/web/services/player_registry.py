@@ -44,7 +44,7 @@ from armactl.web.services.player_identity import (
 )
 
 PLAYER_REGISTRY_DB_NAME = "players.db"
-PLAYER_REGISTRY_SCHEMA_VERSION = "9"
+PLAYER_REGISTRY_SCHEMA_VERSION = "10"
 PRIVATE_PLAYER_REGISTRY_FILE_MODE = 0o600
 DEFAULT_PLAYER_HISTORY_EVENT_LIMIT = 100
 MAX_PLAYER_HISTORY_EVENT_LIMIT = 250
@@ -55,6 +55,7 @@ DEFAULT_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT = 500
 MAX_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT = 5000
 DEFAULT_PLAYER_SESSION_ABSENCE_CONFIRMATION_SCANS = 2
 MAX_PLAYER_SESSION_ABSENCE_CONFIRMATION_SCANS = 20
+DEFAULT_PLAYER_SESSION_RECONNECT_GRACE_SECONDS = 10 * 60
 _LEGACY_DEFAULT_TIMESTAMP = "1970-01-01T00:00:00+00:00"
 PLAYER_LOG_EVENT_TEXT_MAX_LENGTH = 240
 PLAYER_LOG_EVENT_REF_MAX_LENGTH = 240
@@ -168,6 +169,10 @@ PLAYER_SESSION_SOURCES = (
     PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
     PLAYER_SESSION_SOURCE_MANUAL_IMPORT,
 )
+PLAYER_SESSION_GAMEPLAY_SOURCES = (
+    PLAYER_SESSION_SOURCE_SCRIPT_FACTION_JOIN,
+    PLAYER_SESSION_SOURCE_SCRIPT_KILL,
+)
 PLAYER_SESSION_END_REASON_DISCONNECT = "disconnect"
 PLAYER_SESSION_END_REASON_SERVER_BOUNDARY = "server_boundary"
 PLAYER_SESSION_END_REASON_STALE_TIMEOUT = "stale_timeout"
@@ -183,6 +188,28 @@ PLAYER_SESSION_END_REASONS = (
     PLAYER_SESSION_END_REASON_SCANNER_CHECKPOINT,
     PLAYER_SESSION_END_REASON_IMPORT_WINDOW,
     PLAYER_SESSION_END_REASON_UNKNOWN,
+)
+PLAYER_SESSION_RECONNECT_COMPATIBLE_END_REASONS = (
+    PLAYER_SESSION_END_REASON_DISCONNECT,
+    PLAYER_SESSION_END_REASON_STALE_ABSENCE,
+    PLAYER_SESSION_END_REASON_STALE_TIMEOUT,
+)
+PLAYER_SESSION_V10_COLUMNS = (
+    ("play_session_id",
+        "play_session_id INTEGER NOT NULL DEFAULT 0 CHECK(play_session_id >= 0)",
+    ),
+    ("server_run_key", "server_run_key TEXT NOT NULL DEFAULT ''"),
+    (
+        "reconnect_merge_count",
+        "reconnect_merge_count INTEGER NOT NULL DEFAULT 0 CHECK(reconnect_merge_count >= 0)",
+    ),
+    ("last_reconnect_at", "last_reconnect_at TEXT"),
+    ("last_reconnect_close_observed_at", "last_reconnect_close_observed_at TEXT"),
+    ("last_reconnect_close_reason", "last_reconnect_close_reason TEXT"),
+    ("last_gameplay_evidence_at", "last_gameplay_evidence_at TEXT"),
+    ("last_gameplay_source", "last_gameplay_source TEXT"),
+    ("last_gameplay_source_ref", "last_gameplay_source_ref TEXT"),
+    ("last_gameplay_confidence", "last_gameplay_confidence TEXT"),
 )
 PLAYER_SESSION_INFERRED_OR_STALE_END_REASONS = tuple(
     reason for reason in PLAYER_SESSION_END_REASONS
@@ -323,6 +350,7 @@ class PlayerSessionRecord:
     """One sanitized persisted player session row."""
 
     session_id: int
+    play_session_id: int
     reliable_id: str
     name_at_open: str
     name_last: str
@@ -346,6 +374,15 @@ class PlayerSessionRecord:
     be_slot: str
     faction: str
     side: str
+    server_run_key: str
+    reconnect_merge_count: int
+    last_reconnect_at: str
+    last_reconnect_close_observed_at: str
+    last_reconnect_close_reason: str
+    last_gameplay_evidence_at: str
+    last_gameplay_source: str
+    last_gameplay_source_ref: str
+    last_gameplay_confidence: str
     scanner_checkpoint_source: str
     scanner_checkpoint_ref: str
     scanner_checkpoint_at: str
@@ -371,6 +408,7 @@ class PlayerSessionWriteResult:
     created: bool = False
     updated: bool = False
     closed: bool = False
+    reconnected: bool = False
     ignored_count: int = 0
     session: PlayerSessionRecord | None = None
 
@@ -778,6 +816,7 @@ def _ensure_player_sessions_schema(connection: sqlite3.Connection) -> None:
         f"""
         CREATE TABLE IF NOT EXISTS player_sessions (
             session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            play_session_id INTEGER NOT NULL DEFAULT 0 CHECK(play_session_id >= 0),
             reliable_id TEXT NOT NULL,
             name_at_open TEXT NOT NULL,
             name_last TEXT NOT NULL,
@@ -805,6 +844,15 @@ def _ensure_player_sessions_schema(connection: sqlite3.Connection) -> None:
             be_slot TEXT,
             faction TEXT,
             side TEXT,
+            server_run_key TEXT NOT NULL DEFAULT '',
+            reconnect_merge_count INTEGER NOT NULL DEFAULT 0 CHECK(reconnect_merge_count >= 0),
+            last_reconnect_at TEXT,
+            last_reconnect_close_observed_at TEXT,
+            last_reconnect_close_reason TEXT,
+            last_gameplay_evidence_at TEXT,
+            last_gameplay_source TEXT,
+            last_gameplay_source_ref TEXT,
+            last_gameplay_confidence TEXT,
             scanner_checkpoint_source TEXT,
             scanner_checkpoint_ref TEXT,
             scanner_checkpoint_at TEXT,
@@ -818,10 +866,36 @@ def _ensure_player_sessions_schema(connection: sqlite3.Connection) -> None:
         )
         """
     )
+    _ensure_columns(connection, "player_sessions", PLAYER_SESSION_V10_COLUMNS)
+    connection.execute(
+        """
+        UPDATE player_sessions
+        SET play_session_id = session_id
+        WHERE play_session_id = 0
+        """
+    )
     connection.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_player_sessions_reliable_id
         ON player_sessions(reliable_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_sessions_play_session_id
+        ON player_sessions(play_session_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_sessions_server_run_key
+        ON player_sessions(server_run_key)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_sessions_last_gameplay_evidence_at
+        ON player_sessions(last_gameplay_evidence_at)
         """
     )
     connection.execute(
@@ -930,6 +1004,38 @@ def _ensure_player_session_live_scan_windows_schema(
     )
 
 
+def _ensure_player_session_lifecycle_boundaries_schema(
+    connection: sqlite3.Connection,
+) -> None:
+    confidence_values = _sql_text_values(PLAYER_SESSION_CONFIDENCES)
+    connection.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS player_session_lifecycle_boundaries (
+            boundary_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            boundary_at TEXT NOT NULL,
+            source TEXT NOT NULL,
+            source_ref TEXT NOT NULL DEFAULT '',
+            confidence TEXT NOT NULL CHECK(confidence IN ({confidence_values})),
+            created_at TEXT NOT NULL,
+            UNIQUE(boundary_at, source, source_ref),
+            CHECK(length(boundary_at) > 0),
+            CHECK(length(source) > 0)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_session_lifecycle_boundaries_at
+        ON player_session_lifecycle_boundaries(boundary_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_session_lifecycle_boundaries_source
+        ON player_session_lifecycle_boundaries(source, source_ref)
+        """
+    )
+
 def _ensure_player_log_ingest_metadata_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
@@ -1028,6 +1134,9 @@ def _drop_player_log_event_history_indexes(connection: sqlite3.Connection) -> No
 def _drop_player_session_indexes(connection: sqlite3.Connection) -> None:
     for index_name in (
         "idx_player_sessions_reliable_id",
+        "idx_player_sessions_play_session_id",
+        "idx_player_sessions_server_run_key",
+        "idx_player_sessions_last_gameplay_evidence_at",
         "idx_player_sessions_status",
         "idx_player_sessions_open_observed_at",
         "idx_player_sessions_last_seen_at",
@@ -1076,12 +1185,23 @@ def _rebuild_player_sessions_schema_for_end_reason(
     )
     _drop_player_session_indexes(connection)
     _ensure_player_sessions_schema(connection)
-    columns_sql = ", ".join(
-        _quote_identifier(column) for column in PlayerSessionRecord.__dataclass_fields__
+    legacy_columns = _table_columns(connection, legacy_table)
+    copy_columns = tuple(
+        column
+        for column in PlayerSessionRecord.__dataclass_fields__
+        if column in legacy_columns
     )
+    columns_sql = ", ".join(_quote_identifier(column) for column in copy_columns)
     connection.execute(
         f"INSERT INTO player_sessions ({columns_sql}) "
         f"SELECT {columns_sql} FROM {_quote_identifier(legacy_table)}"
+    )
+    connection.execute(
+        """
+        UPDATE player_sessions
+        SET play_session_id = session_id
+        WHERE play_session_id = 0
+        """
     )
     connection.execute(f"DROP TABLE {_quote_identifier(legacy_table)}")
 
@@ -1184,6 +1304,11 @@ def _run_player_registry_migrations(connection: sqlite3.Connection) -> None:
     if current_version < 9:
         _ensure_player_log_ingest_metadata_schema(connection)
         _write_player_registry_schema_version(connection, 9)
+        current_version = 9
+    if current_version < 10:
+        _ensure_player_sessions_schema(connection)
+        _ensure_player_session_lifecycle_boundaries_schema(connection)
+        _write_player_registry_schema_version(connection, 10)
 
 
 def ensure_player_registry_db(db_path: Path) -> Path:
@@ -1498,9 +1623,21 @@ def _player_log_event_record_from_row(row: sqlite3.Row) -> PlayerLogEventRecord:
     )
 
 
+def _row_value(
+    row: sqlite3.Row,
+    column: str,
+    default: object = None,
+) -> object:
+    try:
+        return row[column]
+    except (IndexError, KeyError):
+        return default
+
+
 def _player_session_record_from_row(row: sqlite3.Row) -> PlayerSessionRecord:
     return PlayerSessionRecord(
         session_id=int(row["session_id"]),
+        play_session_id=int(_row_value(row, "play_session_id", row["session_id"]) or 0),
         reliable_id=normalize_reliable_player_id(row["reliable_id"]),
         name_at_open=_safe_session_text(row["name_at_open"]) or "Unknown player",
         name_last=_safe_session_text(row["name_last"]) or "Unknown player",
@@ -1524,6 +1661,38 @@ def _player_session_record_from_row(row: sqlite3.Row) -> PlayerSessionRecord:
         be_slot=_safe_session_correlation(row["be_slot"]),
         faction=_safe_session_text(row["faction"], max_length=80),
         side=_safe_session_text(row["side"], max_length=80),
+        server_run_key=_safe_session_text(
+            _row_value(row, "server_run_key"),
+            max_length=120,
+        ),
+        reconnect_merge_count=int(_row_value(row, "reconnect_merge_count", 0) or 0),
+        last_reconnect_at=_safe_session_text(
+            _row_value(row, "last_reconnect_at"),
+            max_length=80,
+        ),
+        last_reconnect_close_observed_at=_safe_session_text(
+            _row_value(row, "last_reconnect_close_observed_at"),
+            max_length=80,
+        ),
+        last_reconnect_close_reason=_safe_session_text(
+            _row_value(row, "last_reconnect_close_reason"),
+            max_length=80,
+        ),
+        last_gameplay_evidence_at=_safe_session_text(
+            _row_value(row, "last_gameplay_evidence_at"),
+            max_length=80,
+        ),
+        last_gameplay_source=_safe_session_source(
+            _row_value(row, "last_gameplay_source"),
+            default="",
+        ),
+        last_gameplay_source_ref=_safe_session_source_ref(
+            _row_value(row, "last_gameplay_source_ref"),
+        ),
+        last_gameplay_confidence=_safe_session_text(
+            _row_value(row, "last_gameplay_confidence"),
+            max_length=40,
+        ),
         scanner_checkpoint_source=_safe_session_source(
             row["scanner_checkpoint_source"],
             default="",
@@ -1679,6 +1848,380 @@ def _session_update_value(row: sqlite3.Row, column: str, value: str) -> str | No
     return str(existing) if existing not in (None, "") else None
 
 
+def _safe_reconnect_grace_seconds(value: object) -> int:
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        seconds = DEFAULT_PLAYER_SESSION_RECONNECT_GRACE_SECONDS
+    return max(0, seconds)
+
+
+def _is_gameplay_session_source(source: str) -> bool:
+    return source in PLAYER_SESSION_GAMEPLAY_SOURCES
+
+
+def _session_gap_seconds(left: str, right: str) -> int | None:
+    left_dt = _parse_session_timestamp(left)
+    right_dt = _parse_session_timestamp(right)
+    if left_dt is None or right_dt is None:
+        return None
+    return math.floor((right_dt - left_dt).total_seconds())
+
+
+def _lifecycle_boundary_key(row: sqlite3.Row | None) -> str:
+    if row is None:
+        return ""
+    try:
+        boundary_id = int(row["boundary_id"])
+    except (TypeError, ValueError):
+        return ""
+    return f"boundary:{boundary_id}" if boundary_id > 0 else ""
+
+
+def _latest_lifecycle_boundary_row(
+    connection: sqlite3.Connection,
+    *,
+    at: str,
+) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT *
+        FROM player_session_lifecycle_boundaries
+        WHERE boundary_at <= ?
+        ORDER BY boundary_at DESC, boundary_id DESC
+        LIMIT 1
+        """,
+        (at,),
+    ).fetchone()
+
+
+def _latest_session_lifecycle_boundary_key(
+    connection: sqlite3.Connection,
+    *,
+    at: str,
+) -> str:
+    return _lifecycle_boundary_key(_latest_lifecycle_boundary_row(connection, at=at))
+
+
+def _first_lifecycle_boundary_between(
+    connection: sqlite3.Connection,
+    *,
+    after: str,
+    at: str,
+) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT *
+        FROM player_session_lifecycle_boundaries
+        WHERE boundary_at > ?
+          AND boundary_at <= ?
+        ORDER BY boundary_at ASC, boundary_id ASC
+        LIMIT 1
+        """,
+        (after, at),
+    ).fetchone()
+
+
+def _has_lifecycle_boundary_between(
+    connection: sqlite3.Connection,
+    *,
+    after: str,
+    at: str,
+) -> bool:
+    return _first_lifecycle_boundary_between(connection, after=after, at=at) is not None
+
+
+def _record_player_session_lifecycle_boundary_connection(
+    connection: sqlite3.Connection,
+    *,
+    boundary_at: str,
+    source: str,
+    source_ref: str,
+    confidence: str,
+) -> bool:
+    cursor = connection.execute(
+        """
+        INSERT OR IGNORE INTO player_session_lifecycle_boundaries(
+            boundary_at,
+            source,
+            source_ref,
+            confidence,
+            created_at
+        )
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (boundary_at, source, source_ref, confidence, boundary_at),
+    )
+    return bool(cursor.rowcount)
+
+
+def record_player_session_lifecycle_boundary(
+    db_path: Path,
+    *,
+    boundary_at: str | None = None,
+    source: object = PLAYER_SESSION_SOURCE_SERVICE_LIFECYCLE,
+    source_ref: object = None,
+    confidence: object = PLAYER_SESSION_CONFIDENCE_MEDIUM,
+) -> bool:
+    timestamp = _safe_session_timestamp(boundary_at, fallback=_utc_now())
+    safe_source = _safe_session_source(source)
+    safe_source_ref = _safe_session_source_ref(source_ref)
+    safe_confidence = _safe_session_confidence(
+        confidence,
+        default=PLAYER_SESSION_CONFIDENCE_MEDIUM,
+    )
+    ensure_player_registry_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        return _record_player_session_lifecycle_boundary_connection(
+            connection,
+            boundary_at=timestamp,
+            source=safe_source,
+            source_ref=safe_source_ref,
+            confidence=safe_confidence,
+        )
+
+
+def _fetch_latest_closed_player_session_for_reconnect(
+    connection: sqlite3.Connection,
+    reliable_id: str,
+    *,
+    observed_at: str,
+) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT *
+        FROM player_sessions
+        WHERE reliable_id = ?
+          AND status = ?
+          AND close_observed_at IS NOT NULL
+          AND close_observed_at != ""
+          AND close_observed_at <= ?
+        ORDER BY close_observed_at DESC, session_id DESC
+        LIMIT 1
+        """,
+        (reliable_id, PLAYER_SESSION_STATUS_CLOSED, observed_at),
+    ).fetchone()
+
+
+def _has_conflicting_open_session(
+    connection: sqlite3.Connection,
+    reliable_id: str,
+    *,
+    rpl_identity: str,
+    connection_id: str,
+    session_player_id: str,
+    be_slot: str,
+) -> bool:
+    checks = (
+        ("rpl_identity", rpl_identity),
+        ("connection_id", connection_id),
+        ("session_player_id", session_player_id),
+        ("be_slot", be_slot),
+    )
+    for column, value in checks:
+        if not value:
+            continue
+        row = connection.execute(
+            f"""
+            SELECT 1
+            FROM player_sessions
+            WHERE reliable_id != ?
+              AND status = ?
+              AND {column} = ?
+            LIMIT 1
+            """,
+            (reliable_id, PLAYER_SESSION_STATUS_OPEN, value),
+        ).fetchone()
+        if row is not None:
+            return True
+    return False
+
+
+def _can_merge_reconnect_session(
+    connection: sqlite3.Connection,
+    session: sqlite3.Row,
+    *,
+    observed_at: str,
+    server_run_key: str,
+    reconnect_grace_seconds: int,
+    rpl_identity: str,
+    connection_id: str,
+    session_player_id: str,
+    be_slot: str,
+) -> bool:
+    close_observed_at = _safe_session_text(
+        _row_value(session, "close_observed_at"),
+        max_length=80,
+    )
+    if not close_observed_at:
+        return False
+    end_reason = _safe_session_end_reason(_row_value(session, "end_reason"))
+    if end_reason not in PLAYER_SESSION_RECONNECT_COMPATIBLE_END_REASONS:
+        return False
+    if _safe_session_text(_row_value(session, "server_run_key"), max_length=120) != server_run_key:
+        return False
+    gap_seconds = _session_gap_seconds(close_observed_at, observed_at)
+    if gap_seconds is None or gap_seconds < 0:
+        return False
+    if gap_seconds > reconnect_grace_seconds:
+        return False
+    if _has_lifecycle_boundary_between(
+        connection,
+        after=close_observed_at,
+        at=observed_at,
+    ):
+        return False
+    reliable_id = normalize_reliable_player_id(session["reliable_id"])
+    return not _has_conflicting_open_session(
+        connection,
+        reliable_id,
+        rpl_identity=rpl_identity,
+        connection_id=connection_id,
+        session_player_id=session_player_id,
+        be_slot=be_slot,
+    )
+
+
+def _close_player_session_row(
+    connection: sqlite3.Connection,
+    row: sqlite3.Row,
+    *,
+    close_timestamp: str,
+    source: str,
+    source_ref: str,
+    confidence: str,
+    end_reason: str,
+) -> sqlite3.Row | None:
+    session_id = int(row["session_id"])
+    if end_reason == PLAYER_SESSION_END_REASON_SERVER_BOUNDARY:
+        _record_player_session_lifecycle_boundary_connection(
+            connection,
+            boundary_at=close_timestamp,
+            source=source,
+            source_ref=source_ref,
+            confidence=confidence,
+        )
+    connection.execute(
+        """
+        UPDATE player_sessions
+        SET close_observed_at = ?,
+            status = ?,
+            close_source = ?,
+            close_source_ref = ?,
+            close_confidence = ?,
+            end_reason = ?,
+            updated_at = ?
+        WHERE session_id = ?
+        """,
+        (
+            close_timestamp,
+            PLAYER_SESSION_STATUS_CLOSED,
+            source,
+            _nullable(source_ref),
+            confidence,
+            end_reason,
+            close_timestamp,
+            session_id,
+        ),
+    )
+    return _fetch_player_session_by_id(connection, session_id)
+
+
+def _reopen_player_session_row_for_reconnect(
+    connection: sqlite3.Connection,
+    row: sqlite3.Row,
+    *,
+    timestamp: str,
+    name_last: str,
+    source: str,
+    source_ref: str,
+    confidence: str,
+    rpl_identity: str,
+    connection_id: str,
+    session_player_id: str,
+    be_slot: str,
+    faction: str,
+    side: str,
+    server_run_key: str,
+    gameplay_evidence_at: str,
+    gameplay_source: str,
+    gameplay_source_ref: str,
+    gameplay_confidence: str,
+    scanner_checkpoint_source: str,
+    scanner_checkpoint_ref: str,
+    scanner_checkpoint_at: str,
+) -> sqlite3.Row | None:
+    session_id = int(row["session_id"])
+    reconnect_count = int(_row_value(row, "reconnect_merge_count", 0) or 0) + 1
+    values = {
+        "name_last": name_last,
+        "last_seen_at": timestamp,
+        "status": PLAYER_SESSION_STATUS_OPEN,
+        "last_seen_source": source,
+        "last_seen_source_ref": _nullable(source_ref),
+        "close_observed_at": None,
+        "close_source": None,
+        "close_source_ref": None,
+        "close_confidence": None,
+        "end_reason": None,
+        "last_seen_confidence": confidence,
+        "rpl_identity": _session_update_value(row, "rpl_identity", rpl_identity),
+        "connection_id": _session_update_value(row, "connection_id", connection_id),
+        "session_player_id": _session_update_value(row, "session_player_id", session_player_id),
+        "be_slot": _session_update_value(row, "be_slot", be_slot),
+        "faction": _session_update_value(row, "faction", faction),
+        "side": _session_update_value(row, "side", side),
+        "server_run_key": server_run_key,
+        "reconnect_merge_count": reconnect_count,
+        "last_reconnect_at": timestamp,
+        "last_reconnect_close_observed_at": _safe_session_text(
+            row["close_observed_at"],
+            max_length=80,
+        ),
+        "last_reconnect_close_reason": _safe_session_end_reason(row["end_reason"]),
+        "last_gameplay_evidence_at": _session_update_value(
+            row,
+            "last_gameplay_evidence_at",
+            gameplay_evidence_at,
+        ),
+        "last_gameplay_source": _session_update_value(row, "last_gameplay_source", gameplay_source),
+        "last_gameplay_source_ref": _session_update_value(
+            row,
+            "last_gameplay_source_ref",
+            gameplay_source_ref,
+        ),
+        "last_gameplay_confidence": _session_update_value(
+            row,
+            "last_gameplay_confidence",
+            gameplay_confidence,
+        ),
+        "scanner_checkpoint_source": _session_update_value(
+            row,
+            "scanner_checkpoint_source",
+            scanner_checkpoint_source,
+        ),
+        "scanner_checkpoint_ref": _session_update_value(
+            row,
+            "scanner_checkpoint_ref",
+            scanner_checkpoint_ref,
+        ),
+        "scanner_checkpoint_at": _session_update_value(
+            row,
+            "scanner_checkpoint_at",
+            scanner_checkpoint_at,
+        ),
+        "updated_at": timestamp,
+    }
+    assignments = ", ".join(f"{column} = ?" for column in values)
+    connection.execute(
+        f"UPDATE player_sessions SET {assignments} WHERE session_id = ?",
+        (*values.values(), session_id),
+    )
+    return _fetch_player_session_by_id(connection, session_id)
+
+
 def _record_reliable_player_observation(
     connection: sqlite3.Connection,
     *,
@@ -1784,6 +2327,7 @@ def observe_player_session(
     scanner_checkpoint_source: object = None,
     scanner_checkpoint_ref: object = None,
     scanner_checkpoint_at: object = None,
+    reconnect_grace_seconds: object = DEFAULT_PLAYER_SESSION_RECONNECT_GRACE_SECONDS,
 ) -> PlayerSessionWriteResult:
     """Open or update one reliable player's currently open session."""
     normalized_id = normalize_reliable_player_id(reliable_id)
@@ -1807,6 +2351,13 @@ def observe_player_session(
     safe_checkpoint_source = _safe_session_source(scanner_checkpoint_source, default="")
     safe_checkpoint_ref = _safe_session_source_ref(scanner_checkpoint_ref)
     safe_checkpoint_at = _safe_session_text(scanner_checkpoint_at, max_length=80)
+    safe_reconnect_grace_seconds = _safe_reconnect_grace_seconds(
+        reconnect_grace_seconds,
+    )
+    gameplay_evidence_at = timestamp if _is_gameplay_session_source(safe_source) else ""
+    gameplay_source = safe_source if gameplay_evidence_at else ""
+    gameplay_source_ref = safe_source_ref if gameplay_evidence_at else ""
+    gameplay_confidence = safe_confidence if gameplay_evidence_at else ""
 
     ensure_player_registry_db(db_path)
     with sqlite3.connect(db_path) as connection:
@@ -1822,8 +2373,83 @@ def observe_player_session(
             source=safe_source,
             observed_at=timestamp,
         )
+        server_run_key = _latest_session_lifecycle_boundary_key(
+            connection,
+            at=timestamp,
+        )
         open_row = _fetch_open_player_session(connection, normalized_id)
+        if open_row is not None:
+            boundary_after_last_seen = _first_lifecycle_boundary_between(
+                connection,
+                after=_safe_session_text(open_row["open_observed_at"], max_length=80),
+                at=timestamp,
+            )
+            if boundary_after_last_seen is not None:
+                _close_player_session_row(
+                    connection,
+                    open_row,
+                    close_timestamp=_safe_session_text(
+                        boundary_after_last_seen["boundary_at"],
+                        max_length=80,
+                    ),
+                    source=_safe_session_source(boundary_after_last_seen["source"]),
+                    source_ref=_safe_session_source_ref(
+                        boundary_after_last_seen["source_ref"],
+                    ),
+                    confidence=_safe_session_confidence(
+                        boundary_after_last_seen["confidence"],
+                        default=PLAYER_SESSION_CONFIDENCE_MEDIUM,
+                    ),
+                    end_reason=PLAYER_SESSION_END_REASON_SERVER_BOUNDARY,
+                )
+                open_row = None
         if open_row is None:
+            closed_row = _fetch_latest_closed_player_session_for_reconnect(
+                connection,
+                normalized_id,
+                observed_at=timestamp,
+            )
+            if closed_row is not None and _can_merge_reconnect_session(
+                connection,
+                closed_row,
+                observed_at=timestamp,
+                server_run_key=server_run_key,
+                reconnect_grace_seconds=safe_reconnect_grace_seconds,
+                rpl_identity=safe_rpl_identity,
+                connection_id=safe_connection_id,
+                session_player_id=safe_session_player_id,
+                be_slot=safe_be_slot,
+            ):
+                row = _reopen_player_session_row_for_reconnect(
+                    connection,
+                    closed_row,
+                    timestamp=timestamp,
+                    name_last=name_for_observation,
+                    source=safe_source,
+                    source_ref=safe_source_ref,
+                    confidence=safe_confidence,
+                    rpl_identity=safe_rpl_identity,
+                    connection_id=safe_connection_id,
+                    session_player_id=safe_session_player_id,
+                    be_slot=safe_be_slot,
+                    faction=safe_faction,
+                    side=safe_side,
+                    server_run_key=server_run_key,
+                    gameplay_evidence_at=gameplay_evidence_at,
+                    gameplay_source=gameplay_source,
+                    gameplay_source_ref=gameplay_source_ref,
+                    gameplay_confidence=gameplay_confidence,
+                    scanner_checkpoint_source=safe_checkpoint_source,
+                    scanner_checkpoint_ref=safe_checkpoint_ref,
+                    scanner_checkpoint_at=safe_checkpoint_at,
+                )
+                return PlayerSessionWriteResult(
+                    written=True,
+                    updated=True,
+                    reconnected=True,
+                    session=_player_session_record_from_row(row),
+                )
+
             cursor = connection.execute(
                 """
                 INSERT INTO player_sessions(
@@ -1845,13 +2471,21 @@ def observe_player_session(
                     be_slot,
                     faction,
                     side,
+                    server_run_key,
+                    last_gameplay_evidence_at,
+                    last_gameplay_source,
+                    last_gameplay_source_ref,
+                    last_gameplay_confidence,
                     scanner_checkpoint_source,
                     scanner_checkpoint_ref,
                     scanner_checkpoint_at,
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
                 """,
                 (
                     normalized_id,
@@ -1872,12 +2506,25 @@ def observe_player_session(
                     _nullable(safe_be_slot),
                     _nullable(safe_faction),
                     _nullable(safe_side),
+                    server_run_key,
+                    _nullable(gameplay_evidence_at),
+                    _nullable(gameplay_source),
+                    _nullable(gameplay_source_ref),
+                    _nullable(gameplay_confidence),
                     _nullable(safe_checkpoint_source),
                     _nullable(safe_checkpoint_ref),
                     _nullable(safe_checkpoint_at),
                     timestamp,
                     timestamp,
                 ),
+            )
+            connection.execute(
+                """
+                UPDATE player_sessions
+                SET play_session_id = ?
+                WHERE session_id = ?
+                """,
+                (cursor.lastrowid, cursor.lastrowid),
             )
             row = _fetch_player_session_by_id(connection, cursor.lastrowid)
             return PlayerSessionWriteResult(
@@ -1902,6 +2549,11 @@ def observe_player_session(
                 be_slot = ?,
                 faction = ?,
                 side = ?,
+                server_run_key = ?,
+                last_gameplay_evidence_at = ?,
+                last_gameplay_source = ?,
+                last_gameplay_source_ref = ?,
+                last_gameplay_confidence = ?,
                 scanner_checkpoint_source = ?,
                 scanner_checkpoint_ref = ?,
                 scanner_checkpoint_at = ?,
@@ -1924,6 +2576,23 @@ def observe_player_session(
                 _session_update_value(open_row, "be_slot", safe_be_slot),
                 _session_update_value(open_row, "faction", safe_faction),
                 _session_update_value(open_row, "side", safe_side),
+                server_run_key,
+                _session_update_value(
+                    open_row,
+                    "last_gameplay_evidence_at",
+                    gameplay_evidence_at,
+                ),
+                _session_update_value(open_row, "last_gameplay_source", gameplay_source),
+                _session_update_value(
+                    open_row,
+                    "last_gameplay_source_ref",
+                    gameplay_source_ref,
+                ),
+                _session_update_value(
+                    open_row,
+                    "last_gameplay_confidence",
+                    gameplay_confidence,
+                ),
                 _session_update_value(
                     open_row,
                     "scanner_checkpoint_source",
@@ -1976,31 +2645,15 @@ def close_player_session(
             open_row = _fetch_open_player_session(connection, normalized_id)
             if open_row is None:
                 return PlayerSessionWriteResult(written=False)
-            session_id = int(open_row["session_id"])
-            connection.execute(
-                """
-                UPDATE player_sessions
-                SET close_observed_at = ?,
-                    status = ?,
-                    close_source = ?,
-                    close_source_ref = ?,
-                    close_confidence = ?,
-                    end_reason = ?,
-                    updated_at = ?
-                WHERE session_id = ?
-                """,
-                (
-                    close_timestamp,
-                    PLAYER_SESSION_STATUS_CLOSED,
-                    safe_source,
-                    _nullable(safe_source_ref),
-                    safe_confidence,
-                    safe_end_reason,
-                    close_timestamp,
-                    session_id,
-                ),
+            row = _close_player_session_row(
+                connection,
+                open_row,
+                close_timestamp=close_timestamp,
+                source=safe_source,
+                source_ref=safe_source_ref,
+                confidence=safe_confidence,
+                end_reason=safe_end_reason,
             )
-            row = _fetch_player_session_by_id(connection, session_id)
             return PlayerSessionWriteResult(
                 written=True,
                 updated=True,

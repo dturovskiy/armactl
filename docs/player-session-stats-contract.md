@@ -157,7 +157,7 @@ Occurrence-time contract: the pure parser can preserve a raw time prefix, but tr
 
 Slice C automatic log ingest foundation is implemented. It reuses the current collector/parser/player-registry ingest path, adds players.db checkpoint/freshness metadata, keeps GET routes read-only for ingest state, preserves occurrence-time evidence, handles unchanged/missing/rotated/truncated logs with controlled counts, and reports sanitized counts-only job/audit output. It does not enable a daemon, timer, app-start worker, broad scheduler, public enrichment, or current-player stat aggregation.
 
-Slice D play-session/reconnect modeling can start only after it consumes Slice C freshness as a safe status gate and keeps server-run boundary storage explicit. It must keep the same reliable ID, same server run, compatible close reason, reconnect grace, and no identity conflict as hard merge gates, and it must not merge or close sessions from count-only, name-only, ambiguous-time, failed-staleness, or multi-match correlation evidence.
+Slice D play-session/reconnect modeling is implemented. It keeps server-run boundary storage explicit and uses same reliable ID, same server run, compatible close reason, reconnect grace, no lifecycle boundary in the gap, and no identity conflict as hard merge gates. It does not merge or close sessions from count-only, name-only, ambiguous-time, failed-staleness, or multi-match correlation evidence.
 
 Slice E session-scoped stat aggregation can start only after Slice D provides proven play-session windows and Slice C freshness metadata is used as a freshness gate. It must aggregate from stored event IDs inside the play session, require reliable victim/instigator IDs and trusted occurrence times, return nullable values with unavailable reasons, keep teamkills out of Kills, ignore AI/unknown instigators, and display zero only when the complete scoped query proves zero.
 
@@ -249,12 +249,15 @@ Before adding Discord player columns, require:
 
 Pending after Slice C: an opt-in automatic runner/policy can enqueue this existing job path, but it must remain explicit and must not run from GET pages, app import/startup, or a hidden timer.
 
-### Slice D: Play-Session/Reconnect Model
+### Slice D: Play-Session/Reconnect Model - implemented
 
-- Implement or adapt storage so one play session can contain reconnect spans.
-- Add reconnect grace policy with default 10 minutes.
-- Enforce same reliable ID, same server run, no lifecycle boundary, and compatible close reason.
-- Add tests for reconnect within grace, reconnect after grace, server restart boundary, identity conflict, and repeated absence.
+- [x] Treat player_sessions.session_id as the durable play-session window key, with explicit play_session_id, server_run_key, reconnect merge count, last reconnect metadata, and last gameplay evidence metadata for future Slice E aggregation.
+- [x] Reopen the same play-session window when reliable evidence for the same reliable player ID returns within the default 10 minute reconnect grace and all merge gates pass.
+- [x] Block reconnect merges across lifecycle boundaries, incompatible close reasons, identity/correlation conflicts, overlapping conflicting open sessions, and gaps beyond the grace window.
+- [x] Record lifecycle boundary markers even when no session is open, so disconnect-before-shutdown gaps cannot merge into the next server run.
+- [x] Keep roster-only evidence as presence/session evidence and gameplay evidence as explicit last-gameplay metadata; neither claims exact joined time or current combat stats.
+- [x] Keep current players page Kills, Deaths, TK, Faction, and Role as placeholders; Slice E stat aggregation remains future work.
+- [x] Add tests for reconnect grace, reconnect after grace, lifecycle boundaries, stale absence, identity conflicts, sessionizer idempotence, and gameplay evidence metadata.
 
 ### Slice E: Session-Scoped Stats Aggregation
 
@@ -280,10 +283,10 @@ Pending after Slice C: an opt-in automatic runner/policy can enqueue this existi
 - [x] Ingest foundation has checkpoint/freshness metadata and no longer requires rescanning unchanged logs from the manual button.
 - [ ] Current stats do not require manual Update events from logs to become fresh.
 - [ ] Manual log collection remains available but is not the only freshness path.
-- [ ] A player reconnecting within 10 minutes after a compatible network/drop absence continues the same play session.
-- [ ] A player reconnecting after the grace window starts a new play session.
-- [ ] Server lifecycle boundary always starts a new play session.
-- [ ] Reliable ID conflict blocks session merge.
+- [x] A player reconnecting within 10 minutes after a compatible network/drop absence continues the same play session.
+- [x] A player reconnecting after the grace window starts a new play session.
+- [x] Server lifecycle boundary always starts a new play session.
+- [x] Reliable ID conflict blocks session merge.
 - [ ] Kills, deaths, and TK are counted only inside the current play session.
 - [ ] Teamkills do not increment Kills.
 - [ ] AI/unknown instigator does not increment a player kill/TK.
@@ -298,4 +301,4 @@ Pending after Slice C: an opt-in automatic runner/policy can enqueue this existi
 
 ## Immediate Next Recommended Slice
 
-Slice C is implemented. Do not patch the current stat counts again. The next code-bearing slice should be Slice D play-session/reconnect modeling. Session-scoped stats should wait until reconnect/session boundaries are proven and Slice C freshness is consumed as a gate.
+Slice D is implemented. Do not patch the current stat counts with open-session or roster-window shortcuts. The next code-bearing slice should be Slice E session-scoped stat aggregation, using Slice C freshness and the Slice D play-session windows as gates.

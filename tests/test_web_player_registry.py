@@ -278,6 +278,10 @@ def test_registry_db_creation_has_schema_metadata(tmp_path: Path):
     assert "idx_player_sessions_one_open_per_reliable_id" in _sqlite_indexes(db_path)
     assert "player_session_live_scan_windows" in _sqlite_tables(db_path)
     assert "idx_player_session_live_scan_windows_source" in _sqlite_indexes(db_path)
+    assert "player_session_lifecycle_boundaries" in _sqlite_tables(db_path)
+    assert (
+        "idx_player_session_lifecycle_boundaries_at" in _sqlite_indexes(db_path)
+    )
 
 
 def test_registry_db_migrates_v4_history_indexes_idempotently(tmp_path: Path):
@@ -3866,3 +3870,209 @@ def test_player_registry_tests_do_not_use_route_global_monkeypatch_pattern():
         source = test_path.read_text(encoding="utf-8")
         for pattern in forbidden:
             assert pattern not in source, f"{pattern} found in {test_path}"
+
+
+def test_reconnect_within_grace_reopens_same_play_session_window(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    first = player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T12:00:00+00:00",
+        rpl_identity="42",
+    )
+    player_registry.close_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        close_observed_at="2026-06-16T12:05:00+00:00",
+        source=player_registry.PLAYER_SESSION_SOURCE_NETWORK_PLAYER_UPDATE,
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM,
+        end_reason=player_registry.PLAYER_SESSION_END_REASON_DISCONNECT,
+    )
+    reconnect = player_registry.observe_player_session(
+        db_path,
+        reliable_id=PLAYER_ALPHA_ID,
+        display_name="Alpha Back",
+        source=player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER,
+        observed_at="2026-06-16T12:10:00+00:00",
+        rpl_identity="42",
+    )
+    sessions = player_registry.list_player_sessions_for_reliable_id(db_path, PLAYER_ALPHA_ID)
+
+    assert first.session is not None
+    assert reconnect.reconnected is True
+    assert len(sessions) == 1
+    session = sessions[0]
+    assert session.session_id == first.session.session_id
+    assert session.play_session_id == first.session.session_id
+    assert session.status == player_registry.PLAYER_SESSION_STATUS_OPEN
+    assert session.open_observed_at == "2026-06-16T12:00:00+00:00"
+    assert session.last_seen_at == "2026-06-16T12:10:00+00:00"
+    assert session.close_observed_at == ""
+    assert session.reconnect_merge_count == 1
+    assert session.last_reconnect_at == "2026-06-16T12:10:00+00:00"
+    assert session.last_reconnect_close_observed_at == "2026-06-16T12:05:00+00:00"
+    assert session.last_reconnect_close_reason == (
+        player_registry.PLAYER_SESSION_END_REASON_DISCONNECT
+    )
+
+
+def test_reconnect_after_grace_starts_new_play_session_window(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    first = player_registry.observe_player_session(
+        db_path, reliable_id=PLAYER_ALPHA_ID, display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T12:00:00+00:00", rpl_identity="42",
+    )
+    player_registry.close_player_session(
+        db_path, reliable_id=PLAYER_ALPHA_ID,
+        close_observed_at="2026-06-16T12:05:00+00:00",
+        source=player_registry.PLAYER_SESSION_SOURCE_NETWORK_PLAYER_UPDATE,
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM,
+        end_reason=player_registry.PLAYER_SESSION_END_REASON_DISCONNECT,
+    )
+    reconnect = player_registry.observe_player_session(
+        db_path, reliable_id=PLAYER_ALPHA_ID, display_name="Alpha Later",
+        source=player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER,
+        observed_at="2026-06-16T12:16:00+00:00", rpl_identity="42",
+    )
+    sessions = player_registry.list_player_sessions_for_reliable_id(db_path, PLAYER_ALPHA_ID)
+
+    assert first.session is not None
+    assert reconnect.reconnected is False
+    assert len(sessions) == 2
+    open_session = next(
+        s
+        for s in sessions
+        if s.status == player_registry.PLAYER_SESSION_STATUS_OPEN
+    )
+    closed_session = next(
+        s
+        for s in sessions
+        if s.status == player_registry.PLAYER_SESSION_STATUS_CLOSED
+    )
+    assert open_session.session_id != closed_session.session_id
+    assert open_session.play_session_id == open_session.session_id
+    assert closed_session.play_session_id == first.session.session_id
+    assert closed_session.reconnect_merge_count == 0
+
+
+def test_lifecycle_boundary_blocks_reconnect_merge_within_grace(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    player_registry.observe_player_session(
+        db_path, reliable_id=PLAYER_ALPHA_ID, display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T12:00:00+00:00", rpl_identity="42",
+    )
+    player_registry.close_player_session(
+        db_path, reliable_id=PLAYER_ALPHA_ID,
+        close_observed_at="2026-06-16T12:05:00+00:00",
+        source=player_registry.PLAYER_SESSION_SOURCE_NETWORK_PLAYER_UPDATE,
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM,
+        end_reason=player_registry.PLAYER_SESSION_END_REASON_DISCONNECT,
+    )
+    player_registry.record_player_session_lifecycle_boundary(
+        db_path, boundary_at="2026-06-16T12:06:00+00:00",
+        source=player_registry.PLAYER_SESSION_SOURCE_SERVICE_LIFECYCLE,
+        source_ref="journal:shutdown:1",
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM,
+    )
+    reconnect = player_registry.observe_player_session(
+        db_path, reliable_id=PLAYER_ALPHA_ID, display_name="Alpha New Run",
+        source=player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER,
+        observed_at="2026-06-16T12:08:00+00:00", rpl_identity="42",
+    )
+    sessions = player_registry.list_player_sessions_for_reliable_id(db_path, PLAYER_ALPHA_ID)
+
+    assert reconnect.reconnected is False
+    assert len(sessions) == 2
+    open_session = next(
+        s
+        for s in sessions
+        if s.status == player_registry.PLAYER_SESSION_STATUS_OPEN
+    )
+    closed_session = next(
+        s
+        for s in sessions
+        if s.status == player_registry.PLAYER_SESSION_STATUS_CLOSED
+    )
+    assert open_session.server_run_key.startswith("boundary:")
+    assert closed_session.server_run_key == ""
+    assert closed_session.reconnect_merge_count == 0
+
+
+def test_stale_absence_close_is_reconnect_compatible(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    first = player_registry.observe_player_session(
+        db_path, reliable_id=PLAYER_ALPHA_ID, display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER,
+        observed_at="2026-06-16T12:00:00+00:00",
+    )
+    player_registry.close_player_session(
+        db_path, reliable_id=PLAYER_ALPHA_ID,
+        close_observed_at="2026-06-16T12:05:00+00:00",
+        source=player_registry.PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_LOW,
+        end_reason=player_registry.PLAYER_SESSION_END_REASON_STALE_ABSENCE,
+    )
+    reconnect = player_registry.observe_player_session(
+        db_path, reliable_id=PLAYER_ALPHA_ID, display_name="Alpha Back",
+        source=player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER,
+        observed_at="2026-06-16T12:10:00+00:00",
+    )
+
+    assert first.session is not None
+    assert reconnect.reconnected is True
+    assert reconnect.session is not None
+    assert reconnect.session.session_id == first.session.session_id
+    assert reconnect.session.reconnect_merge_count == 1
+
+
+def test_identity_conflict_blocks_reconnect_merge(tmp_path: Path):
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    first = player_registry.observe_player_session(
+        db_path, reliable_id=PLAYER_ALPHA_ID, display_name="Alpha One",
+        source=player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH,
+        observed_at="2026-06-16T12:00:00+00:00", rpl_identity="42",
+    )
+    player_registry.close_player_session(
+        db_path, reliable_id=PLAYER_ALPHA_ID,
+        close_observed_at="2026-06-16T12:05:00+00:00",
+        source=player_registry.PLAYER_SESSION_SOURCE_NETWORK_PLAYER_UPDATE,
+        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_MEDIUM,
+        end_reason=player_registry.PLAYER_SESSION_END_REASON_DISCONNECT,
+    )
+    player_registry.observe_player_session(
+        db_path, reliable_id=PLAYER_BRAVO_ID, display_name="Bravo Conflict",
+        source=player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER,
+        observed_at="2026-06-16T12:06:00+00:00", rpl_identity="42",
+    )
+    reconnect = player_registry.observe_player_session(
+        db_path, reliable_id=PLAYER_ALPHA_ID, display_name="Alpha Conflict",
+        source=player_registry.PLAYER_SESSION_SOURCE_RCON_ROSTER,
+        observed_at="2026-06-16T12:08:00+00:00", rpl_identity="42",
+    )
+    alpha_sessions = player_registry.list_player_sessions_for_reliable_id(
+        db_path, PLAYER_ALPHA_ID
+    )
+
+    assert first.session is not None
+    assert reconnect.reconnected is False
+    assert len(alpha_sessions) == 2
+    closed = next(
+        s
+        for s in alpha_sessions
+        if s.status == player_registry.PLAYER_SESSION_STATUS_CLOSED
+    )
+    assert closed.session_id == first.session.session_id

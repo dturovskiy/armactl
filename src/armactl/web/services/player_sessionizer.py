@@ -70,6 +70,7 @@ class _SessionCloseEvidence:
     connection_id: str = ""
     be_slot: str = ""
     lifecycle_boundary: bool = False
+    event_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -230,6 +231,7 @@ def _close_evidence_from_event(
                 rpl_identity=event.rpl_identity,
                 connection_id=event.connection_id,
                 be_slot=event.be_slot,
+                event_id=event.event_id,
             ),
         )
 
@@ -242,6 +244,7 @@ def _close_evidence_from_event(
                 confidence=_session_close_confidence(event.confidence),
                 end_reason=player_registry.PLAYER_SESSION_END_REASON_SERVER_BOUNDARY,
                 lifecycle_boundary=True,
+                event_id=event.event_id,
             ),
         )
 
@@ -261,12 +264,22 @@ def _apply_lifecycle_close(
     db_path: Path,
     evidence: _SessionCloseEvidence,
 ) -> _CloseApplicationResult:
+    boundary_recorded = player_registry.record_player_session_lifecycle_boundary(
+        db_path,
+        boundary_at=evidence.observed_at,
+        source=evidence.source,
+        source_ref=evidence.source_ref,
+        confidence=evidence.confidence,
+    )
     sessions = player_registry.list_open_player_sessions(db_path)
-    if not sessions:
-        return _CloseApplicationResult(skipped=True)
 
     closed_count = 0
     for session in sessions:
+        checkpoint_event_id = _checkpoint_event_id(session)
+        if checkpoint_event_id is not None and checkpoint_event_id >= evidence.event_id:
+            continue
+        if _is_older_than(evidence.observed_at, session.open_observed_at):
+            continue
         result = player_registry.close_player_session(
             db_path,
             reliable_id=session.reliable_id,
@@ -279,7 +292,7 @@ def _apply_lifecycle_close(
         if result.closed:
             closed_count += 1
 
-    if not closed_count:
+    if not closed_count and not boundary_recorded:
         return _CloseApplicationResult(skipped=True)
     return _CloseApplicationResult(applied=True, sessions_closed=closed_count)
 
@@ -293,6 +306,12 @@ def _apply_correlated_close(
 
     session = _matched_open_session_by_correlation(db_path, evidence)
     if session is None:
+        return _CloseApplicationResult(skipped=True)
+
+    checkpoint_event_id = _checkpoint_event_id(session)
+    if checkpoint_event_id is not None and checkpoint_event_id >= evidence.event_id:
+        return _CloseApplicationResult(skipped=True)
+    if _is_older_than(evidence.observed_at, session.open_observed_at):
         return _CloseApplicationResult(skipped=True)
 
     result = player_registry.close_player_session(
