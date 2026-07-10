@@ -127,11 +127,17 @@ def test_current_player_roster_layout_translation_keys_exist_in_locales():
         "Technical source",
         "Session first observed",
         "Stats source",
+        "Stats availability",
+        (
+            "Stats pending play-session contract; no proven session-scoped stats; "
+            "automatic log freshness is not available yet."
+        ),
         "Stored current-session evidence",
         "Last-known faction from stored current-session evidence.",
         (
-            "Current-session stats and last-known faction use stored open-session "
-            "evidence; role stays blank until reliable source data is available."
+            "Current stats stay blank until play-session boundaries and automatic log "
+            "freshness are proven; role stays blank until reliable source data is "
+            "available."
         ),
     }
 

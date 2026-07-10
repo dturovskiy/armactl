@@ -41,6 +41,11 @@
     statsSource: root.dataset.currentPlayersStatsSourceLabel || "Stats source",
     statsSourceValue:
       root.dataset.currentPlayersStatsSourceValue || "Stored current-session evidence",
+    statsAvailability:
+      root.dataset.currentPlayersStatsAvailabilityLabel || "Stats availability",
+    statsUnavailable:
+      root.dataset.currentPlayersStatsUnavailableLabel ||
+      "Stats pending play-session contract; no proven session-scoped stats; automatic log freshness is not available yet.",
     factionEvidenceTitle:
       root.dataset.currentPlayersFactionEvidenceTitle ||
       "Last-known faction from stored current-session evidence.",
@@ -192,6 +197,20 @@
     return cell;
   }
 
+  function guardedStatCell(player, field) {
+    if (!player || player.stats_available !== true) {
+      return placeholderCell("player-stat-number");
+    }
+    return statCell(player[field]);
+  }
+
+  function guardedFactionCell(player) {
+    if (!player || player.stats_available !== true) {
+      return placeholderCell();
+    }
+    return nullableTextCell(player.faction, "", { title: labels.factionEvidenceTitle });
+  }
+
   function statusCell(data) {
     const cell = document.createElement("td");
     const pill = document.createElement("span");
@@ -293,7 +312,17 @@
       );
     }
     if (player.stats_available === true) {
-      details.push(detailLine(labels.statsSource, labels.statsSourceValue));
+      details.push(
+        detailLine(labels.statsSource, player.stats_source_label || labels.statsSourceValue),
+      );
+    } else {
+      details.push(
+        detailLine(
+          labels.statsAvailability,
+          player.stats_unavailable_reason || labels.statsUnavailable,
+          { className: "muted" },
+        ),
+      );
     }
     return details;
   }
@@ -350,10 +379,10 @@
     mainRow.append(
       textCell(player.display_name || "", "strong"),
       statusCell(data),
-      statCell(player.kills),
-      statCell(player.deaths),
-      statCell(player.teamkills),
-      nullableTextCell(player.faction, "", { title: labels.factionEvidenceTitle }),
+      guardedStatCell(player, "kills"),
+      guardedStatCell(player, "deaths"),
+      guardedStatCell(player, "teamkills"),
+      guardedFactionCell(player),
       placeholderCell(),
       actionsCell(hasDetails, detailsId),
     );

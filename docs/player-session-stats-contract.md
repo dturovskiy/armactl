@@ -157,12 +157,12 @@ Before adding Discord player columns, require:
 
 ## Implementation Slices
 
-### Slice A: Contract And Current UI Guard
+### Slice A: Contract And Current UI Guard — implemented
 
-- Document this contract and wire it into checklist/plans.
-- Mark the previous authenticated web-only enrichment as insufficient for final session-stat truth.
-- Ensure current UI never shows fake zeroes when no proven session/log freshness exists.
-- Keep stats placeholders if the contract is not satisfied.
+- [x] Document this contract and wire it into checklist/plans.
+- [x] Mark the previous authenticated web-only enrichment as insufficient for final session-stat truth.
+- [x] Ensure current UI never shows fake zeroes when no proven session/log freshness exists.
+- [x] Keep stats placeholders if the contract is not satisfied.
 
 ### Slice B: Parser Fixture Audit
 
@@ -226,4 +226,4 @@ Before adding Discord player columns, require:
 
 ## Immediate Next Recommended Slice
 
-Do Slice A first. Do not patch the current stat counts again. The next code-bearing slice should either hide/placeholder any values that cannot satisfy this contract, or add only narrowly scoped parser/freshness groundwork. Session-scoped stats should wait until parser fixtures, automatic ingest freshness, and reconnect/session boundaries are proven.
+Slice A is implemented. Do not patch the current stat counts again. The next code-bearing slice should be Slice B parser fixture audit or narrowly scoped freshness groundwork. Session-scoped stats should wait until parser fixtures, automatic ingest freshness, and reconnect/session boundaries are proven.

@@ -109,6 +109,7 @@ def _current_players_json_payload(
                 "first_observed_at": player.first_observed_at,
                 "stats_available": player.stats_available,
                 "stats_source_label": player.stats_source_label,
+                "stats_unavailable_reason": player.stats_unavailable_reason,
             }
             for player in page.players
         ],

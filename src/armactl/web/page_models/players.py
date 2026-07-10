@@ -222,6 +222,9 @@ class CurrentPlayerTableRow:
     first_observed_at: str | None = None
     stats_available: bool = False
     stats_source_label: str = ""
+    stats_unavailable_reason: str = (
+        player_current_enrichment.CURRENT_STATS_UNAVAILABLE_REASON
+    )
 
 
 @dataclass(frozen=True)
@@ -417,6 +420,11 @@ def _current_player_row(
         stats_source_label=safe_player_text(enrichment.stats_source_label, max_length=80)
         if enrichment
         else "",
+        stats_unavailable_reason=(
+            safe_player_text(enrichment.stats_unavailable_reason, max_length=180)
+            if enrichment and enrichment.stats_unavailable_reason
+            else player_current_enrichment.CURRENT_STATS_UNAVAILABLE_REASON
+        ),
     )
 
 

@@ -20,6 +20,10 @@ from armactl.web.services.player_sources import CurrentPlayer, CurrentPlayerRost
 PLAYER_ALPHA_ID = "11111111-1111-4111-8111-111111111111"
 PLAYER_BRAVO_ID = "22222222-2222-4222-8222-222222222222"
 PLAYER_CHARLIE_ID = "33333333-3333-4333-8333-333333333333"
+STATS_UNAVAILABLE_REASON = (
+    "Stats pending play-session contract; no proven session-scoped stats; "
+    "automatic log freshness is not available yet."
+)
 FORBIDDEN_PLAYER_SESSION_COLUMNS = {"ip", "ip_address", "address", "raw_line", "raw_path"}
 PLAYER_HISTORY_INDEXES = {
     "idx_player_log_events_history_order",
@@ -1516,6 +1520,8 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
     assert all("Source" in row and "RCON roster" in row for row in detail_rows)
     assert all("Technical source" in row for row in detail_rows)
     assert all("Session first observed" in row and ">—<" in row for row in detail_rows)
+    assert all("Stats availability" in row for row in detail_rows)
+    assert all(STATS_UNAVAILABLE_REASON in row for row in detail_rows)
     assert all("Stats source" not in row for row in detail_rows)
     assert all('data-local-time datetime="' in row for row in detail_rows)
     assert any(PLAYER_ALPHA_ID in row and "rcon.guid" in row for row in detail_rows)
@@ -1532,7 +1538,7 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
 
 
 
-def test_current_players_enrichment_uses_open_session_evidence_window(
+def test_current_players_guard_hides_open_session_evidence_until_contract(
     tmp_path: Path,
     monkeypatch,
 ):
@@ -1690,6 +1696,7 @@ def test_current_players_enrichment_uses_open_session_evidence_window(
     assert ingest.stored_count == 11
     before_sessions = _sqlite_table_count(db_path, "player_sessions")
     before_events = _sqlite_table_count(db_path, "player_log_events")
+    before_db_bytes = db_path.read_bytes()
 
     monkeypatch.setattr(
         player_sources,
@@ -1710,13 +1717,14 @@ def test_current_players_enrichment_uses_open_session_evidence_window(
             "display_name": "Live Alpha",
             "reliable_id": PLAYER_ALPHA_ID,
             "source": "rcon.guid",
-            "kills": 1,
-            "deaths": 4,
-            "teamkills": 1,
-            "faction": "US_Army",
+            "kills": None,
+            "deaths": None,
+            "teamkills": None,
+            "faction": None,
             "first_observed_at": session_opened_at,
-            "stats_available": True,
-            "stats_source_label": "Stored current-session evidence",
+            "stats_available": False,
+            "stats_source_label": "",
+            "stats_unavailable_reason": STATS_UNAVAILABLE_REASON,
         }
     ]
     main_rows = re.findall(
@@ -1726,19 +1734,22 @@ def test_current_players_enrichment_uses_open_session_evidence_window(
     )
     assert len(main_rows) == 1
     cells = re.findall(r"<td[^>]*>(.*?)</td>", main_rows[0], re.S)
-    assert cells[2] == "1"
-    assert cells[3] == "4"
-    assert cells[4] == "1"
-    assert "US_Army" in cells[5]
+    assert cells[2] == "—"
+    assert cells[3] == "—"
+    assert cells[4] == "—"
+    assert cells[5] == "—"
     assert cells[6] == "—"
+    assert main_rows[0].count("player-current-placeholder") == 5
     assert "Session first observed" in page_response.text
-    assert "Stats source" in page_response.text
-    assert "Stored current-session evidence" in page_response.text
-    assert "Last-known faction from stored current-session evidence." in page_response.text
+    assert "Stats availability" in page_response.text
+    assert STATS_UNAVAILABLE_REASON in page_response.text
+    assert "Stats source:</strong>" not in page_response.text
+    assert "US_Army" not in page_response.text
     assert "raw-event-secret" not in rendered
     assert "/home/deus/private.log" not in rendered
     assert _sqlite_table_count(db_path, "player_sessions") == before_sessions
     assert _sqlite_table_count(db_path, "player_log_events") == before_events
+    assert db_path.read_bytes() == before_db_bytes
 
 
 def test_current_players_enrichment_requires_open_session_without_fake_zeroes(
@@ -1793,6 +1804,7 @@ def test_current_players_enrichment_requires_open_session_without_fake_zeroes(
     assert row["first_observed_at"] is None
     assert row["stats_available"] is False
     assert row["stats_source_label"] == ""
+    assert row["stats_unavailable_reason"] == STATS_UNAVAILABLE_REASON
     main_rows = re.findall(
         r'<tr class="player-current-main-row">(.*?)</tr>',
         page_response.text,
@@ -1802,6 +1814,8 @@ def test_current_players_enrichment_requires_open_session_without_fake_zeroes(
     assert main_rows[0].count("player-current-placeholder") == 5
     assert ">0<" not in main_rows[0]
     assert "Stats source:</strong>" not in page_response.text
+    assert "Stats availability" in page_response.text
+    assert STATS_UNAVAILABLE_REASON in page_response.text
     assert _sqlite_table_count(db_path, "player_sessions") == before_sessions
     assert _sqlite_table_count(db_path, "player_log_events") == before_events
 
@@ -1951,14 +1965,24 @@ def test_current_players_polling_js_uses_no_store_and_preserves_search():
     assert "labels.technicalSource" in script
     assert "labels.firstObserved" in script
     assert "labels.statsSource" in script
+    assert "currentPlayersStatsAvailabilityLabel" in script
+    assert "currentPlayersStatsUnavailableLabel" in script
+    assert "labels.statsAvailability" in script
+    assert "stats_unavailable_reason" in script
     assert "labels.factionEvidenceTitle" in script
     assert "function statCell" in script
+    assert "function guardedStatCell" in script
+    assert "function guardedFactionCell" in script
     assert "function nullableTextCell" in script
+    assert "player.stats_available !== true" in script
     assert "row.append(idCell" not in script
     assert "row.append(textCell(player.source" not in script
-    assert "statCell(player.kills)" in script
-    assert "statCell(player.deaths)" in script
-    assert "statCell(player.teamkills)" in script
+    assert "statCell(player.kills)" not in script
+    assert "statCell(player.deaths)" not in script
+    assert "statCell(player.teamkills)" not in script
+    assert "guardedStatCell(player, \"kills\")" in script
+    assert "guardedStatCell(player, \"deaths\")" in script
+    assert "guardedStatCell(player, \"teamkills\")" in script
     assert "armactlFormatLocalTime" in script
     assert "target instanceof Element" in script
     assert "removeAttribute(\"hidden\")" in script
@@ -2053,6 +2077,7 @@ def test_players_current_json_uses_fresh_persistent_cache_without_live_source(
             "first_observed_at": None,
             "stats_available": False,
             "stats_source_label": "",
+            "stats_unavailable_reason": STATS_UNAVAILABLE_REASON,
         }
     ]
     assert payload["updated_at"]
@@ -2252,6 +2277,7 @@ def test_players_current_json_uses_current_roster_cache_without_db_writes(
             "first_observed_at": None,
             "stats_available": False,
             "stats_source_label": "",
+            "stats_unavailable_reason": STATS_UNAVAILABLE_REASON,
         }
     ]
     persistent = player_current_cache.get_persistent_current_roster_snapshot(
@@ -2360,6 +2386,7 @@ def test_player_get_routes_do_not_write_player_sessions(
             "first_observed_at": None,
             "stats_available": False,
             "stats_source_label": "",
+            "stats_unavailable_reason": STATS_UNAVAILABLE_REASON,
         }
     ]
     assert not db_path.exists()
