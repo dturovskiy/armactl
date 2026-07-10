@@ -40,15 +40,25 @@
       root.dataset.currentPlayersFirstObservedLabel || "Session first observed",
     statsSource: root.dataset.currentPlayersStatsSourceLabel || "Stats source",
     statsSourceValue:
-      root.dataset.currentPlayersStatsSourceValue || "Stored current-session evidence",
+      root.dataset.currentPlayersStatsSourceValue || "Stored fresh play-session log evidence",
     statsAvailability:
       root.dataset.currentPlayersStatsAvailabilityLabel || "Stats availability",
     statsUnavailable:
       root.dataset.currentPlayersStatsUnavailableLabel ||
-      "Stats pending play-session contract; no proven session-scoped stats; automatic log freshness is not available yet.",
+      "Stats unavailable because proven play-session and fresh log coverage are not available.",
+    statsFreshness:
+      root.dataset.currentPlayersStatsFreshnessLabel || "Log ingest freshness",
+    statsWindowStart:
+      root.dataset.currentPlayersStatsWindowStartLabel || "Stats window start",
+    statsWindowEnd:
+      root.dataset.currentPlayersStatsWindowEndLabel || "Stats covered through",
+    statsReconnect:
+      root.dataset.currentPlayersStatsReconnectLabel || "Reconnect window",
+    statsReconnectValue:
+      root.dataset.currentPlayersStatsReconnectValue || "Merged within reconnect grace",
     factionEvidenceTitle:
       root.dataset.currentPlayersFactionEvidenceTitle ||
-      "Last-known faction from stored current-session evidence.",
+      "Last-known faction from fresh play-session log evidence; not guaranteed current.",
     unavailable: root.dataset.currentPlayersUnavailableLabel || "unavailable",
     unknown: root.dataset.currentPlayersUnknownLabel || "Unknown",
   };
@@ -315,6 +325,27 @@
       details.push(
         detailLine(labels.statsSource, player.stats_source_label || labels.statsSourceValue),
       );
+      const freshnessAt = String(player.stats_freshness_at || "");
+      if (freshnessAt) {
+        details.push(
+          detailLine(labels.statsFreshness, "", { valueNode: timestampNode(freshnessAt) }),
+        );
+      }
+      const windowStart = String(player.stats_window_started_at || "");
+      if (windowStart) {
+        details.push(
+          detailLine(labels.statsWindowStart, "", { valueNode: timestampNode(windowStart) }),
+        );
+      }
+      const windowEnd = String(player.stats_window_ended_at || "");
+      if (windowEnd) {
+        details.push(
+          detailLine(labels.statsWindowEnd, "", { valueNode: timestampNode(windowEnd) }),
+        );
+      }
+      if (player.stats_reconnect_merged === true) {
+        details.push(detailLine(labels.statsReconnect, labels.statsReconnectValue));
+      }
     } else {
       details.push(
         detailLine(
@@ -323,6 +354,12 @@
           { className: "muted" },
         ),
       );
+      const freshnessAt = String(player.stats_freshness_at || "");
+      if (freshnessAt) {
+        details.push(
+          detailLine(labels.statsFreshness, "", { valueNode: timestampNode(freshnessAt) }),
+        );
+      }
     }
     return details;
   }

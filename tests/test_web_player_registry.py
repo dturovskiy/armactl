@@ -14,15 +14,17 @@ from starlette.exceptions import StarletteDeprecationWarning
 
 from armactl.web.auth.permissions import PLAYERS_VIEW
 from armactl.web.auth.setup import setup_owner_user
+from armactl.web.services import player_current_enrichment
 from armactl.web.services.player_registry import PlayerObservation
 from armactl.web.services.player_sources import CurrentPlayer, CurrentPlayerRoster
 
 PLAYER_ALPHA_ID = "11111111-1111-4111-8111-111111111111"
 PLAYER_BRAVO_ID = "22222222-2222-4222-8222-222222222222"
 PLAYER_CHARLIE_ID = "33333333-3333-4333-8333-333333333333"
-STATS_UNAVAILABLE_REASON = (
-    "Stats pending play-session contract; no proven session-scoped stats; "
-    "automatic log freshness is not available yet."
+STATS_UNAVAILABLE_REASON = player_current_enrichment.CURRENT_STATS_NO_DATABASE_REASON
+STATS_NO_SESSION_REASON = player_current_enrichment.CURRENT_STATS_NO_SESSION_REASON
+STATS_FRESHNESS_UNAVAILABLE_REASON = (
+    player_current_enrichment.CURRENT_STATS_FRESHNESS_UNAVAILABLE_REASON
 )
 FORBIDDEN_PLAYER_SESSION_COLUMNS = {"ip", "ip_address", "address", "raw_line", "raw_path"}
 PLAYER_HISTORY_INDEXES = {
@@ -125,6 +127,69 @@ def _count_only_roster(count: int = 7) -> CurrentPlayerRoster:
         count_source="a2s",
         roster_available=False,
         roster_configured=True,
+    )
+
+
+def _unavailable_current_player_payload(
+    display_name: str,
+    *,
+    reliable_id: str = PLAYER_ALPHA_ID,
+    reason: str = STATS_UNAVAILABLE_REASON,
+    first_observed_at: str | None = None,
+    freshness_status: str = "unavailable",
+    freshness_at: str | None = None,
+    window_started_at: str | None = None,
+) -> dict[str, object]:
+    return {
+        "display_name": display_name,
+        "reliable_id": reliable_id,
+        "source": "rcon.guid",
+        "kills": None,
+        "deaths": None,
+        "teamkills": None,
+        "faction": None,
+        "first_observed_at": first_observed_at,
+        "stats_available": False,
+        "stats_source_label": "",
+        "stats_unavailable_reason": reason,
+        "stats_freshness_status": freshness_status,
+        "stats_freshness_at": freshness_at,
+        "stats_window_started_at": window_started_at,
+        "stats_window_ended_at": None,
+        "stats_reconnect_merged": False,
+    }
+
+
+def _record_fresh_player_log_ingest(db_path: Path, at: str) -> None:
+    from armactl.web.services import player_registry
+
+    scope = player_current_enrichment.CURRENT_STATS_INGEST_SCOPE
+    player_registry.upsert_player_log_ingest_checkpoints(
+        db_path,
+        [
+            player_registry.PlayerLogIngestCheckpoint(
+                scope=scope,
+                source_key="route-fixture-log",
+                source_label="allowlisted console log",
+                size_bytes=1,
+                mtime_ns=1,
+                fingerprint="route-fixture",
+                status="scanned",
+                last_scanned_at=at,
+                updated_at=at,
+            )
+        ],
+    )
+    player_registry.record_player_log_ingest_freshness(
+        db_path,
+        scope=scope,
+        status=player_registry.PLAYER_LOG_INGEST_STATUS_FRESH,
+        last_run_at=at,
+        scanned_files=1,
+        parsed_events=0,
+        stored_events=0,
+        skipped_files=0,
+        checkpoint_updated=True,
     )
 
 
@@ -1525,7 +1590,11 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
     assert all("Technical source" in row for row in detail_rows)
     assert all("Session first observed" in row and ">—<" in row for row in detail_rows)
     assert all("Stats availability" in row for row in detail_rows)
-    assert all(STATS_UNAVAILABLE_REASON in row for row in detail_rows)
+    assert any(STATS_UNAVAILABLE_REASON in row for row in detail_rows)
+    assert any(
+        player_current_enrichment.CURRENT_STATS_NO_RELIABLE_ID_REASON in row
+        for row in detail_rows
+    )
     assert all("Stats source" not in row for row in detail_rows)
     assert all('data-local-time datetime="' in row for row in detail_rows)
     assert any(PLAYER_ALPHA_ID in row and "rcon.guid" in row for row in detail_rows)
@@ -1542,7 +1611,7 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
 
 
 
-def test_current_players_guard_hides_open_session_evidence_until_contract(
+def test_current_players_show_fresh_session_scoped_stats_without_get_mutation(
     tmp_path: Path,
     monkeypatch,
 ):
@@ -1698,6 +1767,8 @@ def test_current_players_guard_hides_open_session_evidence_until_contract(
         ingested_at="2026-06-16T12:30:00+00:00",
     )
     assert ingest.stored_count == 11
+    fresh_at = datetime.now(timezone.utc).isoformat()
+    _record_fresh_player_log_ingest(db_path, fresh_at)
     before_sessions = _sqlite_table_count(db_path, "player_sessions")
     before_events = _sqlite_table_count(db_path, "player_log_events")
     before_db_bytes = db_path.read_bytes()
@@ -1721,14 +1792,19 @@ def test_current_players_guard_hides_open_session_evidence_until_contract(
             "display_name": "Live Alpha",
             "reliable_id": PLAYER_ALPHA_ID,
             "source": "rcon.guid",
-            "kills": None,
-            "deaths": None,
-            "teamkills": None,
-            "faction": None,
+            "kills": 1,
+            "deaths": 4,
+            "teamkills": 1,
+            "faction": "US_Army",
             "first_observed_at": session_opened_at,
-            "stats_available": False,
-            "stats_source_label": "",
-            "stats_unavailable_reason": STATS_UNAVAILABLE_REASON,
+            "stats_available": True,
+            "stats_source_label": player_current_enrichment.CURRENT_STATS_SOURCE_LABEL,
+            "stats_unavailable_reason": "",
+            "stats_freshness_status": "fresh",
+            "stats_freshness_at": fresh_at,
+            "stats_window_started_at": session_opened_at,
+            "stats_window_ended_at": fresh_at,
+            "stats_reconnect_merged": False,
         }
     ]
     main_rows = re.findall(
@@ -1738,17 +1814,20 @@ def test_current_players_guard_hides_open_session_evidence_until_contract(
     )
     assert len(main_rows) == 1
     cells = re.findall(r"<td[^>]*>(.*?)</td>", main_rows[0], re.S)
-    assert cells[2] == "—"
-    assert cells[3] == "—"
-    assert cells[4] == "—"
-    assert cells[5] == "—"
+    assert cells[2] == "1"
+    assert cells[3] == "4"
+    assert cells[4] == "1"
+    assert "US_Army" in cells[5]
     assert cells[6] == "—"
-    assert main_rows[0].count("player-current-placeholder") == 5
+    assert main_rows[0].count("player-current-placeholder") == 1
     assert "Session first observed" in page_response.text
-    assert "Stats availability" in page_response.text
-    assert STATS_UNAVAILABLE_REASON in page_response.text
-    assert "Stats source:</strong>" not in page_response.text
-    assert "US_Army" not in page_response.text
+    assert "Stats availability:</strong>" not in page_response.text
+    assert "Stats source:</strong>" in page_response.text
+    assert player_current_enrichment.CURRENT_STATS_SOURCE_LABEL in page_response.text
+    assert "Log ingest freshness" in page_response.text
+    assert "Stats window start" in page_response.text
+    assert "Stats covered through" in page_response.text
+    assert "US_Army" in page_response.text
     assert "raw-event-secret" not in rendered
     assert "/home/deus/private.log" not in rendered
     assert _sqlite_table_count(db_path, "player_sessions") == before_sessions
@@ -1808,7 +1887,12 @@ def test_current_players_enrichment_requires_open_session_without_fake_zeroes(
     assert row["first_observed_at"] is None
     assert row["stats_available"] is False
     assert row["stats_source_label"] == ""
-    assert row["stats_unavailable_reason"] == STATS_UNAVAILABLE_REASON
+    assert row["stats_unavailable_reason"] == STATS_NO_SESSION_REASON
+    assert row["stats_freshness_status"] == "unavailable"
+    assert row["stats_freshness_at"] is None
+    assert row["stats_window_started_at"] is None
+    assert row["stats_window_ended_at"] is None
+    assert row["stats_reconnect_merged"] is False
     main_rows = re.findall(
         r'<tr class="player-current-main-row">(.*?)</tr>',
         page_response.text,
@@ -1819,7 +1903,7 @@ def test_current_players_enrichment_requires_open_session_without_fake_zeroes(
     assert ">0<" not in main_rows[0]
     assert "Stats source:</strong>" not in page_response.text
     assert "Stats availability" in page_response.text
-    assert STATS_UNAVAILABLE_REASON in page_response.text
+    assert STATS_NO_SESSION_REASON in page_response.text
     assert _sqlite_table_count(db_path, "player_sessions") == before_sessions
     assert _sqlite_table_count(db_path, "player_log_events") == before_events
 
@@ -2070,19 +2154,7 @@ def test_players_current_json_uses_fresh_persistent_cache_without_live_source(
     assert payload["cache_status"] == "persistent"
     assert payload["is_stale"] is False
     assert payload["players"] == [
-        {
-            "display_name": "Persistent Alpha",
-            "reliable_id": PLAYER_ALPHA_ID,
-            "source": "rcon.guid",
-            "kills": None,
-            "deaths": None,
-            "teamkills": None,
-            "faction": None,
-            "first_observed_at": None,
-            "stats_available": False,
-            "stats_source_label": "",
-            "stats_unavailable_reason": STATS_UNAVAILABLE_REASON,
-        }
+        _unavailable_current_player_payload("Persistent Alpha")
     ]
     assert payload["updated_at"]
     assert not db_path.exists()
@@ -2269,21 +2341,7 @@ def test_players_current_json_uses_current_roster_cache_without_db_writes(
     assert payload["source"] == "rcon.roster"
     assert payload["age_seconds"] is not None
     assert payload["is_stale"] is False
-    assert payload["players"] == [
-        {
-            "display_name": "Json Alpha",
-            "reliable_id": PLAYER_ALPHA_ID,
-            "source": "rcon.guid",
-            "kills": None,
-            "deaths": None,
-            "teamkills": None,
-            "faction": None,
-            "first_observed_at": None,
-            "stats_available": False,
-            "stats_source_label": "",
-            "stats_unavailable_reason": STATS_UNAVAILABLE_REASON,
-        }
-    ]
+    assert payload["players"] == [_unavailable_current_player_payload("Json Alpha")]
     persistent = player_current_cache.get_persistent_current_roster_snapshot(
         "default",
         data_root=tmp_path,
@@ -2379,25 +2437,13 @@ def test_player_get_routes_do_not_write_player_sessions(
     assert "Live Alpha" in current_response.text
     assert PLAYER_ALPHA_ID in current_response.text
     assert current_json_response.json()["players"] == [
-        {
-            "display_name": "Live Alpha",
-            "reliable_id": PLAYER_ALPHA_ID,
-            "source": "rcon.guid",
-            "kills": None,
-            "deaths": None,
-            "teamkills": None,
-            "faction": None,
-            "first_observed_at": None,
-            "stats_available": False,
-            "stats_source_label": "",
-            "stats_unavailable_reason": STATS_UNAVAILABLE_REASON,
-        }
+        _unavailable_current_player_payload("Live Alpha")
     ]
     assert not db_path.exists()
     assert _player_session_count(db_path) == 0
 
 
-def test_player_read_routes_do_not_start_session_scanner_sessionizer_or_maintenance(
+def test_player_read_routes_do_not_run_ingest_scanner_sessionizer_or_maintenance(
     tmp_path: Path,
     monkeypatch,
 ):
@@ -2425,6 +2471,11 @@ def test_player_read_routes_do_not_start_session_scanner_sessionizer_or_maintena
     monkeypatch.setattr(
         player_sessionizer,
         "sessionize_stored_player_log_events",
+        fail_session_job,
+    )
+    monkeypatch.setattr(
+        player_registry,
+        "ingest_player_log_events",
         fail_session_job,
     )
     monkeypatch.setattr(

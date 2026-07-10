@@ -44,10 +44,15 @@
   data-current-players-updated-label="{{ t("Updated") }}"
   data-current-players-first-observed-label="{{ t("Session first observed") }}"
   data-current-players-stats-source-label="{{ t("Stats source") }}"
-  data-current-players-stats-source-value="{{ t("Stored current-session evidence") }}"
+  data-current-players-stats-source-value="{{ t("Stored fresh play-session log evidence") }}"
   data-current-players-stats-availability-label="{{ t("Stats availability") }}"
-  data-current-players-stats-unavailable-label="{{ t("Stats pending play-session contract; no proven session-scoped stats; automatic log freshness is not available yet.") }}"
-  data-current-players-faction-evidence-title="{{ t("Last-known faction from stored current-session evidence.") }}"
+  data-current-players-stats-unavailable-label="{{ t("Stats unavailable because proven play-session and fresh log coverage are not available.") }}"
+  data-current-players-stats-freshness-label="{{ t("Log ingest freshness") }}"
+  data-current-players-stats-window-start-label="{{ t("Stats window start") }}"
+  data-current-players-stats-window-end-label="{{ t("Stats covered through") }}"
+  data-current-players-stats-reconnect-label="{{ t("Reconnect window") }}"
+  data-current-players-stats-reconnect-value="{{ t("Merged within reconnect grace") }}"
+  data-current-players-faction-evidence-title="{{ t("Last-known faction from fresh play-session log evidence; not guaranteed current.") }}"
   data-current-players-unknown-label="{{ t("Unknown") }}"
   data-current-players-unavailable-label="{{ t("unavailable") }}"
   data-current-players-stale-label="{{ t("Stale") }}">
@@ -117,7 +122,7 @@
           <td class="{% if not player.stats_available or player.kills is none %}player-current-placeholder {% endif %}player-stat-number">{% if player.stats_available and player.kills is not none %}{{ player.kills }}{% else %}—{% endif %}</td>
           <td class="{% if not player.stats_available or player.deaths is none %}player-current-placeholder {% endif %}player-stat-number">{% if player.stats_available and player.deaths is not none %}{{ player.deaths }}{% else %}—{% endif %}</td>
           <td class="{% if not player.stats_available or player.teamkills is none %}player-current-placeholder {% endif %}player-stat-number">{% if player.stats_available and player.teamkills is not none %}{{ player.teamkills }}{% else %}—{% endif %}</td>
-          <td{% if not player.stats_available or not player.faction %} class="player-current-placeholder"{% else %} title="{{ t("Last-known faction from stored current-session evidence.") }}"{% endif %}>{% if player.stats_available and player.faction %}{{ player.faction }}{% else %}—{% endif %}</td>
+          <td{% if not player.stats_available or not player.faction %} class="player-current-placeholder"{% else %} title="{{ t("Last-known faction from fresh play-session log evidence; not guaranteed current.") }}"{% endif %}>{% if player.stats_available and player.faction %}{{ player.faction }}{% else %}—{% endif %}</td>
           <td class="player-current-placeholder">—</td>
           <td>
             <div class="player-current-actions">
@@ -144,9 +149,14 @@
                   {% endif %}
                   <span class="player-diagnostic-line"><strong>{{ t("Session first observed") }}:</strong> {% if player.first_observed_at %}<span data-local-time datetime="{{ player.first_observed_at }}" title="{{ player.first_observed_at }}">{{ format_web_timestamp(player.first_observed_at) }}</span>{% else %}<span class="muted">—</span>{% endif %}</span>
                   {% if player.stats_available %}
-                    <span class="player-diagnostic-line"><strong>{{ t("Stats source") }}:</strong> <span>{{ t(player.stats_source_label or "Stored current-session evidence") }}</span></span>
+                    <span class="player-diagnostic-line"><strong>{{ t("Stats source") }}:</strong> <span>{{ t(player.stats_source_label or "Stored fresh play-session log evidence") }}</span></span>
+                    {% if player.stats_freshness_at %}<span class="player-diagnostic-line"><strong>{{ t("Log ingest freshness") }}:</strong> <span data-local-time datetime="{{ player.stats_freshness_at }}" title="{{ player.stats_freshness_at }}">{{ format_web_timestamp(player.stats_freshness_at) }}</span></span>{% endif %}
+                    {% if player.stats_window_started_at %}<span class="player-diagnostic-line"><strong>{{ t("Stats window start") }}:</strong> <span data-local-time datetime="{{ player.stats_window_started_at }}" title="{{ player.stats_window_started_at }}">{{ format_web_timestamp(player.stats_window_started_at) }}</span></span>{% endif %}
+                    {% if player.stats_window_ended_at %}<span class="player-diagnostic-line"><strong>{{ t("Stats covered through") }}:</strong> <span data-local-time datetime="{{ player.stats_window_ended_at }}" title="{{ player.stats_window_ended_at }}">{{ format_web_timestamp(player.stats_window_ended_at) }}</span></span>{% endif %}
+                    {% if player.stats_reconnect_merged %}<span class="player-diagnostic-line"><strong>{{ t("Reconnect window") }}:</strong> <span>{{ t("Merged within reconnect grace") }}</span></span>{% endif %}
                   {% else %}
                     <span class="player-diagnostic-line"><strong>{{ t("Stats availability") }}:</strong> <span class="muted">{{ t(player.stats_unavailable_reason) }}</span></span>
+                    {% if player.stats_freshness_at %}<span class="player-diagnostic-line"><strong>{{ t("Log ingest freshness") }}:</strong> <span data-local-time datetime="{{ player.stats_freshness_at }}" title="{{ player.stats_freshness_at }}">{{ format_web_timestamp(player.stats_freshness_at) }}</span></span>{% endif %}
                   {% endif %}
                 </div>
               </div>
@@ -159,6 +169,6 @@
   </div>
   {% set count_only_unavailable = page.observed_count > 0 and not page.roster_available %}
   <p class="muted" data-current-players-empty{% if players %} hidden{% endif %}>{% if count_only_unavailable %}{{ tr("Roster unavailable; A2S reports {count} current player(s).", count=page.observed_count) }}{% elif query %}{{ t("No current players match search.") }}{% elif page.available %}{{ t("No current players online.") }}{% else %}{{ t("Current player list unavailable.") }}{% endif %}</p>
-  <p class="muted">{{ t("Current stats stay blank until play-session boundaries and automatic log freshness are proven; role stays blank until reliable source data is available.") }}</p>
+  <p class="muted">{{ t("Current stats use only fresh log evidence inside the proven play-session window; unavailable values and role show —.") }}</p>
 </section>
 {% endblock %}

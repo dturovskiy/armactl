@@ -110,6 +110,11 @@ def _current_players_json_payload(
                 "stats_available": player.stats_available,
                 "stats_source_label": player.stats_source_label,
                 "stats_unavailable_reason": player.stats_unavailable_reason,
+                "stats_freshness_status": player.stats_freshness_status,
+                "stats_freshness_at": player.stats_freshness_at,
+                "stats_window_started_at": player.stats_window_started_at,
+                "stats_window_ended_at": player.stats_window_ended_at,
+                "stats_reconnect_merged": player.stats_reconnect_merged,
             }
             for player in page.players
         ],

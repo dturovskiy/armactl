@@ -234,6 +234,11 @@ class CurrentPlayerTableRow:
     stats_unavailable_reason: str = (
         player_current_enrichment.CURRENT_STATS_UNAVAILABLE_REASON
     )
+    stats_freshness_status: str = "unavailable"
+    stats_freshness_at: str | None = None
+    stats_window_started_at: str | None = None
+    stats_window_ended_at: str | None = None
+    stats_reconnect_merged: bool = False
 
 
 @dataclass(frozen=True)
@@ -429,9 +434,20 @@ def _current_player_row(
     player: player_current_cache.CurrentRosterPlayerSnapshot,
     enrichment: player_current_enrichment.CurrentPlayerEnrichment | None = None,
 ) -> CurrentPlayerTableRow:
+    reliable_id = safe_player_text(player.reliable_id)
+    unavailable_reason = player_current_enrichment.CURRENT_STATS_UNAVAILABLE_REASON
+    if not reliable_id:
+        unavailable_reason = player_current_enrichment.CURRENT_STATS_NO_RELIABLE_ID_REASON
+    elif enrichment and enrichment.stats_available:
+        unavailable_reason = ""
+    elif enrichment and enrichment.stats_unavailable_reason:
+        unavailable_reason = safe_player_text(
+            enrichment.stats_unavailable_reason,
+            max_length=180,
+        )
     return CurrentPlayerTableRow(
         display_name=safe_player_text(player.display_name) or "Unknown player",
-        reliable_id=safe_player_text(player.reliable_id),
+        reliable_id=reliable_id,
         source=safe_player_text(player.source) or "unknown",
         kills=enrichment.kills if enrichment else None,
         deaths=enrichment.deaths if enrichment else None,
@@ -446,11 +462,28 @@ def _current_player_row(
         stats_source_label=safe_player_text(enrichment.stats_source_label, max_length=80)
         if enrichment
         else "",
-        stats_unavailable_reason=(
-            safe_player_text(enrichment.stats_unavailable_reason, max_length=180)
-            if enrichment and enrichment.stats_unavailable_reason
-            else player_current_enrichment.CURRENT_STATS_UNAVAILABLE_REASON
+        stats_unavailable_reason=unavailable_reason,
+        stats_freshness_status=(
+            safe_player_text(enrichment.stats_freshness_status, max_length=40)
+            if enrichment
+            else "unavailable"
         ),
+        stats_freshness_at=(
+            safe_player_text(enrichment.stats_freshness_at, max_length=80)
+            if enrichment and enrichment.stats_freshness_at
+            else None
+        ),
+        stats_window_started_at=(
+            safe_player_text(enrichment.stats_window_started_at, max_length=80)
+            if enrichment and enrichment.stats_window_started_at
+            else None
+        ),
+        stats_window_ended_at=(
+            safe_player_text(enrichment.stats_window_ended_at, max_length=80)
+            if enrichment and enrichment.stats_window_ended_at
+            else None
+        ),
+        stats_reconnect_merged=bool(enrichment and enrichment.stats_reconnect_merged),
     )
 
 
