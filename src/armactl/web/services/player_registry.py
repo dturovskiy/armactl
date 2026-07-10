@@ -44,7 +44,7 @@ from armactl.web.services.player_identity import (
 )
 
 PLAYER_REGISTRY_DB_NAME = "players.db"
-PLAYER_REGISTRY_SCHEMA_VERSION = "8"
+PLAYER_REGISTRY_SCHEMA_VERSION = "9"
 PRIVATE_PLAYER_REGISTRY_FILE_MODE = 0o600
 DEFAULT_PLAYER_HISTORY_EVENT_LIMIT = 100
 MAX_PLAYER_HISTORY_EVENT_LIMIT = 250
@@ -61,6 +61,18 @@ PLAYER_LOG_EVENT_REF_MAX_LENGTH = 240
 PLAYER_LOG_EVENT_KEY_VERSION = "v1"
 _IPV4_ADDRESS_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b")
 _BRACKETED_IPV6_ADDRESS_RE = re.compile(r"\[[0-9A-Fa-f:.]{2,}\](?::\d{1,5})?")
+PLAYER_LOG_INGEST_STATUS_UNAVAILABLE = "unavailable"
+PLAYER_LOG_INGEST_STATUS_FRESH = "fresh"
+PLAYER_LOG_INGEST_STATUS_NO_LOGS = "no_logs"
+PLAYER_LOG_INGEST_STATUS_PARTIAL = "partial"
+PLAYER_LOG_INGEST_STATUS_FAILED = "failed"
+PLAYER_LOG_INGEST_STATUSES = (
+    PLAYER_LOG_INGEST_STATUS_UNAVAILABLE,
+    PLAYER_LOG_INGEST_STATUS_FRESH,
+    PLAYER_LOG_INGEST_STATUS_NO_LOGS,
+    PLAYER_LOG_INGEST_STATUS_PARTIAL,
+    PLAYER_LOG_INGEST_STATUS_FAILED,
+)
 _PLAYER_LOG_EVENT_INSERT_COLUMNS = (
     "event_key",
     "event_type",
@@ -380,6 +392,38 @@ class PlayerSessionRetentionCleanupResult:
     sessions_scanned: int = 0
     sessions_deleted: int = 0
     sessions_skipped: int = 0
+
+
+@dataclass(frozen=True)
+class PlayerLogIngestCheckpoint:
+    """Safe checkpoint metadata for one allowlisted player-log source."""
+
+    scope: str
+    source_key: str
+    source_label: str
+    size_bytes: int
+    mtime_ns: int
+    fingerprint: str
+    status: str
+    last_scanned_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
+class PlayerLogIngestFreshness:
+    """Counts-only freshness status for player-log ingest."""
+
+    scope: str
+    status: str = PLAYER_LOG_INGEST_STATUS_UNAVAILABLE
+    last_run_at: str = ""
+    last_success_at: str = ""
+    updated_at: str = ""
+    scanned_files: int = 0
+    parsed_events: int = 0
+    stored_events: int = 0
+    skipped_files: int = 0
+    skipped_reasons: str = ""
+    checkpoint_updated: bool = False
 
 
 @dataclass(frozen=True)
@@ -886,6 +930,90 @@ def _ensure_player_session_live_scan_windows_schema(
     )
 
 
+def _ensure_player_log_ingest_metadata_schema(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS player_log_ingest_checkpoints (
+            scope TEXT NOT NULL CHECK(length(trim(scope)) > 0),
+            source_key TEXT NOT NULL CHECK(length(trim(source_key)) > 0),
+            source_label TEXT NOT NULL DEFAULT '',
+            size_bytes INTEGER NOT NULL DEFAULT 0 CHECK(size_bytes >= 0),
+            mtime_ns INTEGER NOT NULL DEFAULT 0 CHECK(mtime_ns >= 0),
+            fingerprint TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'unknown',
+            last_scanned_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL CHECK(length(updated_at) > 0),
+            PRIMARY KEY(scope, source_key)
+        )
+        """
+    )
+    _ensure_columns(
+        connection,
+        "player_log_ingest_checkpoints",
+        (
+            ("scope", "scope TEXT NOT NULL DEFAULT 'player_logs'"),
+            ("source_key", "source_key TEXT NOT NULL DEFAULT 'legacy'"),
+            ("source_label", "source_label TEXT NOT NULL DEFAULT ''"),
+            ("size_bytes", "size_bytes INTEGER NOT NULL DEFAULT 0 CHECK(size_bytes >= 0)"),
+            ("mtime_ns", "mtime_ns INTEGER NOT NULL DEFAULT 0 CHECK(mtime_ns >= 0)"),
+            ("fingerprint", "fingerprint TEXT NOT NULL DEFAULT ''"),
+            ("status", "status TEXT NOT NULL DEFAULT 'unknown'"),
+            ("last_scanned_at", "last_scanned_at TEXT NOT NULL DEFAULT ''"),
+            (
+                "updated_at",
+                f"updated_at TEXT NOT NULL DEFAULT '{_LEGACY_DEFAULT_TIMESTAMP}'",
+            ),
+        ),
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_log_ingest_checkpoints_scope
+        ON player_log_ingest_checkpoints(scope, status)
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS player_log_ingest_freshness (
+            scope TEXT PRIMARY KEY CHECK(length(trim(scope)) > 0),
+            status TEXT NOT NULL DEFAULT 'unavailable',
+            last_run_at TEXT NOT NULL DEFAULT '',
+            last_success_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL CHECK(length(updated_at) > 0),
+            scanned_files INTEGER NOT NULL DEFAULT 0 CHECK(scanned_files >= 0),
+            parsed_events INTEGER NOT NULL DEFAULT 0 CHECK(parsed_events >= 0),
+            stored_events INTEGER NOT NULL DEFAULT 0 CHECK(stored_events >= 0),
+            skipped_files INTEGER NOT NULL DEFAULT 0 CHECK(skipped_files >= 0),
+            skipped_reasons TEXT NOT NULL DEFAULT '',
+            checkpoint_updated INTEGER NOT NULL DEFAULT 0
+                CHECK(checkpoint_updated IN (0, 1))
+        )
+        """
+    )
+    _ensure_columns(
+        connection,
+        "player_log_ingest_freshness",
+        (
+            ("scope", "scope TEXT NOT NULL DEFAULT 'player_logs'"),
+            ("status", "status TEXT NOT NULL DEFAULT 'unavailable'"),
+            ("last_run_at", "last_run_at TEXT NOT NULL DEFAULT ''"),
+            ("last_success_at", "last_success_at TEXT NOT NULL DEFAULT ''"),
+            (
+                "updated_at",
+                f"updated_at TEXT NOT NULL DEFAULT '{_LEGACY_DEFAULT_TIMESTAMP}'",
+            ),
+            ("scanned_files", "scanned_files INTEGER NOT NULL DEFAULT 0 CHECK(scanned_files >= 0)"),
+            ("parsed_events", "parsed_events INTEGER NOT NULL DEFAULT 0 CHECK(parsed_events >= 0)"),
+            ("stored_events", "stored_events INTEGER NOT NULL DEFAULT 0 CHECK(stored_events >= 0)"),
+            ("skipped_files", "skipped_files INTEGER NOT NULL DEFAULT 0 CHECK(skipped_files >= 0)"),
+            ("skipped_reasons", "skipped_reasons TEXT NOT NULL DEFAULT ''"),
+            (
+                "checkpoint_updated",
+                "checkpoint_updated INTEGER NOT NULL DEFAULT 0 CHECK(checkpoint_updated IN (0, 1))",
+            ),
+        ),
+    )
+
+
 def _drop_player_log_event_history_indexes(connection: sqlite3.Connection) -> None:
     for index_name in (
         "idx_player_log_events_history_order",
@@ -1052,6 +1180,10 @@ def _run_player_registry_migrations(connection: sqlite3.Connection) -> None:
         _drop_player_log_event_history_indexes(connection)
         _ensure_player_log_events_schema(connection)
         _write_player_registry_schema_version(connection, 8)
+        current_version = 8
+    if current_version < 9:
+        _ensure_player_log_ingest_metadata_schema(connection)
+        _write_player_registry_schema_version(connection, 9)
 
 
 def ensure_player_registry_db(db_path: Path) -> Path:
@@ -1082,6 +1214,225 @@ def _connect_existing_readonly(db_path: Path) -> sqlite3.Connection | None:
     connection = sqlite3.connect(f"file:{quoted_path}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     return connection
+
+
+
+def _safe_ingest_text(value: object, *, max_length: int = 120) -> str:
+    text = safe_player_text(value, max_length=max_length)
+    text = text.replace("/", "_").replace("\\", "_")
+    text = _IPV4_ADDRESS_RE.sub("***", text)
+    text = _BRACKETED_IPV6_ADDRESS_RE.sub("***", text).strip()
+    return text
+
+
+def _safe_ingest_status(value: object) -> str:
+    status = _safe_ingest_text(value, max_length=40).strip().lower()
+    if status in PLAYER_LOG_INGEST_STATUSES:
+        return status
+    return PLAYER_LOG_INGEST_STATUS_UNAVAILABLE
+
+
+def _safe_ingest_int(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _player_log_ingest_checkpoint_from_row(
+    row: sqlite3.Row,
+) -> PlayerLogIngestCheckpoint:
+    return PlayerLogIngestCheckpoint(
+        scope=_safe_ingest_text(row["scope"]),
+        source_key=_safe_ingest_text(row["source_key"], max_length=120),
+        source_label=_safe_ingest_text(row["source_label"], max_length=120),
+        size_bytes=_safe_ingest_int(row["size_bytes"]),
+        mtime_ns=_safe_ingest_int(row["mtime_ns"]),
+        fingerprint=_safe_ingest_text(row["fingerprint"], max_length=120),
+        status=_safe_ingest_text(row["status"], max_length=40),
+        last_scanned_at=_safe_ingest_text(row["last_scanned_at"], max_length=80),
+        updated_at=_safe_ingest_text(row["updated_at"], max_length=80),
+    )
+
+
+def _default_player_log_ingest_freshness(scope: str) -> PlayerLogIngestFreshness:
+    return PlayerLogIngestFreshness(scope=_safe_ingest_text(scope) or "player_logs")
+
+
+def _player_log_ingest_freshness_from_row(row: sqlite3.Row) -> PlayerLogIngestFreshness:
+    return PlayerLogIngestFreshness(
+        scope=_safe_ingest_text(row["scope"]),
+        status=_safe_ingest_status(row["status"]),
+        last_run_at=_safe_ingest_text(row["last_run_at"], max_length=80),
+        last_success_at=_safe_ingest_text(row["last_success_at"], max_length=80),
+        updated_at=_safe_ingest_text(row["updated_at"], max_length=80),
+        scanned_files=_safe_ingest_int(row["scanned_files"]),
+        parsed_events=_safe_ingest_int(row["parsed_events"]),
+        stored_events=_safe_ingest_int(row["stored_events"]),
+        skipped_files=_safe_ingest_int(row["skipped_files"]),
+        skipped_reasons=_safe_ingest_text(row["skipped_reasons"], max_length=240),
+        checkpoint_updated=bool(row["checkpoint_updated"]),
+    )
+
+
+def list_player_log_ingest_checkpoints(
+    db_path: Path,
+    *,
+    scope: str,
+) -> list[PlayerLogIngestCheckpoint]:
+    safe_scope = _safe_ingest_text(scope) or "player_logs"
+    connection = _connect_existing_readonly(db_path)
+    if connection is None:
+        return []
+    try:
+        if not _table_exists(connection, "player_log_ingest_checkpoints"):
+            return []
+        rows = connection.execute(
+            "SELECT * FROM player_log_ingest_checkpoints "
+            "WHERE scope = ? ORDER BY updated_at DESC, source_key ASC",
+            (safe_scope,),
+        ).fetchall()
+        return [_player_log_ingest_checkpoint_from_row(row) for row in rows]
+    except sqlite3.Error:
+        return []
+    finally:
+        connection.close()
+
+
+def upsert_player_log_ingest_checkpoints(
+    db_path: Path,
+    checkpoints: Iterable[PlayerLogIngestCheckpoint],
+) -> int:
+    records = tuple(checkpoints)
+    if not records:
+        return 0
+    ensure_player_registry_db(db_path)
+    written = 0
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        for checkpoint in records:
+            safe_scope = _safe_ingest_text(checkpoint.scope) or "player_logs"
+            safe_source_key = _safe_ingest_text(
+                checkpoint.source_key,
+                max_length=120,
+            )
+            if not safe_source_key:
+                continue
+            connection.execute(
+                "INSERT INTO player_log_ingest_checkpoints("
+                "scope, source_key, source_label, size_bytes, mtime_ns, "
+                "fingerprint, status, last_scanned_at, updated_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(scope, source_key) DO UPDATE SET "
+                "source_label = excluded.source_label, "
+                "size_bytes = excluded.size_bytes, "
+                "mtime_ns = excluded.mtime_ns, "
+                "fingerprint = excluded.fingerprint, "
+                "status = excluded.status, "
+                "last_scanned_at = excluded.last_scanned_at, "
+                "updated_at = excluded.updated_at",
+                (
+                    safe_scope,
+                    safe_source_key,
+                    _safe_ingest_text(checkpoint.source_label),
+                    _safe_ingest_int(checkpoint.size_bytes),
+                    _safe_ingest_int(checkpoint.mtime_ns),
+                    _safe_ingest_text(checkpoint.fingerprint, max_length=120),
+                    _safe_ingest_text(checkpoint.status, max_length=40) or "scanned",
+                    _safe_ingest_text(checkpoint.last_scanned_at, max_length=80),
+                    _safe_ingest_text(checkpoint.updated_at, max_length=80)
+                    or _utc_now(),
+                ),
+            )
+            written += 1
+    return written
+
+
+def record_player_log_ingest_freshness(
+    db_path: Path,
+    *,
+    scope: str,
+    status: str,
+    last_run_at: str,
+    scanned_files: int,
+    parsed_events: int,
+    stored_events: int,
+    skipped_files: int,
+    skipped_reasons: str = "",
+    checkpoint_updated: bool = False,
+) -> PlayerLogIngestFreshness:
+    safe_scope = _safe_ingest_text(scope) or "player_logs"
+    safe_status = _safe_ingest_status(status)
+    safe_last_run_at = _safe_ingest_text(last_run_at, max_length=80) or _utc_now()
+    safe_skipped_reasons = _safe_ingest_text(skipped_reasons, max_length=240)
+    last_success_at = ""
+    if safe_status != PLAYER_LOG_INGEST_STATUS_FAILED:
+        last_success_at = safe_last_run_at
+    previous = get_player_log_ingest_freshness(db_path, scope=safe_scope)
+    if not last_success_at:
+        last_success_at = previous.last_success_at
+    ensure_player_registry_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(
+            "INSERT INTO player_log_ingest_freshness("
+            "scope, status, last_run_at, last_success_at, updated_at, "
+            "scanned_files, parsed_events, stored_events, skipped_files, "
+            "skipped_reasons, checkpoint_updated"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(scope) DO UPDATE SET "
+            "status = excluded.status, "
+            "last_run_at = excluded.last_run_at, "
+            "last_success_at = excluded.last_success_at, "
+            "updated_at = excluded.updated_at, "
+            "scanned_files = excluded.scanned_files, "
+            "parsed_events = excluded.parsed_events, "
+            "stored_events = excluded.stored_events, "
+            "skipped_files = excluded.skipped_files, "
+            "skipped_reasons = excluded.skipped_reasons, "
+            "checkpoint_updated = excluded.checkpoint_updated",
+            (
+                safe_scope,
+                safe_status,
+                safe_last_run_at,
+                last_success_at,
+                safe_last_run_at,
+                _safe_ingest_int(scanned_files),
+                _safe_ingest_int(parsed_events),
+                _safe_ingest_int(stored_events),
+                _safe_ingest_int(skipped_files),
+                safe_skipped_reasons,
+                1 if checkpoint_updated else 0,
+            ),
+        )
+    return get_player_log_ingest_freshness(db_path, scope=safe_scope)
+
+
+def get_player_log_ingest_freshness(
+    db_path: Path,
+    *,
+    scope: str,
+) -> PlayerLogIngestFreshness:
+    safe_scope = _safe_ingest_text(scope) or "player_logs"
+    connection = _connect_existing_readonly(db_path)
+    if connection is None:
+        return _default_player_log_ingest_freshness(safe_scope)
+    try:
+        if not _table_exists(connection, "player_log_ingest_freshness"):
+            return _default_player_log_ingest_freshness(safe_scope)
+        row = connection.execute(
+            "SELECT * FROM player_log_ingest_freshness WHERE scope = ?",
+            (safe_scope,),
+        ).fetchone()
+        if row is None:
+            return _default_player_log_ingest_freshness(safe_scope)
+        return _player_log_ingest_freshness_from_row(row)
+    except sqlite3.Error:
+        return _default_player_log_ingest_freshness(safe_scope)
+    finally:
+        connection.close()
 
 
 def _player_from_row(row: sqlite3.Row) -> KnownPlayer:

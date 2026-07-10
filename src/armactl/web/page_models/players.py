@@ -7,6 +7,7 @@ from pathlib import Path
 
 from armactl import paths, player_log_events
 from armactl.web.jobs import models as job_models
+from armactl.web.jobs import player_logs as player_log_jobs
 from armactl.web.jobs import player_sessions as player_session_jobs
 from armactl.web.jobs import store as job_store
 from armactl.web.services import (
@@ -71,6 +72,14 @@ PLAYER_HISTORY_TIME_CONFIDENCE_LABELS = {
     player_log_events.EVENT_TIME_CONFIDENCE_DERIVED: "Derived",
     player_log_events.EVENT_TIME_CONFIDENCE_AMBIGUOUS: "Ambiguous",
 }
+PLAYER_LOG_INGEST_STATUS_LABELS = {
+    player_registry.PLAYER_LOG_INGEST_STATUS_UNAVAILABLE: "No ingest status yet",
+    player_registry.PLAYER_LOG_INGEST_STATUS_FRESH: "Fresh",
+    player_registry.PLAYER_LOG_INGEST_STATUS_NO_LOGS: "No allowlisted logs",
+    player_registry.PLAYER_LOG_INGEST_STATUS_PARTIAL: "Partial",
+    player_registry.PLAYER_LOG_INGEST_STATUS_FAILED: "Failed",
+}
+
 PLAYER_HISTORY_COMBAT_EVENT_TYPES = frozenset(
     {
         player_log_events.EVENT_TYPE_KILL,
@@ -288,6 +297,22 @@ class PlayerHistoryEventRow:
 
 
 @dataclass(frozen=True)
+class PlayerLogIngestFreshnessIndicator:
+    """Safe counts-only player-log ingest freshness indicator."""
+
+    status: str
+    status_label: str
+    updated_at: str
+    last_success_at: str
+    scanned_files: int
+    parsed_events: int
+    stored_events: int
+    skipped_files: int
+    skipped_reasons: str
+    checkpoint_updated: bool
+
+
+@dataclass(frozen=True)
 class PlayerHistoryPage:
     """Read-only stored player event history page model."""
 
@@ -301,6 +326,7 @@ class PlayerHistoryPage:
     event_type_options: tuple[tuple[str, str], ...]
     event_type_labels: dict[str, str]
     mode_options: tuple[tuple[str, str], ...]
+    ingest_freshness: PlayerLogIngestFreshnessIndicator
 
 
 @dataclass(frozen=True)
@@ -796,6 +822,27 @@ def _player_history_event_row(
     )
 
 
+def _player_log_ingest_freshness_indicator(
+    freshness: player_registry.PlayerLogIngestFreshness,
+) -> PlayerLogIngestFreshnessIndicator:
+    status = safe_player_text(freshness.status, max_length=40)
+    return PlayerLogIngestFreshnessIndicator(
+        status=status,
+        status_label=PLAYER_LOG_INGEST_STATUS_LABELS.get(
+            status,
+            "No ingest status yet",
+        ),
+        updated_at=safe_player_text(freshness.updated_at, max_length=80),
+        last_success_at=safe_player_text(freshness.last_success_at, max_length=80),
+        scanned_files=max(0, int(freshness.scanned_files)),
+        parsed_events=max(0, int(freshness.parsed_events)),
+        stored_events=max(0, int(freshness.stored_events)),
+        skipped_files=max(0, int(freshness.skipped_files)),
+        skipped_reasons=safe_player_text(freshness.skipped_reasons, max_length=240),
+        checkpoint_updated=bool(freshness.checkpoint_updated),
+    )
+
+
 def _normalize_session_status(value: object) -> str:
     candidate = safe_player_text(value, max_length=40)
     if candidate in PLAYER_SESSION_STATUS_VALUES:
@@ -860,6 +907,12 @@ def load_player_history_page(
         event_type_options=PLAYER_HISTORY_EVENT_TYPES,
         event_type_labels=PLAYER_HISTORY_EVENT_TYPE_LABELS,
         mode_options=PLAYER_HISTORY_MODE_OPTIONS,
+        ingest_freshness=_player_log_ingest_freshness_indicator(
+            player_registry.get_player_log_ingest_freshness(
+                registry_path,
+                scope=player_log_jobs.PLAYER_LOG_COLLECTION_SCOPE,
+            )
+        ),
     )
 
 

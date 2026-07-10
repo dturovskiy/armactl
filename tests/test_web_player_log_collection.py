@@ -372,7 +372,7 @@ def test_player_log_collection_job_failure_uses_safe_job_and_audit_messages(
     assert job.status == "failed"
     assert job.error_class == "RuntimeError"
     assert job.error_message == "Player log collection failed."
-    assert "files=1" in job.stdout_tail
+    assert "files_considered=1" in job.stdout_tail
     assert raw_failure not in job.error_message
     assert raw_failure not in job.stdout_tail
     assert raw_failure not in audit_text
@@ -451,10 +451,14 @@ def test_player_log_collection_job_collects_allowlisted_logs_and_audits_counts(
     assert second_dispatch.ran is True
     assert second_job is not None
     assert second_job.status == "succeeded"
-    assert second_job.result_message == "No new player log events found."
-    assert "parsed_events=2" in second_job.stdout_tail
+    assert second_job.result_message == "No changed player logs found."
+    assert "files_considered=1" in second_job.stdout_tail
+    assert "files_selected_for_scan=0" in second_job.stdout_tail
+    assert "parsed_events=0" in second_job.stdout_tail
     assert "stored_events=0" in second_job.stdout_tail
-    assert "duplicates=2" in second_job.stdout_tail
+    assert "duplicates=0" in second_job.stdout_tail
+    assert "skipped_reasons=unchanged=1" in second_job.stdout_tail
+    assert "checkpoint_updated=false" in second_job.stdout_tail
     assert str(allowed_log) not in second_job.stdout_tail
     assert str(outside_log) not in second_job.stdout_tail
     assert len(_event_rows(tmp_path / "default" / "players.db")) == 2
@@ -477,10 +481,14 @@ def test_player_log_collection_job_collects_allowlisted_logs_and_audits_counts(
     assert outcome["details"]["duplicate_events"] == "0"
     assert outcome["details"]["skipped_lines"] == "0"
     assert outcome["details"]["error_count"] == "0"
-    assert duplicate_outcome["message"] == "No new player log events found."
-    assert duplicate_outcome["details"]["parsed_events"] == "2"
+    assert duplicate_outcome["message"] == "No changed player logs found."
+    assert duplicate_outcome["details"]["files_considered"] == "1"
+    assert duplicate_outcome["details"]["files_selected_for_scan"] == "0"
+    assert duplicate_outcome["details"]["parsed_events"] == "0"
     assert duplicate_outcome["details"]["stored_events"] == "0"
-    assert duplicate_outcome["details"]["duplicate_events"] == "2"
+    assert duplicate_outcome["details"]["duplicate_events"] == "0"
+    assert duplicate_outcome["details"]["skipped_reasons"] == "unchanged=1"
+    assert duplicate_outcome["details"]["checkpoint_updated"] == "false"
 
     audit_text = (tmp_path / "logs" / "web" / "audit.log").read_text(encoding="utf-8")
     assert str(allowed_log) not in audit_text
@@ -647,3 +655,239 @@ def test_allowlist_resolver_uses_instance_config_console_logs_only(tmp_path: Pat
     resolved = player_logs.resolve_allowlisted_player_log_paths(data_root=tmp_path)
 
     assert resolved == (allowed,)
+
+
+
+def test_player_log_collection_job_reuses_existing_collector_storage_path(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from armactl.web.jobs import get_job, player_logs
+    from armactl.web.services import player_log_collection
+
+    allowed_log = _write_console_log(tmp_path, _fixture_lines())
+    calls: list[tuple[tuple[Path, ...], Path, dict[str, object]]] = []
+    real_collect = player_logs.player_log_collector.collect_player_log_events
+
+    def spy_collect(log_paths, db_path, **kwargs):
+        calls.append((tuple(log_paths), Path(db_path), dict(kwargs)))
+        return real_collect(log_paths, db_path, **kwargs)
+
+    monkeypatch.setattr(
+        player_logs.player_log_collector,
+        "collect_player_log_events",
+        spy_collect,
+    )
+    monkeypatch.setattr(
+        player_logs,
+        "start_player_log_collection_worker",
+        lambda db_path, job_id: None,
+    )
+    db_path = tmp_path / "web" / "web.db"
+    queued = player_log_collection.request_player_log_collection_and_start(
+        db_path,
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+        user_id=None,
+    )
+
+    dispatch = player_logs.dispatch_player_log_collection_job(db_path, queued.job.id)
+    job = get_job(db_path, queued.job.id)
+
+    assert dispatch.ran is True
+    assert job is not None
+    assert job.status == "succeeded"
+    assert calls
+    assert calls[0][0] == (allowed_log,)
+    assert calls[0][1] == tmp_path / "default" / "players.db"
+    assert calls[0][2]["dry_run"] is False
+    assert len(_event_rows(tmp_path / "default" / "players.db")) == 2
+
+
+def test_player_log_collection_checkpoint_handles_rotation_truncation_and_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from armactl.web.jobs import get_job, list_recent_jobs, player_logs
+    from armactl.web.services import player_log_collection
+
+    alpha_line = (
+        "BACKEND : Authenticated player: "
+        f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One"
+    )
+    charlie_line = (
+        "BACKEND : Authenticated player: "
+        f"rplIdentity=43 identityId={PLAYER_CHARLIE_ID} name=Charlie Three"
+    )
+    width = max(len(alpha_line), len(charlie_line))
+    log_path = _write_console_log(tmp_path, [alpha_line.ljust(width)], run="rotate")
+    monkeypatch.setattr(
+        player_logs,
+        "start_player_log_collection_worker",
+        lambda db_path, job_id: None,
+    )
+    db_path = tmp_path / "web" / "web.db"
+    audit_log_path = tmp_path / "logs" / "web" / "audit.log"
+
+    first = player_log_collection.request_player_log_collection_and_start(
+        db_path,
+        audit_log_path=audit_log_path,
+        username="owner",
+        user_id=None,
+    )
+    player_logs.dispatch_player_log_collection_job(db_path, first.job.id)
+
+    log_path.write_text(charlie_line.ljust(width) + "\n", encoding="utf-8")
+    rotated = player_log_collection.request_player_log_collection_and_start(
+        db_path,
+        audit_log_path=audit_log_path,
+        username="owner",
+        user_id=None,
+    )
+    player_logs.dispatch_player_log_collection_job(db_path, rotated.job.id)
+    rotated_job = get_job(db_path, rotated.job.id)
+
+    assert rotated_job is not None
+    assert rotated_job.status == "succeeded"
+    assert "checkpoint_reset_reasons=rotated=1" in rotated_job.stdout_tail
+    assert "stored_events=1" in rotated_job.stdout_tail
+
+    log_path.write_text("DEFAULT : short unrelated line\n", encoding="utf-8")
+    truncated = player_log_collection.request_player_log_collection_and_start(
+        db_path,
+        audit_log_path=audit_log_path,
+        username="owner",
+        user_id=None,
+    )
+    player_logs.dispatch_player_log_collection_job(db_path, truncated.job.id)
+    truncated_job = get_job(db_path, truncated.job.id)
+
+    assert truncated_job is not None
+    assert truncated_job.status == "succeeded"
+    assert "checkpoint_reset_reasons=truncated=1" in truncated_job.stdout_tail
+    assert "parsed_events=0" in truncated_job.stdout_tail
+
+    missing_path = tmp_path / "default" / "config" / "logs" / "missing" / "console.log"
+    monkeypatch.setattr(
+        player_logs,
+        "resolve_allowlisted_player_log_paths",
+        lambda *args, **kwargs: (missing_path,),
+    )
+    missing = player_log_collection.request_player_log_collection_and_start(
+        db_path,
+        audit_log_path=audit_log_path,
+        username="owner",
+        user_id=None,
+    )
+    player_logs.dispatch_player_log_collection_job(db_path, missing.job.id)
+    missing_job = get_job(db_path, missing.job.id)
+    audit_text = audit_log_path.read_text(encoding="utf-8")
+
+    assert missing_job is not None
+    assert missing_job.status == "succeeded"
+    assert missing_job.result_message == "Player log collection completed with skipped files."
+    assert "files_considered=1" in missing_job.stdout_tail
+    assert "files_selected_for_scan=0" in missing_job.stdout_tail
+    assert "skipped_reasons=missing_file=1" in missing_job.stdout_tail
+    assert "freshness_status=partial" in missing_job.stdout_tail
+    assert str(missing_path) not in missing_job.stdout_tail
+    assert str(missing_path) not in audit_text
+    assert len(_event_rows(tmp_path / "default" / "players.db")) == 2
+    assert list_recent_jobs(db_path)[0].id == missing.job.id
+
+
+def test_player_log_collection_freshness_is_exposed_as_safe_status(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from armactl.web.jobs import list_recent_jobs, player_logs
+
+    allowed_log = _write_console_log(
+        tmp_path,
+        [
+            "BACKEND : Authenticated player: "
+            f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One"
+        ],
+        run="freshness",
+    )
+    monkeypatch.setattr(
+        player_logs,
+        "start_player_log_collection_worker",
+        lambda db_path, job_id: None,
+    )
+    client = _setup_owner_client(tmp_path)
+    csrf_token = _history_csrf_token(client)
+    db_path = tmp_path / "web" / "web.db"
+
+    response = client.post(
+        "/players/history/collect-logs",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    job_id = list_recent_jobs(db_path)[0].id
+    player_logs.dispatch_player_log_collection_job(db_path, job_id)
+
+    page = client.get("/players/history", follow_redirects=False)
+    rendered = page.text
+
+    assert page.status_code == 200
+    assert "Log ingest status" in rendered
+    assert "Fresh" in rendered
+    assert "Scanned 1 file(s)" in rendered
+    assert "Parsed 1 event(s)" in rendered
+    assert "Stored 1 event(s)" in rendered
+    assert str(allowed_log) not in rendered
+    assert "/config/logs/" not in rendered
+    assert PLAYER_ALPHA_ID in rendered
+
+
+def test_player_get_routes_do_not_start_log_ingest_or_create_players_db(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from armactl.web.app import create_app
+    from armactl.web.jobs import player_logs
+    from armactl.web.services import player_sources
+    from armactl.web.services.player_sources import CurrentPlayerRoster
+
+    def fail_ingest(*args, **kwargs):
+        raise AssertionError("GET routes must not start player log ingest")
+
+    monkeypatch.setattr(
+        player_logs.player_log_collector,
+        "collect_player_log_events",
+        fail_ingest,
+    )
+    monkeypatch.setattr(player_logs, "start_player_log_collection_worker", fail_ingest)
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        lambda instance: CurrentPlayerRoster(
+            available=True,
+            players=(),
+            total_count=0,
+            source="test",
+            status="available",
+            error="",
+            observed_count=0,
+            count_source="test",
+            roster_available=True,
+            roster_configured=True,
+        ),
+    )
+    setup_owner_user(tmp_path, "owner", "owner get routes password")
+    client = _client(create_app(data_root=tmp_path))
+    login_response = _login(client, "owner", "owner get routes password")
+    assert login_response.status_code == 303
+
+    for route in (
+        "/players",
+        "/players/current.json",
+        "/players/history",
+        "/players/sessions",
+    ):
+        response = client.get(route, follow_redirects=False)
+        assert response.status_code == 200
+
+    assert not (tmp_path / "default" / "players.db").exists()

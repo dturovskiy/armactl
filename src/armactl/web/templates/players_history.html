@@ -82,6 +82,24 @@
       </form>
     </div>
   </div>
+  <div class="player-log-freshness muted">
+    <strong>{{ t("Log ingest status") }}:</strong> {{ t(page.ingest_freshness.status_label) }}
+    {% if page.ingest_freshness.updated_at %}
+      <span>{{ t("Updated") }}: {{ local_time(page.ingest_freshness.updated_at) }}</span>
+    {% endif %}
+    {% if page.ingest_freshness.last_success_at %}
+      <span>{{ t("Last successful run") }}: {{ local_time(page.ingest_freshness.last_success_at) }}</span>
+    {% endif %}
+    <span>{{ tr("Scanned {count} file(s)", count=page.ingest_freshness.scanned_files) }}</span>
+    <span>{{ tr("Parsed {count} event(s)", count=page.ingest_freshness.parsed_events) }}</span>
+    <span>{{ tr("Stored {count} event(s)", count=page.ingest_freshness.stored_events) }}</span>
+    {% if page.ingest_freshness.skipped_files %}
+      <span>{{ tr("Skipped {count} file(s)", count=page.ingest_freshness.skipped_files) }}</span>
+    {% endif %}
+    {% if page.ingest_freshness.skipped_reasons %}
+      <span>{{ t("Skip reasons") }}: {{ page.ingest_freshness.skipped_reasons }}</span>
+    {% endif %}
+  </div>
 
   <form method="get" action="/players/history" class="player-search-form player-history-filter-form">
     <div class="player-history-filter-grid">

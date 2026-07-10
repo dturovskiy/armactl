@@ -1104,6 +1104,13 @@
     "Replacement file must be UTF-8 text.": "Replacement file must be UTF-8 text.",
     "Editable file contains secret-looking values.": "Editable file contains secret-looking values.",
     "Edit": "Edit",
-    "Editor": "Editor"
+    "Editor": "Editor",
+    "Last successful run": "Last successful run",
+    "Log ingest status": "Log ingest status",
+    "Parsed {count} event(s)": "Parsed {count} event(s)",
+    "Scanned {count} file(s)": "Scanned {count} file(s)",
+    "Skip reasons": "Skip reasons",
+    "Skipped {count} file(s)": "Skipped {count} file(s)",
+    "Stored {count} event(s)": "Stored {count} event(s)"
   }
 }

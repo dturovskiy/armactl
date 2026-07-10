@@ -208,21 +208,24 @@ Initial slice: authenticated web-only current-player enrichment. It added a read
 
 Correction after VM/manual smoke: the follow-up source of truth is [player-session-stats-contract.md](player-session-stats-contract.md). It requires automatic log ingest freshness, stable parser fixtures, play-session boundaries, reconnect grace, session-scoped aggregation, and no fake zeroes before current-player combat/faction columns can be considered stable. Slice A current UI guard is implemented: `/players` and `/players/current.json` now return placeholders and a short unavailable reason instead of open-session-window combat/faction values. Session-scoped stats remain blocked until parser, ingest freshness, play-session, and aggregation slices are implemented.
 
-Blocked until a later explicit slice: materialized counters, new jobs, automatic log pollers, current-roster cache schema expansion, Discord/public enrichment, role/loadout display, K/D, ban/kick coupling, public player IDs, and any source that stores or renders raw log lines, raw paths, RCON rows, IPs, or secrets. Role remains `—`.
+Slice B parser fixture audit is implemented in [player-session-stats-contract.md](player-session-stats-contract.md). It confirms which existing auth/update/faction/combat/disconnect/lifecycle patterns are stable parsed evidence, which observed lines remain blocked or diagnostic-only, which fields are required before future stat aggregation, and which parser/storage/sessionization/current-player tests cover the evidence.
+
+Slice C automatic log ingest foundation is implemented in [player-session-stats-contract.md](player-session-stats-contract.md). The existing explicit player-log collection job now reuses the current collector/parser/player-registry ingest path, records players.db checkpoint and freshness metadata, skips unchanged logs, handles missing/rotated/truncated/oversized logs with controlled counts, and exposes only safe status/counts. GET pages do not start ingest or create players.db. No daemon, timer, broad scheduler, current-player stat aggregation, current-roster cache stats, Discord/public enrichment, or fake zeroes were added. The next slice is play-session/reconnect modeling.
+
+Blocked until a later explicit slice: materialized counters, automatic daemon/timer/poller enablement, current-roster cache schema expansion, Discord/public enrichment, role/loadout display, K/D, ban/kick coupling, public player IDs, and any source that stores or renders raw log lines, raw paths, RCON rows, IPs, or secrets. Role remains placeholder-only.
 
 GET handling: no stats/session GET writes. The stats service must not call `observe_player_session`, `close_player_session`, sessionizer/scanner/maintenance helpers, enqueue jobs, create `players.db`, or persist aggregation results. It should return `—` when `players.db` is absent, the roster row lacks a reliable ID, no matching open/evidence window exists, or the query cannot prove the value. Keep current roster cache freshness separate from session truth: the roster says who is currently observed; sessions/events explain stored evidence for those IDs.
 
 Web labels: keep `Kills`, `Deaths`, `TK`, `Faction`, and `Role` as `—` until the play-session stats contract is satisfied; show a short unavailable reason in Details. `Session first observed` may be shown only as truth-labelled stored session evidence, not exact joined time. Do not show fake zeroes. A zero is allowed only when a proven play-session window, fresh log ingest metadata, and a completed scoped query prove no matching events; otherwise show `—`.
 
-Acceptance criteria for the next slice:
+Acceptance criteria for the next slice, Slice D play-session/reconnect modeling:
 
-- Current roster rows without reliable IDs keep all future stat/faction/session fields as `—`.
-- Missing `players.db`, missing `player_log_events`, or missing `player_sessions` degrades to `—` without creating files or tables.
-- Kills count only stored `kill` rows with reliable `instigator_id`; teamkills increment `TK` instead. AI or unknown instigators do not increment a player.
-- Deaths count only reliable victims from `kill`, `teamkill`, `suicide`, and `other_death` rows.
-- TK counts only reliable killers from stored teamkill evidence, not faction equality.
-- Faction is labelled as last evidence/inferred, never current faction truth.
-- Joined-time UI uses first-observed/evidence wording and confidence/source rules; exact `Joined time` remains `—` unless backed by explicit connect evidence.
+- Slice C freshness status is read as safe metadata only and missing, partial, or failed freshness cannot prove current stats.
+- Reconnect merge requires the same reliable ID, same server run, compatible close reason, configured grace window, and no identity conflict.
+- Server lifecycle boundary always starts a new play session.
+- Count-only, name-only, ambiguous-time, or multi-match correlation evidence never opens, merges, or closes a play session.
+- Current roster rows without reliable IDs keep all future stat/faction/session fields as placeholder-only.
+- Missing players.db, missing player_log_events, or missing player_sessions degrades to placeholders without creating files or tables.
 - No fake zeroes, no K/D column, no Discord enrichment before web truth, no GET writes, no public player IDs, and no raw log lines/paths/IPs/secrets.
 
 ### Slice 4: Operational Status Telemetry Fix — implemented

@@ -1,10 +1,9 @@
-"""Background job handler for manual player log event collection."""
-
 from __future__ import annotations
 
 import stat as stat_module
 import threading
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 from armactl import paths, player_log_collector
@@ -21,7 +20,7 @@ from armactl.web.jobs.runner import (
     dispatch_job,
 )
 from armactl.web.jobs.store import get_or_create_active_job
-from armactl.web.services import player_registry
+from armactl.web.services import player_log_ingest, player_registry
 from armactl.web.services.audit import AuditLogError, append_audit_event
 from armactl.web.services.player_identity import safe_player_text
 
@@ -38,11 +37,14 @@ _CONTROLLED_PARTIAL_SKIP_ERROR_CODES = frozenset(
 
 
 class PlayerLogCollectionAuditError(RuntimeError):
-    """Raised when player log collection completes but audit cannot be written."""
+    pass
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _data_root_from_web_db_path(db_path: Path) -> Path:
-    """Infer the armactl data root from the standard web DB location."""
     db_path = Path(db_path)
     if db_path.name == "web.db" and db_path.parent.name == "web":
         return db_path.parent.parent
@@ -89,12 +91,6 @@ def resolve_allowlisted_player_log_paths(
     data_root: Path = paths.DEFAULT_DATA_ROOT,
     max_files: int = DEFAULT_MAX_LOG_FILES,
 ) -> tuple[Path, ...]:
-    """Return bounded instance console logs already used by armactl telemetry.
-
-    The web flow never accepts a path from a request. It only scans server
-    profile logs created below the instance config directory:
-    <data_root>/<instance>/config/logs/*/console.log.
-    """
     if max_files < 1:
         return ()
     normalized_instance = _safe_instance(instance)
@@ -124,7 +120,6 @@ def ensure_player_log_collection_job(
     requested_by_user_id: int | None = None,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
 ) -> tuple[JobRecord, bool]:
-    """Return an active player-log collection job, creating one if needed."""
     return get_or_create_active_job(
         db_path,
         kind=PLAYER_LOG_COLLECTION_JOB_KIND,
@@ -143,11 +138,25 @@ def _skipped_file_reason_counts(
     return dict(sorted(Counter(error.code for error in summary.errors).items()))
 
 
-def _skipped_file_reason_text(summary: PlayerLogCollectionSummary | None) -> str:
-    reason_counts = _skipped_file_reason_counts(summary)
-    return ",".join(
-        f"{reason}={count}" for reason, count in reason_counts.items()
+def _skipped_reason_counts(
+    summary: PlayerLogCollectionSummary | None,
+    plan: player_log_ingest.PlayerLogIngestPlan | None,
+) -> dict[str, int]:
+    return player_log_ingest.combine_reason_counts(
+        plan.skipped_reason_counts if plan is not None else {},
+        _skipped_file_reason_counts(summary),
     )
+
+
+def _skipped_file_reason_text(summary: PlayerLogCollectionSummary | None) -> str:
+    return player_log_ingest.format_reason_counts(_skipped_file_reason_counts(summary))
+
+
+def _skipped_reason_text(
+    summary: PlayerLogCollectionSummary | None,
+    plan: player_log_ingest.PlayerLogIngestPlan | None,
+) -> str:
+    return player_log_ingest.format_reason_counts(_skipped_reason_counts(summary, plan))
 
 
 def _audit_success_for_summary(summary: PlayerLogCollectionSummary) -> bool:
@@ -165,6 +174,10 @@ def _count_details(
     *,
     phase: str,
     job_id: int | None,
+    plan: player_log_ingest.PlayerLogIngestPlan | None = None,
+    checkpoint_updated: bool = False,
+    freshness_status: str = "",
+    freshness_at: str = "",
     reason_class: str = "",
     reason_message: str = "",
 ) -> dict[str, object]:
@@ -176,6 +189,10 @@ def _count_details(
         "max_file_bytes": str(DEFAULT_MAX_FILE_BYTES),
         "max_file_lines": str(DEFAULT_MAX_FILE_LINES),
         "max_files": str(DEFAULT_MAX_LOG_FILES),
+        "files_considered": str(plan.files_considered if plan is not None else 0),
+        "files_selected_for_scan": str(
+            plan.files_selected_for_scan if plan is not None else 0
+        ),
         "files_requested": "0",
         "files_scanned": "0",
         "files_skipped": "0",
@@ -186,7 +203,16 @@ def _count_details(
         "unmatched_lines": "0",
         "skipped_lines": "0",
         "error_count": "0",
+        "checkpoint_updated": "true" if checkpoint_updated else "false",
+        "freshness_status": safe_player_text(freshness_status, max_length=80),
+        "freshness_at": safe_player_text(freshness_at, max_length=80),
     }
+    if plan is not None:
+        checkpoint_reset_reasons = player_log_ingest.format_reason_counts(
+            plan.checkpoint_reset_reason_counts,
+        )
+        if checkpoint_reset_reasons:
+            details["checkpoint_reset_reasons"] = checkpoint_reset_reasons
     if summary is not None:
         details.update(
             {
@@ -202,9 +228,12 @@ def _count_details(
                 "error_count": str(summary.error_count),
             }
         )
-        skipped_reasons = _skipped_file_reason_text(summary)
-        if skipped_reasons:
-            details["skipped_file_reasons"] = skipped_reasons
+        skipped_file_reasons = _skipped_file_reason_text(summary)
+        if skipped_file_reasons:
+            details["skipped_file_reasons"] = skipped_file_reasons
+    skipped_reasons = _skipped_reason_text(summary, plan)
+    if skipped_reasons:
+        details["skipped_reasons"] = skipped_reasons
     if reason_class:
         details["reason_class"] = safe_player_text(reason_class, max_length=120)
     if reason_message:
@@ -212,11 +241,22 @@ def _count_details(
     return details
 
 
-def _summary_message(summary: PlayerLogCollectionSummary) -> str:
-    if summary.files_requested == 0:
+def _summary_message(
+    summary: PlayerLogCollectionSummary,
+    plan: player_log_ingest.PlayerLogIngestPlan,
+) -> str:
+    skipped_counts = _skipped_reason_counts(summary, plan)
+    non_checkpoint_skips = {
+        reason: count
+        for reason, count in skipped_counts.items()
+        if reason != "unchanged" and count > 0
+    }
+    if plan.files_considered == 0:
         return "No allowlisted player logs found."
-    if summary.error_count:
+    if non_checkpoint_skips or summary.error_count:
         return "Player log collection completed with skipped files."
+    if summary.files_requested == 0 and skipped_counts.get("unchanged"):
+        return "No changed player logs found."
     if summary.matched_events == 0:
         return "No matching player log events found."
     if summary.stored_events == 0 and summary.duplicate_events > 0:
@@ -224,9 +264,37 @@ def _summary_message(summary: PlayerLogCollectionSummary) -> str:
     return "Player log collection completed."
 
 
-def _summary_output(summary: PlayerLogCollectionSummary) -> str:
+def _freshness_status(
+    summary: PlayerLogCollectionSummary,
+    plan: player_log_ingest.PlayerLogIngestPlan,
+    *,
+    audit_success: bool,
+) -> str:
+    if not audit_success:
+        return player_registry.PLAYER_LOG_INGEST_STATUS_FAILED
+    if plan.files_considered == 0:
+        return player_registry.PLAYER_LOG_INGEST_STATUS_NO_LOGS
+    skipped_counts = _skipped_reason_counts(summary, plan)
+    if summary.error_count or any(
+        reason != "unchanged" and count > 0 for reason, count in skipped_counts.items()
+    ):
+        return player_registry.PLAYER_LOG_INGEST_STATUS_PARTIAL
+    return player_registry.PLAYER_LOG_INGEST_STATUS_FRESH
+
+
+def _summary_output(
+    summary: PlayerLogCollectionSummary,
+    *,
+    plan: player_log_ingest.PlayerLogIngestPlan,
+    checkpoint_updated: bool,
+    freshness_status: str,
+    freshness_at: str,
+) -> str:
+    checkpoint_text = "true" if checkpoint_updated else "false"
     output = (
         "Player log collection counts: "
+        f"files_considered={plan.files_considered}; "
+        f"files_selected_for_scan={plan.files_selected_for_scan}; "
         f"files_requested={summary.files_requested}; "
         f"files_scanned={summary.files_scanned}; "
         f"files_skipped={summary.files_skipped}; "
@@ -235,11 +303,22 @@ def _summary_output(summary: PlayerLogCollectionSummary) -> str:
         f"stored_events={summary.stored_events}; "
         f"duplicates={summary.duplicate_events}; "
         f"skipped_lines={summary.skipped_lines}; "
-        f"errors={summary.error_count}"
+        f"errors={summary.error_count}; "
+        f"checkpoint_updated={checkpoint_text}; "
+        f"freshness_status={safe_player_text(freshness_status, max_length=80)}; "
+        f"freshness_at={safe_player_text(freshness_at, max_length=80)}"
     )
-    skipped_reasons = _skipped_file_reason_text(summary)
+    skipped_file_reasons = _skipped_file_reason_text(summary)
+    if skipped_file_reasons:
+        output = f"{output}; skipped_file_reasons={skipped_file_reasons}"
+    skipped_reasons = _skipped_reason_text(summary, plan)
     if skipped_reasons:
-        output = f"{output}; skipped_file_reasons={skipped_reasons}"
+        output = f"{output}; skipped_reasons={skipped_reasons}"
+    checkpoint_reset_reasons = player_log_ingest.format_reason_counts(
+        plan.checkpoint_reset_reason_counts,
+    )
+    if checkpoint_reset_reasons:
+        output = f"{output}; checkpoint_reset_reasons={checkpoint_reset_reasons}"
     return output
 
 
@@ -252,6 +331,10 @@ def _append_collection_outcome_audit(
     summary: PlayerLogCollectionSummary | None,
     success: bool,
     message: str,
+    plan: player_log_ingest.PlayerLogIngestPlan | None = None,
+    checkpoint_updated: bool = False,
+    freshness_status: str = "",
+    freshness_at: str = "",
     reason_class: str = "",
     reason_message: str = "",
 ) -> None:
@@ -268,6 +351,10 @@ def _append_collection_outcome_audit(
             summary,
             phase="outcome",
             job_id=job_id,
+            plan=plan,
+            checkpoint_updated=checkpoint_updated,
+            freshness_status=freshness_status,
+            freshness_at=freshness_at,
             reason_class=reason_class,
             reason_message=reason_message,
         ),
@@ -281,6 +368,8 @@ def _audit_failure_or_raise(
     instance: str,
     job_id: int,
     error: Exception,
+    plan: player_log_ingest.PlayerLogIngestPlan | None = None,
+    freshness_at: str = "",
 ) -> None:
     try:
         _append_collection_outcome_audit(
@@ -291,6 +380,9 @@ def _audit_failure_or_raise(
             summary=None,
             success=False,
             message="Player log collection failed.",
+            plan=plan,
+            freshness_status=player_registry.PLAYER_LOG_INGEST_STATUS_FAILED,
+            freshness_at=freshness_at,
             reason_class=type(error).__name__,
             reason_message="Player log collection failed.",
         )
@@ -300,8 +392,33 @@ def _audit_failure_or_raise(
         ) from audit_error
 
 
+def _record_failed_freshness(
+    registry_db_path: Path,
+    *,
+    plan: player_log_ingest.PlayerLogIngestPlan | None,
+    run_at: str,
+) -> None:
+    skipped_reasons = player_log_ingest.format_reason_counts(
+        plan.skipped_reason_counts if plan is not None else {},
+    )
+    try:
+        player_registry.record_player_log_ingest_freshness(
+            registry_db_path,
+            scope=PLAYER_LOG_COLLECTION_SCOPE,
+            status=player_registry.PLAYER_LOG_INGEST_STATUS_FAILED,
+            last_run_at=run_at,
+            scanned_files=0,
+            parsed_events=0,
+            stored_events=0,
+            skipped_files=plan.skipped_files if plan is not None else 0,
+            skipped_reasons=skipped_reasons,
+            checkpoint_updated=False,
+        )
+    except Exception:
+        return
+
+
 def handle_player_log_collection(context: JobContext) -> JobHandlerResult:
-    """Collect allowlisted server log events into the instance player DB."""
     instance = _safe_instance(context.job.instance)
     data_root = _data_root_from_web_db_path(context.db_path)
     audit_log_path = paths.web_audit_log_file(data_root)
@@ -311,33 +428,84 @@ def handle_player_log_collection(context: JobContext) -> JobHandlerResult:
         data_root=data_root,
         max_files=DEFAULT_MAX_LOG_FILES,
     )
+    run_started_at = _utc_now()
+    plan = player_log_ingest.plan_player_log_ingest(
+        registry_db_path,
+        log_paths,
+        scope=PLAYER_LOG_COLLECTION_SCOPE,
+    )
     context.append_output(
         stdout=(
             "Starting allowlisted player log collection: "
-            f"scope={PLAYER_LOG_COLLECTION_SCOPE}; files={len(log_paths)}"
+            f"scope={PLAYER_LOG_COLLECTION_SCOPE}; "
+            f"files_considered={plan.files_considered}; "
+            f"files_selected_for_scan={plan.files_selected_for_scan}"
         )
     )
 
     try:
         summary = player_log_collector.collect_player_log_events(
-            log_paths,
+            plan.files_to_scan,
             registry_db_path,
             dry_run=False,
             max_bytes=DEFAULT_MAX_FILE_BYTES,
             max_lines=DEFAULT_MAX_FILE_LINES,
         )
     except Exception as error:
+        _record_failed_freshness(
+            registry_db_path,
+            plan=plan,
+            run_at=run_started_at,
+        )
         _audit_failure_or_raise(
             audit_log_path,
             username=context.job.requested_by_username,
             instance=instance,
             job_id=context.job.id,
             error=error,
+            plan=plan,
+            freshness_at=run_started_at,
         )
         raise RuntimeError("Player log collection failed.") from error
 
-    context.append_output(stdout=_summary_output(summary))
-    message = _summary_message(summary)
+    freshness_at = _utc_now()
+    checkpoint_records = player_log_ingest.checkpoint_records_for_collection_summary(
+        plan,
+        summary,
+        updated_at=freshness_at,
+    )
+    checkpoint_updated = bool(
+        player_registry.upsert_player_log_ingest_checkpoints(
+            registry_db_path,
+            checkpoint_records,
+        )
+    )
+    audit_success = _audit_success_for_summary(summary)
+    freshness_status = _freshness_status(summary, plan, audit_success=audit_success)
+    skipped_reasons = _skipped_reason_text(summary, plan)
+    player_registry.record_player_log_ingest_freshness(
+        registry_db_path,
+        scope=PLAYER_LOG_COLLECTION_SCOPE,
+        status=freshness_status,
+        last_run_at=freshness_at,
+        scanned_files=summary.files_scanned,
+        parsed_events=summary.matched_events,
+        stored_events=summary.stored_events,
+        skipped_files=summary.files_skipped + plan.skipped_files,
+        skipped_reasons=skipped_reasons,
+        checkpoint_updated=checkpoint_updated,
+    )
+
+    context.append_output(
+        stdout=_summary_output(
+            summary,
+            plan=plan,
+            checkpoint_updated=checkpoint_updated,
+            freshness_status=freshness_status,
+            freshness_at=freshness_at,
+        ),
+    )
+    message = _summary_message(summary, plan)
     try:
         _append_collection_outcome_audit(
             audit_log_path,
@@ -345,8 +513,12 @@ def handle_player_log_collection(context: JobContext) -> JobHandlerResult:
             instance=instance,
             job_id=context.job.id,
             summary=summary,
-            success=_audit_success_for_summary(summary),
+            success=audit_success,
             message=message,
+            plan=plan,
+            checkpoint_updated=checkpoint_updated,
+            freshness_status=freshness_status,
+            freshness_at=freshness_at,
         )
     except AuditLogError as error:
         raise PlayerLogCollectionAuditError(
@@ -356,18 +528,16 @@ def handle_player_log_collection(context: JobContext) -> JobHandlerResult:
     return JobHandlerResult(
         result_message=message,
         current_step="Collection complete",
-        progress_current=summary.files_scanned + summary.files_skipped,
-        progress_total=summary.files_requested,
+        progress_current=summary.files_scanned + summary.files_skipped + plan.skipped_files,
+        progress_total=plan.files_considered,
     )
 
 
 def create_player_log_collection_dispatcher() -> JobDispatcher:
-    """Return the explicit dispatcher for player log collection jobs."""
     return JobDispatcher({PLAYER_LOG_COLLECTION_JOB_KIND: handle_player_log_collection})
 
 
 def dispatch_player_log_collection_job(db_path, job_id: int):
-    """Dispatch one queued player-log collection job through the safe handler."""
     return dispatch_job(db_path, job_id, create_player_log_collection_dispatcher())
 
 
@@ -379,7 +549,6 @@ def _run_player_log_collection_worker(db_path: Path, job_id: int) -> None:
 
 
 def start_player_log_collection_worker(db_path, job_id: int) -> threading.Thread:
-    """Start one queued player-log collection job in a background thread."""
     thread = threading.Thread(
         target=_run_player_log_collection_worker,
         args=(Path(db_path), job_id),

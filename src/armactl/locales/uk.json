@@ -1687,6 +1687,13 @@
     "Replacement file must be UTF-8 text.": "Файл заміни має бути текстом UTF-8.",
     "Editable file contains secret-looking values.": "Файл для редагування містить значення, схожі на секрети.",
     "Edit": "Редагувати",
-    "Editor": "Редактор"
+    "Editor": "Редактор",
+    "Last successful run": "Останній успішний запуск",
+    "Log ingest status": "Стан ingest логів",
+    "Parsed {count} event(s)": "Розібрано {count} подій",
+    "Scanned {count} file(s)": "Проскановано {count} файлів",
+    "Skip reasons": "Причини пропуску",
+    "Skipped {count} file(s)": "Пропущено {count} файлів",
+    "Stored {count} event(s)": "Збережено {count} подій"
   }
 }

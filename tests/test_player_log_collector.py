@@ -11,6 +11,7 @@ from armactl.player_log_collector import collect_player_log_events
 
 PLAYER_ALPHA_ID = "11111111-1111-4111-8111-111111111111"
 PLAYER_BRAVO_ID = "22222222-2222-4222-8222-222222222222"
+PLAYER_CHARLIE_ID = "33333333-3333-4333-8333-333333333333"
 
 
 def _fixture_lines() -> list[str]:
@@ -351,3 +352,113 @@ def test_collector_handles_midnight_rollover_from_dated_log_context(
         "2026-07-05T23:59:59Z",
         "2026-07-06T00:00:02Z",
     ]
+
+
+def test_collector_derives_occurrence_time_for_supported_event_patterns(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "logs" / "2026-07-05-run" / "console.log"
+    db_path = tmp_path / "default" / "players.db"
+    lines = [
+        "18:31:00.000 BACKEND : Authenticated player: "
+        f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One",
+        "18:31:01.000 NETWORK : ### Updating player: PlayerId=7, "
+        f"Name=Alpha One, rplIdentity=42, IdentityId={PLAYER_ALPHA_ID}",
+        "18:31:02.000 SCRIPT : INFO: Faction: player Alpha One "
+        f"(playerID = 7 | UUID = {PLAYER_ALPHA_ID}) "
+        "has joined faction #US_Army (US)",
+        "18:31:03.000 SCRIPT : INFO: KILL ENEMY: Bravo Two "
+        f"(playerID = 8 | UUID = {PLAYER_BRAVO_ID}) from FIA faction "
+        "at <10 20 30> was killed by Alpha One "
+        f"(playerID = 7 | UUID = {PLAYER_ALPHA_ID}) from US faction "
+        "who was at that time at <40 50 60> [64.5m away from the corpse]. "
+        "With last inflicted damage type Projectile to the 'Head' hit zone",
+        "18:31:04.000 SCRIPT : INFO: KILL TK: Bravo Two "
+        f"(playerID = 8 | UUID = {PLAYER_BRAVO_ID}) from US faction "
+        "at <4 5 6> was killed by Alpha One "
+        f"(playerID = 7 | UUID = {PLAYER_ALPHA_ID}) from US faction. "
+        "With last inflicted damage type Bullet to the 'LeftArm' hit zone",
+        "18:31:05.000 SCRIPT : INFO: KILL SUICIDE: Alpha One "
+        f"(playerID = 7 | UUID = {PLAYER_ALPHA_ID}) from US faction "
+        "at <1 2 3> killed himself! "
+        "With last inflicted damage type Explosion to the 'Torso' hit zone",
+        "18:31:06.000 SCRIPT : INFO: KILL OTHER_DEATH: Charlie Three "
+        f"(playerID = 9 | UUID = {PLAYER_CHARLIE_ID}) from FIA faction "
+        "at <7 8 9> was killed by AI",
+        "18:31:07.000 SCRIPT : ServerAdminTools | Event "
+        "serveradmintools_player_killed | player: Bravo Two, "
+        "instigator: Alpha One, friendly: true",
+        "18:31:08.000 RPL : ServerImpl event: disconnected (identity=42), "
+        "group=5, reason=timeout",
+        "18:31:09.000 NETWORK : Player disconnected: connectionID=conn-7",
+        "18:31:10.000 DEFAULT : BattlEye Server: "
+        "'Player #7 Alpha One disconnected'",
+        "18:31:11.000 DEFAULT : [PERSISTENCE] Save (SHUTDOWN) started.",
+        "18:31:12.000 systemd[1]: Stopping Arma Reforger Dedicated Server...",
+    ]
+    _write_log(log_path, lines)
+
+    summary = collect_player_log_events(
+        log_path,
+        db_path,
+        ingested_at="2026-07-06T09:00:00+00:00",
+    )
+
+    rows = _event_rows(db_path)
+    assert summary.matched_events == len(lines)
+    assert summary.stored_events == len(lines)
+    assert [row["event_type"] for row in rows] == [
+        events.EVENT_TYPE_PLAYER_AUTHENTICATED,
+        events.EVENT_TYPE_PLAYER_UPDATE,
+        events.EVENT_TYPE_FACTION_JOIN,
+        events.EVENT_TYPE_KILL,
+        events.EVENT_TYPE_TEAMKILL,
+        events.EVENT_TYPE_SUICIDE,
+        events.EVENT_TYPE_OTHER_DEATH,
+        events.EVENT_TYPE_COMBAT_HINT,
+        events.EVENT_TYPE_PLAYER_DISCONNECTED,
+        events.EVENT_TYPE_PLAYER_DISCONNECTED,
+        events.EVENT_TYPE_PLAYER_DISCONNECTED,
+        events.EVENT_TYPE_SERVER_LIFECYCLE,
+        events.EVENT_TYPE_SERVER_LIFECYCLE,
+    ]
+    assert [row["occurred_at"] for row in rows] == [
+        f"2026-07-05T18:31:{second:02d}Z" for second in range(len(lines))
+    ]
+    assert {row["time_source"] for row in rows} == {
+        events.EVENT_TIME_SOURCE_LOG_PREFIX_WITH_DATE
+    }
+    assert {row["time_confidence"] for row in rows} == {
+        events.EVENT_TIME_CONFIDENCE_DERIVED
+    }
+    assert {row["collected_at"] for row in rows} == {
+        "2026-07-06T09:00:00+00:00"
+    }
+
+
+def test_collector_uses_absolute_timestamp_prefix_as_exact_occurrence_time(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "logs" / "console.log"
+    db_path = tmp_path / "default" / "players.db"
+    _write_log(
+        log_path,
+        [
+            "2026-07-05T18:31:00+02:00 BACKEND : Authenticated player: "
+            f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One",
+        ],
+    )
+
+    summary = collect_player_log_events(
+        log_path,
+        db_path,
+        ingested_at="2026-07-06T09:00:00+00:00",
+    )
+
+    rows = _event_rows(db_path)
+    assert summary.stored_events == 1
+    assert rows[0]["occurred_at"] == "2026-07-05T16:31:00Z"
+    assert rows[0]["log_timestamp"] == "2026-07-05T18:31:00+02:00"
+    assert rows[0]["time_source"] == events.EVENT_TIME_SOURCE_LOG_PREFIX_WITH_DATE
+    assert rows[0]["time_confidence"] == events.EVENT_TIME_CONFIDENCE_EXACT
+    assert rows[0]["collected_at"] == "2026-07-06T09:00:00+00:00"
