@@ -73,6 +73,10 @@ class CurrentRosterSnapshotResult:
     is_stale: bool
     cache_status: str
     refresh_error: str = ''
+    observed_count: int | None = None
+    count_source: str = ''
+    roster_available: bool | None = None
+    roster_configured: bool | None = None
 
 
 _cache_lock = threading.Lock()
@@ -183,6 +187,38 @@ def _should_keep_stale_roster_snapshot(
     if not live_snapshot.roster_configured:
         return False
     return live_snapshot.count_source != "rcon"
+
+
+def _select_acceptable_stale_named_roster(
+    cached: CurrentRosterSnapshot | None,
+    persistent: CurrentRosterSnapshot | None,
+    *,
+    max_stale_age_seconds: int | None,
+) -> tuple[CurrentRosterSnapshot | None, str]:
+    candidates: list[tuple[int, str, CurrentRosterSnapshot]] = []
+    for cache_status, snapshot in (
+        ("stale", cached),
+        ("stale_persistent", persistent),
+    ):
+        if snapshot is None:
+            continue
+        if not _current_roster_snapshot_within_age(
+            snapshot,
+            max_age_seconds=max_stale_age_seconds,
+        ):
+            continue
+        if not snapshot.available or not snapshot.roster_available:
+            continue
+        if not snapshot.players:
+            continue
+        age_seconds = current_roster_snapshot_age_seconds(snapshot)
+        if age_seconds is None:
+            continue
+        candidates.append((age_seconds, cache_status, snapshot))
+    if not candidates:
+        return None, ""
+    _age_seconds, cache_status, snapshot = min(candidates, key=lambda item: item[0])
+    return snapshot, cache_status
 
 
 def _roster_unavailable_refresh_error(snapshot: CurrentRosterSnapshot) -> str:
@@ -651,7 +687,11 @@ def load_current_roster_snapshot(
         roster = player_sources.load_current_player_roster(normalized_instance)
     except Exception as error:  # noqa: BLE001 - GET callers need controlled fallback.
         safe_error = _safe_snapshot_text(error, max_length=240)
-        stale_snapshot = persistent or cached
+        stale_snapshot, stale_cache_status = _select_acceptable_stale_named_roster(
+            cached,
+            persistent,
+            max_stale_age_seconds=max_stale_age_seconds,
+        )
         if stale_snapshot is not None:
             stale_snapshot = store_current_roster_snapshot(
                 stale_snapshot,
@@ -661,8 +701,12 @@ def load_current_roster_snapshot(
                 snapshot=stale_snapshot,
                 age_seconds=current_roster_snapshot_age_seconds(stale_snapshot),
                 is_stale=True,
-                cache_status="stale_persistent" if persistent is not None else "stale",
+                cache_status=stale_cache_status,
                 refresh_error=safe_error,
+                observed_count=stale_snapshot.total_count,
+                count_source=stale_snapshot.count_source,
+                roster_available=False,
+                roster_configured=stale_snapshot.roster_configured,
             )
         snapshot = store_current_roster_snapshot(
             unavailable_snapshot_from_error(error, instance=normalized_instance),
@@ -684,13 +728,18 @@ def load_current_roster_snapshot(
         )
 
     snapshot = snapshot_from_roster(roster, instance=normalized_instance)
-    stale_snapshot = persistent or cached
-    if _should_keep_stale_roster_snapshot(
+    stale_snapshot, _stale_cache_status = _select_acceptable_stale_named_roster(
+        cached,
+        persistent,
+        max_stale_age_seconds=max_stale_age_seconds,
+    )
+    if stale_snapshot is not None and _should_keep_stale_roster_snapshot(
         snapshot,
         stale_snapshot,
         max_stale_age_seconds=max_stale_age_seconds,
     ):
         assert stale_snapshot is not None
+        use_live_count = snapshot.total_count > 0
         stale_snapshot = store_current_roster_snapshot(
             stale_snapshot,
             data_root=data_root,
@@ -702,6 +751,18 @@ def load_current_roster_snapshot(
             is_stale=True,
             cache_status="stale_roster_unavailable",
             refresh_error=safe_error,
+            observed_count=(
+                snapshot.total_count
+                if use_live_count
+                else stale_snapshot.total_count
+            ),
+            count_source=(
+                snapshot.count_source
+                if use_live_count
+                else stale_snapshot.count_source
+            ),
+            roster_available=snapshot.roster_available,
+            roster_configured=snapshot.roster_configured,
         )
 
     snapshot = store_current_roster_snapshot(snapshot, data_root=data_root)

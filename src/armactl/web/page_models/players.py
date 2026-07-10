@@ -251,10 +251,12 @@ class CurrentPlayersPage:
     source: str
     status: str
     error: str
+    refresh_error: str
     collected_at: str
     updated_at: str
     age_seconds: int | None
     is_stale: bool
+    freshness: str
     cache_status: str
     observed_count: int
     total_count: int
@@ -262,6 +264,7 @@ class CurrentPlayersPage:
     count_source: str
     roster_available: bool
     roster_configured: bool
+    stale_named_roster: bool
     players: tuple[CurrentPlayerTableRow, ...]
 
 
@@ -529,24 +532,51 @@ def load_current_players_page(
         for player in snapshot.players
     )
     filtered = tuple(row for row in rows if _matches_current_player(row, normalized_query))
+    observed_count = (
+        result.observed_count
+        if result.observed_count is not None
+        else snapshot.total_count
+    )
+    count_source = result.count_source or snapshot.count_source
+    roster_available = (
+        snapshot.roster_available
+        if result.roster_available is None
+        else result.roster_available
+    )
+    roster_configured = (
+        snapshot.roster_configured
+        if result.roster_configured is None
+        else result.roster_configured
+    )
+    refresh_error = safe_player_text(
+        result.refresh_error or snapshot.error,
+        max_length=240,
+    )
     return CurrentPlayersPage(
         instance=normalized_instance,
         query=normalized_query,
         available=snapshot.available,
         source=safe_player_text(snapshot.source) or "unavailable",
         status=safe_player_text(snapshot.status) or "unknown",
-        error=safe_player_text(result.refresh_error or snapshot.error),
+        error=refresh_error,
+        refresh_error=refresh_error,
         collected_at=snapshot.collected_at,
         updated_at=snapshot.updated_at,
         age_seconds=result.age_seconds,
         is_stale=result.is_stale,
+        freshness=(
+            "stale"
+            if result.is_stale
+            else ("fresh" if snapshot.available else "unavailable")
+        ),
         cache_status=safe_player_text(result.cache_status, max_length=40),
-        observed_count=snapshot.total_count,
-        total_count=snapshot.total_count,
+        observed_count=max(0, int(observed_count)),
+        total_count=max(0, int(observed_count)),
         filtered_count=len(filtered),
-        count_source=safe_player_text(snapshot.count_source, max_length=80) or "unknown",
-        roster_available=bool(snapshot.roster_available),
-        roster_configured=bool(snapshot.roster_configured),
+        count_source=safe_player_text(count_source, max_length=80) or "unknown",
+        roster_available=bool(roster_available),
+        roster_configured=bool(roster_configured),
+        stale_named_roster=bool(result.is_stale and snapshot.players),
         players=filtered,
     )
 

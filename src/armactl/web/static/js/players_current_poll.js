@@ -21,7 +21,13 @@
       "Showing {count} of {total} current player(s)",
     countOnlyTemplate:
       root.dataset.currentPlayersCountOnlyTemplate ||
-      "Roster unavailable; A2S reports {count} current player(s).",
+      "Named roster unavailable; {source} reports {count} current player(s). No player names are available.",
+    staleWarning:
+      root.dataset.currentPlayersStaleWarningLabel ||
+      "Showing cached named roster because the live roster source is unavailable. These rows are stale and not guaranteed live.",
+    unavailableWarning:
+      root.dataset.currentPlayersUnavailableWarningLabel ||
+      "Live roster source unavailable; keeping the previously rendered rows. They are not guaranteed live.",
     emptyOnline: root.dataset.currentPlayersEmptyOnlineLabel || "No current players online.",
     emptySearch:
       root.dataset.currentPlayersEmptySearchLabel || "No current players match search.",
@@ -34,6 +40,9 @@
     rosterSource: root.dataset.currentPlayersRosterSourceLabel || "RCON roster",
     source: root.dataset.currentPlayersSourceLabel || "Source",
     stale: root.dataset.currentPlayersStaleLabel || "Stale",
+    staleRoster: root.dataset.currentPlayersStaleRosterLabel || "Stale roster",
+    fresh: root.dataset.currentPlayersFreshLabel || "Fresh",
+    available: root.dataset.currentPlayersAvailableLabel || "Available",
     technicalSource: root.dataset.currentPlayersTechnicalSourceLabel || "Technical source",
     updated: root.dataset.currentPlayersUpdatedLabel || "Updated",
     firstObserved:
@@ -67,8 +76,20 @@
   const countSummary = root.querySelector("[data-current-players-count-summary]");
   const sourceNode = root.querySelector("[data-current-players-source]");
   const statusNode = root.querySelector("[data-current-players-status]");
+  const cacheStatusNode = root.querySelector("[data-current-players-cache-status]");
   const ageNode = root.querySelector("[data-current-players-age]");
   const staleNode = root.querySelector("[data-current-players-stale]");
+  const freshNode = root.querySelector("[data-current-players-fresh]");
+  const freshnessUnavailableNode = root.querySelector(
+    "[data-current-players-freshness-unavailable]",
+  );
+  const rosterAvailableNode = root.querySelector("[data-current-players-roster-available]");
+  const countSourceNode = root.querySelector("[data-current-players-count-source]");
+  const observedCountNode = root.querySelector("[data-current-players-observed-count]");
+  const warningNode = root.querySelector("[data-current-players-warning]");
+  const refreshErrorLabelNode = root.querySelector(
+    "[data-current-players-refresh-error-label]",
+  );
   const errorNode = root.querySelector("[data-current-players-error]");
   const tableWrap = root.querySelector("[data-current-players-table]");
   const tableBody = root.querySelector("[data-current-players-tbody]");
@@ -135,7 +156,7 @@
 
   function setText(node, value) {
     if (node) {
-      node.textContent = String(value || "");
+      node.textContent = value === null || value === undefined ? "" : String(value);
     }
   }
 
@@ -146,6 +167,9 @@
     const text = String(message || "");
     errorNode.textContent = text;
     errorNode.hidden = !text;
+    if (refreshErrorLabelNode) {
+      refreshErrorLabelNode.hidden = !text;
+    }
   }
 
   function clippedReliableId(value) {
@@ -224,8 +248,11 @@
   function statusCell(data) {
     const cell = document.createElement("td");
     const pill = document.createElement("span");
-    pill.className = "status-pill";
-    pill.textContent = String(data.status || labels.unknown);
+    const staleRoster = data.stale_named_roster === true;
+    pill.className = staleRoster ? "status-pill status-pill-warning" : "status-pill";
+    pill.textContent = staleRoster
+      ? labels.staleRoster
+      : String(data.status || labels.unknown);
     const freshness = document.createElement("span");
     freshness.className = "player-row-subtle";
     freshness.textContent = ageText(data.age_seconds);
@@ -429,10 +456,63 @@
     return [mainRow, detailRow(player, data, detailsId)];
   }
 
+  function countSourceText(data) {
+    return String((data && data.count_source) || labels.unknown);
+  }
+
+  function countOnlyMessage(data) {
+    return labels.countOnlyTemplate
+      .replace("{source}", countSourceText(data))
+      .replace("{count}", String(observedCount(data)));
+  }
+
+  function warningMessage(data, preserveRenderedRows) {
+    if (data.stale_named_roster === true) {
+      return labels.staleWarning;
+    }
+    if (observedCount(data) > 0 && data.roster_available === false) {
+      return countOnlyMessage(data);
+    }
+    if (data.roster_available === false && data.available !== true) {
+      return preserveRenderedRows
+        ? labels.unavailableWarning
+        : labels.emptyUnavailable;
+    }
+    return "";
+  }
+
+  function setWarning(message) {
+    if (!warningNode) {
+      return;
+    }
+    const text = String(message || "");
+    warningNode.textContent = text;
+    warningNode.hidden = !text;
+  }
+
+  function shouldPreserveRenderedRows(data) {
+    const players = Array.isArray(data.players) ? data.players : [];
+    const hasRenderedRows = Boolean(
+      tableBody && tableBody.querySelector(".player-current-main-row"),
+    );
+    return (
+      hasRenderedRows &&
+      players.length === 0 &&
+      data.stale_named_roster !== true &&
+      data.roster_available === false &&
+      observedCount(data) === 0 &&
+      data.available !== true
+    );
+  }
+
   function emptyMessage(data) {
     const count = observedCount(data);
-    if (count > 0 && data.roster_available === false) {
-      return labels.countOnlyTemplate.replace("{count}", String(count));
+    if (
+      count > 0 &&
+      data.roster_available === false &&
+      data.stale_named_roster !== true
+    ) {
+      return countOnlyMessage(data);
     }
     if (currentSearchQuery().trim()) {
       return labels.emptySearch;
@@ -499,27 +579,63 @@
     if (!data || typeof data !== "object" || !Array.isArray(data.players)) {
       throw new Error("Current players payload is invalid.");
     }
-    updateCountSummary(data);
-    setText(sourceNode, data.source || labels.unavailable);
+    const preserveRenderedRows = shouldPreserveRenderedRows(data);
+    if (!preserveRenderedRows) {
+      updateCountSummary(data);
+      setText(sourceNode, data.source || labels.unavailable);
+      setText(cacheStatusNode, data.cache_status || labels.unknown);
+      const cacheAge =
+        data.cache_age_seconds !== undefined ? data.cache_age_seconds : data.age_seconds;
+      setText(ageNode, ageText(cacheAge));
+      setText(countSourceNode, countSourceText(data));
+      setText(observedCountNode, observedCount(data));
+    }
     setText(statusNode, data.status || labels.unknown);
-    setText(ageNode, ageText(data.age_seconds));
+    const freshness = String(
+      data.freshness ||
+        (data.is_stale === true
+          ? "stale"
+          : data.available === true
+            ? "fresh"
+            : "unavailable"),
+    );
     if (staleNode) {
       staleNode.textContent = labels.stale;
-      staleNode.hidden = data.is_stale !== true;
+      staleNode.hidden = freshness !== "stale";
     }
-    setError(data.error || "");
-    updateRows(data);
+    if (freshNode) {
+      freshNode.textContent = labels.fresh;
+      freshNode.hidden = freshness !== "fresh";
+    }
+    if (freshnessUnavailableNode) {
+      freshnessUnavailableNode.textContent = labels.unavailable;
+      freshnessUnavailableNode.hidden = freshness !== "unavailable";
+    }
+    setText(
+      rosterAvailableNode,
+      data.roster_available === true ? labels.available : labels.unavailable,
+    );
+    setError(data.refresh_error || data.error || "");
+    setWarning(warningMessage(data, preserveRenderedRows));
+    if (!preserveRenderedRows) {
+      updateRows(data);
+    }
   }
 
   function markUnavailable() {
-    setText(sourceNode, labels.unavailable);
     setText(statusNode, labels.unavailable);
-    setText(ageNode, labels.unknown);
     if (staleNode) {
       staleNode.textContent = labels.stale;
       staleNode.hidden = false;
     }
-    setError("");
+    if (freshNode) {
+      freshNode.hidden = true;
+    }
+    if (freshnessUnavailableNode) {
+      freshnessUnavailableNode.hidden = true;
+    }
+    setText(rosterAvailableNode, labels.unavailable);
+    setWarning(labels.unavailableWarning);
   }
 
   async function refreshCurrentPlayers() {

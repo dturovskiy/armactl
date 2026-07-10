@@ -86,10 +86,13 @@ def _current_players_json_payload(
         "source": page.source,
         "status": page.status,
         "error": page.error,
+        "refresh_error": page.refresh_error,
         "collected_at": page.collected_at,
         "updated_at": page.updated_at,
         "age_seconds": page.age_seconds,
+        "cache_age_seconds": page.age_seconds,
         "is_stale": page.is_stale,
+        "freshness": page.freshness,
         "cache_status": page.cache_status,
         "observed_count": page.observed_count,
         "total_count": page.total_count,
@@ -97,6 +100,7 @@ def _current_players_json_payload(
         "count_source": page.count_source,
         "roster_available": page.roster_available,
         "roster_configured": page.roster_configured,
+        "stale_named_roster": page.stale_named_roster,
         "players": [
             {
                 "display_name": player.display_name,

@@ -6,7 +6,7 @@ import json
 import re
 import sqlite3
 import warnings
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -1952,10 +1952,19 @@ def test_players_route_shows_count_only_when_roster_unavailable(
     html = response.text
 
     assert response.status_code == 200
-    assert "Roster unavailable; A2S reports 7 current player(s)." in html
+    assert (
+        "Named roster unavailable; a2s reports 7 current player(s). "
+        "No player names are available."
+    ) in html
     assert "Showing 0 of 7 current player(s)" in html
     assert "Showing 0 of 0 current player(s)" not in html
     assert ">No current players online.<" not in html
+    assert "Cache status" in html
+    assert "Freshness" in html
+    assert "Roster available" in html
+    assert "Count source" in html
+    assert "Observed count" in html
+    assert ">Stale roster</span>" not in html
     assert not (tmp_path / "default" / "players.db").exists()
 
 
@@ -1984,6 +1993,11 @@ def test_players_current_json_returns_count_only_fields_without_player_db_writes
     assert payload["count_source"] == "a2s"
     assert payload["roster_available"] is False
     assert payload["roster_configured"] is True
+    assert payload["refresh_error"] == ""
+    assert payload["freshness"] == "fresh"
+    assert payload["is_stale"] is False
+    assert payload["stale_named_roster"] is False
+    assert payload["cache_age_seconds"] == payload["age_seconds"]
     assert payload["players"] == []
     persistent = player_current_cache.get_persistent_current_roster_snapshot(
         "default",
@@ -1994,6 +2008,235 @@ def test_players_current_json_returns_count_only_fields_without_player_db_writes
     assert persistent.total_count == 7
     assert persistent.players == ()
     assert persistent.roster_available is False
+    assert not db_path.exists()
+    assert _player_session_count(db_path) == 0
+
+
+def test_players_use_acceptable_stale_named_roster_with_live_count_diagnostics(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_current_cache, player_sources
+
+    player_current_cache.clear_current_roster_cache()
+    player_current_cache.store_persistent_current_roster_snapshot(
+        player_current_cache.CurrentRosterSnapshot(
+            instance="default",
+            players=(
+                player_current_cache.CurrentRosterPlayerSnapshot(
+                    display_name="Cached Named Alpha",
+                    reliable_id=PLAYER_ALPHA_ID,
+                    source="rcon.guid",
+                ),
+            ),
+            source="rcon.roster",
+            status="available",
+            error="",
+            collected_at=(
+                datetime.now(timezone.utc) - timedelta(seconds=30)
+            ).isoformat(),
+            observed_count=1,
+            count_source="rcon",
+            roster_available=True,
+            roster_configured=True,
+        ),
+        data_root=tmp_path,
+    )
+    calls: list[str] = []
+
+    def count_only_roster(instance: str) -> CurrentPlayerRoster:
+        calls.append(instance)
+        return CurrentPlayerRoster(
+            available=True,
+            players=(),
+            total_count=7,
+            source="a2s",
+            status="available",
+            error=(
+                "RCON timeout token=raw-refresh-secret from 198.51.100.9 "
+                "using /home/deus/private-rcon.log"
+            ),
+            observed_count=7,
+            count_source="a2s",
+            roster_available=False,
+            roster_configured=True,
+        )
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        count_only_roster,
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    page_response = client.get("/players", follow_redirects=False)
+    json_response = client.get("/players/current.json", follow_redirects=False)
+    rendered = page_response.text + json.dumps(json_response.json(), sort_keys=True)
+    payload = json_response.json()
+    db_path = tmp_path / "default" / "players.db"
+
+    assert page_response.status_code == 200
+    assert json_response.status_code == 200
+    assert calls == ["default", "default"]
+    assert "Cached Named Alpha" in page_response.text
+    assert "Stale roster" in page_response.text
+    assert (
+        "Showing cached named roster because the live roster source is unavailable. "
+        "These rows are stale and not guaranteed live."
+    ) in page_response.text
+    assert "Showing 1 of 7 current player(s)" in page_response.text
+    assert payload["source"] == "rcon.roster"
+    assert payload["cache_status"] == "stale_roster_unavailable"
+    assert payload["freshness"] == "stale"
+    assert payload["is_stale"] is True
+    assert payload["stale_named_roster"] is True
+    assert payload["roster_available"] is False
+    assert payload["count_source"] == "a2s"
+    assert payload["observed_count"] == 7
+    assert payload["total_count"] == 7
+    assert payload["filtered_count"] == 1
+    assert payload["refresh_error"]
+    assert [player["display_name"] for player in payload["players"]] == [
+        "Cached Named Alpha"
+    ]
+    for forbidden in (
+        "raw-refresh-secret",
+        "198.51.100.9",
+        "/home/deus/private-rcon.log",
+    ):
+        assert forbidden not in rendered
+    assert not db_path.exists()
+    assert _player_session_count(db_path) == 0
+
+
+def test_players_reject_expired_stale_named_roster_for_count_only_refresh(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_current_cache, player_sources
+
+    player_current_cache.clear_current_roster_cache()
+    player_current_cache.store_persistent_current_roster_snapshot(
+        player_current_cache.CurrentRosterSnapshot(
+            instance="default",
+            players=(
+                player_current_cache.CurrentRosterPlayerSnapshot(
+                    display_name="Expired Cached Alpha",
+                    reliable_id=PLAYER_ALPHA_ID,
+                    source="rcon.guid",
+                ),
+            ),
+            source="rcon.roster",
+            status="available",
+            error="",
+            collected_at="1970-01-01T00:00:00+00:00",
+            observed_count=1,
+            count_source="rcon",
+            roster_available=True,
+            roster_configured=True,
+        ),
+        data_root=tmp_path,
+    )
+    calls: list[str] = []
+
+    def count_only_roster(instance: str) -> CurrentPlayerRoster:
+        calls.append(instance)
+        return _count_only_roster(7)
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        count_only_roster,
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    page_response = client.get("/players", follow_redirects=False)
+    json_response = client.get("/players/current.json", follow_redirects=False)
+    payload = json_response.json()
+    db_path = tmp_path / "default" / "players.db"
+
+    assert page_response.status_code == 200
+    assert json_response.status_code == 200
+    assert calls == ["default"]
+    assert "Expired Cached Alpha" not in page_response.text
+    assert ">Stale roster</span>" not in page_response.text
+    assert (
+        "Named roster unavailable; a2s reports 7 current player(s). "
+        "No player names are available."
+    ) in page_response.text
+    assert payload["source"] == "a2s"
+    assert payload["cache_status"] == "hit"
+    assert payload["freshness"] == "fresh"
+    assert payload["is_stale"] is False
+    assert payload["stale_named_roster"] is False
+    assert payload["roster_available"] is False
+    assert payload["count_source"] == "a2s"
+    assert payload["observed_count"] == 7
+    assert payload["players"] == []
+    assert not db_path.exists()
+    assert _player_session_count(db_path) == 0
+
+
+def test_players_keep_recent_stale_named_roster_when_a2s_zero_and_rcon_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_current_cache, player_sources
+
+    player_current_cache.clear_current_roster_cache()
+    player_current_cache.store_persistent_current_roster_snapshot(
+        player_current_cache.CurrentRosterSnapshot(
+            instance="default",
+            players=(
+                player_current_cache.CurrentRosterPlayerSnapshot(
+                    display_name="Previously Online Alpha",
+                    reliable_id=PLAYER_ALPHA_ID,
+                    source="rcon.guid",
+                ),
+            ),
+            source="rcon.roster",
+            status="available",
+            error="",
+            collected_at=(
+                datetime.now(timezone.utc) - timedelta(seconds=30)
+            ).isoformat(),
+            observed_count=1,
+            count_source="rcon",
+            roster_available=True,
+            roster_configured=True,
+        ),
+        data_root=tmp_path,
+    )
+    calls: list[str] = []
+
+    def empty_count_only_roster(instance: str) -> CurrentPlayerRoster:
+        calls.append(instance)
+        return _count_only_roster(0)
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        empty_count_only_roster,
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+    response = client.get("/players/current.json", follow_redirects=False)
+    payload = response.json()
+    db_path = tmp_path / "default" / "players.db"
+
+    assert response.status_code == 200
+    assert calls == ["default"]
+    assert payload["source"] == "rcon.roster"
+    assert payload["cache_status"] == "stale_roster_unavailable"
+    assert payload["freshness"] == "stale"
+    assert payload["is_stale"] is True
+    assert payload["stale_named_roster"] is True
+    assert payload["roster_available"] is False
+    assert payload["count_source"] == "rcon"
+    assert payload["observed_count"] == 1
+    assert payload["refresh_error"]
+    assert payload["players"] == [
+        _unavailable_current_player_payload("Previously Online Alpha")
+    ]
     assert not db_path.exists()
     assert _player_session_count(db_path) == 0
 
@@ -2038,8 +2281,24 @@ def test_current_players_polling_js_uses_no_store_and_preserves_search():
     assert "cache: \"no-store\"" in script
     assert "url.searchParams.set(\"player_search\", query)" in script
     assert "currentPlayersCountOnlyTemplate" in script
+    assert "Named roster unavailable; {source} reports {count}" in script
     assert "data.observed_count" in script
     assert "data.roster_available === false" in script
+    assert "data.stale_named_roster === true" in script
+    assert "data.refresh_error || data.error" in script
+    assert "data.cache_age_seconds" in script
+    assert "data-current-players-cache-status" in script
+    assert "data-current-players-count-source" in script
+    assert "data-current-players-observed-count" in script
+    assert "setWarning(warningMessage(data, preserveRenderedRows))" in script
+    assert "function shouldPreserveRenderedRows(data)" in script
+    assert 'tableBody.querySelector(".player-current-main-row")' in script
+    assert "hasRenderedRows &&" in script
+    assert "observedCount(data) === 0" in script
+    assert "data.available !== true" in script
+    assert "Boolean(data.refresh_error || data.error" not in script
+    assert "const preserveRenderedRows = shouldPreserveRenderedRows(data)" in script
+    assert "if (!preserveRenderedRows)" in script
     assert "window.setInterval(refreshCurrentPlayers, intervalMs)" in script
     assert "currentPlayersDetailsLabel" in script
     assert "function playerRows" in script
@@ -2076,6 +2335,58 @@ def test_current_players_polling_js_uses_no_store_and_preserves_search():
     assert "removeAttribute(\"hidden\")" in script
     assert "setAttribute(\"hidden\", \"\")" in script
     assert "const detailsRow = document.getElementById(targetId)" in script
+    mark_start = script.index("  function markUnavailable() {")
+    mark_end = script.index("\n\n  async function refreshCurrentPlayers", mark_start)
+    mark_unavailable = script[mark_start:mark_end]
+    assert "setWarning(labels.unavailableWarning)" in mark_unavailable
+    assert "updateRows" not in mark_unavailable
+    assert "replaceChildren" not in mark_unavailable
+    assert "setText(sourceNode" not in mark_unavailable
+    assert "setText(ageNode" not in mark_unavailable
+
+
+def test_players_current_json_marks_source_failure_without_cache_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import player_current_cache, player_sources
+
+    player_current_cache.clear_current_roster_cache()
+
+    def unavailable_roster(_instance: str) -> CurrentPlayerRoster:
+        raise RuntimeError(
+            "RCON unavailable token=raw-refresh-secret from 198.51.100.9"
+        )
+
+    monkeypatch.setattr(
+        player_sources,
+        "load_current_player_roster",
+        unavailable_roster,
+    )
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get("/players/current.json", follow_redirects=False)
+    payload = response.json()
+    page_response = client.get("/players", follow_redirects=False)
+    rendered = page_response.text + json.dumps(payload, sort_keys=True)
+
+    assert response.status_code == 200
+    assert payload["available"] is False
+    assert payload["freshness"] == "unavailable"
+    assert payload["is_stale"] is False
+    assert payload["cache_status"] == "error"
+    assert payload["roster_available"] is False
+    assert payload["observed_count"] == 0
+    assert payload["players"] == []
+    assert page_response.status_code == 200
+    assert "Current player list unavailable." in page_response.text
+    assert (
+        ">Live roster source unavailable; keeping the previously rendered rows."
+        not in page_response.text
+    )
+    assert "raw-refresh-secret" not in rendered
+    assert "198.51.100.9" not in rendered
+    assert not (tmp_path / "default" / "players.db").exists()
 
 
 def test_players_route_uses_fresh_current_roster_cache(tmp_path: Path, monkeypatch):
@@ -2104,7 +2415,12 @@ def test_players_route_uses_fresh_current_roster_cache(tmp_path: Path, monkeypat
     assert "Live Alpha" in first.text
     assert "Live Alpha" in second.text
     assert "Updated" in first.text
+    assert "Cache status" in second.text
+    assert ">hit<" in second.text
+    assert "Freshness" in second.text
     assert "data-current-players-stale hidden" in second.text
+    assert "data-current-players-fresh" in second.text
+    assert "data-current-players-warning hidden" in second.text
     assert not (tmp_path / "default" / "players.db").exists()
 
 
@@ -2129,6 +2445,10 @@ def test_players_current_json_uses_fresh_persistent_cache_without_live_source(
             status="available",
             error="",
             collected_at=datetime.now(timezone.utc).isoformat(),
+            observed_count=1,
+            count_source="rcon",
+            roster_available=True,
+            roster_configured=True,
         ),
         data_root=tmp_path,
     )
@@ -2153,6 +2473,12 @@ def test_players_current_json_uses_fresh_persistent_cache_without_live_source(
     payload = response.json()
     assert payload["cache_status"] == "persistent"
     assert payload["is_stale"] is False
+    assert payload["freshness"] == "fresh"
+    assert payload["roster_available"] is True
+    assert payload["count_source"] == "rcon"
+    assert payload["observed_count"] == 1
+    assert payload["refresh_error"] == ""
+    assert payload["stale_named_roster"] is False
     assert payload["players"] == [
         _unavailable_current_player_payload("Persistent Alpha")
     ]
@@ -2181,7 +2507,13 @@ def test_players_current_json_serves_stale_persistent_cache_on_live_failure(
             source="rcon.roster",
             status="available",
             error="",
-            collected_at="1970-01-01T00:00:00+00:00",
+            collected_at=(
+                datetime.now(timezone.utc) - timedelta(seconds=30)
+            ).isoformat(),
+            observed_count=1,
+            count_source="rcon",
+            roster_available=True,
+            roster_configured=True,
         ),
         data_root=tmp_path,
     )
@@ -2205,6 +2537,10 @@ def test_players_current_json_serves_stale_persistent_cache_on_live_failure(
     payload = response.json()
     assert payload["cache_status"] == "stale_persistent"
     assert payload["is_stale"] is True
+    assert payload["freshness"] == "stale"
+    assert payload["roster_available"] is False
+    assert payload["stale_named_roster"] is True
+    assert payload["refresh_error"]
     assert payload["players"][0]["display_name"] == "Persistent Stale Alpha"
     assert "raw-roster-secret" not in rendered
     assert "198.51.100.9" not in rendered
@@ -2276,7 +2612,13 @@ def test_players_route_serves_stale_cache_when_live_roster_fails(
         source="rcon.roster",
         status="available",
         error="",
-        collected_at="1970-01-01T00:00:00+00:00",
+        collected_at=(
+            datetime.now(timezone.utc) - timedelta(seconds=30)
+        ).isoformat(),
+        observed_count=1,
+        count_source="rcon",
+        roster_available=True,
+        roster_configured=True,
     )
     player_current_cache.store_current_roster_snapshot(
         stale_snapshot,
@@ -2303,7 +2645,11 @@ def test_players_route_serves_stale_cache_when_live_roster_fails(
     assert response.status_code == 200
     assert calls == ["default"]
     assert "Cached Alpha" in html
-    assert "Stale" in html
+    assert "Stale roster" in html
+    assert (
+        "Showing cached named roster because the live roster source is unavailable. "
+        "These rows are stale and not guaranteed live."
+    ) in html
     assert "raw-roster-secret" not in html
     assert "198.51.100.9" not in html
     assert "/home/deus/private.log" not in html
@@ -2340,7 +2686,14 @@ def test_players_current_json_uses_current_roster_cache_without_db_writes(
     payload = second.json()
     assert payload["source"] == "rcon.roster"
     assert payload["age_seconds"] is not None
+    assert payload["cache_age_seconds"] == payload["age_seconds"]
     assert payload["is_stale"] is False
+    assert payload["freshness"] == "fresh"
+    assert payload["refresh_error"] == ""
+    assert payload["roster_available"] is True
+    assert payload["count_source"] == "rcon"
+    assert payload["observed_count"] == 1
+    assert payload["stale_named_roster"] is False
     assert payload["players"] == [_unavailable_current_player_payload("Json Alpha")]
     persistent = player_current_cache.get_persistent_current_roster_snapshot(
         "default",

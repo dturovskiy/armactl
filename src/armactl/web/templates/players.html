@@ -33,7 +33,19 @@
   data-current-players-empty-search-label="{{ t("No current players match search.") }}"
   data-current-players-empty-online-label="{{ t("No current players online.") }}"
   data-current-players-empty-unavailable-label="{{ t("Current player list unavailable.") }}"
-  data-current-players-count-only-template="{{ t("Roster unavailable; A2S reports {count} current player(s).") }}"
+  data-current-players-count-only-template="{{ t("Named roster unavailable; {source} reports {count} current player(s). No player names are available.") }}"
+  data-current-players-stale-warning-label="{{ t("Showing cached named roster because the live roster source is unavailable. These rows are stale and not guaranteed live.") }}"
+  data-current-players-unavailable-warning-label="{{ t("Live roster source unavailable; keeping the previously rendered rows. They are not guaranteed live.") }}"
+  data-current-players-cache-status-label="{{ t("Cache status") }}"
+  data-current-players-cache-age-label="{{ t("Cache age") }}"
+  data-current-players-freshness-label="{{ t("Freshness") }}"
+  data-current-players-fresh-label="{{ t("Fresh") }}"
+  data-current-players-roster-available-label="{{ t("Roster available") }}"
+  data-current-players-available-label="{{ t("Available") }}"
+  data-current-players-count-source-label="{{ t("Count source") }}"
+  data-current-players-observed-count-label="{{ t("Observed count") }}"
+  data-current-players-refresh-error-label="{{ t("Refresh error") }}"
+  data-current-players-stale-roster-label="{{ t("Stale roster") }}"
   data-current-players-details-label="{{ t("Details") }}"
   data-current-players-identity-id-label="{{ t("Identity ID") }}"
   data-current-players-no-reliable-id-label="{{ t("No reliable ID") }}"
@@ -74,16 +86,28 @@
       </form>
     </div>
   </div>
-  <dl class="compact-dl">
+  {% set stale_roster_unavailable = page.stale_named_roster and not page.roster_available %}
+  {% set count_only_unavailable = page.observed_count > 0 and not page.roster_available and not page.stale_named_roster %}
+  {% set source_unavailable = not page.available %}
+  <p class="notice-panel notice-warning" data-current-players-warning{% if not stale_roster_unavailable and not count_only_unavailable and not source_unavailable %} hidden{% endif %}>{% if stale_roster_unavailable %}{{ t("Showing cached named roster because the live roster source is unavailable. These rows are stale and not guaranteed live.") }}{% elif count_only_unavailable %}{{ tr("Named roster unavailable; {source} reports {count} current player(s). No player names are available.", source=page.count_source, count=page.observed_count) }}{% elif source_unavailable %}{{ t("Current player list unavailable.") }}{% endif %}</p>
+  <dl class="compact-dl" data-current-players-diagnostics>
     <dt>{{ t("Source") }}</dt><dd data-current-players-source>{{ page.source }}</dd>
     <dt>{{ t("Status") }}</dt><dd data-current-players-status>{{ page.status }}</dd>
-    <dt>{{ t("Updated") }}</dt>
-    <dd>
-      <span data-current-players-age>{% if page.age_seconds is not none %}{{ tr("{seconds}s ago", seconds=page.age_seconds) }}{% else %}{{ t("Unknown") }}{% endif %}</span>
-      <span class="status-pill status-pill-warning" data-current-players-stale{% if not page.is_stale %} hidden{% endif %}>{{ t("Stale") }}</span>
+    <dt>{{ t("Cache status") }}</dt><dd data-current-players-cache-status>{{ page.cache_status }}</dd>
+    <dt>{{ t("Cache age") }}</dt><dd data-current-players-age>{% if page.age_seconds is not none %}{{ tr("{seconds}s ago", seconds=page.age_seconds) }}{% else %}{{ t("Unknown") }}{% endif %}</dd>
+    <dt>{{ t("Freshness") }}</dt>
+    <dd data-current-players-freshness>
+      <span class="status-pill{% if page.is_stale %} status-pill-warning{% endif %}" data-current-players-stale{% if not page.is_stale %} hidden{% endif %}>{{ t("Stale") }}</span>
+      <span data-current-players-fresh{% if page.freshness != "fresh" %} hidden{% endif %}>{{ t("Fresh") }}</span>
+      <span data-current-players-freshness-unavailable{% if page.freshness != "unavailable" %} hidden{% endif %}>{{ t("unavailable") }}</span>
     </dd>
+    <dt>{{ t("Roster available") }}</dt><dd data-current-players-roster-available>{% if page.roster_available %}{{ t("Available") }}{% else %}{{ t("unavailable") }}{% endif %}</dd>
+    <dt>{{ t("Count source") }}</dt><dd data-current-players-count-source>{{ page.count_source }}</dd>
+    <dt>{{ t("Observed count") }}</dt><dd data-current-players-observed-count>{{ page.observed_count }}</dd>
+    <dt data-current-players-refresh-error-label{% if not page.refresh_error %} hidden{% endif %}>{{ t("Refresh error") }}</dt>
+    <dd class="error" data-current-players-error{% if not page.refresh_error %} hidden{% endif %}>{{ page.refresh_error }}</dd>
+    <dt>{{ t("Updated") }}</dt><dd>{% if page.updated_at %}{{ format_web_timestamp(page.updated_at) }}{% else %}{{ t("Unknown") }}{% endif %}</dd>
   </dl>
-  <p class="error" data-current-players-error{% if not page.error %} hidden{% endif %}>{{ page.error }}</p>
 
   <form method="get" action="/players" class="player-search-form">
     <label>
@@ -116,7 +140,7 @@
         <tr class="player-current-main-row">
           <td><strong class="player-current-name wrap-value">{{ player.display_name }}</strong></td>
           <td>
-            <span class="status-pill">{{ page.status }}</span>
+            <span class="status-pill{% if page.stale_named_roster %} status-pill-warning{% endif %}">{% if page.stale_named_roster %}{{ t("Stale roster") }}{% else %}{{ page.status }}{% endif %}</span>
             <span class="player-row-subtle">{% if page.age_seconds is not none %}{{ tr("{seconds}s ago", seconds=page.age_seconds) }}{% else %}{{ t("Unknown") }}{% endif %}</span>
           </td>
           <td class="{% if not player.stats_available or player.kills is none %}player-current-placeholder {% endif %}player-stat-number">{% if player.stats_available and player.kills is not none %}{{ player.kills }}{% else %}—{% endif %}</td>
@@ -167,8 +191,7 @@
       </tbody>
     </table>
   </div>
-  {% set count_only_unavailable = page.observed_count > 0 and not page.roster_available %}
-  <p class="muted" data-current-players-empty{% if players %} hidden{% endif %}>{% if count_only_unavailable %}{{ tr("Roster unavailable; A2S reports {count} current player(s).", count=page.observed_count) }}{% elif query %}{{ t("No current players match search.") }}{% elif page.available %}{{ t("No current players online.") }}{% else %}{{ t("Current player list unavailable.") }}{% endif %}</p>
+  <p class="muted" data-current-players-empty{% if players %} hidden{% endif %}>{% if count_only_unavailable %}{{ tr("Named roster unavailable; {source} reports {count} current player(s). No player names are available.", source=page.count_source, count=page.observed_count) }}{% elif query %}{{ t("No current players match search.") }}{% elif page.available %}{{ t("No current players online.") }}{% else %}{{ t("Current player list unavailable.") }}{% endif %}</p>
   <p class="muted">{{ t("Current stats use only fresh log evidence inside the proven play-session window; unavailable values and role show —.") }}</p>
 </section>
 {% endblock %}

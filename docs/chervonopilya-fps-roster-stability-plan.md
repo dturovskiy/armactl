@@ -27,7 +27,7 @@ Observed on 2026-07-10 during live read-only checks:
 
 Initial conclusion: the FPS drop is not explained by armactl web code or by the max-FPS profile. The strongest current signal is ACE Medical script exception spam inside the game update loop.
 
-### Current roster flicker
+### Current roster flicke
 
 Observed/confirmed during live read-only checks:
 
@@ -120,7 +120,7 @@ After applying a chosen mitigation during a safe window:
 - [ ] Confirm FPS stabilizes close to expected values for current player count.
 - [ ] Keep rollback instructions ready if the server fails to become ready or spam continues.
 
-## 4. Investigation Plan: Current Roster Flicker
+## 4. Investigation Plan: Current Roster Flicke
 
 ### Slice R1: Confirm read issue vs real disconnects
 
@@ -160,6 +160,23 @@ Acceptance criteria:
 - If named rows are stale, the UI says stale instead of pretending they are live.
 - If only count is available, the UI does not fabricate names.
 - No GET route writes `players.db` or creates sessions.
+
+### Slice R2-a result: diagnostics and stale/unavailable clarity
+
+Implemented locally on 2026-07-10 without changing the roster source of truth:
+
+- `/players` and `/players/current.json` now expose source, cache status, cache age, fresh/stale state, roster availability, count source, observed count, and sanitized refresh error.
+- A named RCON roster cache may be shown only when it is within the existing acceptable stale window. The rows are explicitly labeled `Stale roster` and the UI states that the live roster source is unavailable and the rows are not guaranteed live.
+- A positive live count-only result keeps its `count_source` and `observed_count` while acceptable stale named rows are displayed.
+- An A2S zero combined with unavailable RCON does not immediately erase a recent named roster: the effective count remains explicitly stale RCON evidence until the existing stale window expires. After expiry, the live zero clears the rows.
+- Count-only states show the observed count and source without creating synthetic names.
+- Named cache data older than the allowed stale age is rejected instead of being presented as live or acceptable stale roster data.
+- Polling and server-rendered output use the same diagnostics and warning states. A single polling transport failure keeps the previously rendered rows and marks the live roster source unavailable instead of silently clearing the table.
+- GET reads do not create or mutate `players.db` or player sessions. No current-stat, Discord/public-stat, daemon, service, game-server, deploy, or restart behavior was added.
+
+Validation for this slice covers fresh memory cache, fresh persistent cache, acceptable stale named fallback, count-only output, expired stale rejection, polling static behavior, sanitization, and read-only GET behavior.
+
+Remaining roster work is operational rather than part of R2-a: decide whether to enable the existing current-cache updater service, then perform web-only production validation under Slice R3.
 
 ### Slice R3: Production validation
 

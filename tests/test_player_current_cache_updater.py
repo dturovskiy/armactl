@@ -192,6 +192,9 @@ def test_current_roster_cache_keeps_recent_rcon_snapshot_on_a2s_zero_fallback(
     assert result.snapshot.total_count == 5
     assert [player.display_name for player in result.snapshot.players] == ["Alpha", "Bravo"]
     assert result.refresh_error == "RCON command timed out."
+    assert result.observed_count == 5
+    assert result.count_source == "rcon"
+    assert result.roster_available is False
     assert loaded is not None
     assert loaded.total_count == 5
     assert loaded.count_source == "rcon"
@@ -268,6 +271,9 @@ def test_current_roster_cache_keeps_recent_rcon_snapshot_on_a2s_count_only_fallb
     assert result.snapshot.total_count == 2
     assert [player.display_name for player in result.snapshot.players] == ["Alpha", "Bravo"]
     assert result.refresh_error == "RCON command timed out."
+    assert result.observed_count == 5
+    assert result.count_source == "a2s"
+    assert result.roster_available is False
     assert loaded is not None
     assert loaded.total_count == 2
     assert loaded.count_source == "rcon"
