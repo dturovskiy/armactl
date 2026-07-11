@@ -1,6 +1,6 @@
 # Player Session Stats Contract
 
-This document is the source of truth for current-player combat, faction, and session columns without heuristic shortcuts. Slices C, D, and E provide checkpointed ingest freshness metadata, explicit reconnect-aware play-session windows, and read-only session-scoped aggregation. Slice F2-a now provides a locally implemented systemd oneshot service/timer foundation for the shared F1 ingest path. Installation never enables or starts the timer and preserves any existing enablement state; activation is explicit, and production deployment/observation remains open for F2-b. No app-start worker, browser poller, hidden thread, GET-side ingest, or player-session scheduler was enabled.
+This document is the source of truth for current-player combat, faction, and session columns without heuristic shortcuts. Slices C, D, and E provide checkpointed ingest freshness metadata, explicit reconnect-aware play-session windows, and read-only session-scoped aggregation. Slice F2-a provides the systemd oneshot/timer foundation for the shared F1 ingest path, F2-c provides bounded incremental active-log coverage, and F2-b production acceptance is complete on Serhiivka and Chervonopilya. Installation remains disabled by default and preserves existing enablement; production activation was explicit. No app-start worker, browser poller, hidden thread, GET-side ingest, or player-session scheduler was enabled.
 
 Busy-server acceptance also requires the bounded incremental contract in [player-log-ingest-incremental-contract.md](player-log-ingest-incremental-contract.md). An oversized active log is tailed once and then read from persisted append offsets; active-source coverage start is stored explicitly, and statistics stay unavailable for any session that began before that proven coverage.
 
@@ -75,7 +75,7 @@ The current freshness gate requires all of the following:
 - At least one checkpoint for the same scope is marked `scanned` with a scan timestamp.
 - Fresh coverage reaches or exceeds the open play-session start.
 
-Missing, `no_logs`, partial, failed, stale, malformed, or checkpoint-free freshness cannot prove a zero and returns nullable stats with a safe unavailable reason. The explicit manual job and foreground `players log-ingest run --once` remain available. Slice F2-a adds generated `armactl-player-log-ingest.service` and `armactl-player-log-ingest.timer` units plus explicit install/enable/disable/status commands. Installation leaves the 120-second completion-relative timer disabled; only an explicit enable activates it. Production deployment and proof that stats refresh without the manual button remain F2-b work. This runner is not a hidden daemon, app-start hook, browser poller, GET mutation, or player-session scheduler.
+Missing, `no_logs`, partial, failed, stale, malformed, or checkpoint-free freshness cannot prove a zero and returns nullable stats with a safe unavailable reason. The explicit manual job and foreground `players log-ingest run --once` remain available. Slice F2-a adds generated `armactl-player-log-ingest.service` and `armactl-player-log-ingest.timer` units plus explicit install/enable/disable/status commands. Installation leaves the 120-second completion-relative timer disabled; only an explicit enable activates it. F2-b production acceptance proved repeated automatic freshness without the manual button on both target VMs, including the F2-c bounded busy-log path. This runner is not a hidden daemon, app-start hook, browser poller, GET mutation, or player-session scheduler.
 
 ## Parser Stability Contract
 
@@ -155,7 +155,7 @@ Occurrence-time contract: the pure parser can preserve a raw time prefix, but tr
 
 ### Implemented Slice Acceptance
 
-Slice C automatic log ingest foundation, Slice F1 reusable foreground foundation, and Slice F2-a local supervised service foundation are implemented locally. One synchronous service reuses the current collector/parser/player-registry ingest path, owns allowlisted discovery plus checkpoint/freshness orchestration, and is called by the thin manual web job adapter, `armactl players log-ingest run --once`, and the F2-a systemd oneshot wrapper. It preserves occurrence-time evidence, handles unchanged/appended/missing/rotated/truncated/oversized logs with controlled counts, rejects overlapping instance/scope runs with the same process-lifetime file lock, and reports sanitized counts-only output. F2-a installs no second parser, collector, SQL pipeline, checkpoint/freshness ledger, background thread, GET trigger, or player-session scheduler; installation does not enable or start its timer.
+Slice C automatic log ingest foundation, Slice F1 reusable foreground foundation, Slice F2-a supervised service foundation, F2-c bounded incremental active-log support, and F2-b VM acceptance are implemented. One synchronous service reuses the current collector/parser/player-registry ingest path, owns allowlisted discovery plus checkpoint/freshness orchestration, and is called by the thin manual web job adapter, `armactl players log-ingest run --once`, and the F2-a systemd oneshot wrapper. It preserves occurrence-time evidence, handles unchanged/appended/missing/rotated/truncated/oversized logs with controlled counts, rejects overlapping instance/scope runs with the same process-lifetime file lock, and reports sanitized counts-only output. F2-a installs no second parser, collector, SQL pipeline, checkpoint/freshness ledger, background thread, GET trigger, or player-session scheduler; installation does not enable or start its timer. Production enablement was an explicit operator action after validation.
 
 Slice D play-session/reconnect modeling is implemented. It keeps server-run boundary storage explicit and uses same reliable ID, same server run, compatible close reason, reconnect grace, no lifecycle boundary in the gap, and no identity conflict as hard merge gates. It does not merge or close sessions from count-only, name-only, ambiguous-time, failed-staleness, or multi-match correlation evidence.
 
@@ -257,7 +257,7 @@ Before adding Discord player columns, require:
 - [x] Keep status read-only and controlled for missing units or missing `players.db`; report unit existence, enabled/active/failed/result state, timer next trigger, and stored freshness.
 - [x] Do not restart or mutate `armareforger.service`, start work from GET/browser/app startup, couple to the player-session scheduler, or add a daemon/background thread.
 
-The acceptance criteria “stats update without the manual button” and “manual collection is not the only freshness path” remain open until F2-b deploys and observes the explicitly enabled timer on a VM. Stats also remain unavailable without a proven open play session; F2-a does not silently enable the separate player-session scheduler.
+The ingest acceptance criteria “freshness updates without the manual button” and “manual collection is not the only freshness path” are complete after F2-b VM observation. Stats still remain unavailable without a proven open play session covered from its opening; F2-a does not silently enable the separate player-session scheduler.
 
 ### Slice D: Play-Session/Reconnect Model - implemented
 
@@ -283,9 +283,9 @@ The acceptance criteria “stats update without the manual button” and “manu
 ### Slice F: UI Smoke And Cleanup
 
 - Verify the implemented `/players` details, nullable rendering, safe unavailable wording, and browser polling behavior in an approved environment.
-- In F2-b, install and explicitly enable the F2-a player-log ingest timer on Serhiivka first, observe repeated successful/non-overlapping cycles and freshness without the manual button, and keep the separate player-session scheduler disabled unless separately approved.
+- F2-b VM acceptance is complete on Serhiivka and Chervonopilya: the timer was explicitly enabled, repeated cycles stayed fresh/non-overlapping, and the separate player-session scheduler remained disabled.
 - Verify no fake zeroes and no accumulation across real new sessions; stats still require a proven open play session.
-- Run Chervonopilya only after Serhiivka evidence and explicit approval.
+- Chervonopilya deployment followed successful Serhiivka evidence and explicit approval.
 
 ### Slice G: Discord/Public Evaluation
 
@@ -296,8 +296,8 @@ The acceptance criteria “stats update without the manual button” and “manu
 ## Acceptance Checklist
 
 - [x] Ingest foundation has checkpoint/freshness metadata and no longer requires rescanning unchanged logs from the manual button.
-- [ ] Current stats do not require manual Update events from logs to become fresh.
-- [ ] Manual log collection remains available but is not the only freshness path.
+- [x] Log freshness does not require manual Update events from logs.
+- [x] Manual log collection remains available but is not the only freshness path.
 - [x] A player reconnecting within 10 minutes after a compatible network/drop absence continues the same play session.
 - [x] A player reconnecting after the grace window starts a new play session.
 - [x] Server lifecycle boundary always starts a new play session.
@@ -312,8 +312,8 @@ The acceptance criteria “stats update without the manual button” and “manu
 - [x] /players and /players/current.json stay GET-read-only for players.db and session/stat state.
 - [x] Job output and audit details are counts-only and sanitized.
 - [x] No raw log lines, raw paths, raw RCON rows, IPs, secrets, public player IDs, or Discord enrichment are introduced.
-- [ ] Serhiivka VM smoke passes before any Chervonopilya deploy.
+- [x] Serhiivka VM smoke passed before Chervonopilya deployment and observation.
 
 ## Immediate Next Recommended Slice
 
-Slice F2-a is implemented locally: generated oneshot/timer units, explicit install/enable/disable/status commands, completion-relative 120-second cadence, bounded runtime guard, restrained priority, controlled lock skips, and bounded scheduled audit transitions all reuse the F1 service. The immediate next step is F2-b VM deployment: Serhiivka first, explicitly install and enable the timer, verify repeated cycles and current freshness without the manual button, confirm no game-service restart and no player-session scheduler enablement, then consider Chervonopilya only with explicit approval. Do not claim automatic acceptance before that deployment evidence; stats still require a proven open play session.
+F2-a/F2-b/F2-c automatic log freshness is accepted on both target VMs. The next player-truth slice should prove the complete automatic session pipeline with real players: reliable session open/close and reconnect behavior, coverage from session opening, and current-player nullable-to-real stat transitions without pressing manual buttons. Design any supervised session scheduler/service explicitly before enabling it; keep GET/browser triggers, fake zeroes, and hidden threads forbidden. Discord/public enrichment and historical oversized-log backfill remain separate later decisions.

@@ -1,7 +1,7 @@
 # Player Log Incremental Ingest Contract
 
-This document defines Slice F2-c, the bounded incremental-ingest contract needed
-before the supervised player-log timer can be accepted on a busy server.
+This document defines Slice F2-c, the bounded incremental-ingest contract used
+to accept the supervised player-log timer on a busy server.
 
 ## Production Finding
 
@@ -83,10 +83,26 @@ Raising the whole-file limit would only postpone the failure and increase I/O.
 - [x] Persisted v11 offset, parser-state, file-identity, and coverage metadata.
 - [x] Read-only compatibility with legacy ingest metadata.
 - [x] Session-stat coverage gate prevents partial-window zeroes.
-- [ ] Busy-VM deployment: run one explicit foreground pass, verify bounded output
-  and coverage, install disabled timer, then explicitly enable it.
-- [ ] Observe repeated successful timer cycles, advancing freshness, no duplicate
-  growth, no raw-data journal output, and unchanged game/web process state.
+- [x] Busy-VM deployment: an explicit foreground pass hit the bounded line-limit
+  backlog, the next pass caught up to fresh coverage, and the timer was installed
+  disabled before explicit operator enablement.
+- [x] Repeated successful timer cycles advanced freshness without overlap,
+  duplicate growth, raw-data journal output, or game/web process changes.
+
+## Production Acceptance
+
+- Serhiivka accepted the supervised completion-relative timer on the quiet-log
+  path and remained fresh across scheduled cycles.
+- Chervonopilya proved the busy-log path: the first bounded pass reported a
+  controlled line-limit backlog, the second pass caught up, and later scheduled
+  cycles remained fresh while reading only appended data.
+- Oversized historical logs remained sanitized non-blocking counts. They were
+  not silently treated as scanned and are still excluded from current coverage.
+- The game and web services were not restarted by install, enable, or ingest.
+  The separate player-session scheduler remained disabled.
+- This acceptance proves automatic log freshness, not a complete current-player
+  stat window. Stats still require a proven open play session whose opening is
+  at or after `coverage_started_at`.
 
 ## Explicitly Out Of Scope
 
