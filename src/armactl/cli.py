@@ -1111,6 +1111,143 @@ def players() -> None:
     """Player cache and registry tools."""
 
 
+def _format_player_log_ingest_result(result) -> str:
+    lines = [
+        "Player log ingest one-shot result.",
+        f"  Instance:        {result.instance}",
+        f"  Outcome:         {result.outcome}",
+        f"  Freshness:       {result.freshness_status}",
+        f"  Files considered:{result.files_considered:>5}",
+        f"  Files selected:  {result.files_selected_for_scan:>5}",
+        f"  Files scanned:   {result.files_scanned:>5}",
+        f"  Files skipped:   {result.files_skipped:>5}",
+        f"  Lines scanned:   {result.scanned_lines:>5}",
+        f"  Parsed events:   {result.parsed_events:>5}",
+        f"  Stored events:   {result.stored_events:>5}",
+        f"  Duplicates:      {result.duplicate_events:>5}",
+        f"  Errors:          {result.error_count:>5}",
+        f"  Checkpoint write:{' yes' if result.checkpoint_updated else ' no'}",
+    ]
+    if result.skipped_reasons:
+        lines.append(f"  Skip reasons:    {result.skipped_reasons}")
+    if result.checkpoint_reset_reasons:
+        lines.append(f"  Checkpoint reset:{result.checkpoint_reset_reasons}")
+    if result.failure_code:
+        lines.append(f"  Failure code:    {result.failure_code}")
+    lines.append("  Runner mode:     synchronous --once; no daemon or background thread.")
+    return "\n".join(lines)
+
+
+def _format_player_log_ingest_status(status) -> str:
+    return "\n".join(
+        [
+            "Player log ingest status (read-only).",
+            f"  Instance:        {status.instance}",
+            f"  State:           {status.state} ({status.reason})",
+            f"  Freshness:       {status.freshness_status}",
+            f"  Last run:        {status.last_run_at or '-'}",
+            f"  Last success:    {status.last_success_at or '-'}",
+            f"  Checkpoints:     {status.checkpoint_count}",
+            f"  Scanned files:   {status.scanned_files}",
+            f"  Parsed events:   {status.parsed_events}",
+            f"  Stored events:   {status.stored_events}",
+            f"  Skipped files:   {status.skipped_files}",
+            f"  Skip reasons:    {status.skipped_reasons or '-'}",
+        ]
+    )
+
+
+@players.group("log-ingest")
+def players_log_ingest() -> None:
+    """Run and inspect the foreground player-log ingest foundation."""
+
+
+@players_log_ingest.command("status")
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Optional armactl data root containing instance players.db.",
+)
+@click.pass_context
+def players_log_ingest_status(
+    ctx: click.Context,
+    data_root: Path | None,
+) -> None:
+    """Show existing freshness/checkpoints without creating or migrating players.db."""
+    from armactl.web.services.player_log_ingest import read_player_log_ingest_status
+
+    root = data_root or paths.DEFAULT_DATA_ROOT
+    status = read_player_log_ingest_status(
+        ctx.obj["instance"],
+        data_root=root,
+    )
+    if ctx.obj["json"]:
+        click.echo(json.dumps(status.to_dict(), indent=2))
+    else:
+        click.echo(_format_player_log_ingest_status(status))
+
+
+@players_log_ingest.command("run")
+@click.option("--once", is_flag=True, help="Run one complete ingest pass and exit.")
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Optional armactl data root containing instance players.db.",
+)
+@click.pass_context
+def players_log_ingest_run(
+    ctx: click.Context,
+    once: bool,
+    data_root: Path | None,
+) -> None:
+    """Run the shared synchronous player-log ingest service once."""
+    from armactl.web.services.audit import AuditLogError, append_audit_event
+    from armactl.web.services.player_log_ingest import run_player_log_ingest_once
+
+    if not once:
+        raise click.ClickException(
+            "Only --once is supported; no service, timer, daemon, or background "
+            "thread is installed or enabled."
+        )
+
+    root = data_root or paths.DEFAULT_DATA_ROOT
+    result = run_player_log_ingest_once(
+        ctx.obj["instance"],
+        data_root=root,
+    )
+    audit_details = result.to_dict()
+    audit_details.update({"phase": "outcome", "runner": "foreground_once"})
+    try:
+        append_audit_event(
+            paths.web_audit_log_file(root),
+            username="player-log-ingest-foreground",
+            action="players.log-ingest.run",
+            instance=result.instance,
+            target="players:log-ingest",
+            success=result.success,
+            message=(
+                "Player log ingest completed."
+                if result.completed
+                else "Player log ingest did not complete."
+            ),
+            exit_code=result.exit_code,
+            details=audit_details,
+        )
+    except AuditLogError as error:
+        raise click.ClickException(
+            "Player log ingest completed, but audit logging failed."
+        ) from error
+
+    if ctx.obj["json"]:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+    else:
+        click.echo(_format_player_log_ingest_result(result))
+    if result.exit_code:
+        raise click.exceptions.Exit(result.exit_code)
+
+
 def _format_player_session_scheduler_run_result(result) -> str:
     lines = [
         "Player session scheduler checked due jobs.",

@@ -230,6 +230,37 @@ Blocked until a later explicit slice: materialized counters, automatic daemon/ti
 
 Slice E acceptance is covered by focused tests for real scoped values, teamkill separation, victim-only deaths, out-of-window exclusion, reconnect merge/split, lifecycle boundaries, stale/missing freshness, missing database/session/reliable ID, GET read-only behavior, and sensitive-output redaction.
 
+#### Slice F1: Reusable Foreground Player-Log Ingest Foundation — implemented locally
+
+The manual-only behavior was caused by one-shot orchestration living inside the `players:collect-log-events` web job handler. The web path persisted a job and dispatched it on a daemon thread, which is appropriate only while the web process remains alive. A short-lived CLI cannot safely enqueue that daemon-thread job and exit, because the interpreter may terminate before the worker completes.
+
+The implemented contract is:
+
+```text
+manual web job ─┐
+                ├─> shared synchronous one-shot ingest service
+foreground CLI ─┘          │
+                           ├─ existing allowlisted log discovery
+                           ├─ existing collector/parser
+                           ├─ existing checkpoint planner
+                           ├─ existing registry ingest
+                           └─ existing freshness storage
+```
+
+Audit/design decisions:
+
+1. One-shot orchestration now belongs to `web/services/player_log_ingest.py`; it resolves the fixed instance allowlist, takes the shared scope lock, plans checkpoint work, invokes the existing collector, persists checkpoints/freshness through existing registry helpers, waits for completion, and returns a typed counts-only result.
+2. The web job is a thin adapter. It owns web-job progress/result formatting and the existing manual intent/outcome audit semantics, while the shared service contains no route or CLI formatting.
+3. The daemon-thread web job runner is not used by the foreground CLI. `armactl players log-ingest run --once` calls the shared service directly and blocks until the complete ingest result is available.
+4. Existing `web_jobs` active-job dedupe remains the manual request ledger. Cross-process overlap between a manual worker and foreground CLI is prevented by one nonblocking instance/scope `flock`; the lock is released by the kernel on process death, so a leftover lock file is harmless and no second persistent dedupe ledger or process-kill path is introduced.
+5. Checkpoints and freshness continue to survive restart in the existing instance `players.db` tables. Failed/partial runs cannot manufacture a fresh success; the existing last-success preservation contract remains authoritative.
+6. Manual web requests retain one intent record and one terminal outcome record. Foreground one-shot runs write one sanitized counts-only outcome record. Read-only status and individual files/lines do not generate audit records, avoiding audit spam.
+7. `player_log_collector.py`, `player_log_events.py`, and `player_registry.ingest_player_log_events` remain the only parser/collector/storage source of truth. No parser, SQL event pipeline, checkpoint pipeline, freshness pipeline, materialized K/D counters, or session/reconnect semantics were duplicated or changed.
+
+The explicit CLI foundation is `armactl players log-ingest run --once [--data-root ...]` plus read-only `armactl players log-ingest status [--data-root ...]`. Status opens only an existing `players.db` through the registry read-only path, does not create or migrate state, and returns controlled empty/unavailable summaries.
+
+Automatic service/timer installation and enablement remain a separate future service/deploy slice. Therefore the acceptance criterion “current stats become fresh without pressing the manual button” remains open until this foreground runner is deployed as an explicit supervised service. No production, SSH, deploy, restart, or systemd action belongs to Slice F1.
+
 ### Slice 4: Operational Status Telemetry Fix — implemented
 
 Goal: fix false `waiting_for_telemetry` during log spam.

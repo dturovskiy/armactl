@@ -64,7 +64,7 @@ Better-than-timer signals should override the grace fallback when available:
 
 ## Log Ingest Contract
 
-Slice C provides the reusable allowlisted collector/parser/ingest path, per-source checkpoints, idempotent event storage, counts-only job/audit output, and safe freshness metadata. Slice E consumes that stored metadata but never starts ingest from `/players` or `/players/current.json`.
+Slice C provides the reusable allowlisted collector/parser/ingest path, per-source checkpoints, idempotent event storage, counts-only job/audit output, and safe freshness metadata. Slice F1 now exposes that same path as one shared synchronous service used by both the manual web job and an explicit foreground CLI. Slice E consumes stored metadata but never starts ingest from `/players` or `/players/current.json`.
 
 The current freshness gate requires all of the following:
 
@@ -73,7 +73,7 @@ The current freshness gate requires all of the following:
 - At least one checkpoint for the same scope is marked `scanned` with a scan timestamp.
 - Fresh coverage reaches or exceeds the open play-session start.
 
-Missing, `no_logs`, partial, failed, stale, malformed, or checkpoint-free freshness cannot prove a zero and returns nullable stats with a safe unavailable reason. The explicit manual job remains available. An opt-in automatic runner/policy is still future work and must not be implemented as a hidden daemon, timer, app-start hook, or GET mutation.
+Missing, `no_logs`, partial, failed, stale, malformed, or checkpoint-free freshness cannot prove a zero and returns nullable stats with a safe unavailable reason. The explicit manual job remains available. The explicit foreground `players log-ingest run --once` foundation exists, but automatic service/timer installation and enablement remain future work and must not be implemented as a hidden daemon, app-start hook, browser poller, or GET mutation.
 
 ## Parser Stability Contract
 
@@ -149,11 +149,11 @@ Occurrence-time contract: the pure parser can preserve a raw time prefix, but tr
 - Collector fixtures cover bounded reads, dry-run, duplicate imports, sanitized source refs, no raw paths/IPs/raw lines, derived occurrence time from dated log context, exact absolute timestamp prefixes, midnight rollover, and ambiguous time-of-day-only logs.
 - Storage fixtures cover schema columns/indexes, sanitized ingest for auth/update/faction/disconnect/lifecycle/combat, duplicate ingest, disconnect dedupe by correlation fields, ambiguous timestamps not updating known players, legacy timestamp migration/dedupe, and filtered event listing.
 - Sessionization fixtures cover auth/update session open/update, faction and combat as inferred presence only, RPL/connection/slot close only when unambiguous, lifecycle close as server boundary, idempotence, skip without trusted event time, and no stat claims from combat evidence.
-- Current-player enrichment fixtures cover fresh proven windows, true zeroes, stable kills/deaths/TK, teamkill separation, victim-only deaths, AI and ambiguous-time exclusion, last-known faction evidence, out-of-window exclusion, reconnect merge/split behavior, lifecycle boundaries, stale/missing freshness, missing database/session/checkpoints, read-only routes, and sensitive-output redaction. Role remains placeholder-only.
+- Current-player enrichment fixtures cover fresh proven windows, true zeroes, stable kills/deaths/TK, teamkill separation, victim-only deaths, AI and ambiguous-time exclusion, last-known faction evidence, out-of-window exclusion, reconnect merge/split behavior, lifecycle boundaries, stale/missing freshness, missing database/session/checkpoints, read-only routes, and sensitive-output redaction. Foreground ingest fixtures additionally cover shared manual/CLI service use, blocking completion, unchanged/appended evidence, controlled missing/oversized sources, lock contention and stale-file recovery, failed freshness, read-only status, and sanitized CLI/audit output. Role remains placeholder-only.
 
 ### Implemented Slice Acceptance
 
-Slice C automatic log ingest foundation is implemented. It reuses the current collector/parser/player-registry ingest path, adds players.db checkpoint/freshness metadata, keeps GET routes read-only for ingest state, preserves occurrence-time evidence, handles unchanged/missing/rotated/truncated logs with controlled counts, and reports sanitized counts-only job/audit output. It does not enable a daemon, timer, app-start worker, broad scheduler, or public enrichment.
+Slice C automatic log ingest foundation and Slice F1 reusable foreground foundation are implemented locally. One synchronous service reuses the current collector/parser/player-registry ingest path, owns allowlisted discovery plus checkpoint/freshness orchestration, and is called by both the thin manual web job adapter and `armactl players log-ingest run --once`. It preserves occurrence-time evidence, handles unchanged/appended/missing/rotated/truncated/oversized logs with controlled counts, rejects overlapping instance/scope runs with a process-lifetime file lock, and reports sanitized counts-only output. It does not install or enable a daemon, timer, app-start worker, broad scheduler, or public enrichment.
 
 Slice D play-session/reconnect modeling is implemented. It keeps server-run boundary storage explicit and uses same reliable ID, same server run, compatible close reason, reconnect grace, no lifecycle boundary in the gap, and no identity conflict as hard merge gates. It does not merge or close sessions from count-only, name-only, ambiguous-time, failed-staleness, or multi-match correlation evidence.
 
@@ -227,15 +227,24 @@ Before adding Discord player columns, require:
 
 ### Slice C: Automatic Log Ingest Foundation - implemented
 
-- [x] Reuse the existing allowlisted web player-log collection job and current collect_player_log_events -> parser -> player_registry.ingest_player_log_events storage path.
+- [x] Reuse the current allowlisted discovery and `collect_player_log_events` -> parser -> `player_registry.ingest_player_log_events` storage path without a second parser, collector, SQL, checkpoint, or freshness pipeline.
 - [x] Add per-log checkpoint metadata in players.db using safe source hashes, sanitized labels, bounded file fingerprints, size/mtime, and last scanned status.
 - [x] Skip unchanged files by checkpoint, rescan changed files, and treat missing, rotated, truncated, and oversized logs as controlled counts instead of raw-path failures.
 - [x] Add counts-only freshness metadata with fresh, no_logs, partial, failed, run timestamps, scanned/parsed/stored/skipped counts, skip reasons, and checkpoint-updated status.
 - [x] Expose freshness only as safe status/counts on the player history surface; no raw paths, raw lines, IPs, secrets, or source refs are rendered.
-- [x] Keep /players, /players/current.json, /players/history, and /players/sessions from starting ingest or creating players.db; only explicit POST/manual job execution mutates ingest metadata.
+- [x] Keep `/players`, `/players/current.json`, `/players/history`, and `/players/sessions` from starting ingest or creating `players.db`; only explicit manual POST job execution or explicit foreground CLI execution mutates ingest metadata.
 - [x] Do not enable a daemon, timer, app-start worker, broad scheduler, session aggregation, current-roster cache stats, Discord/public enrichment, or fake zeroes.
 
-Pending after Slice C: an opt-in automatic runner/policy can enqueue this existing job path, but it must remain explicit and must not run from GET pages, app import/startup, or a hidden timer.
+### Slice F1: Shared One-Shot And Foreground CLI — implemented locally
+
+- [x] Complete the one-shot orchestration audit/design and record the manual-only root cause, job/service boundary, daemon-thread limitation, persistence, audit, and source-of-truth decisions.
+- [x] Move allowlisted discovery, checkpoint planning, existing collector invocation, checkpoint/freshness persistence, and typed counts-only outcome into one synchronous service.
+- [x] Keep `players:collect-log-events` as a thin adapter with existing active-job dedupe and manual intent/outcome audit semantics.
+- [x] Add blocking `armactl players log-ingest run --once` and read-only `armactl players log-ingest status`, with instance/data-root support and sanitized output.
+- [x] Prevent manual/CLI overlap with one shared nonblocking instance/scope lock whose kernel ownership is released on process death; do not add a second dedupe ledger or fake cancellation.
+- [ ] Install and enable the foreground runner as an explicit supervised service/timer only in a later approved service/deploy slice.
+
+The acceptance criteria “stats update without the manual button” and “manual collection is not the only freshness path” remain open until that explicit service is actually deployed and observed.
 
 ### Slice D: Play-Session/Reconnect Model - implemented
 
@@ -293,4 +302,4 @@ Pending after Slice C: an opt-in automatic runner/policy can enqueue this existi
 
 ## Immediate Next Recommended Slice
 
-Slice E is implemented. The next step is Slice F approved-environment UI smoke and cleanup for the authenticated web surface. Keep the automatic ingest runner/policy and any Discord/public enrichment as separate future decisions; do not enable a daemon, timer, deploy, restart, or public stats projection as part of this slice.
+Slice F1 audit/design and the shared foreground one-shot foundation are implemented locally. The next ingest step is a separate approved service/deploy slice that installs and enables an explicit supervised runner, then verifies that stats become fresh without the manual button. UI smoke and any Discord/public enrichment remain separate; do not claim automatic acceptance before deployment.

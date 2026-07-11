@@ -709,7 +709,7 @@ def test_player_log_collection_checkpoint_handles_rotation_truncation_and_missin
     monkeypatch,
 ) -> None:
     from armactl.web.jobs import get_job, list_recent_jobs, player_logs
-    from armactl.web.services import player_log_collection
+    from armactl.web.services import player_log_collection, player_log_ingest
 
     alpha_line = (
         "BACKEND : Authenticated player: "
@@ -769,7 +769,7 @@ def test_player_log_collection_checkpoint_handles_rotation_truncation_and_missin
 
     missing_path = tmp_path / "default" / "config" / "logs" / "missing" / "console.log"
     monkeypatch.setattr(
-        player_logs,
+        player_log_ingest,
         "resolve_allowlisted_player_log_paths",
         lambda *args, **kwargs: (missing_path,),
     )
@@ -848,17 +848,13 @@ def test_player_get_routes_do_not_start_log_ingest_or_create_players_db(
 ) -> None:
     from armactl.web.app import create_app
     from armactl.web.jobs import player_logs
-    from armactl.web.services import player_sources
+    from armactl.web.services import player_log_ingest, player_sources
     from armactl.web.services.player_sources import CurrentPlayerRoster
 
     def fail_ingest(*args, **kwargs):
         raise AssertionError("GET routes must not start player log ingest")
 
-    monkeypatch.setattr(
-        player_logs.player_log_collector,
-        "collect_player_log_events",
-        fail_ingest,
-    )
+    monkeypatch.setattr(player_log_ingest, "run_player_log_ingest_once", fail_ingest)
     monkeypatch.setattr(player_logs, "start_player_log_collection_worker", fail_ingest)
     monkeypatch.setattr(
         player_sources,
