@@ -44,7 +44,7 @@ from armactl.web.services.player_identity import (
 )
 
 PLAYER_REGISTRY_DB_NAME = "players.db"
-PLAYER_REGISTRY_SCHEMA_VERSION = "10"
+PLAYER_REGISTRY_SCHEMA_VERSION = "11"
 PRIVATE_PLAYER_REGISTRY_FILE_MODE = 0o600
 DEFAULT_PLAYER_HISTORY_EVENT_LIMIT = 100
 MAX_PLAYER_HISTORY_EVENT_LIMIT = 250
@@ -445,6 +445,11 @@ class PlayerLogIngestCheckpoint:
     status: str
     last_scanned_at: str
     updated_at: str
+    next_offset: int = 0
+    coverage_started_at: str = ""
+    parser_event_date: str = ""
+    parser_time_of_day: str = ""
+    file_identity: str = ""
 
 
 @dataclass(frozen=True)
@@ -462,6 +467,7 @@ class PlayerLogIngestFreshness:
     skipped_files: int = 0
     skipped_reasons: str = ""
     checkpoint_updated: bool = False
+    coverage_started_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -1048,6 +1054,11 @@ def _ensure_player_log_ingest_metadata_schema(connection: sqlite3.Connection) ->
             fingerprint TEXT NOT NULL DEFAULT '',
             status TEXT NOT NULL DEFAULT 'unknown',
             last_scanned_at TEXT NOT NULL DEFAULT '',
+            next_offset INTEGER NOT NULL DEFAULT 0 CHECK(next_offset >= 0),
+            coverage_started_at TEXT NOT NULL DEFAULT '',
+            parser_event_date TEXT NOT NULL DEFAULT '',
+            parser_time_of_day TEXT NOT NULL DEFAULT '',
+            file_identity TEXT NOT NULL DEFAULT '',
             updated_at TEXT NOT NULL CHECK(length(updated_at) > 0),
             PRIMARY KEY(scope, source_key)
         )
@@ -1065,6 +1076,20 @@ def _ensure_player_log_ingest_metadata_schema(connection: sqlite3.Connection) ->
             ("fingerprint", "fingerprint TEXT NOT NULL DEFAULT ''"),
             ("status", "status TEXT NOT NULL DEFAULT 'unknown'"),
             ("last_scanned_at", "last_scanned_at TEXT NOT NULL DEFAULT ''"),
+            (
+                "next_offset",
+                "next_offset INTEGER NOT NULL DEFAULT 0 CHECK(next_offset >= 0)",
+            ),
+            (
+                "coverage_started_at",
+                "coverage_started_at TEXT NOT NULL DEFAULT ''",
+            ),
+            ("parser_event_date", "parser_event_date TEXT NOT NULL DEFAULT ''"),
+            (
+                "parser_time_of_day",
+                "parser_time_of_day TEXT NOT NULL DEFAULT ''",
+            ),
+            ("file_identity", "file_identity TEXT NOT NULL DEFAULT ''"),
             (
                 "updated_at",
                 f"updated_at TEXT NOT NULL DEFAULT '{_LEGACY_DEFAULT_TIMESTAMP}'",
@@ -1091,7 +1116,8 @@ def _ensure_player_log_ingest_metadata_schema(connection: sqlite3.Connection) ->
             skipped_files INTEGER NOT NULL DEFAULT 0 CHECK(skipped_files >= 0),
             skipped_reasons TEXT NOT NULL DEFAULT '',
             checkpoint_updated INTEGER NOT NULL DEFAULT 0
-                CHECK(checkpoint_updated IN (0, 1))
+                CHECK(checkpoint_updated IN (0, 1)),
+            coverage_started_at TEXT NOT NULL DEFAULT ''
         )
         """
     )
@@ -1115,6 +1141,10 @@ def _ensure_player_log_ingest_metadata_schema(connection: sqlite3.Connection) ->
             (
                 "checkpoint_updated",
                 "checkpoint_updated INTEGER NOT NULL DEFAULT 0 CHECK(checkpoint_updated IN (0, 1))",
+            ),
+            (
+                "coverage_started_at",
+                "coverage_started_at TEXT NOT NULL DEFAULT ''",
             ),
         ),
     )
@@ -1309,6 +1339,10 @@ def _run_player_registry_migrations(connection: sqlite3.Connection) -> None:
         _ensure_player_sessions_schema(connection)
         _ensure_player_session_lifecycle_boundaries_schema(connection)
         _write_player_registry_schema_version(connection, 10)
+        current_version = 10
+    if current_version < 11:
+        _ensure_player_log_ingest_metadata_schema(connection)
+        _write_player_registry_schema_version(connection, 11)
 
 
 def ensure_player_registry_db(db_path: Path) -> Path:
@@ -1366,6 +1400,10 @@ def _safe_ingest_int(value: object) -> int:
         return 0
 
 
+def _ingest_row_value(row: sqlite3.Row, column: str, default: object = "") -> object:
+    return row[column] if column in row.keys() else default
+
+
 def _player_log_ingest_checkpoint_from_row(
     row: sqlite3.Row,
 ) -> PlayerLogIngestCheckpoint:
@@ -1379,6 +1417,23 @@ def _player_log_ingest_checkpoint_from_row(
         status=_safe_ingest_text(row["status"], max_length=40),
         last_scanned_at=_safe_ingest_text(row["last_scanned_at"], max_length=80),
         updated_at=_safe_ingest_text(row["updated_at"], max_length=80),
+        next_offset=_safe_ingest_int(_ingest_row_value(row, "next_offset", 0)),
+        coverage_started_at=_safe_ingest_text(
+            _ingest_row_value(row, "coverage_started_at"),
+            max_length=80,
+        ),
+        parser_event_date=_safe_ingest_text(
+            _ingest_row_value(row, "parser_event_date"),
+            max_length=20,
+        ),
+        parser_time_of_day=_safe_ingest_text(
+            _ingest_row_value(row, "parser_time_of_day"),
+            max_length=30,
+        ),
+        file_identity=_safe_ingest_text(
+            _ingest_row_value(row, "file_identity"),
+            max_length=120,
+        ),
     )
 
 
@@ -1399,6 +1454,10 @@ def _player_log_ingest_freshness_from_row(row: sqlite3.Row) -> PlayerLogIngestFr
         skipped_files=_safe_ingest_int(row["skipped_files"]),
         skipped_reasons=_safe_ingest_text(row["skipped_reasons"], max_length=240),
         checkpoint_updated=bool(row["checkpoint_updated"]),
+        coverage_started_at=_safe_ingest_text(
+            _ingest_row_value(row, "coverage_started_at"),
+            max_length=80,
+        ),
     )
 
 
@@ -1448,8 +1507,11 @@ def upsert_player_log_ingest_checkpoints(
             connection.execute(
                 "INSERT INTO player_log_ingest_checkpoints("
                 "scope, source_key, source_label, size_bytes, mtime_ns, "
-                "fingerprint, status, last_scanned_at, updated_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "fingerprint, status, last_scanned_at, next_offset, "
+                "coverage_started_at, parser_event_date, parser_time_of_day, "
+                "file_identity, "
+                "updated_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(scope, source_key) DO UPDATE SET "
                 "source_label = excluded.source_label, "
                 "size_bytes = excluded.size_bytes, "
@@ -1457,6 +1519,11 @@ def upsert_player_log_ingest_checkpoints(
                 "fingerprint = excluded.fingerprint, "
                 "status = excluded.status, "
                 "last_scanned_at = excluded.last_scanned_at, "
+                "next_offset = excluded.next_offset, "
+                "coverage_started_at = excluded.coverage_started_at, "
+                "parser_event_date = excluded.parser_event_date, "
+                "parser_time_of_day = excluded.parser_time_of_day, "
+                "file_identity = excluded.file_identity, "
                 "updated_at = excluded.updated_at",
                 (
                     safe_scope,
@@ -1467,6 +1534,17 @@ def upsert_player_log_ingest_checkpoints(
                     _safe_ingest_text(checkpoint.fingerprint, max_length=120),
                     _safe_ingest_text(checkpoint.status, max_length=40) or "scanned",
                     _safe_ingest_text(checkpoint.last_scanned_at, max_length=80),
+                    _safe_ingest_int(checkpoint.next_offset),
+                    _safe_ingest_text(
+                        checkpoint.coverage_started_at,
+                        max_length=80,
+                    ),
+                    _safe_ingest_text(checkpoint.parser_event_date, max_length=20),
+                    _safe_ingest_text(
+                        checkpoint.parser_time_of_day,
+                        max_length=30,
+                    ),
+                    _safe_ingest_text(checkpoint.file_identity, max_length=120),
                     _safe_ingest_text(checkpoint.updated_at, max_length=80)
                     or _utc_now(),
                 ),
@@ -1487,17 +1565,24 @@ def record_player_log_ingest_freshness(
     skipped_files: int,
     skipped_reasons: str = "",
     checkpoint_updated: bool = False,
+    coverage_started_at: str = "",
 ) -> PlayerLogIngestFreshness:
     safe_scope = _safe_ingest_text(scope) or "player_logs"
     safe_status = _safe_ingest_status(status)
     safe_last_run_at = _safe_ingest_text(last_run_at, max_length=80) or _utc_now()
     safe_skipped_reasons = _safe_ingest_text(skipped_reasons, max_length=240)
+    safe_coverage_started_at = _safe_ingest_text(
+        coverage_started_at,
+        max_length=80,
+    )
     last_success_at = ""
     if safe_status != PLAYER_LOG_INGEST_STATUS_FAILED:
         last_success_at = safe_last_run_at
     previous = get_player_log_ingest_freshness(db_path, scope=safe_scope)
     if not last_success_at:
         last_success_at = previous.last_success_at
+    if not safe_coverage_started_at and safe_status == PLAYER_LOG_INGEST_STATUS_FAILED:
+        safe_coverage_started_at = previous.coverage_started_at
     ensure_player_registry_db(db_path)
     with sqlite3.connect(db_path) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
@@ -1505,8 +1590,8 @@ def record_player_log_ingest_freshness(
             "INSERT INTO player_log_ingest_freshness("
             "scope, status, last_run_at, last_success_at, updated_at, "
             "scanned_files, parsed_events, stored_events, skipped_files, "
-            "skipped_reasons, checkpoint_updated"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "skipped_reasons, checkpoint_updated, coverage_started_at"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(scope) DO UPDATE SET "
             "status = excluded.status, "
             "last_run_at = excluded.last_run_at, "
@@ -1517,7 +1602,8 @@ def record_player_log_ingest_freshness(
             "stored_events = excluded.stored_events, "
             "skipped_files = excluded.skipped_files, "
             "skipped_reasons = excluded.skipped_reasons, "
-            "checkpoint_updated = excluded.checkpoint_updated",
+            "checkpoint_updated = excluded.checkpoint_updated, "
+            "coverage_started_at = excluded.coverage_started_at",
             (
                 safe_scope,
                 safe_status,
@@ -1530,6 +1616,7 @@ def record_player_log_ingest_freshness(
                 _safe_ingest_int(skipped_files),
                 safe_skipped_reasons,
                 1 if checkpoint_updated else 0,
+                safe_coverage_started_at,
             ),
         )
     return get_player_log_ingest_freshness(db_path, scope=safe_scope)

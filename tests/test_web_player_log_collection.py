@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -507,6 +508,11 @@ def test_player_log_collection_job_classifies_controlled_skipped_files(
     allowed_log = _write_console_log(tmp_path, _fixture_lines(), run="allowed")
     oversized_log = _write_console_log(tmp_path, ["oversized"], run="oversized")
     oversized_log.write_bytes(b"x" * (player_logs.DEFAULT_MAX_FILE_BYTES + 1))
+    oversized_mtime = oversized_log.stat().st_mtime_ns
+    os.utime(
+        allowed_log,
+        ns=(oversized_mtime + 1_000_000_000, oversized_mtime + 1_000_000_000),
+    )
     monkeypatch.setattr(
         player_logs,
         "start_player_log_collection_worker",
@@ -528,11 +534,12 @@ def test_player_log_collection_job_classifies_controlled_skipped_files(
     assert job is not None
     assert job.status == "succeeded"
     assert job.result_message == "Player log collection completed with skipped files."
-    assert "files_requested=2" in job.stdout_tail
+    assert "files_considered=2" in job.stdout_tail
+    assert "files_requested=1" in job.stdout_tail
     assert "files_scanned=1" in job.stdout_tail
     assert "files_skipped=1" in job.stdout_tail
-    assert "errors=1" in job.stdout_tail
-    assert "skipped_file_reasons=file_too_large=1" in job.stdout_tail
+    assert "errors=0" in job.stdout_tail
+    assert "skipped_file_reasons=historical_file_too_large=1" in job.stdout_tail
 
     events = _audit_events(tmp_path)
     outcome = events[-1]
@@ -541,11 +548,15 @@ def test_player_log_collection_job_classifies_controlled_skipped_files(
     assert outcome["target"] == player_logs.PLAYER_LOG_COLLECTION_JOB_KIND
     assert outcome["success"] is True
     assert outcome["message"] == "Player log collection completed with skipped files."
-    assert outcome["details"]["files_requested"] == "2"
+    assert outcome["details"]["files_considered"] == "2"
+    assert outcome["details"]["files_requested"] == "1"
     assert outcome["details"]["files_scanned"] == "1"
     assert outcome["details"]["files_skipped"] == "1"
-    assert outcome["details"]["error_count"] == "1"
-    assert outcome["details"]["skipped_file_reasons"] == "file_too_large=1"
+    assert outcome["details"]["error_count"] == "0"
+    assert (
+        outcome["details"]["skipped_file_reasons"]
+        == "historical_file_too_large=1"
+    )
 
     audit_text = audit_log_path.read_text(encoding="utf-8")
     for rendered in (job.stdout_tail, audit_text):
@@ -666,7 +677,7 @@ def test_player_log_collection_job_reuses_existing_collector_storage_path(
     from armactl.web.services import player_log_collection
 
     allowed_log = _write_console_log(tmp_path, _fixture_lines())
-    calls: list[tuple[tuple[Path, ...], Path, dict[str, object]]] = []
+    calls: list[tuple[tuple[object, ...], Path, dict[str, object]]] = []
     real_collect = player_logs.player_log_collector.collect_player_log_events
 
     def spy_collect(log_paths, db_path, **kwargs):
@@ -698,7 +709,10 @@ def test_player_log_collection_job_reuses_existing_collector_storage_path(
     assert job is not None
     assert job.status == "succeeded"
     assert calls
-    assert calls[0][0] == (allowed_log,)
+    assert len(calls[0][0]) == 1
+    request = calls[0][0][0]
+    assert isinstance(request, player_logs.player_log_collector.PlayerLogScanRequest)
+    assert request.path == allowed_log
     assert calls[0][1] == tmp_path / "default" / "players.db"
     assert calls[0][2]["dry_run"] is False
     assert len(_event_rows(tmp_path / "default" / "players.db")) == 2
@@ -805,10 +819,10 @@ def test_player_log_collection_freshness_is_exposed_as_safe_status(
     allowed_log = _write_console_log(
         tmp_path,
         [
-            "BACKEND : Authenticated player: "
+            "12:00:00.000 BACKEND : Authenticated player: "
             f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One"
         ],
-        run="freshness",
+        run="2026-07-10-freshness",
     )
     monkeypatch.setattr(
         player_logs,

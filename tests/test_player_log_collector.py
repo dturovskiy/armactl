@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 from armactl import player_log_events as events
-from armactl.player_log_collector import collect_player_log_events
+from armactl.player_log_collector import PlayerLogScanRequest, collect_player_log_events
 
 PLAYER_ALPHA_ID = "11111111-1111-4111-8111-111111111111"
 PLAYER_BRAVO_ID = "22222222-2222-4222-8222-222222222222"
@@ -134,6 +136,57 @@ def test_duplicate_second_import_is_noop_and_counted(tmp_path: Path) -> None:
     assert second.stored_events == 0
     assert second.duplicate_events == 4
     assert _event_count(db_path) == 4
+
+
+def test_tail_bootstrap_derives_midnight_rollover_from_bounded_evidence(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "logs" / "run" / "console.log"
+    db_path = tmp_path / "default" / "players.db"
+    _write_log(
+        log_path,
+        [
+            "x" * 600,
+            "23:59:30.000 DEFAULT : bounded pre-midnight evidence",
+            "00:01:00.000 BACKEND : Authenticated player: "
+            f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha One",
+        ],
+    )
+    observed = datetime(2026, 7, 11, 0, 5, tzinfo=timezone.utc).timestamp()
+    os.utime(log_path, (observed, observed))
+
+    summary = collect_player_log_events(
+        PlayerLogScanRequest(
+            path=log_path,
+            allow_tail=True,
+            absolute_source_refs=True,
+        ),
+        db_path,
+        max_bytes=512,
+    )
+    rows = _event_rows(db_path)
+
+    assert summary.files[0].tail_bootstrap is True
+    assert summary.files[0].coverage_started_at == "2026-07-10T23:59:30Z"
+    assert rows[0]["occurred_at"] == "2026-07-11T00:01:00Z"
+
+
+def test_scan_request_fails_closed_when_file_identity_changed(tmp_path: Path) -> None:
+    log_path = tmp_path / "logs" / "console.log"
+    _write_log(log_path, _fixture_lines())
+
+    summary = collect_player_log_events(
+        PlayerLogScanRequest(
+            path=log_path,
+            expected_file_identity="sha256:stale-planned-identity",
+        ),
+        tmp_path / "players.db",
+    )
+
+    assert summary.files_scanned == 0
+    assert summary.files_skipped == 1
+    assert summary.errors[0].code == "source_changed"
+    assert str(tmp_path) not in json.dumps(summary.to_dict(), sort_keys=True)
 
 
 def test_missing_and_invalid_files_return_controlled_summary(tmp_path: Path) -> None:

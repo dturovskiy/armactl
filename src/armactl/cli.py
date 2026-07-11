@@ -1175,6 +1175,7 @@ def _format_player_log_ingest_status(status) -> str:
             f"  Last trigger:    {timer['last_trigger'] or '-'}",
             f"  Freshness state: {freshness.state} ({freshness.reason})",
             f"  Freshness:       {freshness.freshness_status}",
+            f"  Coverage starts: {freshness.coverage_started_at or '-'}",
             f"  Last run:        {freshness.last_run_at or '-'}",
             f"  Last success:    {freshness.last_success_at or '-'}",
             f"  Checkpoints:     {freshness.checkpoint_count}",

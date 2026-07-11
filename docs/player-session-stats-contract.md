@@ -2,6 +2,8 @@
 
 This document is the source of truth for current-player combat, faction, and session columns without heuristic shortcuts. Slices C, D, and E provide checkpointed ingest freshness metadata, explicit reconnect-aware play-session windows, and read-only session-scoped aggregation. Slice F2-a now provides a locally implemented systemd oneshot service/timer foundation for the shared F1 ingest path. Installation never enables or starts the timer and preserves any existing enablement state; activation is explicit, and production deployment/observation remains open for F2-b. No app-start worker, browser poller, hidden thread, GET-side ingest, or player-session scheduler was enabled.
 
+Busy-server acceptance also requires the bounded incremental contract in [player-log-ingest-incremental-contract.md](player-log-ingest-incremental-contract.md). An oversized active log is tailed once and then read from persisted append offsets; active-source coverage start is stored explicitly, and statistics stay unavailable for any session that began before that proven coverage.
+
 ## Problem Statement
 
 Current /players stats must not accumulate forever and must not reset randomly. They should describe the player's current play session when that session is backed by reliable evidence. A player can be kicked by network trouble and reconnect quickly; that should continue the same play session when the evidence supports it. A normal later rejoin, a server lifecycle boundary, or an identity conflict must start a new play session.

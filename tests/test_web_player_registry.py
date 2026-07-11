@@ -177,6 +177,8 @@ def _record_fresh_player_log_ingest(db_path: Path, at: str) -> None:
                 status="scanned",
                 last_scanned_at=at,
                 updated_at=at,
+                next_offset=1,
+                coverage_started_at="2026-06-16T11:55:00+00:00",
             )
         ],
     )
@@ -190,6 +192,7 @@ def _record_fresh_player_log_ingest(db_path: Path, at: str) -> None:
         stored_events=0,
         skipped_files=0,
         checkpoint_updated=True,
+        coverage_started_at="2026-06-16T11:55:00+00:00",
     )
 
 

@@ -89,7 +89,7 @@ _REQUIRED_TABLE_COLUMNS = {
         }
     ),
     "player_log_ingest_freshness": frozenset(
-        {"scope", "status", "last_success_at"}
+        {"scope", "status", "last_success_at", "coverage_started_at"}
     ),
     "player_log_ingest_checkpoints": frozenset(
         {"scope", "status", "last_scanned_at"}
@@ -135,6 +135,7 @@ class CurrentPlayerEnrichment:
 class _FreshnessGate:
     available: bool = False
     status: str = _FRESHNESS_STATUS_UNAVAILABLE
+    covered_from: str = ""
     covered_through: str = ""
     reason: str = CURRENT_STATS_FRESHNESS_UNAVAILABLE_REASON
 
@@ -250,7 +251,7 @@ def _load_freshness_gate(
 ) -> _FreshnessGate:
     row = connection.execute(
         """
-        SELECT status, last_success_at
+        SELECT status, last_success_at, coverage_started_at
         FROM player_log_ingest_freshness
         WHERE scope = ?
         """,
@@ -261,15 +262,18 @@ def _load_freshness_gate(
 
     ingest_status = safe_player_text(row["status"], max_length=40).lower()
     covered_through = safe_player_text(row["last_success_at"], max_length=80)
+    covered_from = safe_player_text(row["coverage_started_at"], max_length=80)
     if ingest_status != player_registry.PLAYER_LOG_INGEST_STATUS_FRESH:
         return _FreshnessGate(
             status=_FRESHNESS_STATUS_INCOMPLETE,
+            covered_from=covered_from,
             covered_through=covered_through,
             reason=CURRENT_STATS_FRESHNESS_INCOMPLETE_REASON,
         )
 
     covered_at = _parse_timestamp(covered_through)
-    if covered_at is None:
+    coverage_started = _parse_timestamp(covered_from)
+    if covered_at is None or coverage_started is None or coverage_started > covered_at:
         return _FreshnessGate()
     age_seconds = (_resolved_now(now_at) - covered_at).total_seconds()
     if (
@@ -278,6 +282,7 @@ def _load_freshness_gate(
     ):
         return _FreshnessGate(
             status=_FRESHNESS_STATUS_STALE,
+            covered_from=covered_from,
             covered_through=covered_through,
             reason=CURRENT_STATS_FRESHNESS_STALE_REASON,
         )
@@ -295,12 +300,14 @@ def _load_freshness_gate(
     if checkpoint is None or int(checkpoint["checkpoint_count"] or 0) < 1:
         return _FreshnessGate(
             covered_through=covered_through,
+            covered_from=covered_from,
             reason=CURRENT_STATS_CHECKPOINT_UNAVAILABLE_REASON,
         )
 
     return _FreshnessGate(
         available=True,
         status=_FRESHNESS_STATUS_FRESH,
+        covered_from=covered_from,
         covered_through=covered_through,
         reason="",
     )
@@ -355,13 +362,25 @@ def _load_one_enrichment(
     if not _session_window_is_proven(
         connection,
         session,
+        covered_from=freshness.covered_from,
         covered_through=freshness.covered_through,
     ):
         opened = _parse_timestamp(opened_at)
+        coverage_start = _parse_timestamp(freshness.covered_from)
         covered = _parse_timestamp(freshness.covered_through)
         reason = (
             CURRENT_STATS_SESSION_COVERAGE_REASON
-            if opened is not None and covered is not None and covered < opened
+            if (
+                opened is not None
+                and covered is not None
+                and (
+                    covered < opened
+                    or (
+                        coverage_start is not None
+                        and coverage_start > opened
+                    )
+                )
+            )
             else CURRENT_STATS_SESSION_UNPROVEN_REASON
         )
         return CurrentPlayerEnrichment(
@@ -396,6 +415,7 @@ def _session_window_is_proven(
     connection: sqlite3.Connection,
     session: sqlite3.Row,
     *,
+    covered_from: str,
     covered_through: str,
 ) -> bool:
     try:
@@ -404,6 +424,7 @@ def _session_window_is_proven(
         return False
     opened_at = safe_player_text(session["open_observed_at"], max_length=80)
     opened = _parse_timestamp(opened_at)
+    coverage_start = _parse_timestamp(covered_from)
     covered = _parse_timestamp(covered_through)
     if (
         play_session_id < 1
@@ -411,10 +432,11 @@ def _session_window_is_proven(
         != player_registry.PLAYER_SESSION_STATUS_OPEN
         or safe_player_text(session["close_observed_at"], max_length=80)
         or opened is None
+        or coverage_start is None
         or covered is None
     ):
         return False
-    if covered < opened:
+    if coverage_start > opened or covered < opened:
         return False
 
     boundary = connection.execute(

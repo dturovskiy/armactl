@@ -66,6 +66,21 @@ class PlayerLogCollectionError:
 
 
 @dataclass(frozen=True)
+class PlayerLogScanRequest:
+    """One bounded scan range for the shared player-log collector."""
+
+    path: Path
+    start_offset: int = 0
+    allow_tail: bool = False
+    absolute_source_refs: bool = False
+    hold_incomplete_tail: bool = False
+    base_event_date: date | None = None
+    previous_time_of_day: time | None = None
+    coverage_started_at: str | None = None
+    expected_file_identity: str = ""
+
+
+@dataclass(frozen=True)
 class PlayerLogCollectionFileSummary:
     """Summary for one explicitly requested log file."""
 
@@ -81,6 +96,12 @@ class PlayerLogCollectionFileSummary:
     limited: bool = False
     limit_reason: str | None = None
     errors: tuple[PlayerLogCollectionError, ...] = ()
+    start_offset: int = 0
+    next_offset: int = 0
+    coverage_started_at: str | None = None
+    parser_event_date: str | None = None
+    parser_time_of_day: str | None = None
+    tail_bootstrap: bool = False
 
     @property
     def error_count(self) -> int:
@@ -100,6 +121,12 @@ class PlayerLogCollectionFileSummary:
             "limited": self.limited,
             "limit_reason": self.limit_reason,
             "errors": [error.to_dict() for error in self.errors],
+            "start_offset": self.start_offset,
+            "next_offset": self.next_offset,
+            "coverage_started_at": self.coverage_started_at,
+            "parser_event_date": self.parser_event_date,
+            "parser_time_of_day": self.parser_time_of_day,
+            "tail_bootstrap": self.tail_bootstrap,
         }
 
 
@@ -143,7 +170,12 @@ class PlayerLogCollectionSummary:
 
 
 def collect_player_log_events(
-    log_paths: os.PathLike[str] | str | Iterable[os.PathLike[str] | str],
+    log_paths: (
+        os.PathLike[str]
+        | str
+        | PlayerLogScanRequest
+        | Iterable[os.PathLike[str] | str | PlayerLogScanRequest]
+    ),
     db_path: Path,
     *,
     dry_run: bool = False,
@@ -154,19 +186,20 @@ def collect_player_log_events(
     """Parse explicitly supplied bounded text logs and optionally ingest events.
 
     Files larger than max_bytes fail closed and are skipped without a partial
-    read. Files within the byte bound are read line-by-line up to max_lines.
-    Source refs use only a sanitized basename and line number.
+    read unless the caller supplies an explicit tail-enabled scan request.
+    Tail requests remain byte-bounded and use stable absolute byte references.
+    Direct path requests preserve the existing whole-file, line-reference mode.
     """
     if max_bytes < 1:
         raise ValueError("max_bytes must be positive")
     if max_lines < 1:
         raise ValueError("max_lines must be positive")
 
-    requested_paths = _normalize_log_paths(log_paths)
+    requests = _normalize_log_requests(log_paths)
     file_summaries: list[PlayerLogCollectionFileSummary] = []
-    for log_path in requested_paths:
+    for request in requests:
         file_summary, parsed_events = _scan_log_file(
-            log_path,
+            request,
             max_bytes=max_bytes,
             max_lines=max_lines,
         )
@@ -219,20 +252,33 @@ def format_player_log_collection_summary(summary: PlayerLogCollectionSummary) ->
     return "\n".join(lines)
 
 
-def _normalize_log_paths(
-    log_paths: os.PathLike[str] | str | Iterable[os.PathLike[str] | str],
-) -> tuple[Path, ...]:
+def _normalize_log_requests(
+    log_paths: (
+        os.PathLike[str]
+        | str
+        | PlayerLogScanRequest
+        | Iterable[os.PathLike[str] | str | PlayerLogScanRequest]
+    ),
+) -> tuple[PlayerLogScanRequest, ...]:
+    if isinstance(log_paths, PlayerLogScanRequest):
+        return (log_paths,)
     if isinstance(log_paths, str | os.PathLike):
-        return (Path(log_paths),)
-    return tuple(Path(path) for path in log_paths)
+        return (PlayerLogScanRequest(Path(log_paths)),)
+    return tuple(
+        request
+        if isinstance(request, PlayerLogScanRequest)
+        else PlayerLogScanRequest(Path(request))
+        for request in log_paths
+    )
 
 
 def _scan_log_file(
-    log_path: Path,
+    request: PlayerLogScanRequest,
     *,
     max_bytes: int,
     max_lines: int,
 ) -> tuple[PlayerLogCollectionFileSummary, tuple[PlayerLogEvent, ...]]:
+    log_path = request.path
     source = _safe_path_label(log_path)
     try:
         stat_result = log_path.stat()
@@ -243,25 +289,87 @@ def _scan_log_file(
 
     if not stat_module.S_ISREG(stat_result.st_mode):
         return _error_file_summary(source, "not_file", "path is not a regular file")
-    if stat_result.st_size > max_bytes:
+    if (
+        request.expected_file_identity
+        and player_log_file_identity(stat_result) != request.expected_file_identity
+    ):
+        return _error_file_summary(
+            source,
+            "source_changed",
+            "file identity changed after scan planning",
+        )
+    file_size = max(0, int(stat_result.st_size))
+    requested_offset = max(0, int(request.start_offset))
+    if requested_offset > file_size:
+        return _error_file_summary(
+            source,
+            "invalid_offset",
+            "saved scan offset is beyond the current file size",
+        )
+
+    scan_start = requested_offset
+    tail_bootstrap = False
+    if file_size - scan_start > max_bytes:
+        if request.allow_tail:
+            scan_start = max(file_size - max_bytes, 0)
+            tail_bootstrap = True
+        else:
+            return _error_file_summary(
+                source,
+                "file_too_large",
+                f"file size exceeds max_bytes={max_bytes}; skipped without partial read",
+            )
+    scan_end = file_size
+    if scan_end - scan_start > max_bytes:
         return _error_file_summary(
             source,
             "file_too_large",
-            f"file size exceeds max_bytes={max_bytes}; skipped without partial read",
+            "bounded scan range could not be established",
         )
 
     try:
         with log_path.open("rb") as handle:
-            sample = handle.read(min(_BINARY_SNIFF_BYTES, max_bytes))
+            scan_start = _aligned_scan_start(
+                handle,
+                start_offset=scan_start,
+                end_offset=scan_end,
+            )
+            handle.seek(scan_start)
+            sample = handle.read(
+                min(_BINARY_SNIFF_BYTES, max(scan_end - scan_start, 0))
+            )
             if b"\0" in sample:
                 return _error_file_summary(source, "binary_file", "file is not a text log")
-            handle.seek(0)
+            handle.seek(scan_start)
+            base_event_date = request.base_event_date
+            if base_event_date is None:
+                if scan_start > 0:
+                    base_event_date = _tail_base_event_date(
+                        handle,
+                        start_offset=scan_start,
+                        end_offset=scan_end,
+                        mtime=stat_result.st_mtime,
+                    )
+                else:
+                    base_event_date = _safe_run_date_from_path(log_path)
+            handle.seek(scan_start)
             return _scan_text_handle(
                 handle,
                 source=source,
                 source_ref_prefix=_safe_source_ref_prefix(log_path, source),
                 max_lines=max_lines,
-                base_event_date=_safe_run_date_from_path(log_path),
+                base_event_date=base_event_date,
+                previous_time_of_day=(
+                    None if tail_bootstrap else request.previous_time_of_day
+                ),
+                coverage_started_at=(
+                    None if tail_bootstrap else request.coverage_started_at
+                ),
+                start_offset=scan_start,
+                end_offset=scan_end,
+                absolute_source_refs=request.absolute_source_refs,
+                hold_incomplete_tail=request.hold_incomplete_tail,
+                tail_bootstrap=tail_bootstrap,
             )
     except OSError:
         return _error_file_summary(source, "read_failed", "file could not be read")
@@ -274,6 +382,13 @@ def _scan_text_handle(
     source_ref_prefix: str,
     max_lines: int,
     base_event_date: date | None,
+    previous_time_of_day: time | None,
+    coverage_started_at: str | None,
+    start_offset: int,
+    end_offset: int,
+    absolute_source_refs: bool,
+    hold_incomplete_tail: bool,
+    tail_bootstrap: bool,
 ) -> tuple[PlayerLogCollectionFileSummary, tuple[PlayerLogEvent, ...]]:
     bytes_scanned = 0
     lines_scanned = 0
@@ -281,16 +396,34 @@ def _scan_text_handle(
     skipped_lines = 0
     limited = False
     current_event_date = base_event_date
-    previous_time_of_day: time | None = None
     parsed_events: list[PlayerLogEvent] = []
+    next_offset = start_offset
+    limit_reason: str | None = "tail_bytes" if tail_bootstrap else None
 
-    for raw_line in handle:
+    while True:
+        line_offset = handle.tell()
+        if line_offset >= end_offset:
+            next_offset = line_offset
+            break
         if lines_scanned >= max_lines:
             limited = True
             skipped_lines = 1
+            limit_reason = "max_lines"
+            next_offset = line_offset
+            break
+        raw_line = handle.readline(end_offset - line_offset)
+        if not raw_line:
+            next_offset = line_offset
+            break
+        if hold_incomplete_tail and not raw_line.endswith(b"\n"):
+            limited = True
+            skipped_lines = 1
+            limit_reason = "incomplete_line"
+            next_offset = line_offset
             break
         bytes_scanned += len(raw_line)
         lines_scanned += 1
+        next_offset = handle.tell()
         if b"\0" in raw_line:
             return _error_file_summary(source, "binary_file", "file is not a text log")
         try:
@@ -306,14 +439,19 @@ def _scan_text_handle(
         current_event_date = timestamp_evidence.current_date
         if timestamp_evidence.time_of_day is not None:
             previous_time_of_day = timestamp_evidence.time_of_day
+        if not coverage_started_at and timestamp_evidence.occurred_at:
+            coverage_started_at = timestamp_evidence.occurred_at
 
+        source_ref_suffix = (
+            f"byte-{line_offset}" if absolute_source_refs else str(lines_scanned)
+        )
         event = parse_player_log_event(
             line,
             occurred_at=timestamp_evidence.occurred_at,
             raw_timestamp=timestamp_evidence.raw_timestamp,
             time_source=timestamp_evidence.time_source,
             time_confidence=timestamp_evidence.time_confidence,
-            raw_source_ref=f"{source_ref_prefix}:{lines_scanned}",
+            raw_source_ref=f"{source_ref_prefix}:{source_ref_suffix}",
         )
         if event is None:
             unmatched_lines += 1
@@ -328,10 +466,83 @@ def _scan_text_handle(
         matched_events=len(parsed_events),
         unmatched_lines=unmatched_lines,
         skipped_lines=skipped_lines,
-        limited=limited,
-        limit_reason="max_lines" if limited else None,
+        limited=limited or tail_bootstrap,
+        limit_reason=limit_reason,
+        start_offset=start_offset,
+        next_offset=next_offset,
+        coverage_started_at=coverage_started_at,
+        parser_event_date=(
+            current_event_date.isoformat() if current_event_date is not None else None
+        ),
+        parser_time_of_day=(
+            previous_time_of_day.isoformat()
+            if previous_time_of_day is not None
+            else None
+        ),
+        tail_bootstrap=tail_bootstrap,
     )
     return file_summary, tuple(parsed_events)
+
+
+def _aligned_scan_start(handle, *, start_offset: int, end_offset: int) -> int:
+    if start_offset <= 0 or start_offset >= end_offset:
+        return max(0, start_offset)
+    handle.seek(start_offset - 1)
+    if handle.read(1) == b"\n":
+        return start_offset
+    handle.seek(start_offset)
+    handle.readline(end_offset - start_offset)
+    return min(handle.tell(), end_offset)
+
+
+def _tail_base_event_date(
+    handle,
+    *,
+    start_offset: int,
+    end_offset: int,
+    mtime: float,
+) -> date | None:
+    original_offset = handle.tell()
+    try:
+        handle.seek(start_offset)
+        for _ in range(256):
+            line_offset = handle.tell()
+            if line_offset >= end_offset:
+                break
+            raw_line = handle.readline(min(end_offset - line_offset, 4096))
+            if not raw_line:
+                break
+            try:
+                line = raw_line.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+            absolute = _absolute_timestamp_from_line(line)
+            if absolute is not None and absolute.current_date is not None:
+                return absolute.current_date
+            match = _TIME_OF_DAY_RE.match(line)
+            if match is None:
+                continue
+            first_time = _parse_time_of_day(match.group("timestamp"))
+            if first_time is None:
+                continue
+            observed = datetime.fromtimestamp(mtime, timezone.utc)
+            observed_time = observed.time().replace(tzinfo=None)
+            if (
+                first_time > observed_time
+                and _time_distance_seconds(first_time, observed_time) > 6 * 60 * 60
+            ):
+                return observed.date() - timedelta(days=1)
+            return observed.date()
+    finally:
+        handle.seek(original_offset)
+    return None
+
+
+def _time_distance_seconds(left: time, right: time) -> float:
+    anchor = date(2000, 1, 1)
+    return abs(
+        (datetime.combine(anchor, left) - datetime.combine(anchor, right)).total_seconds()
+    )
 
 
 
@@ -546,6 +757,12 @@ def _safe_source_ref_prefix(path: Path, source: str) -> str:
         str(path.resolve(strict=False)).encode("utf-8", "replace")
     ).hexdigest()[:12]
     return f"{source}:{digest}"
+
+
+def player_log_file_identity(stat_result: os.stat_result) -> str:
+    """Return an opaque identity for rotation checks without exposing host IDs."""
+    payload = f"{int(stat_result.st_dev)}:{int(stat_result.st_ino)}"
+    return hashlib.sha256(payload.encode("ascii", "strict")).hexdigest()
 
 def _safe_path_label(path: Path) -> str:
     return _safe_label(path.name or "log")

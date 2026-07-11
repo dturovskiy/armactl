@@ -9,7 +9,7 @@ from collections import Counter
 from collections.abc import Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import Any, Final
 
@@ -23,6 +23,7 @@ DEFAULT_MAX_LOG_FILES: Final = 32
 PLAYER_LOG_INGEST_LOCK_FILENAME: Final = ".player-log-ingest.lock"
 PLAYER_LOG_INGEST_FINGERPRINT_BYTES = 4096
 _CONTROLLED_PARTIAL_SKIP_ERROR_CODES = frozenset({"file_too_large", "missing_file"})
+_NON_BLOCKING_SKIP_REASONS = frozenset({"unchanged", "historical_file_too_large"})
 _IPV4_ADDRESS_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b")
 _BRACKETED_IPV6_ADDRESS_RE = re.compile(r"\[[0-9A-Fa-f:.]{2,}\](?::\d{1,5})?")
 
@@ -39,16 +40,23 @@ class PlayerLogIngestFileSnapshot:
     size_bytes: int
     mtime_ns: int
     fingerprint: str
+    file_identity: str
 
 
 @dataclass(frozen=True)
 class PlayerLogIngestPlan:
     scope: str
     files_considered: int
-    files_to_scan: tuple[Path, ...]
+    scan_requests: tuple[player_log_collector.PlayerLogScanRequest, ...]
     snapshots_to_scan: tuple[PlayerLogIngestFileSnapshot, ...]
     skipped_reason_counts: dict[str, int]
     checkpoint_reset_reason_counts: dict[str, int]
+    active_source_key: str = ""
+    active_coverage_started_at: str = ""
+
+    @property
+    def files_to_scan(self) -> tuple[Path, ...]:
+        return tuple(request.path for request in self.scan_requests)
 
     @property
     def files_selected_for_scan(self) -> int:
@@ -84,6 +92,7 @@ class PlayerLogIngestResult:
     checkpoint_updated: bool = False
     freshness_status: str = player_registry.PLAYER_LOG_INGEST_STATUS_UNAVAILABLE
     freshness_at: str = ""
+    coverage_started_at: str = ""
     collection_success: bool = False
 
     @property
@@ -133,6 +142,7 @@ class PlayerLogIngestResult:
             "checkpoint_updated": self.checkpoint_updated,
             "freshness_status": self.freshness_status,
             "freshness_at": self.freshness_at,
+            "coverage_started_at": self.coverage_started_at,
             "collection_success": self.collection_success,
             "success": self.success,
         }
@@ -157,6 +167,7 @@ class PlayerLogIngestStatus:
     skipped_reasons: str = ""
     checkpoint_updated: bool = False
     checkpoint_count: int = 0
+    coverage_started_at: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -175,6 +186,7 @@ class PlayerLogIngestStatus:
             "skipped_reasons": self.skipped_reasons,
             "checkpoint_updated": self.checkpoint_updated,
             "checkpoint_count": self.checkpoint_count,
+            "coverage_started_at": self.coverage_started_at,
         }
 
 
@@ -285,6 +297,7 @@ def plan_player_log_ingest(
     log_paths: Iterable[os.PathLike[str] | str],
     *,
     scope: str,
+    max_bytes: int = player_log_collector.DEFAULT_MAX_FILE_BYTES,
 ) -> PlayerLogIngestPlan:
     normalized_scope = _safe_scope(scope)
     requested_paths = tuple(Path(path) for path in log_paths)
@@ -297,33 +310,80 @@ def plan_player_log_ingest(
     }
     skipped: Counter[str] = Counter()
     resets: Counter[str] = Counter()
-    files_to_scan: list[Path] = []
+    scan_requests: list[player_log_collector.PlayerLogScanRequest] = []
     snapshots_to_scan: list[PlayerLogIngestFileSnapshot] = []
+    active_source_key = ""
+    active_coverage_started_at = ""
 
-    for log_path in requested_paths:
+    for index, log_path in enumerate(requested_paths):
         snapshot, skip_reason = snapshot_player_log_file(log_path)
         if snapshot is None:
             skipped[skip_reason or "unavailable"] += 1
             continue
+        is_active_log = not active_source_key and index == 0
+        if is_active_log:
+            active_source_key = snapshot.source_key
 
         previous = checkpoints.get(snapshot.source_key)
+        if is_active_log and previous is not None:
+            active_coverage_started_at = previous.coverage_started_at
         if previous is not None and _matches_checkpoint(snapshot, previous):
             skipped["unchanged"] += 1
+            continue
+
+        if not is_active_log and snapshot.size_bytes > max_bytes:
+            skipped["historical_file_too_large"] += 1
             continue
 
         reset_reason = _checkpoint_reset_reason(snapshot, previous)
         if reset_reason:
             resets[reset_reason] += 1
-        files_to_scan.append(snapshot.path)
+            previous = None
+
+        start_offset = 0
+        coverage_started_at = ""
+        base_event_date: date | None = None
+        previous_time_of_day: time | None = None
+        if previous is not None:
+            start_offset = previous.next_offset or previous.size_bytes
+            coverage_started_at = previous.coverage_started_at
+            base_event_date = _parse_checkpoint_date(previous.parser_event_date)
+            previous_time_of_day = _parse_checkpoint_time(
+                previous.parser_time_of_day
+            )
+
+        if snapshot.size_bytes - start_offset > max_bytes:
+            reset_name = "tail_gap" if previous is not None else "tail_bootstrap"
+            resets[reset_name] += 1
+            start_offset = max(snapshot.size_bytes - max_bytes, 0)
+            coverage_started_at = ""
+            base_event_date = None
+            previous_time_of_day = None
+
+        scan_requests.append(
+            player_log_collector.PlayerLogScanRequest(
+                path=snapshot.path,
+                start_offset=start_offset,
+                allow_tail=is_active_log,
+                absolute_source_refs=True,
+                hold_incomplete_tail=True,
+                base_event_date=base_event_date,
+                previous_time_of_day=previous_time_of_day,
+                coverage_started_at=coverage_started_at or None,
+                expected_file_identity=snapshot.file_identity,
+            )
+        )
         snapshots_to_scan.append(snapshot)
 
     return PlayerLogIngestPlan(
         scope=normalized_scope,
         files_considered=len(requested_paths),
-        files_to_scan=tuple(files_to_scan),
+        scan_requests=tuple(scan_requests),
         snapshots_to_scan=tuple(snapshots_to_scan),
         skipped_reason_counts=dict(sorted(skipped.items())),
         checkpoint_reset_reason_counts=dict(sorted(resets.items())),
+        active_source_key=active_source_key,
+        active_coverage_started_at=active_coverage_started_at,
     )
 
 
@@ -356,6 +416,7 @@ def snapshot_player_log_file(
             size_bytes=max(0, int(stat_result.st_size)),
             mtime_ns=_mtime_ns(stat_result),
             fingerprint=fingerprint,
+            file_identity=player_log_collector.player_log_file_identity(stat_result),
         ),
         "",
     )
@@ -382,15 +443,36 @@ def checkpoint_records_for_collection_summary(
                 status="scanned",
                 last_scanned_at=updated_at,
                 updated_at=updated_at,
+                next_offset=file_summary.next_offset,
+                coverage_started_at=file_summary.coverage_started_at or "",
+                parser_event_date=file_summary.parser_event_date or "",
+                parser_time_of_day=file_summary.parser_time_of_day or "",
+                file_identity=snapshot.file_identity,
             )
         )
     return tuple(records)
 
 
+def _active_coverage_started_at(
+    plan: PlayerLogIngestPlan,
+    records: tuple[player_registry.PlayerLogIngestCheckpoint, ...],
+) -> str:
+    for record in records:
+        if record.source_key == plan.active_source_key:
+            return record.coverage_started_at
+    return plan.active_coverage_started_at
+
+
 def _collector_skip_reason_counts(summary: PlayerLogCollectionSummary | None) -> dict[str, int]:
-    if summary is None or not summary.errors:
+    if summary is None:
         return {}
-    return dict(sorted(Counter(error.code for error in summary.errors).items()))
+    reasons = Counter(error.code for error in summary.errors)
+    reasons.update(
+        "line_limit"
+        for file_summary in summary.files
+        if file_summary.limit_reason == "max_lines"
+    )
+    return dict(sorted(reasons.items()))
 
 
 def _collection_success_for_summary(summary: PlayerLogCollectionSummary) -> bool:
@@ -408,17 +490,21 @@ def _freshness_status(
     plan: PlayerLogIngestPlan,
     *,
     collection_success: bool,
+    coverage_started_at: str,
 ) -> str:
     if not collection_success:
         return player_registry.PLAYER_LOG_INGEST_STATUS_FAILED
     if plan.files_considered == 0:
         return player_registry.PLAYER_LOG_INGEST_STATUS_NO_LOGS
+    if not coverage_started_at:
+        return player_registry.PLAYER_LOG_INGEST_STATUS_PARTIAL
     skipped_counts = combine_reason_counts(
         plan.skipped_reason_counts,
         _collector_skip_reason_counts(summary),
     )
     if summary.error_count or any(
-        reason != "unchanged" and count > 0 for reason, count in skipped_counts.items()
+        reason not in _NON_BLOCKING_SKIP_REASONS and count > 0
+        for reason, count in skipped_counts.items()
     ):
         return player_registry.PLAYER_LOG_INGEST_STATUS_PARTIAL
     return player_registry.PLAYER_LOG_INGEST_STATUS_FRESH
@@ -432,6 +518,7 @@ def _result_from_summary(
     checkpoint_updated: bool,
     freshness_status: str,
     freshness_at: str,
+    coverage_started_at: str,
     collection_success: bool,
 ) -> PlayerLogIngestResult:
     return PlayerLogIngestResult(
@@ -457,6 +544,7 @@ def _result_from_summary(
         checkpoint_updated=checkpoint_updated,
         freshness_status=freshness_status,
         freshness_at=freshness_at,
+        coverage_started_at=coverage_started_at,
         collection_success=collection_success,
     )
 
@@ -498,6 +586,7 @@ def _failed_result(
         checkpoint_updated=False,
         freshness_status=player_registry.PLAYER_LOG_INGEST_STATUS_FAILED,
         freshness_at=run_at,
+        coverage_started_at="",
         collection_success=False,
     )
     return replace(
@@ -574,10 +663,11 @@ def run_player_log_ingest_once(
                 registry_db_path,
                 log_paths,
                 scope=PLAYER_LOG_INGEST_SCOPE,
+                max_bytes=max_bytes,
             )
             try:
                 summary = player_log_collector.collect_player_log_events(
-                    plan.files_to_scan,
+                    plan.scan_requests,
                     registry_db_path,
                     dry_run=False,
                     max_bytes=max_bytes,
@@ -611,11 +701,16 @@ def run_player_log_ingest_once(
                         checkpoint_records,
                     )
                 )
+                coverage_started_at = _active_coverage_started_at(
+                    plan,
+                    checkpoint_records,
+                )
                 collection_success = _collection_success_for_summary(summary)
                 freshness_status = _freshness_status(
                     summary,
                     plan,
                     collection_success=collection_success,
+                    coverage_started_at=coverage_started_at,
                 )
                 skipped_reason_counts = combine_reason_counts(
                     plan.skipped_reason_counts,
@@ -632,6 +727,7 @@ def run_player_log_ingest_once(
                     skipped_files=summary.files_skipped + plan.skipped_files,
                     skipped_reasons=format_reason_counts(skipped_reason_counts),
                     checkpoint_updated=checkpoint_updated,
+                    coverage_started_at=coverage_started_at,
                 )
             except Exception:
                 _record_failed_freshness(
@@ -655,6 +751,7 @@ def run_player_log_ingest_once(
                 checkpoint_updated=checkpoint_updated,
                 freshness_status=freshness_status,
                 freshness_at=freshness_at,
+                coverage_started_at=coverage_started_at,
                 collection_success=collection_success,
             )
     except _PlayerLogIngestBusyError:
@@ -740,6 +837,7 @@ def read_player_log_ingest_status(
         skipped_reasons=freshness.skipped_reasons,
         checkpoint_updated=freshness.checkpoint_updated,
         checkpoint_count=len(checkpoints),
+        coverage_started_at=freshness.coverage_started_at,
     )
 
 
@@ -771,10 +869,16 @@ def _matches_checkpoint(
     snapshot: PlayerLogIngestFileSnapshot,
     checkpoint: player_registry.PlayerLogIngestCheckpoint,
 ) -> bool:
+    identity_matches = (
+        not checkpoint.file_identity
+        or snapshot.file_identity == checkpoint.file_identity
+    )
     return (
-        snapshot.size_bytes == checkpoint.size_bytes
+        identity_matches
+        and snapshot.size_bytes == checkpoint.size_bytes
         and snapshot.mtime_ns == checkpoint.mtime_ns
         and snapshot.fingerprint == checkpoint.fingerprint
+        and checkpoint.next_offset >= snapshot.size_bytes
     )
 
 
@@ -784,6 +888,11 @@ def _checkpoint_reset_reason(
 ) -> str:
     if checkpoint is None:
         return ""
+    if (
+        checkpoint.file_identity
+        and snapshot.file_identity != checkpoint.file_identity
+    ):
+        return "rotated"
     if snapshot.size_bytes < checkpoint.size_bytes:
         return "truncated"
     if (
@@ -821,6 +930,26 @@ def _source_label(path: Path) -> str:
     text = _IPV4_ADDRESS_RE.sub("***", text)
     text = _BRACKETED_IPV6_ADDRESS_RE.sub("***", text).strip()
     return text or "log"
+
+
+def _parse_checkpoint_date(value: object) -> date | None:
+    text = safe_player_text(value, max_length=20)
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _parse_checkpoint_time(value: object) -> time | None:
+    text = safe_player_text(value, max_length=30)
+    if not text:
+        return None
+    try:
+        return time.fromisoformat(text)
+    except ValueError:
+        return None
 
 
 def _safe_scope(value: object) -> str:

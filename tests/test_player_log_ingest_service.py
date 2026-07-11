@@ -365,6 +365,7 @@ def test_cli_status_explains_monotonic_timer_and_numeric_process_code(
             instance="default",
             state="available",
             reason="ok",
+            coverage_started_at="2026-07-11T18:00:00+00:00",
         ),
     )
     monkeypatch.setattr(
@@ -378,6 +379,7 @@ def test_cli_status_explains_monotonic_timer_and_numeric_process_code(
     assert result.exit_code == 0
     assert "Service process: exited; exit status 0" in result.output
     assert "Next trigger:    pending (120s after completion)" in result.output
+    assert "Coverage starts: 2026-07-11T18:00:00+00:00" in result.output
 
 
 def test_status_is_read_only_for_missing_units_and_players_db(

@@ -49,7 +49,12 @@ def _open_session(db_path: Path, opened_at: str = "2026-07-10T12:00:00+00:00"):
     )
 
 
-def _record_fresh_ingest(db_path: Path, covered_through: str) -> None:
+def _record_fresh_ingest(
+    db_path: Path,
+    covered_through: str,
+    *,
+    covered_from: str = "2026-07-10T11:55:00+00:00",
+) -> None:
     scope = player_current_enrichment.CURRENT_STATS_INGEST_SCOPE
     player_registry.upsert_player_log_ingest_checkpoints(
         db_path,
@@ -64,6 +69,8 @@ def _record_fresh_ingest(db_path: Path, covered_through: str) -> None:
                 status="scanned",
                 last_scanned_at=covered_through,
                 updated_at=covered_through,
+                next_offset=128,
+                coverage_started_at=covered_from,
             )
         ],
     )
@@ -77,6 +84,7 @@ def _record_fresh_ingest(db_path: Path, covered_through: str) -> None:
         stored_events=0,
         skipped_files=0,
         checkpoint_updated=True,
+        coverage_started_at=covered_from,
     )
 
 
@@ -214,6 +222,28 @@ def test_fresh_proven_session_may_show_true_zeroes(tmp_path: Path):
     assert enrichment.deaths == 0
     assert enrichment.teamkills == 0
     assert enrichment.faction is None
+
+
+def test_fresh_tail_coverage_after_session_start_does_not_show_partial_zeroes(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "default" / "players.db"
+    _open_session(db_path)
+    _record_fresh_ingest(
+        db_path,
+        "2026-07-10T12:15:00+00:00",
+        covered_from="2026-07-10T12:05:00+00:00",
+    )
+
+    enrichment = _load(tmp_path)
+
+    assert enrichment.stats_available is False
+    assert enrichment.kills is None
+    assert enrichment.deaths is None
+    assert enrichment.teamkills is None
+    assert enrichment.stats_unavailable_reason == (
+        player_current_enrichment.CURRENT_STATS_SESSION_COVERAGE_REASON
+    )
 
 
 def test_reconnect_within_grace_keeps_original_stats_window(tmp_path: Path):

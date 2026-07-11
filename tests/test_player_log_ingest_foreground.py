@@ -104,9 +104,9 @@ def test_shared_service_skips_unchanged_and_ingests_appended_evidence(
     assert unchanged.checkpoint_updated is False
     assert appended.success is True
     assert appended.files_scanned == 1
-    assert appended.parsed_events == 2
+    assert appended.parsed_events == 1
     assert appended.stored_events == 1
-    assert appended.duplicate_events == 1
+    assert appended.duplicate_events == 0
     assert _event_count(db_path) == 2
 
 
@@ -127,8 +127,9 @@ def test_shared_service_controls_missing_and_oversized_files(
 
     assert partial.success is True
     assert partial.freshness_status == player_registry.PLAYER_LOG_INGEST_STATUS_PARTIAL
-    assert partial.files_scanned == 1
-    assert partial.skipped_reason_counts["file_too_large"] == 1
+    assert partial.files_scanned == 2
+    assert partial.skipped_reason_counts == {}
+    assert partial.checkpoint_reset_reason_counts["tail_bootstrap"] == 1
 
     missing = tmp_path / "default" / "config" / "logs" / "missing" / "console.log"
     monkeypatch.setattr(
@@ -144,6 +145,274 @@ def test_shared_service_controls_missing_and_oversized_files(
     assert missing_result.files_selected_for_scan == 0
     assert missing_result.skipped_reason_counts == {"missing_file": 1}
     assert str(missing) not in json.dumps(missing_result.to_dict())
+
+
+def test_oversized_active_log_bootstraps_bounded_tail_then_reads_only_append(
+    tmp_path: Path,
+) -> None:
+    filler = [f"11:59:{second:02d}.000 DEFAULT : filler" for second in range(20)]
+    log_path = _write_console_log(
+        tmp_path,
+        [*filler, _auth_line(PLAYER_ALPHA_ID, "Alpha One", rpl_identity=42)],
+    )
+    db_path = tmp_path / "default" / "players.db"
+
+    first = player_log_ingest.run_player_log_ingest_once(
+        data_root=tmp_path,
+        max_bytes=512,
+    )
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write(_kill_line() + "\n")
+    appended = player_log_ingest.run_player_log_ingest_once(
+        data_root=tmp_path,
+        max_bytes=512,
+    )
+    checkpoint = player_registry.list_player_log_ingest_checkpoints(
+        db_path,
+        scope=player_log_ingest.PLAYER_LOG_INGEST_SCOPE,
+    )[0]
+
+    assert first.success is True
+    assert first.freshness_status == player_registry.PLAYER_LOG_INGEST_STATUS_FRESH
+    assert first.checkpoint_reset_reason_counts == {"tail_bootstrap": 1}
+    assert first.coverage_started_at
+    assert appended.success is True
+    assert appended.files_scanned == 1
+    assert appended.parsed_events == 1
+    assert appended.stored_events == 1
+    assert appended.duplicate_events == 0
+    assert appended.checkpoint_reset_reason_counts == {}
+    assert checkpoint.next_offset == log_path.stat().st_size
+    assert checkpoint.coverage_started_at == first.coverage_started_at
+    assert _event_count(db_path) == 2
+
+
+def test_oversized_historical_logs_do_not_block_current_log_freshness(
+    tmp_path: Path,
+) -> None:
+    historical = _write_console_log(tmp_path, ["old"], run="2026-07-09-run")
+    historical.write_bytes(b"x" * 1024)
+    current = _write_console_log(
+        tmp_path,
+        [_auth_line(PLAYER_ALPHA_ID, "Alpha One", rpl_identity=42)],
+    )
+    historical_stat = historical.stat()
+    os.utime(
+        current,
+        ns=(historical_stat.st_mtime_ns + 1_000_000, historical_stat.st_mtime_ns + 1_000_000),
+    )
+
+    result = player_log_ingest.run_player_log_ingest_once(
+        data_root=tmp_path,
+        max_bytes=512,
+    )
+
+    assert result.success is True
+    assert result.freshness_status == player_registry.PLAYER_LOG_INGEST_STATUS_FRESH
+    assert result.files_scanned == 1
+    assert result.skipped_reason_counts == {"historical_file_too_large": 1}
+    assert result.coverage_started_at
+
+
+def test_oversized_append_gap_resets_continuous_coverage_to_bounded_tail(
+    tmp_path: Path,
+) -> None:
+    log_path = _write_console_log(
+        tmp_path,
+        [_auth_line(PLAYER_ALPHA_ID, "Alpha One", rpl_identity=42)],
+    )
+    first = player_log_ingest.run_player_log_ingest_once(
+        data_root=tmp_path,
+        max_bytes=512,
+    )
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write("x" * 1024 + "\n")
+        handle.write(
+            "12:10:00.000 "
+            + _auth_line(PLAYER_BRAVO_ID, "Bravo Two", rpl_identity=43).split(
+                " ", 1
+            )[1]
+            + "\n"
+        )
+
+    gap = player_log_ingest.run_player_log_ingest_once(
+        data_root=tmp_path,
+        max_bytes=512,
+    )
+
+    assert first.success is True
+    assert gap.success is True
+    assert gap.checkpoint_reset_reason_counts == {"tail_gap": 1}
+    assert gap.coverage_started_at.endswith("T12:10:00Z")
+    assert gap.parsed_events == 1
+    assert gap.stored_events == 1
+
+
+def test_line_limited_scan_stays_partial_until_checkpoint_catches_up(
+    tmp_path: Path,
+) -> None:
+    _write_console_log(
+        tmp_path,
+        [
+            _auth_line(PLAYER_ALPHA_ID, "Alpha One", rpl_identity=42),
+            _kill_line(),
+        ],
+    )
+
+    limited = player_log_ingest.run_player_log_ingest_once(
+        data_root=tmp_path,
+        max_lines=1,
+    )
+    caught_up = player_log_ingest.run_player_log_ingest_once(data_root=tmp_path)
+
+    assert limited.success is True
+    assert limited.freshness_status == player_registry.PLAYER_LOG_INGEST_STATUS_PARTIAL
+    assert limited.skipped_reason_counts == {"line_limit": 1}
+    assert caught_up.success is True
+    assert caught_up.freshness_status == player_registry.PLAYER_LOG_INGEST_STATUS_FRESH
+    assert caught_up.parsed_events == 1
+    assert caught_up.stored_events == 1
+
+
+def test_larger_replacement_is_detected_as_rotation_not_append(
+    tmp_path: Path,
+) -> None:
+    log_path = _write_console_log(
+        tmp_path,
+        [_auth_line(PLAYER_ALPHA_ID, "Alpha One", rpl_identity=42)],
+    )
+    first = player_log_ingest.run_player_log_ingest_once(data_root=tmp_path)
+    replacement = log_path.with_suffix(".replacement")
+    replacement.write_text(
+        "\n".join(
+            [
+                _auth_line(PLAYER_BRAVO_ID, "Bravo Two", rpl_identity=43),
+                _kill_line(),
+                "12:06:00.000 DEFAULT : replacement padding",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    os.replace(replacement, log_path)
+
+    rotated = player_log_ingest.run_player_log_ingest_once(data_root=tmp_path)
+
+    assert first.success is True
+    assert rotated.success is True
+    assert rotated.checkpoint_reset_reason_counts == {"rotated": 1}
+    assert rotated.parsed_events == 2
+    assert rotated.stored_events == 2
+
+
+def test_read_only_status_accepts_legacy_v9_ingest_metadata(tmp_path: Path) -> None:
+    db_path = tmp_path / "default" / "players.db"
+    db_path.parent.mkdir(parents=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE player_log_ingest_checkpoints (
+                scope TEXT NOT NULL,
+                source_key TEXT NOT NULL,
+                source_label TEXT NOT NULL DEFAULT '',
+                size_bytes INTEGER NOT NULL DEFAULT 0,
+                mtime_ns INTEGER NOT NULL DEFAULT 0,
+                fingerprint TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'unknown',
+                last_scanned_at TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(scope, source_key)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE player_log_ingest_freshness (
+                scope TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                last_run_at TEXT NOT NULL DEFAULT '',
+                last_success_at TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL,
+                scanned_files INTEGER NOT NULL DEFAULT 0,
+                parsed_events INTEGER NOT NULL DEFAULT 0,
+                stored_events INTEGER NOT NULL DEFAULT 0,
+                skipped_files INTEGER NOT NULL DEFAULT 0,
+                skipped_reasons TEXT NOT NULL DEFAULT '',
+                checkpoint_updated INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO player_log_ingest_checkpoints(
+                scope, source_key, status, updated_at
+            ) VALUES (?, ?, 'scanned', ?)
+            """,
+            (
+                player_log_ingest.PLAYER_LOG_INGEST_SCOPE,
+                "legacy",
+                "2026-07-10T12:00:00+00:00",
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO player_log_ingest_freshness(
+                scope, status, last_run_at, last_success_at, updated_at
+            ) VALUES (?, 'fresh', ?, ?, ?)
+            """,
+            (
+                player_log_ingest.PLAYER_LOG_INGEST_SCOPE,
+                "2026-07-10T12:00:00+00:00",
+                "2026-07-10T12:00:00+00:00",
+                "2026-07-10T12:00:00+00:00",
+            ),
+        )
+
+    status = player_log_ingest.read_player_log_ingest_status(data_root=tmp_path)
+
+    assert status.state == "available"
+    assert status.freshness_status == player_registry.PLAYER_LOG_INGEST_STATUS_FRESH
+    assert status.coverage_started_at == ""
+
+
+def test_incremental_append_carries_parser_date_across_midnight(tmp_path: Path) -> None:
+    log_path = _write_console_log(
+        tmp_path,
+        [
+            "23:59:00.000 "
+            + _auth_line(PLAYER_ALPHA_ID, "Alpha One", rpl_identity=42).split(
+                " ", 1
+            )[1]
+        ],
+        run="2026-07-10-run",
+    )
+    first = player_log_ingest.run_player_log_ingest_once(data_root=tmp_path)
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            "00:01:00.000 "
+            + _auth_line(PLAYER_BRAVO_ID, "Bravo Two", rpl_identity=43).split(
+                " ", 1
+            )[1]
+            + "\n"
+        )
+
+    appended = player_log_ingest.run_player_log_ingest_once(data_root=tmp_path)
+    db_path = tmp_path / "default" / "players.db"
+    with sqlite3.connect(db_path) as connection:
+        occurred = connection.execute(
+            """
+            SELECT occurred_at
+            FROM player_log_events
+            WHERE player_id = ?
+            ORDER BY event_id DESC
+            LIMIT 1
+            """,
+            (PLAYER_BRAVO_ID,),
+        ).fetchone()
+
+    assert first.success is True
+    assert appended.success is True
+    assert occurred == ("2026-07-11T00:01:00Z",)
 
 
 def test_uncontrolled_failure_does_not_mark_fresh_or_leak_details(
@@ -480,7 +749,13 @@ def test_successful_one_shot_supplies_freshness_to_read_only_stats_enrichment(
         confidence=player_registry.PLAYER_SESSION_CONFIDENCE_HIGH,
         observed_at="2026-07-10T12:00:00+00:00",
     )
-    _write_console_log(tmp_path, [_kill_line()])
+    _write_console_log(
+        tmp_path,
+        [
+            _auth_line(PLAYER_ALPHA_ID, "Alpha One", rpl_identity=42),
+            _kill_line(),
+        ],
+    )
 
     run = player_log_ingest.run_player_log_ingest_once(data_root=tmp_path)
     before = db_path.read_bytes()
@@ -491,7 +766,7 @@ def test_successful_one_shot_supplies_freshness_to_read_only_stats_enrichment(
     )[PLAYER_ALPHA_ID]
 
     assert run.success is True
-    assert run.stored_events == 1
+    assert run.stored_events == 2
     assert enrichment.stats_available is True
     assert enrichment.stats_freshness_status == "fresh"
     assert enrichment.kills == 1
