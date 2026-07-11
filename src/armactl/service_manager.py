@@ -974,6 +974,98 @@ def is_enabled(service_name: str = "armareforger.service") -> bool:
         return False
 
 
+def get_systemd_unit_status(
+    unit_name: str,
+    *,
+    unit_path: Path | None = None,
+) -> dict[str, Any]:
+    """Return bounded read-only status for one generated systemd unit."""
+    path = unit_path or (paths.SYSTEMD_DIR / unit_name)
+    try:
+        exists = path.is_file()
+    except OSError:
+        exists = False
+
+    status: dict[str, Any] = {
+        "unit_name": unit_name,
+        "exists": exists,
+        "load_state": "unknown" if exists else "not-found",
+        "active": False,
+        "enabled": False,
+        "failed": False,
+        "active_state": "unknown" if exists else "missing",
+        "sub_state": "unknown" if exists else "missing",
+        "unit_file_state": "unknown" if exists else "missing",
+        "result": "",
+        "exec_main_code": "",
+        "exec_main_status": None,
+        "last_exit_at": "",
+        "next_trigger": "",
+        "last_trigger": "",
+    }
+    if not exists:
+        return status
+
+    properties = (
+        "LoadState,ActiveState,SubState,UnitFileState,Result,ExecMainCode,"
+        "ExecMainStatus,ExecMainExitTimestamp,NextElapseUSecRealtime,LastTriggerUSec"
+    )
+    try:
+        result = subprocess.run(
+            ["systemctl", "show", unit_name, f"--property={properties}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return status
+
+    for line in result.stdout.strip().splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key == "LoadState":
+            status["load_state"] = value or "unknown"
+        elif key == "ActiveState":
+            status["active_state"] = value or "unknown"
+        elif key == "SubState":
+            status["sub_state"] = value or "unknown"
+        elif key == "UnitFileState":
+            status["unit_file_state"] = value or "unknown"
+        elif key == "Result":
+            status["result"] = "" if value == "n/a" else value
+        elif key == "ExecMainCode":
+            status["exec_main_code"] = "" if value == "n/a" else value
+        elif key == "ExecMainStatus":
+            try:
+                status["exec_main_status"] = int(value)
+            except ValueError:
+                status["exec_main_status"] = None
+        elif key == "ExecMainExitTimestamp":
+            status["last_exit_at"] = "" if value == "n/a" else value
+        elif key == "NextElapseUSecRealtime":
+            status["next_trigger"] = "" if value == "n/a" else value
+        elif key == "LastTriggerUSec":
+            status["last_trigger"] = "" if value == "n/a" else value
+
+    active_state = str(status["active_state"])
+    unit_file_state = str(status["unit_file_state"])
+    result_state = str(status["result"])
+    status["active"] = active_state == "active"
+    status["enabled"] = unit_file_state in {
+        "enabled",
+        "enabled-runtime",
+        "linked",
+        "linked-runtime",
+        "alias",
+    }
+    status["failed"] = active_state == "failed" or result_state not in {
+        "",
+        "success",
+    }
+    return status
+
+
 def get_service_status(service_name: str = "armareforger.service") -> dict[str, Any]:
     """Get detailed service status as a dict.
 

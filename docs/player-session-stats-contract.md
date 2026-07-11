@@ -1,6 +1,6 @@
 # Player Session Stats Contract
 
-This document is the source of truth for current-player combat, faction, and session columns without heuristic shortcuts. Slices C, D, and E now provide checkpointed ingest freshness metadata, explicit reconnect-aware play-session windows, and read-only session-scoped aggregation. An opt-in automatic runner remains a separate future decision; no daemon, timer, app-start worker, or GET-side ingest was enabled.
+This document is the source of truth for current-player combat, faction, and session columns without heuristic shortcuts. Slices C, D, and E provide checkpointed ingest freshness metadata, explicit reconnect-aware play-session windows, and read-only session-scoped aggregation. Slice F2-a now provides a locally implemented systemd oneshot service/timer foundation for the shared F1 ingest path. Installation never enables or starts the timer and preserves any existing enablement state; activation is explicit, and production deployment/observation remains open for F2-b. No app-start worker, browser poller, hidden thread, GET-side ingest, or player-session scheduler was enabled.
 
 ## Problem Statement
 
@@ -73,7 +73,7 @@ The current freshness gate requires all of the following:
 - At least one checkpoint for the same scope is marked `scanned` with a scan timestamp.
 - Fresh coverage reaches or exceeds the open play-session start.
 
-Missing, `no_logs`, partial, failed, stale, malformed, or checkpoint-free freshness cannot prove a zero and returns nullable stats with a safe unavailable reason. The explicit manual job remains available. The explicit foreground `players log-ingest run --once` foundation exists, but automatic service/timer installation and enablement remain future work and must not be implemented as a hidden daemon, app-start hook, browser poller, or GET mutation.
+Missing, `no_logs`, partial, failed, stale, malformed, or checkpoint-free freshness cannot prove a zero and returns nullable stats with a safe unavailable reason. The explicit manual job and foreground `players log-ingest run --once` remain available. Slice F2-a adds generated `armactl-player-log-ingest.service` and `armactl-player-log-ingest.timer` units plus explicit install/enable/disable/status commands. Installation leaves the 120-second completion-relative timer disabled; only an explicit enable activates it. Production deployment and proof that stats refresh without the manual button remain F2-b work. This runner is not a hidden daemon, app-start hook, browser poller, GET mutation, or player-session scheduler.
 
 ## Parser Stability Contract
 
@@ -153,7 +153,7 @@ Occurrence-time contract: the pure parser can preserve a raw time prefix, but tr
 
 ### Implemented Slice Acceptance
 
-Slice C automatic log ingest foundation and Slice F1 reusable foreground foundation are implemented locally. One synchronous service reuses the current collector/parser/player-registry ingest path, owns allowlisted discovery plus checkpoint/freshness orchestration, and is called by both the thin manual web job adapter and `armactl players log-ingest run --once`. It preserves occurrence-time evidence, handles unchanged/appended/missing/rotated/truncated/oversized logs with controlled counts, rejects overlapping instance/scope runs with a process-lifetime file lock, and reports sanitized counts-only output. It does not install or enable a daemon, timer, app-start worker, broad scheduler, or public enrichment.
+Slice C automatic log ingest foundation, Slice F1 reusable foreground foundation, and Slice F2-a local supervised service foundation are implemented locally. One synchronous service reuses the current collector/parser/player-registry ingest path, owns allowlisted discovery plus checkpoint/freshness orchestration, and is called by the thin manual web job adapter, `armactl players log-ingest run --once`, and the F2-a systemd oneshot wrapper. It preserves occurrence-time evidence, handles unchanged/appended/missing/rotated/truncated/oversized logs with controlled counts, rejects overlapping instance/scope runs with the same process-lifetime file lock, and reports sanitized counts-only output. F2-a installs no second parser, collector, SQL pipeline, checkpoint/freshness ledger, background thread, GET trigger, or player-session scheduler; installation does not enable or start its timer.
 
 Slice D play-session/reconnect modeling is implemented. It keeps server-run boundary storage explicit and uses same reliable ID, same server run, compatible close reason, reconnect grace, no lifecycle boundary in the gap, and no identity conflict as hard merge gates. It does not merge or close sessions from count-only, name-only, ambiguous-time, failed-staleness, or multi-match correlation evidence.
 
@@ -242,9 +242,20 @@ Before adding Discord player columns, require:
 - [x] Keep `players:collect-log-events` as a thin adapter with existing active-job dedupe and manual intent/outcome audit semantics.
 - [x] Add blocking `armactl players log-ingest run --once` and read-only `armactl players log-ingest status`, with instance/data-root support and sanitized output.
 - [x] Prevent manual/CLI overlap with one shared nonblocking instance/scope lock whose kernel ownership is released on process death; do not add a second dedupe ledger or fake cancellation.
-- [ ] Install and enable the foreground runner as an explicit supervised service/timer only in a later approved service/deploy slice.
+- [x] Hand the foreground runner to a separate explicit supervised service/timer slice rather than adding a hidden thread or GET trigger.
 
-The acceptance criteria “stats update without the manual button” and “manual collection is not the only freshness path” remain open until that explicit service is actually deployed and observed.
+### Slice F2-a: Explicit Supervised Ingest Service/Timer Foundation — implemented locally
+
+- [x] Generate one `Type=oneshot` `armactl-player-log-ingest.service` and one explicit `armactl-player-log-ingest.timer` through the established service-manager/template ownership model.
+- [x] Keep installation idempotent and disabled by default; require `players log-ingest enable` to enable and activate the timer, and provide explicit disable/status operations.
+- [x] Use one 120-second source-of-truth cadence with `OnUnitInactiveSec`, so the next run is scheduled after the prior oneshot finishes and timer-driven runs do not overlap.
+- [x] Keep the F1 cross-process lock authoritative; scheduled `already_running` is a controlled zero-exit skipped cycle, while real ingest failures stay nonzero and do not manufacture fresh success.
+- [x] Run through the generated direct project `.venv` path as the resolved armactl instance owner with `UMask=0077`, a bounded 360-second failure guard derived from the 32-file workload bound, and restrained CPU/I/O priority.
+- [x] Keep scheduled journald output counts-only. Preserve manual foreground outcome audit, suppress unchanged successful scheduled audit, and persist only bounded sanitized failure/freshness-transition/recovery events.
+- [x] Keep status read-only and controlled for missing units or missing `players.db`; report unit existence, enabled/active/failed/result state, timer next trigger, and stored freshness.
+- [x] Do not restart or mutate `armareforger.service`, start work from GET/browser/app startup, couple to the player-session scheduler, or add a daemon/background thread.
+
+The acceptance criteria “stats update without the manual button” and “manual collection is not the only freshness path” remain open until F2-b deploys and observes the explicitly enabled timer on a VM. Stats also remain unavailable without a proven open play session; F2-a does not silently enable the separate player-session scheduler.
 
 ### Slice D: Play-Session/Reconnect Model - implemented
 
@@ -270,8 +281,9 @@ The acceptance criteria “stats update without the manual button” and “manu
 ### Slice F: UI Smoke And Cleanup
 
 - Verify the implemented `/players` details, nullable rendering, safe unavailable wording, and browser polling behavior in an approved environment.
-- Verify no fake zeroes and no accumulation across real new sessions; automatic ingest runner policy remains separate future work.
-- Run Serhiivka smoke first, then Chervonopilya only after explicit approval.
+- In F2-b, install and explicitly enable the F2-a player-log ingest timer on Serhiivka first, observe repeated successful/non-overlapping cycles and freshness without the manual button, and keep the separate player-session scheduler disabled unless separately approved.
+- Verify no fake zeroes and no accumulation across real new sessions; stats still require a proven open play session.
+- Run Chervonopilya only after Serhiivka evidence and explicit approval.
 
 ### Slice G: Discord/Public Evaluation
 
@@ -302,4 +314,4 @@ The acceptance criteria “stats update without the manual button” and “manu
 
 ## Immediate Next Recommended Slice
 
-Slice F1 audit/design and the shared foreground one-shot foundation are implemented locally. The next ingest step is a separate approved service/deploy slice that installs and enables an explicit supervised runner, then verifies that stats become fresh without the manual button. UI smoke and any Discord/public enrichment remain separate; do not claim automatic acceptance before deployment.
+Slice F2-a is implemented locally: generated oneshot/timer units, explicit install/enable/disable/status commands, completion-relative 120-second cadence, bounded runtime guard, restrained priority, controlled lock skips, and bounded scheduled audit transitions all reuse the F1 service. The immediate next step is F2-b VM deployment: Serhiivka first, explicitly install and enable the timer, verify repeated cycles and current freshness without the manual button, confirm no game-service restart and no player-session scheduler enablement, then consider Chervonopilya only with explicit approval. Do not claim automatic acceptance before that deployment evidence; stats still require a proven open play session.

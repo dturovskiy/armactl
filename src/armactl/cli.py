@@ -1139,27 +1139,60 @@ def _format_player_log_ingest_result(result) -> str:
 
 
 def _format_player_log_ingest_status(status) -> str:
+    service = status.service
+    timer = status.timer
+    freshness = status.freshness
+    service_exit_status = service.get("exec_main_status")
     return "\n".join(
         [
-            "Player log ingest status (read-only).",
+            "Player log ingest service status (read-only).",
             f"  Instance:        {status.instance}",
-            f"  State:           {status.state} ({status.reason})",
-            f"  Freshness:       {status.freshness_status}",
-            f"  Last run:        {status.last_run_at or '-'}",
-            f"  Last success:    {status.last_success_at or '-'}",
-            f"  Checkpoints:     {status.checkpoint_count}",
-            f"  Scanned files:   {status.scanned_files}",
-            f"  Parsed events:   {status.parsed_events}",
-            f"  Stored events:   {status.stored_events}",
-            f"  Skipped files:   {status.skipped_files}",
-            f"  Skip reasons:    {status.skipped_reasons or '-'}",
+            f"  Cadence:         {status.cadence_seconds} seconds after completion",
+            f"  Service unit:    {service['unit_name']}",
+            f"  Service exists:  {'yes' if service['exists'] else 'no'}",
+            f"  Service state:   {service['active_state']} / {service['sub_state']}",
+            f"  Service failed:  {'yes' if service['failed'] else 'no'}",
+            f"  Last result:     {service['result'] or '-'}",
+            (
+                f"  Service exit:    {service.get('exec_main_code') or '-'} / "
+                f"{service_exit_status if service_exit_status is not None else '-'}"
+            ),
+            f"  Last exit:       {service['last_exit_at'] or '-'}",
+            f"  Timer unit:      {timer['unit_name']}",
+            f"  Timer exists:    {'yes' if timer['exists'] else 'no'}",
+            f"  Timer enabled:   {'yes' if timer['enabled'] else 'no'}",
+            f"  Timer state:     {timer['active_state']} / {timer['sub_state']}",
+            f"  Timer failed:    {'yes' if timer['failed'] else 'no'}",
+            f"  Next trigger:    {timer['next_trigger'] or '-'}",
+            f"  Last trigger:    {timer['last_trigger'] or '-'}",
+            f"  Freshness state: {freshness.state} ({freshness.reason})",
+            f"  Freshness:       {freshness.freshness_status}",
+            f"  Last run:        {freshness.last_run_at or '-'}",
+            f"  Last success:    {freshness.last_success_at or '-'}",
+            f"  Checkpoints:     {freshness.checkpoint_count}",
+            f"  Scanned files:   {freshness.scanned_files}",
+            f"  Parsed events:   {freshness.parsed_events}",
+            f"  Stored events:   {freshness.stored_events}",
+            f"  Skipped files:   {freshness.skipped_files}",
+            f"  Skip reasons:    {freshness.skipped_reasons or '-'}",
         ]
     )
 
 
+def _format_player_log_ingest_operation(result, heading: str) -> str:
+    lines = [heading]
+    if hasattr(result, "service_name"):
+        lines.append(f"  Service unit: {result.service_name}")
+    lines.append(f"  Timer unit:   {result.timer_name}")
+    for item in result.results:
+        marker = "ok" if item.success else "failed"
+        lines.append(f"  - {marker}: {item.message}")
+    return "\n".join(lines)
+
+
 @players.group("log-ingest")
 def players_log_ingest() -> None:
-    """Run and inspect the foreground player-log ingest foundation."""
+    """Run and manage player-log ingest."""
 
 
 @players_log_ingest.command("status")
@@ -1174,11 +1207,11 @@ def players_log_ingest_status(
     ctx: click.Context,
     data_root: Path | None,
 ) -> None:
-    """Show existing freshness/checkpoints without creating or migrating players.db."""
-    from armactl.web.services.player_log_ingest import read_player_log_ingest_status
+    """Show service/timer state and existing freshness without mutating state."""
+    from armactl.player_log_ingest_service import get_player_log_ingest_service_status
 
     root = data_root or paths.DEFAULT_DATA_ROOT
-    status = read_player_log_ingest_status(
+    status = get_player_log_ingest_service_status(
         ctx.obj["instance"],
         data_root=root,
     )
@@ -1188,8 +1221,86 @@ def players_log_ingest_status(
         click.echo(_format_player_log_ingest_status(status))
 
 
+@players_log_ingest.command("install")
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Optional armactl data root rendered into the generated service.",
+)
+@click.pass_context
+def players_log_ingest_install(
+    ctx: click.Context,
+    data_root: Path | None,
+) -> None:
+    """Install the oneshot service and timer without changing activation."""
+    from armactl.player_log_ingest_service import install_player_log_ingest_service
+
+    result = install_player_log_ingest_service(
+        ctx.obj["instance"],
+        data_root=data_root or paths.DEFAULT_DATA_ROOT,
+    )
+    if ctx.obj["json"]:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+    else:
+        click.echo(
+            _format_player_log_ingest_operation(
+                result,
+                "Player log ingest service/timer installation.",
+            )
+        )
+        if result.success:
+            click.echo(
+                "  Installation does not enable or start the timer; "
+                "existing enablement is preserved."
+            )
+    if result.exit_code:
+        raise click.exceptions.Exit(result.exit_code)
+
+
+@players_log_ingest.command("enable")
+@click.pass_context
+def players_log_ingest_enable(ctx: click.Context) -> None:
+    """Enable and activate the player-log ingest timer."""
+    from armactl.player_log_ingest_service import enable_player_log_ingest_timer
+
+    result = enable_player_log_ingest_timer(ctx.obj["instance"])
+    if ctx.obj["json"]:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+    else:
+        click.echo(
+            _format_player_log_ingest_operation(
+                result,
+                "Player log ingest timer enable.",
+            )
+        )
+    if result.exit_code:
+        raise click.exceptions.Exit(result.exit_code)
+
+
+@players_log_ingest.command("disable")
+@click.pass_context
+def players_log_ingest_disable(ctx: click.Context) -> None:
+    """Stop and disable the player-log ingest timer."""
+    from armactl.player_log_ingest_service import disable_player_log_ingest_timer
+
+    result = disable_player_log_ingest_timer(ctx.obj["instance"])
+    if ctx.obj["json"]:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+    else:
+        click.echo(
+            _format_player_log_ingest_operation(
+                result,
+                "Player log ingest timer disable.",
+            )
+        )
+    if result.exit_code:
+        raise click.exceptions.Exit(result.exit_code)
+
+
 @players_log_ingest.command("run")
 @click.option("--once", is_flag=True, help="Run one complete ingest pass and exit.")
+@click.option("--scheduled", is_flag=True, hidden=True)
 @click.option(
     "--data-root",
     type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
@@ -1200,19 +1311,38 @@ def players_log_ingest_status(
 def players_log_ingest_run(
     ctx: click.Context,
     once: bool,
+    scheduled: bool,
     data_root: Path | None,
 ) -> None:
     """Run the shared synchronous player-log ingest service once."""
-    from armactl.web.services.audit import AuditLogError, append_audit_event
-    from armactl.web.services.player_log_ingest import run_player_log_ingest_once
-
     if not once:
         raise click.ClickException(
-            "Only --once is supported; no service, timer, daemon, or background "
-            "thread is installed or enabled."
+            "Only --once is supported for the run command. Use the explicit "
+            "install and enable commands for supervised scheduling."
         )
 
     root = data_root or paths.DEFAULT_DATA_ROOT
+    if scheduled:
+        from armactl.player_log_ingest_service import (
+            format_scheduled_player_log_ingest_result,
+            run_scheduled_player_log_ingest_once,
+        )
+
+        scheduled_result = run_scheduled_player_log_ingest_once(
+            ctx.obj["instance"],
+            data_root=root,
+        )
+        if ctx.obj["json"]:
+            click.echo(json.dumps(scheduled_result.to_dict(), indent=2))
+        else:
+            click.echo(format_scheduled_player_log_ingest_result(scheduled_result))
+        if scheduled_result.exit_code:
+            raise click.exceptions.Exit(scheduled_result.exit_code)
+        return
+
+    from armactl.web.services.audit import AuditLogError, append_audit_event
+    from armactl.web.services.player_log_ingest import run_player_log_ingest_once
+
     result = run_player_log_ingest_once(
         ctx.obj["instance"],
         data_root=root,

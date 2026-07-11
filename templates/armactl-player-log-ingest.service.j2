@@ -1,0 +1,26 @@
+[Unit]
+Description=armactl Player Log Ingest ({{ instance }})
+After=local-fs.target
+RequiresMountsFor={{ project_root }} {{ data_root }}
+
+[Service]
+Type=oneshot
+User={{ user }}
+WorkingDirectory={{ project_root }}
+ExecStart={{ python_bin }} -m armactl --instance {{ instance }} players log-ingest run --once --scheduled --data-root {{ data_root }}
+TimeoutStartSec={{ runtime_guard_seconds }}s
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+CPUWeight=20
+IOWeight=20
+NoNewPrivileges=true
+PrivateTmp=true
+Environment=HOME={{ home_dir }}
+Environment=USER={{ user }}
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=armactl-player-log-ingest

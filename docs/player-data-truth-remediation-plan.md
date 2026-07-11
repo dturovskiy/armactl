@@ -179,7 +179,7 @@ Acceptance criteria:
 
 ### Player Stats Truth Audit
 
-Goal: document and preserve the truth boundary for authenticated `/players` current-player columns. Slices B-E now implement parser proof, checkpoint/freshness metadata, reconnect-aware play-session windows, and read-only scoped aggregation. Discord/public enrichment, materialized counters, automatic daemon/timer enablement, role truth, K/D, and production actions remain outside this work.
+Goal: document and preserve the truth boundary for authenticated `/players` current-player columns. Slices B-E implement parser proof, checkpoint/freshness metadata, reconnect-aware play-session windows, and read-only scoped aggregation. Slice F2-a adds the local explicit systemd oneshot/timer foundation for the shared F1 runner; installation does not enable or start the timer, and activation remains explicit. Discord/public enrichment, materialized counters, role truth, K/D, production enablement, and player-session scheduler enablement remain outside this work.
 
 #### Field Verdicts
 
@@ -226,7 +226,7 @@ GET handling remains non-mutating. The stats service does not observe/close sess
 
 The authenticated details row/API may expose only safe source/freshness/window timestamps and reconnect-merge status. It does not expose raw source refs, raw log lines, raw paths, IPs, secrets, raw correlation IDs, internal server-run/play-session keys, or public player IDs.
 
-Blocked until a later explicit slice: materialized counters, automatic daemon/timer/poller enablement, current-roster cache stat persistence, Discord/public combat or faction enrichment, role/loadout display, K/D, ban/kick coupling, public player IDs, and any source that stores or renders raw log lines, raw paths, RCON rows, IPs, or secrets. Role remains placeholder-only.
+Blocked until a later explicit slice: production player-log timer enablement/observation, automatic player-session scheduler enablement, materialized counters, current-roster cache stat persistence, Discord/public combat or faction enrichment, role/loadout display, K/D, ban/kick coupling, public player IDs, and any source that stores or renders raw log lines, raw paths, RCON rows, IPs, or secrets. Role remains placeholder-only.
 
 Slice E acceptance is covered by focused tests for real scoped values, teamkill separation, victim-only deaths, out-of-window exclusion, reconnect merge/split, lifecycle boundaries, stale/missing freshness, missing database/session/reliable ID, GET read-only behavior, and sensitive-output redaction.
 
@@ -259,7 +259,9 @@ Audit/design decisions:
 
 The explicit CLI foundation is `armactl players log-ingest run --once [--data-root ...]` plus read-only `armactl players log-ingest status [--data-root ...]`. Status opens only an existing `players.db` through the registry read-only path, does not create or migrate state, and returns controlled empty/unavailable summaries.
 
-Automatic service/timer installation and enablement remain a separate future service/deploy slice. Therefore the acceptance criterion “current stats become fresh without pressing the manual button” remains open until this foreground runner is deployed as an explicit supervised service. No production, SSH, deploy, restart, or systemd action belongs to Slice F1.
+Slice F2-a now implements the separate local service foundation: generated `armactl-player-log-ingest.service` and `armactl-player-log-ingest.timer` units, explicit install/enable/disable/status commands, a 120-second completion-relative cadence, direct project `.venv` execution, owner/private-permission controls, a 360-second bounded failure guard, restrained CPU/I/O priority, controlled scheduled lock skips, counts-only journald output, and bounded failure/freshness-transition/recovery audit. Installation never enables or starts the timer and preserves an existing timer's enablement state. No production, SSH, deploy, restart, or actual systemd action belongs to this local implementation.
+
+The acceptance criterion “current stats become fresh without pressing the manual button” remains open for F2-b. F2-b must deploy Serhiivka first, explicitly install and enable the timer, observe repeated non-overlapping cycles and fresh stored ingest metadata, confirm no `armareforger.service` restart/mutation, and keep the separate player-session scheduler disabled. Stats still require a proven open play session. Chervonopilya follows only after Serhiivka evidence and explicit approval.
 
 ### Slice 4: Operational Status Telemetry Fix — implemented
 
