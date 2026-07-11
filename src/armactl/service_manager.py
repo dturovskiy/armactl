@@ -44,6 +44,15 @@ RESTART_INSTANCE_SERVICE_RE = re.compile(
     r"^armareforger-restart@([A-Za-z0-9_.-]+)\.service$"
 )
 SYSTEMCTL_TIMEOUT_SECONDS = 30
+SYSTEMD_EXEC_MAIN_CODE_LABELS = {
+    "0": "none",
+    "1": "exited",
+    "2": "killed",
+    "3": "dumped",
+    "4": "trapped",
+    "5": "stopped",
+    "6": "continued",
+}
 
 
 @dataclass
@@ -1001,6 +1010,7 @@ def get_systemd_unit_status(
         "exec_main_status": None,
         "last_exit_at": "",
         "next_trigger": "",
+        "next_trigger_kind": "",
         "last_trigger": "",
     }
     if not exists:
@@ -1008,7 +1018,8 @@ def get_systemd_unit_status(
 
     properties = (
         "LoadState,ActiveState,SubState,UnitFileState,Result,ExecMainCode,"
-        "ExecMainStatus,ExecMainExitTimestamp,NextElapseUSecRealtime,LastTriggerUSec"
+        "ExecMainStatus,ExecMainExitTimestamp,NextElapseUSecRealtime,"
+        "NextElapseUSecMonotonic,LastTriggerUSec"
     )
     try:
         result = subprocess.run(
@@ -1035,7 +1046,12 @@ def get_systemd_unit_status(
         elif key == "Result":
             status["result"] = "" if value == "n/a" else value
         elif key == "ExecMainCode":
-            status["exec_main_code"] = "" if value == "n/a" else value
+            if value == "n/a":
+                status["exec_main_code"] = ""
+            else:
+                status["exec_main_code"] = SYSTEMD_EXEC_MAIN_CODE_LABELS.get(
+                    value, value
+                )
         elif key == "ExecMainStatus":
             try:
                 status["exec_main_status"] = int(value)
@@ -1044,7 +1060,12 @@ def get_systemd_unit_status(
         elif key == "ExecMainExitTimestamp":
             status["last_exit_at"] = "" if value == "n/a" else value
         elif key == "NextElapseUSecRealtime":
-            status["next_trigger"] = "" if value == "n/a" else value
+            status["next_trigger"] = "" if value in {"", "n/a"} else value
+            if status["next_trigger"]:
+                status["next_trigger_kind"] = "realtime"
+        elif key == "NextElapseUSecMonotonic":
+            if value not in {"", "n/a"} and not status["next_trigger"]:
+                status["next_trigger_kind"] = "monotonic"
         elif key == "LastTriggerUSec":
             status["last_trigger"] = "" if value == "n/a" else value
 

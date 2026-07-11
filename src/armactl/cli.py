@@ -1143,6 +1143,13 @@ def _format_player_log_ingest_status(status) -> str:
     timer = status.timer
     freshness = status.freshness
     service_exit_status = service.get("exec_main_status")
+    next_trigger = timer.get("next_trigger") or ""
+    if (
+        not next_trigger
+        and timer.get("active")
+        and timer.get("next_trigger_kind") == "monotonic"
+    ):
+        next_trigger = f"pending ({status.cadence_seconds}s after completion)"
     return "\n".join(
         [
             "Player log ingest service status (read-only).",
@@ -1154,7 +1161,8 @@ def _format_player_log_ingest_status(status) -> str:
             f"  Service failed:  {'yes' if service['failed'] else 'no'}",
             f"  Last result:     {service['result'] or '-'}",
             (
-                f"  Service exit:    {service.get('exec_main_code') or '-'} / "
+                f"  Service process: {service.get('exec_main_code') or '-'}; "
+                "exit status "
                 f"{service_exit_status if service_exit_status is not None else '-'}"
             ),
             f"  Last exit:       {service['last_exit_at'] or '-'}",
@@ -1163,7 +1171,7 @@ def _format_player_log_ingest_status(status) -> str:
             f"  Timer enabled:   {'yes' if timer['enabled'] else 'no'}",
             f"  Timer state:     {timer['active_state']} / {timer['sub_state']}",
             f"  Timer failed:    {'yes' if timer['failed'] else 'no'}",
-            f"  Next trigger:    {timer['next_trigger'] or '-'}",
+            f"  Next trigger:    {next_trigger or '-'}",
             f"  Last trigger:    {timer['last_trigger'] or '-'}",
             f"  Freshness state: {freshness.state} ({freshness.reason})",
             f"  Freshness:       {freshness.freshness_status}",

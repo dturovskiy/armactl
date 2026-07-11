@@ -271,10 +271,11 @@ def test_generic_unit_status_reports_last_result_and_next_trigger(
             "SubState=waiting\n"
             "UnitFileState=enabled\n"
             "Result=success\n"
-            "ExecMainCode=exited\n"
+            "ExecMainCode=1\n"
             "ExecMainStatus=0\n"
             "ExecMainExitTimestamp=Sat 2026-07-11 12:00:00 UTC\n"
             "NextElapseUSecRealtime=Sat 2026-07-11 12:02:00 UTC\n"
+            "NextElapseUSecMonotonic=1d 2h 3min\n"
             "LastTriggerUSec=Sat 2026-07-11 12:00:00 UTC\n"
         ),
         stderr="",
@@ -291,8 +292,92 @@ def test_generic_unit_status_reports_last_result_and_next_trigger(
     assert status["active"] is True
     assert status["failed"] is False
     assert status["result"] == "success"
+    assert status["exec_main_code"] == "exited"
     assert status["exec_main_status"] == 0
     assert status["next_trigger"] == "Sat 2026-07-11 12:02:00 UTC"
+    assert status["next_trigger_kind"] == "realtime"
+
+
+def test_generic_unit_status_marks_completion_relative_monotonic_trigger(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from armactl import service_manager
+
+    unit_path = tmp_path / "armactl-player-log-ingest.timer"
+    unit_path.write_text("[Timer]\nOnUnitInactiveSec=120s\n", encoding="utf-8")
+    completed = CompletedProcess(
+        args=["systemctl", "show"],
+        returncode=0,
+        stdout=(
+            "LoadState=loaded\n"
+            "ActiveState=active\n"
+            "SubState=waiting\n"
+            "UnitFileState=enabled\n"
+            "NextElapseUSecRealtime=\n"
+            "NextElapseUSecMonotonic=1d 2h 3min\n"
+        ),
+        stderr="",
+    )
+    monkeypatch.setattr(service_manager.subprocess, "run", lambda *args, **kwargs: completed)
+
+    status = service_manager.get_systemd_unit_status(
+        unit_path.name,
+        unit_path=unit_path,
+    )
+
+    assert status["next_trigger"] == ""
+    assert status["next_trigger_kind"] == "monotonic"
+
+
+def test_cli_status_explains_monotonic_timer_and_numeric_process_code(
+    monkeypatch,
+) -> None:
+    from armactl import player_log_ingest_service as service
+
+    status = PlayerLogIngestServiceStatus(
+        instance="default",
+        cadence_seconds=120,
+        service={
+            "unit_name": "armactl-player-log-ingest.service",
+            "exists": True,
+            "active_state": "inactive",
+            "sub_state": "dead",
+            "failed": False,
+            "result": "success",
+            "exec_main_code": "exited",
+            "exec_main_status": 0,
+            "last_exit_at": "Sat 2026-07-11 18:10:22 UTC",
+        },
+        timer={
+            "unit_name": "armactl-player-log-ingest.timer",
+            "exists": True,
+            "active": True,
+            "enabled": True,
+            "active_state": "active",
+            "sub_state": "waiting",
+            "failed": False,
+            "next_trigger": "",
+            "next_trigger_kind": "monotonic",
+            "last_trigger": "Sat 2026-07-11 18:10:21 UTC",
+        },
+        freshness=PlayerLogIngestStatus(
+            instance="default",
+            state="available",
+            reason="ok",
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "get_player_log_ingest_service_status",
+        lambda *args, **kwargs: status,
+    )
+
+    result = CliRunner().invoke(main, ["players", "log-ingest", "status"])
+
+    assert result.exit_code == 0
+    assert "Service process: exited; exit status 0" in result.output
+    assert "Next trigger:    pending (120s after completion)" in result.output
 
 
 def test_status_is_read_only_for_missing_units_and_players_db(
@@ -596,7 +681,7 @@ def test_cli_install_enable_disable_status_and_scheduled_run(
     assert disable.exit_code == 0
     assert status.exit_code == 0
     assert "Service exists:  no" in status.output
-    assert "Service exit:    exited / 0" in status.output
+    assert "Service process: exited; exit status 0" in status.output
     assert "Timer enabled:   no" in status.output
     assert "players_db_missing" in status.output
     assert scheduled.exit_code == 0
