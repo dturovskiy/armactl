@@ -1,6 +1,6 @@
 # Player Session Stats Contract
 
-This document is the source of truth for current-player combat, faction, and session columns without heuristic shortcuts. Slices C, D, and E provide checkpointed ingest freshness metadata, explicit reconnect-aware play-session windows, and read-only session-scoped aggregation. Slice F2-a provides the systemd oneshot/timer foundation for the shared F1 ingest path, F2-c provides bounded incremental active-log coverage, and F2-b production acceptance is complete on Serhiivka and Chervonopilya. Installation remains disabled by default and preserves existing enablement; production activation was explicit. No app-start worker, browser poller, hidden thread, GET-side ingest, or player-session scheduler was enabled.
+This document is the source of truth for current-player combat, faction, and session columns without heuristic shortcuts. Slices C, D, and E provide checkpointed ingest freshness metadata, explicit reconnect-aware play-session windows, and read-only session-scoped aggregation. Slice F2-a provides the systemd oneshot/timer foundation for the shared F1 ingest path, F2-c provides bounded incremental active-log coverage, and F2-b production acceptance is complete on Serhiivka and Chervonopilya. F3-a now records the supervised player-session architecture audit in [player-session-supervised-pipeline-contract.md](player-session-supervised-pipeline-contract.md): the existing session scheduler runner is enqueue-only and does not guarantee worker execution or completion. F3-b implementation and F3-c production acceptance remain pending. No app-start worker, browser poller, hidden thread, GET-side ingest, or player-session scheduler service/timer was enabled by F3-a.
 
 Busy-server acceptance also requires the bounded incremental contract in [player-log-ingest-incremental-contract.md](player-log-ingest-incremental-contract.md). An oversized active log is tailed once and then read from persisted append offsets; active-source coverage start is stored explicitly, and statistics stay unavailable for any session that began before that proven coverage.
 
@@ -259,6 +259,18 @@ Before adding Discord player columns, require:
 
 The ingest acceptance criteria “freshness updates without the manual button” and “manual collection is not the only freshness path” are complete after F2-b VM observation. Stats still remain unavailable without a proven open play session covered from its opening; F2-a does not silently enable the separate player-session scheduler.
 
+### Slice F3-a: Supervised Player-Session Pipeline Audit/Design — complete
+
+- [x] Trace the real session scheduler, job store, worker, lease, dedupe, recovery, sessionizer, live scanner, maintenance, registry, CLI, and service-unit paths.
+- [x] Confirm that `armactl players sessions scheduler run --once` only creates/reuses queued `web_jobs` metadata and records enqueue as scheduler success; it does not dispatch, start, wait for, or verify session work.
+- [x] Confirm that no generic web worker drains those queued rows, web restart does not resume them, and an orphaned queued row can remain active indefinitely and block later requests.
+- [x] Define one F3-b architecture: a disabled-by-default systemd oneshot/timer calling a synchronous ordered orchestrator that gates on a completed fresh ingest generation, then runs stored-log sessionization, reliable live scan, and due maintenance under one shared lock.
+- [x] Preserve read-only current stats, reconnect/lifecycle gates, repeated reliable absence, nullable unavailable results, and counts-only privacy constraints.
+- [ ] Implement F3-b runtime code and generated units.
+- [ ] Complete F3-c Serhiivka-first, approval-gated Chervonopilya production acceptance.
+
+The full execution, ordering, failure/recovery, cadence, status, privacy, rollout, and stop-condition contract is [player-session-supervised-pipeline-contract.md](player-session-supervised-pipeline-contract.md).
+
 ### Slice D: Play-Session/Reconnect Model - implemented
 
 - [x] Treat player_sessions.session_id as the durable play-session window key, with explicit play_session_id, server_run_key, reconnect merge count, last reconnect metadata, and last gameplay evidence metadata consumed by Slice E aggregation.
@@ -316,4 +328,4 @@ The ingest acceptance criteria “freshness updates without the manual button”
 
 ## Immediate Next Recommended Slice
 
-F2-a/F2-b/F2-c automatic log freshness is accepted on both target VMs. The next player-truth slice should prove the complete automatic session pipeline with real players: reliable session open/close and reconnect behavior, coverage from session opening, and current-player nullable-to-real stat transitions without pressing manual buttons. Design any supervised session scheduler/service explicitly before enabling it; keep GET/browser triggers, fake zeroes, and hidden threads forbidden. Discord/public enrichment and historical oversized-log backfill remain separate later decisions.
+F2-a/F2-b/F2-c automatic log freshness is accepted on both target VMs, and F3-a architecture design is complete. The current session scheduler is not an executor: it only persists/reuses queued `web_jobs` and can exit successfully without any worker. The next implementation slice is F3-b from [player-session-supervised-pipeline-contract.md](player-session-supervised-pipeline-contract.md): one disabled-by-default systemd oneshot/timer calling a synchronous ordered orchestrator after a proven fresh ingest generation. F3-c must then prove reliable open/close, faction/combat evidence, repeated absence, reconnect within/after grace, lifecycle splitting, nullable-to-real stats, idempotence, and privacy on Serhiivka first and Chervonopilya only after explicit approval. GET/browser triggers, fake zeroes, hidden threads, Discord/public enrichment, and historical oversized-log backfill remain forbidden or separate later decisions.
