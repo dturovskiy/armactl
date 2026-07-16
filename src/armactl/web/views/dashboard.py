@@ -249,6 +249,28 @@ def _action_forms(lifecycle: str, can_run_actions: bool) -> list[dict[str, Any]]
         ]
     return []
 
+
+def _service_lifecycle_for_actions(
+    snapshot: Mapping[str, Any],
+    lifecycle: str,
+) -> str:
+    """Prefer systemd service truth over telemetry-derived lifecycle for controls."""
+    if lifecycle in {"not_installed", "incomplete", "updating", "starting", "stopping"}:
+        return lifecycle
+
+    service = _section(snapshot, "service")
+    active_state = _text(service.get("active_state"), "").lower()
+    sub_state = _text(service.get("sub_state"), "").lower()
+    if active_state == "deactivating" or sub_state.startswith("stop"):
+        return "stopping"
+    if active_state == "activating" or sub_state in {"start", "auto-restart"}:
+        return "starting"
+    if active_state == "active" or sub_state == "running" or snapshot.get("running") is True:
+        return "running"
+    if active_state in {"inactive", "failed"} or snapshot.get("running") is False:
+        return "stopped"
+    return lifecycle
+
 def _server_update_check_action(
     snapshot: Mapping[str, Any],
     lifecycle: str,
@@ -308,7 +330,7 @@ def _quick_action_note(lifecycle: str, actions: list[dict[str, Any]]) -> str:
     if lifecycle == "incomplete":
         return "Repair is available as a background job."
     if lifecycle == "starting":
-        return "Server is starting; actions are unavailable until telemetry is ready."
+        return "Server is starting; restart and stop are unavailable until systemd leaves startup."
     if lifecycle == "stopping":
         return "Server is stopping; actions are unavailable until shutdown finishes."
     if lifecycle == "updating":
@@ -823,7 +845,8 @@ def build_dashboard_view(
     config = _section(snapshot, "config")
     server_name = _text(config.get("server_name"), "")
     heading = server_name if lifecycle in ACTIVE_LIFECYCLES and server_name else "Dashboard"
-    actions = _action_forms(lifecycle, can_run_actions)
+    action_lifecycle = _service_lifecycle_for_actions(snapshot, lifecycle)
+    actions = _action_forms(action_lifecycle, can_run_actions)
     update_check_action = _server_update_check_action(
         snapshot,
         lifecycle,
@@ -852,6 +875,7 @@ def build_dashboard_view(
     return {
         "heading": heading,
         "lifecycle": lifecycle,
+        "action_lifecycle": action_lifecycle,
         "overview_items": _summary_items(snapshot, lifecycle),
         "actions": actions,
         "fps_selector": _fps_selector(snapshot, actions),

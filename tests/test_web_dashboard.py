@@ -748,7 +748,10 @@ def test_dashboard_starting_server_hides_service_actions(tmp_path: Path, monkeyp
 
     assert response.status_code == 200
     assert "starting" in response.text
-    assert "Server is starting; actions are unavailable until telemetry is ready." in response.text
+    assert (
+        "Server is starting; restart and stop are unavailable until systemd leaves startup."
+        in response.text
+    )
     assert "action=\"/service/start\"" not in response.text
     assert "action=\"/service/stop\"" not in response.text
     assert "action=\"/service/restart\"" not in response.text

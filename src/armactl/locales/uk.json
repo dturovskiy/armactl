@@ -506,7 +506,7 @@
     "Failed to download server via steamcmd": "Не вдалося завантажити сервер через steamcmd",
     "Failed to query latest server build via steamcmd": "Не вдалося отримати останній build сервера через steamcmd",
     "SteamCMD latest-build query timed out.": "Запит latest-build через SteamCMD перевищив час очікування.",
-    "Failed to download server via steamcmd:\n{details}": "Не вдалося завантажити сервер через steamcmd:\n{details}",
+    "Failed to download server via steamcmd:{details}": "Не вдалося завантажити сервер через steamcmd:{details}",
     "Failed to download server via steamcmd: {error}": "Не вдалося завантажити сервер через steamcmd: {error}",
     "steamcmd exited without additional output.": "steamcmd завершився без додаткового виводу.",
     "Templates directory missing at {path}": "Директорія шаблонів відсутня за шляхом {path}",
@@ -528,7 +528,7 @@
     "Setting permissions and starting the server...": "Налаштування прав і запуск сервера...",
     "Saving state.json...": "Збереження state.json...",
     "Installation complete!": "Встановлення завершено!",
-    "{message}:\n{details}": "{message}:\n{details}",
+    "{message}:{details}": "{message}:{details}",
     "{message}: {error}": "{message}: {error}",
     "[{instance}] Diagnosing existing installation...": "[{instance}] Діагностика наявного встановлення...",
     "  ! Critical: Install directory {path} is completely missing!": "  ! Критично: директорія встановлення {path} повністю відсутня!",
@@ -539,7 +539,7 @@
     "[{instance}] Step 2: Validating game files via SteamCMD...": "[{instance}] Крок 2: перевірка файлів гри через SteamCMD...",
     "  OK Server files validated and updated": "  OK Файли сервера перевірено й оновлено",
     "  OK Package integrity manifest refreshed": "  OK Manifest цілісності пакета оновлено",
-    "SteamCMD failed:\n{details}": "SteamCMD завершився з помилкою:\n{details}",
+    "SteamCMD failed:{details}": "SteamCMD завершився з помилкою:{details}",
     "SteamCMD not found in PATH. Make sure it is installed.": "SteamCMD не знайдено в PATH. Переконайтеся, що він встановлений.",
     "Package integrity check failed after SteamCMD validate: {details}": "Перевірка цілісності пакета після SteamCMD validate не пройдена: {details}",
     "[{instance}] Step 3: Checking configuration...": "[{instance}] Крок 3: перевірка конфігурації...",
@@ -1724,6 +1724,10 @@
     "Scanned {count} file(s)": "Проскановано {count} файлів",
     "Skip reasons": "Причини пропуску",
     "Skipped {count} file(s)": "Пропущено {count} файлів",
-    "Stored {count} event(s)": "Збережено {count} подій"
+    "Stored {count} event(s)": "Збережено {count} подій",
+    "Backend heartbeat failure": "Збій heartbeat backend",
+    "Backend connectivity issue": "Проблема зв'язку з backend",
+    "Server is starting; restart and stop are unavailable until systemd leaves startup.": "Сервер запускається; перезапуск і зупинка недоступні, доки systemd не вийде зі старту.",
+    "{message}:\n{details}": "{message}:\n{details}"
   }
 }

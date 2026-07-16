@@ -1141,6 +1141,9 @@
     "Scanned {count} file(s)": "Scanned {count} file(s)",
     "Skip reasons": "Skip reasons",
     "Skipped {count} file(s)": "Skipped {count} file(s)",
-    "Stored {count} event(s)": "Stored {count} event(s)"
+    "Stored {count} event(s)": "Stored {count} event(s)",
+    "Backend heartbeat failure": "Backend heartbeat failure",
+    "Backend connectivity issue": "Backend connectivity issue",
+    "Server is starting; restart and stop are unavailable until systemd leaves startup.": "Server is starting; restart and stop are unavailable until systemd leaves startup."
   }
 }

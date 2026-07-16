@@ -364,6 +364,100 @@ def _line_has_starting_status(line: str) -> bool:
     )
 
 
+def _line_has_backend_heartbeat_failure(line: str) -> bool:
+    return (
+        "DS Room Heartbeat fail" in line
+        or "DS Heartbeat Failing for too long" in line
+    )
+
+
+def _line_has_backend_heartbeat_terminal(line: str) -> bool:
+    return "DS Heartbeat Failing for too long" in line
+
+
+def _line_has_backend_connectivity_failure(line: str) -> bool:
+    return any(
+        marker in line
+        for marker in (
+            "Curl error=Timeout was reached",
+            "Curl error=Could not resolve hostname",
+            "GameConfig/List Timeout",
+            "GameConfig/List Error",
+            "WorkshopApi/GetServers",
+        )
+    )
+
+
+def _line_has_shutdown_marker(line: str) -> bool:
+    return any(
+        marker in line
+        for marker in (
+            "shutting down",
+            "Save (SHUTDOWN) started",
+            "Save (SHUTDOWN) completed",
+            "Application hangs (force crash)",
+            "Application crashed!",
+        )
+    )
+
+
+def _latest_backend_incident_status(lines: list[str]) -> ServerOperationalStatus | None:
+    last_fps_index: int | None = None
+    for index, line in enumerate(lines):
+        if FPS_STATS_RE.search(line):
+            last_fps_index = index
+
+    def after_latest_fps(index: int) -> bool:
+        return last_fps_index is None or index > last_fps_index
+
+    severe_index: int | None = None
+    connectivity_index: int | None = None
+    for index, line in enumerate(lines):
+        if not after_latest_fps(index):
+            continue
+        if _line_has_backend_heartbeat_terminal(line) or _line_has_shutdown_marker(line):
+            severe_index = index if severe_index is None else severe_index
+        if (
+            _line_has_backend_heartbeat_failure(line)
+            or _line_has_backend_connectivity_failure(line)
+        ):
+            connectivity_index = index if connectivity_index is None else connectivity_index
+
+    if severe_index is not None:
+        details = [
+            line
+            for line in lines[max(severe_index - 12, 0) :]
+            if (
+                _line_has_backend_heartbeat_failure(line)
+                or _line_has_backend_connectivity_failure(line)
+                or _line_has_shutdown_marker(line)
+            )
+        ]
+        return ServerOperationalStatus(
+            True,
+            state="backend_heartbeat_failure",
+            severity="error",
+            message="Backend heartbeat failure",
+            details=_safe_operational_details(details),
+        )
+
+    if last_fps_index is None and connectivity_index is not None:
+        details = [
+            line
+            for line in lines[max(connectivity_index - 6, 0) :]
+            if _line_has_backend_connectivity_failure(line)
+        ]
+        return ServerOperationalStatus(
+            True,
+            state="backend_connectivity_issue",
+            severity="warning",
+            message="Backend connectivity issue",
+            details=_safe_operational_details(details),
+        )
+
+    return None
+
+
 def query_server_operational_status(
     config_dir: str | Path,
     max_age_seconds: float = 120.0,
@@ -406,6 +500,12 @@ def query_server_operational_status(
             source=source,
             error="server console log is empty",
         )
+
+    backend_incident_status = _latest_backend_incident_status(all_lines)
+    if backend_incident_status is not None:
+        backend_incident_status.age_seconds = age_seconds
+        backend_incident_status.source = source
+        return backend_incident_status
 
     if age_seconds > max_age_seconds:
         return ServerOperationalStatus(

@@ -522,6 +522,66 @@ def test_query_server_operational_status_ignores_backend_heartbeat_timeout(
 
 
 
+def test_query_server_operational_status_reports_backend_heartbeat_shutdown(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-07-16_084328",
+        "\n".join(
+            [
+                SAMPLE_FPS_LINE_WITH_MEAN_MEDIAN,
+                "08:39:28.733 BACKEND (E): DS Room Heartbeat fail, Timeout to recover=300 sec",
+                "08:43:28.731 BACKEND (E): DS Heartbeat Failing for too long, "
+                "shutting down... failed=12 vs. succeed=157",
+                "08:43:41.529 [PERSISTENCE] Save (SHUTDOWN) started.",
+                "08:49:13.413 ENGINE (F): Application hangs (force crash) 304 s",
+                "08:49:13.545 ENGINE (F): Application crashed!",
+            ]
+        ),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.available is True
+    assert result.state == "backend_heartbeat_failure"
+    assert result.severity == "error"
+    assert result.message == "Backend heartbeat failure"
+    assert any("DS Heartbeat Failing for too long" in item for item in result.details)
+    assert any("Application hangs" in item for item in result.details)
+
+
+def test_query_server_operational_status_reports_backend_connectivity_before_fps(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-07-16_085214",
+        "\n".join(
+            [
+                "08:52:20.010 BACKEND (E): Curl error=Timeout was reached",
+                "08:52:20.020 BACKEND (E): GameConfig/List Timeout",
+                "08:52:27.100 BACKEND (E): WorkshopApi/GetServers failed",
+            ]
+        ),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.available is True
+    assert result.state == "backend_connectivity_issue"
+    assert result.severity == "warning"
+    assert result.message == "Backend connectivity issue"
+    assert any("GameConfig/List Timeout" in item for item in result.details)
+
+
+
 def test_query_server_operational_status_uses_fps_from_full_bounded_tail(
     tmp_path: Path,
 ) -> None:

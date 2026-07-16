@@ -919,7 +919,7 @@ def test_dashboard_view_model_actions_follow_lifecycle():
     assert configured_view["fps_selector"]["options"][1]["selected"] is True
     assert starting["actions"] == []
     assert starting["quick_action_note"] == (
-        "Server is starting; actions are unavailable until telemetry is ready."
+        "Server is starting; restart and stop are unavailable until systemd leaves startup."
     )
     assert starting["server_cards"]
     assert all(card["title"] != "Live server" for card in starting["server_cards"])
@@ -943,6 +943,40 @@ def test_dashboard_view_model_actions_follow_lifecycle():
         for meter in card.get("meters", [])
     )
     assert all(card["title"] != "Diagnostics summary" for card in running["server_cards"])
+
+
+def test_dashboard_view_model_keeps_actions_when_telemetry_state_is_unknown_but_service_runs():
+    from armactl.web.views.dashboard import build_dashboard_view
+
+    snapshot = _view_snapshot("unknown")
+    snapshot["running"] = True
+    snapshot["service"] = {
+        "active_state": "active",
+        "sub_state": "running",
+    }
+    snapshot["operational_status"] = {
+        "state": "backend_connectivity_issue",
+        "message": "Backend connectivity issue",
+        "severity": "warning",
+        "age_text": "15s",
+    }
+
+    dashboard = build_dashboard_view(
+        snapshot,
+        can_run_actions=True,
+        can_view_config=True,
+        can_view_mods=True,
+        can_view_admins=True,
+        can_view_bot=True,
+        can_view_jobs=True,
+        can_view_files=True,
+        can_view_logs=True,
+    )
+
+    assert [action["name"] for action in dashboard["actions"][:2]] == ["stop", "restart"]
+    assert dashboard["action_lifecycle"] == "running"
+    assert dashboard["quick_action_note"] == ""
+
 
 
 def test_dashboard_status_payload_handles_unavailable_numeric_metrics():
