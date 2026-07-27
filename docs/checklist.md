@@ -29,6 +29,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Safe config controls runtime grouping, helper text, impact labels, and restart labels for the current safe field set.
 - [x] Mods management with add/remove, enable/disable, bulk paste, import/export, dedupe, and unused-addon cleanup.
 - [x] Game-admin management foundation.
+- [x] Canonical game-admin permission synchronization from `game.admins` into existing SAT/WCS ACLs with exact roles, backup, atomic publish, and full rollback.
 - [x] Restart schedule and autostart controls.
 - [x] File browser with bounded preview, download, and no-overwrite upload.
 - [x] Logs and diagnostic report views.

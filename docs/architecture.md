@@ -35,6 +35,7 @@ src/armactl/
 ├── service_manager.py     # Linux/systemd service helpers
 ├── mods_manager.py        # mod list workflows
 ├── admins_manager.py      # game admin workflows
+├── admin_acl_sync.py      # canonical SAT/WCS admin ACL orchestration
 ├── repair.py              # repair orchestration
 └── platform/              # adapter seams for service operations
 ```

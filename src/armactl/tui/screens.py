@@ -27,7 +27,8 @@ from textual.widgets import (
 
 from armactl import paths, ports, server_config_schema
 from armactl.addon_cleanup import cleanup_unconfigured_addons
-from armactl.admins_manager import add_admin, get_admins, remove_admin
+from armactl.admin_acl_sync import add_admin_and_sync, remove_admin_and_sync
+from armactl.admins_manager import get_admins
 from armactl.bot_config import (
     BotConfig,
     BotConfigError,
@@ -2732,7 +2733,7 @@ class AdminManagerScreen(Screen):
                 self.app.notify(_("Steam profile reference is required."), severity="error")
                 return
             try:
-                added = add_admin(cfg, admin_reference, label)
+                mutation = add_admin_and_sync(cfg, admin_reference, label)
             except Exception as error:
                 self.app.notify(
                     tr("Failed to save server admin: {error}", error=redact_sensitive_text(error)),
@@ -2741,7 +2742,7 @@ class AdminManagerScreen(Screen):
                 return
             self.app.notify(
                 _("Server admin added. This ID can use #login without a password.")
-                if added
+                if mutation.created
                 else _("Server admin is already configured and its local label was updated.")
             )
             self.query_one("#inp_admin_id", Input).value = ""
@@ -2755,7 +2756,18 @@ class AdminManagerScreen(Screen):
             admin_id = getattr(list_view.highlighted_child, "admin_id", "")
             if not admin_id:
                 return
-            if remove_admin(cfg, admin_id):
+            try:
+                mutation = remove_admin_and_sync(cfg, admin_id)
+            except Exception as error:
+                self.app.notify(
+                    tr(
+                        "Failed to save server admin: {error}",
+                        error=redact_sensitive_text(error),
+                    ),
+                    severity="error",
+                )
+                return
+            if mutation.changed:
                 self.app.notify(_("Server admin removed."))
                 await self.action_refresh_admins()
             else:

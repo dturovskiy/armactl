@@ -80,7 +80,12 @@ def sat_uuid_map_path_for_config(config_path: Path | str) -> Path:
 
 def sat_config_path_for_config(config_path: Path | str) -> Path:
     """Return the expected ServerAdminTools runtime config path."""
-    return Path(config_path).parent / SAT_CONFIG_FILENAME
+    config_dir = Path(config_path).parent
+    profile_path = config_dir / "profile" / SAT_CONFIG_FILENAME
+    legacy_path = config_dir / SAT_CONFIG_FILENAME
+    if profile_path.is_file() or not legacy_path.is_file():
+        return profile_path
+    return legacy_path
 
 
 def _canonical_uuid(value: object) -> str | None:
@@ -237,6 +242,15 @@ def _desired_sat_admins(
             missing.append(label)
 
     return tuple(desired), tuple(missing)
+
+
+def desired_sat_admins(
+    config_path: Path | str,
+    *,
+    migrate: bool = False,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return mapped mod identity IDs and admins missing a reliable mapping."""
+    return _desired_sat_admins(config_path, migrate=migrate)
 
 
 def _read_json_file(path: Path) -> tuple[dict[str, Any] | None, str]:

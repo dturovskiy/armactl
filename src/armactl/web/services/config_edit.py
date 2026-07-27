@@ -467,6 +467,15 @@ def _prepare_raw_config_edit(config_path, raw_config):
         raise ConfigEditError("Config root must be an object.")
 
     submitted = _parse_raw_config_text(raw_config)
+    current_game = data.get("game") if isinstance(data.get("game"), dict) else {}
+    submitted_game = (
+        submitted.get("game") if isinstance(submitted.get("game"), dict) else {}
+    )
+    if submitted_game.get("admins", []) != current_game.get("admins", []):
+        raise ConfigEditError(
+            "Server admins must be changed through the Admins workflow "
+            "so supported mod permissions stay synchronized."
+        )
     updated = _restore_secret_placeholders(submitted, data)
     _validate_server_config(updated)
     changed_fields = _changed_raw_config_fields(

@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from armactl import admins_manager, discovery, paths
+from armactl import admin_acl_sync, admins_manager, discovery, paths
 from armactl.config_manager import ConfigError
 from armactl.redaction import redact_sensitive_text
 from armactl.web.services import mutation_recovery, pending_work
@@ -199,7 +199,10 @@ def add_or_update_admin(
         reference = _admin_reference(admin_reference)
         name = _admin_label(label)
         config_path = _config_path(normalized_instance)
-        created = admins_manager.add_admin(config_path, reference, name)
+        mutation = admin_acl_sync.add_admin_and_sync(
+            config_path, reference, name
+        )
+        created = bool(mutation.created)
     except AdminActionError as error:
         return _failure(
             action=ACTION_ADD,
@@ -237,7 +240,8 @@ def remove_admin(
     try:
         reference = _admin_reference(admin_reference)
         config_path = _config_path(normalized_instance)
-        removed = admins_manager.remove_admin(config_path, reference)
+        mutation = admin_acl_sync.remove_admin_and_sync(config_path, reference)
+        removed = mutation.changed
     except AdminActionError as error:
         return _failure(
             action=ACTION_REMOVE,

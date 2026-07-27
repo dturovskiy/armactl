@@ -25,6 +25,7 @@ The current `feat/web-interface` branch is a web-dashboard baseline, not an auto
 - Safe config editing for selected non-secret fields.
 - Mods management with add/remove, enable/disable, bulk paste, import/export, dedupe, and unused-addon cleanup.
 - Game-admin management foundation.
+- Canonical admin membership uses `game.admins`; Web/TUI mutations synchronize existing ServerAdminTools and WCS game-master ACLs transactionally. See [Admin Permission Synchronization Contract](admin-permissions-contract.md).
 - Restart schedule and game-service autostart controls with browser-local input/display and UTC backend normalization.
 - File browser with bounded preview, single-file download, no-overwrite upload,
   and narrow allowlisted config/profile editing through the shared replacement

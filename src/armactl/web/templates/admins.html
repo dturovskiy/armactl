@@ -47,6 +47,7 @@
 
 <section class="panel full-width">
   <h2>{{ t("Official Game Admins") }}</h2>
+  <p class="muted">{{ t("The official game admin list automatically synchronizes supported ServerAdminTools and WCS game-master permissions.") }}</p>
   {% if page.available %}
     {% if result and result.changed %}
       <p class="notice-inline notice-restart muted"><strong>{{ t("Restart required") }}:</strong> {{ t("Restart the server to apply admin changes.") }}</p>

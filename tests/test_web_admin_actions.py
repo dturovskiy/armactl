@@ -280,9 +280,7 @@ def test_admins_unexpected_backend_exception_is_not_rendered_as_action_result(
     assert "Admin action is unavailable." not in response.text
     assert "raw-admin-secret" not in response.text
     assert "Traceback" not in response.text
-    assert json.loads(config_path.read_text(encoding="utf-8"))["game"]["admins"] == [
-        "76561198000000002"
-    ]
+    assert json.loads(config_path.read_text(encoding="utf-8"))["game"]["admins"] == []
     assert list_pending_work(tmp_path / "web" / "web.db") == []
     audit_text = (tmp_path / 'logs' / 'web' / 'audit.log').read_text(encoding='utf-8')
     assert 'raw-admin-secret' not in audit_text
