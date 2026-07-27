@@ -11,6 +11,11 @@ The synchronized role targets are:
 - ServerAdminTools `gameMasters`;
 - WCS Admin `gameMaster`.
 
+Supported role fields may use either a legacy JSON list or the production
+object form `UUID -> label`. Synchronization preserves each file's existing
+representation. Object-form roles keep existing labels for retained UUIDs and
+use the local admin label for newly synchronized UUIDs.
+
 WCS `Team`, ban lists, developer roles, and unrelated mod settings are not part
 of ordinary game-admin membership and are preserved.
 

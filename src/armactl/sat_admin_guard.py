@@ -202,11 +202,11 @@ def _server_admin_entries_for_sat(config_path: Path | str) -> list[dict[str, str
     return merge_admins(entries, load_admins(config_path))
 
 
-def _desired_sat_admins(
+def _desired_sat_admin_entries(
     config_path: Path | str,
     *,
     migrate: bool,
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
+) -> tuple[tuple[tuple[str, str], ...], tuple[str, ...]]:
     try:
         official_admins = (
             get_admins(config_path) if migrate else _server_admin_entries_for_sat(config_path)
@@ -215,7 +215,7 @@ def _desired_sat_admins(
         raise SatAdminGuardError(str(exc)) from exc
 
     uuid_map = load_sat_uuid_map(config_path)
-    desired: list[str] = []
+    desired: list[tuple[str, str]] = []
     missing: list[str] = []
     seen: set[str] = set()
 
@@ -233,7 +233,8 @@ def _desired_sat_admins(
 
         if sat_uuid:
             if sat_uuid not in seen:
-                desired.append(sat_uuid)
+                label = str(entry.get("name") or identity or "armactl admin").strip()
+                desired.append((sat_uuid, label))
                 seen.add(sat_uuid)
             continue
 
@@ -242,6 +243,24 @@ def _desired_sat_admins(
             missing.append(label)
 
     return tuple(desired), tuple(missing)
+
+
+def _desired_sat_admins(
+    config_path: Path | str,
+    *,
+    migrate: bool,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    entries, missing = _desired_sat_admin_entries(config_path, migrate=migrate)
+    return tuple(identity for identity, _label in entries), missing
+
+
+def desired_sat_admin_entries(
+    config_path: Path | str,
+    *,
+    migrate: bool = False,
+) -> tuple[tuple[tuple[str, str], ...], tuple[str, ...]]:
+    """Return mapped mod identity IDs with labels and missing mappings."""
+    return _desired_sat_admin_entries(config_path, migrate=migrate)
 
 
 def desired_sat_admins(
@@ -267,6 +286,8 @@ def _read_json_file(path: Path) -> tuple[dict[str, Any] | None, str]:
 
 
 def _normalized_values(value: Any) -> list[str]:
+    if isinstance(value, dict):
+        return [str(item).strip() for item in value if str(item).strip()]
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
@@ -301,23 +322,44 @@ def _merge_role_values(
     desired: tuple[str, ...],
     *,
     placeholders: frozenset[str],
-) -> tuple[list[str], bool, bool]:
+) -> tuple[Any, bool, bool]:
     values = _normalized_values(current)
     default_only = _placeholder_only(values, placeholders)
     existing = [] if default_only else _clean_role_values(values, placeholders)
-    merged = list(existing)
-    seen = {_map_key(value) for value in merged}
-    changed = not isinstance(current, list) or default_only or len(existing) != len(values)
+    seen = {_map_key(value) for value in existing}
 
+    if isinstance(current, dict):
+        placeholder_keys = {_map_key(value) for value in placeholders}
+        merged_map: dict[str, Any] = {}
+        merged_keys: set[str] = set()
+        for raw_identity, label in current.items():
+            identity = _canonical_uuid(raw_identity) or str(raw_identity).strip()
+            key = _map_key(identity)
+            if not key or key in placeholder_keys or key in merged_keys:
+                continue
+            merged_map[identity] = label
+            merged_keys.add(key)
+        changed = default_only or len(merged_map) != len(current)
+        for sat_uuid in desired:
+            key = _map_key(sat_uuid)
+            if key in merged_keys:
+                continue
+            merged_map[sat_uuid] = "armactl admin"
+            merged_keys.add(key)
+            changed = True
+        return merged_map, changed, default_only
+
+    merged_list = list(existing)
+    changed = not isinstance(current, list) or default_only or len(existing) != len(values)
     for sat_uuid in desired:
         key = _map_key(sat_uuid)
         if key in seen:
             continue
-        merged.append(sat_uuid)
+        merged_list.append(sat_uuid)
         seen.add(key)
         changed = True
 
-    return merged, changed, default_only
+    return merged_list, changed, default_only
 
 
 def _backup_path(path: Path) -> Path:

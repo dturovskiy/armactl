@@ -222,9 +222,27 @@ def _load_json_object(path: Path) -> dict[str, Any]:
 def _normalized_role_values(value: object, *, field_name: str) -> list[str]:
     if value is None:
         return []
+    if isinstance(value, dict):
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for identity, label in value.items():
+            if not isinstance(identity, str) or not isinstance(label, str):
+                raise AdminAclSyncError(
+                    f"Supported mod admin field {field_name} must map strings to strings."
+                )
+            text = identity.strip()
+            if not text:
+                continue
+            key = text.casefold()
+            if key in seen:
+                continue
+            normalized.append(text)
+            seen.add(key)
+        return normalized
+
     if not isinstance(value, list):
         raise AdminAclSyncError(
-            f"Supported mod admin field {field_name} must be a list."
+            f"Supported mod admin field {field_name} must be a list or object."
         )
     normalized: list[str] = []
     seen: set[str] = set()
@@ -248,28 +266,74 @@ def _render_payload(payload: dict[str, Any]) -> bytes:
     return (json.dumps(payload, ensure_ascii=False, indent=4) + "\n").encode("utf-8")
 
 
+def _role_style(payload: dict[str, Any], keys: tuple[str, ...]) -> str:
+    styles = {
+        "mapping" if isinstance(payload.get(key), dict) else "list"
+        for key in keys
+        if payload.get(key) is not None
+        and isinstance(payload.get(key), (dict, list))
+    }
+    if len(styles) > 1:
+        raise AdminAclSyncError(
+            "Supported mod admin role fields use conflicting storage formats."
+        )
+    return next(iter(styles), "mapping")
+
+
+def _desired_role_value(
+    current: object,
+    desired_entries: tuple[tuple[str, str], ...],
+    *,
+    style: str,
+    field_name: str,
+) -> object:
+    _normalized_role_values(current, field_name=field_name)
+    existing_labels = (
+        {identity.casefold(): label for identity, label in current.items()}
+        if isinstance(current, dict)
+        else {}
+    )
+    if style == "mapping":
+        return {
+            identity: existing_labels.get(identity.casefold())
+            or label
+            or "armactl admin"
+            for identity, label in desired_entries
+        }
+    return [identity for identity, _label in desired_entries]
+
+
 def _prepare_acl_updates(config_path: Path) -> tuple[tuple[_PreparedAcl, ...], int]:
     sat_path = sat_config_path_for_config(config_path)
     wcs_path = wcs_config_path_for_config(config_path)
     if sat_path is None and wcs_path is None:
         return (), 0
 
-    desired, missing = sat_admin_guard.desired_sat_admins(config_path, migrate=False)
+    desired_entries, missing = sat_admin_guard.desired_sat_admin_entries(
+        config_path,
+        migrate=False,
+    )
     if missing:
         raise AdminAclSyncError(
             "Some game admins have no reliable mod identity mapping; "
             "the admin change was not applied."
         )
-    desired_values = list(desired)
+    desired_values = [identity for identity, _label in desired_entries]
     updates: list[_PreparedAcl] = []
 
     if sat_path is not None:
         payload = _load_json_object(sat_path)
+        style = _role_style(payload, SAT_ROLE_KEYS)
         changed = False
         for key in SAT_ROLE_KEYS:
             current = _normalized_role_values(payload.get(key), field_name=key)
             if current != desired_values:
-                payload[key] = desired_values
+                payload[key] = _desired_role_value(
+                    payload.get(key),
+                    desired_entries,
+                    style=style,
+                    field_name=key,
+                )
                 changed = True
         if changed:
             updates.append(
@@ -281,12 +345,18 @@ def _prepare_acl_updates(config_path: Path) -> tuple[tuple[_PreparedAcl, ...], i
 
     if wcs_path is not None:
         payload = _load_json_object(wcs_path)
+        style = _role_style(payload, (WCS_ROLE_KEY,))
         current = _normalized_role_values(
             payload.get(WCS_ROLE_KEY),
             field_name=WCS_ROLE_KEY,
         )
         if current != desired_values:
-            payload[WCS_ROLE_KEY] = desired_values
+            payload[WCS_ROLE_KEY] = _desired_role_value(
+                payload.get(WCS_ROLE_KEY),
+                desired_entries,
+                style=style,
+                field_name=WCS_ROLE_KEY,
+            )
             updates.append(
                 _PreparedAcl(
                     path=wcs_path,

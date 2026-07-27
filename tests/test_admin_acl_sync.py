@@ -290,3 +290,46 @@ def test_acl_backup_retention_is_bounded(tmp_path: Path) -> None:
     backups = tuple(backup_dir.glob("*.bak"))
     assert len(backups) == 50
     assert not (backup_dir / "old-00.bak").exists()
+
+
+def test_production_mapping_role_shapes_are_synchronized_without_schema_conversion(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    _write_config(config_path, [])
+    profile = config_path.parent / "profile"
+    profile.mkdir(parents=True)
+    sat_path = profile / "ServerAdminTools_Config.json"
+    wcs_path = profile / "WCS_Admin.json"
+    sat_path.write_text(
+        json.dumps(
+            {
+                "admins": {STALE_UUID: "stale admin"},
+                "gameMasters": {STALE_UUID: "stale game master"},
+                "bans": {"keep": "ban"},
+            },
+            indent=4,
+        ),
+        encoding="utf-8",
+    )
+    wcs_path.write_text(
+        json.dumps(
+            {
+                "gameMaster": {STALE_UUID: "stale game master"},
+                "Team": {"developer-only": "keep"},
+            },
+            indent=4,
+        ),
+        encoding="utf-8",
+    )
+
+    result = admin_acl_sync.add_admin_and_sync(config_path, ADMIN_UUID, "Captain")
+
+    sat = json.loads(sat_path.read_text(encoding="utf-8"))
+    wcs = json.loads(wcs_path.read_text(encoding="utf-8"))
+    assert result.changed is True
+    assert sat["admins"] == {ADMIN_UUID: "Captain"}
+    assert sat["gameMasters"] == {ADMIN_UUID: "Captain"}
+    assert sat["bans"] == {"keep": "ban"}
+    assert wcs["gameMaster"] == {ADMIN_UUID: "Captain"}
+    assert wcs["Team"] == {"developer-only": "keep"}

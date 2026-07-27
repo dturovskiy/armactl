@@ -183,3 +183,36 @@ def test_sat_inspection_reports_default_only_roles(tmp_path: Path) -> None:
     assert inspection.default_only_admins is True
     assert inspection.default_only_game_masters is True
     assert inspection.warning == "ServerAdminTools admins are default/example only."
+
+
+def test_sat_guard_preserves_mapping_role_shape_and_labels(tmp_path: Path) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    sat_path = config_path.parent / sat_admin_guard.SAT_CONFIG_FILENAME
+    existing_uuid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    _write_config(config_path, [STEAM_ID])
+    _write_admin_state(config_path)
+    _write_uuid_map(config_path)
+    sat_path.write_text(
+        json.dumps(
+            {
+                "admins": {existing_uuid: "Existing admin"},
+                "gameMasters": {existing_uuid: "Existing game master"},
+                "bans": {"keep": "ban"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = sat_admin_guard.guard_sat_admin_config(config_path)
+    saved = json.loads(sat_path.read_text(encoding="utf-8"))
+
+    assert result.changed is True
+    assert saved["admins"] == {
+        existing_uuid: "Existing admin",
+        SAT_UUID: "armactl admin",
+    }
+    assert saved["gameMasters"] == {
+        existing_uuid: "Existing game master",
+        SAT_UUID: "armactl admin",
+    }
+    assert saved["bans"] == {"keep": "ban"}
