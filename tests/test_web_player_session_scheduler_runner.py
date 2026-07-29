@@ -253,11 +253,25 @@ def test_bounded_cursor_resume_blocks_downstream_until_backlog_clears(
     )
     first_state = player_registry.get_player_session_pipeline_state(_players_db(tmp_path))
 
-    assert first.error_code == "backlog_remaining"
-    assert first.failure_stage == "sessionize"
+    assert first.outcome == "backlog_remaining"
+    assert first.success is True
+    assert first.exit_code == 0
+    assert first.error_code == ""
+    assert first.failure_stage == ""
     assert first_state.last_sessionized_event_id == 1
     assert first_state.last_processed_ingest_generation == 0
+    assert first_state.last_result == "backlog_remaining"
+    assert first_state.consecutive_failures == 0
+    assert first_state.interrupted is False
     assert live_calls == []
+
+    status = runner.read_player_session_scheduler_status(
+        instance="default",
+        data_root=tmp_path,
+        now=NOW,
+    )
+    assert status.state == "catching_up"
+    assert status.reason == "backlog_remaining"
 
     second = runner.run_player_session_scheduler_once(
         instance="default",
@@ -272,6 +286,82 @@ def test_bounded_cursor_resume_blocks_downstream_until_backlog_clears(
     assert final_state.last_sessionized_event_id == 3
     assert final_state.last_processed_ingest_generation == 1
     assert _session_count(tmp_path) == 3
+    assert live_calls == [1]
+
+
+def test_newer_generation_waits_as_nonfailure_backlog_after_resumed_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _commit_generation(
+        tmp_path,
+        (
+            _event(PLAYER_ALPHA_ID, "2026-06-20T10:00:00+00:00", "a"),
+            _event(PLAYER_BRAVO_ID, "2026-06-20T10:01:00+00:00", "b"),
+            _event(PLAYER_CHARLIE_ID, "2026-06-20T10:02:00+00:00", "c"),
+        ),
+    )
+    live_calls = []
+    monkeypatch.setattr(
+        player_session_mutation,
+        "run_live_player_session_scan",
+        lambda *args, **kwargs: live_calls.append(1) or _reliable_live_summary(),
+    )
+    monkeypatch.setattr(
+        player_session_mutation,
+        "run_player_session_maintenance",
+        lambda *args, **kwargs: _maintenance_summary(),
+    )
+
+    first = runner.run_player_session_scheduler_once(
+        instance="default",
+        data_root=tmp_path,
+        now=NOW,
+        page_limit=1,
+        max_pages=1,
+    )
+    assert first.outcome == "backlog_remaining"
+
+    _commit_generation(
+        tmp_path,
+        (_event(PLAYER_DELTA_ID, "2026-06-20T10:03:00+00:00", "d"),),
+        run_at="2026-06-20T12:00:30+00:00",
+    )
+    second = runner.run_player_session_scheduler_once(
+        instance="default",
+        data_root=tmp_path,
+        now=NOW + timedelta(minutes=1),
+        page_limit=10,
+        max_pages=5,
+    )
+    second_state = player_registry.get_player_session_pipeline_state(
+        _players_db(tmp_path)
+    )
+
+    assert second.outcome == "backlog_remaining"
+    assert second.success is True
+    assert second.exit_code == 0
+    assert second.failure_stage == ""
+    assert second.error_code == ""
+    assert second_state.last_processed_ingest_generation == 1
+    assert second_state.last_result == "backlog_remaining"
+    assert second_state.consecutive_failures == 0
+    assert live_calls == []
+
+    final = runner.run_player_session_scheduler_once(
+        instance="default",
+        data_root=tmp_path,
+        now=NOW + timedelta(minutes=2),
+        page_limit=10,
+        max_pages=5,
+    )
+    final_state = player_registry.get_player_session_pipeline_state(
+        _players_db(tmp_path)
+    )
+
+    assert final.outcome == "completed"
+    assert final_state.last_processed_ingest_generation == 2
+    assert _session_count(tmp_path) == 4
     assert live_calls == [1]
 
 

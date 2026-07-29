@@ -444,7 +444,15 @@ The first F3-b contract uses:
 
 The hard service timeout is the outer failure guard, not success truth. F3-b does not add independent wall-clock success timers around Python mutation stages; stage order, bounded event counts, source query timeouts, and terminal results determine progress.
 
-A batch that does not reach the current ingest generation high-water records `backlog_remaining=true`, does not advance the consumed-generation token, and skips live scan and maintenance. The next cycle resumes from the single persisted sessionization cursor. This prevents an unprocessed lifecycle boundary from being overtaken by live or maintenance work.
+A batch that does not reach the current ingest generation high-water records
+`backlog_remaining=true`, persists `last_result=backlog_remaining`, and exits
+successfully as bounded forward progress rather than a service failure. It does
+not advance `last_success_at` or the consumed-generation token, and it skips
+live scan and maintenance. Read-only status reports `catching_up`; the next
+cycle resumes from the single persisted sessionization cursor. This prevents an
+unprocessed lifecycle boundary from being overtaken by live or maintenance
+work without turning an expected production-sized catch-up into false failed
+unit state.
 
 The cursor is automatic pipeline control state, not a second event truth source.
 `player_log_events` remains the evidence source, and existing registry/session
@@ -738,8 +746,10 @@ Before any production rollout, focused tests must prove at least:
 
 - `scheduler run --once` executes the ordered services synchronously and creates
   no automatic `web_jobs` rows;
-- the process exits success only after every required stage and state write
-  completes;
+- terminal `completed` success advances only after every required stage and
+  state write completes; bounded `backlog_remaining` progress may exit zero
+  only while retaining the fixed target, withholding `last_success_at` and
+  consumed-generation advancement, and blocking all downstream stages;
 - legacy `web_player_session_scheduler_state` enqueue timestamps are ignored as
   execution truth;
 - automatic state/cursor ownership is solely the instance

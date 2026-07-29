@@ -96,11 +96,15 @@ class PlayerSessionSchedulerRunResult:
 
     @property
     def success(self) -> bool:
-        return self.outcome in {"completed", "no_new_generation"}
+        return self.outcome in {
+            "backlog_remaining",
+            "completed",
+            "no_new_generation",
+        }
 
     @property
     def exit_code(self) -> int:
-        return 0 if self.outcome in {"completed", "no_new_generation"} else 1
+        return 0 if self.success else 1
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -727,20 +731,35 @@ def run_player_session_scheduler_once(
                     generation_proven=True,
                 )
             if session_summary.backlog_remaining:
-                _persist_failure(
-                    registry_db_path,
+                backlog_state = replace(
                     working_state,
-                    stage="sessionize",
-                    error_code="backlog_remaining",
-                    now_text=checked_at_text,
+                    last_completed_at=checked_at_text,
+                    last_sessionized_event_id=session_summary.last_event_id,
+                    last_sessionized_event_time=session_summary.last_event_time,
+                    consecutive_failures=0,
+                    last_failure_stage="",
+                    last_result="backlog_remaining",
+                    last_error_code="",
+                    interrupted=False,
+                    updated_at=checked_at_text,
                 )
-                return _failed_result(
+                player_registry.upsert_player_session_pipeline_state(
+                    registry_db_path,
+                    backlog_state,
+                )
+                return PlayerSessionSchedulerRunResult(
                     instance=normalized,
                     checked_at=checked_at_text,
-                    stage="sessionize",
-                    error_code="backlog_remaining",
+                    outcome="backlog_remaining",
                     generation_proven=True,
-                    session_summary=session_summary,
+                    session_pages_completed=session_summary.pages_completed,
+                    session_events_scanned=session_summary.events_scanned,
+                    session_observations_applied=(
+                        session_summary.observations_applied
+                    ),
+                    session_sessions_created=session_summary.sessions_created,
+                    session_sessions_updated=session_summary.sessions_updated,
+                    session_sessions_closed=session_summary.sessions_closed,
                 )
 
             if target_generation < freshness.completed_generation:
@@ -752,6 +771,7 @@ def run_player_session_scheduler_once(
                     last_consumed_ingest_generation_max_event_id=target_max_event_id,
                     last_sessionized_event_id=session_summary.last_event_id,
                     last_sessionized_event_time=session_summary.last_event_time,
+                    consecutive_failures=0,
                     last_result="backlog_remaining",
                     last_failure_stage="",
                     last_error_code="",
@@ -765,9 +785,7 @@ def run_player_session_scheduler_once(
                 return PlayerSessionSchedulerRunResult(
                     instance=normalized,
                     checked_at=checked_at_text,
-                    outcome="failed",
-                    failure_stage="sessionize",
-                    error_code="backlog_remaining",
+                    outcome="backlog_remaining",
                     generation_proven=True,
                     session_pages_completed=session_summary.pages_completed,
                     session_events_scanned=session_summary.events_scanned,
@@ -1004,6 +1022,9 @@ def read_player_session_scheduler_status(
         elif freshness.status != player_registry.PLAYER_LOG_INGEST_STATUS_FRESH:
             state_name = "waiting_for_ingest"
             reason = freshness.status or "fresh_generation_unavailable"
+        elif pipeline.last_result == "backlog_remaining":
+            state_name = "catching_up"
+            reason = "backlog_remaining"
         elif pipeline.last_result in {"completed", "no_new_generation"}:
             state_name = "healthy"
             reason = "ok"
