@@ -3375,7 +3375,11 @@ def test_player_history_default_hides_session_evidence_rows(
     ]
     sessionizer_event_types = [
         event.event_type
-        for event in player_registry.list_player_log_events_for_sessionization(db_path)
+        for event in (
+            player_registry.list_player_log_events_for_trusted_time_sessionization(
+                db_path
+            )
+        )
     ]
     client = _authed_client(tmp_path, monkeypatch)
 

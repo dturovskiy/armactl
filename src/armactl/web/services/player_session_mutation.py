@@ -102,6 +102,7 @@ def run_player_log_sessionization(
     instance: str = paths.DEFAULT_INSTANCE_NAME,
     *,
     data_root: Path = paths.DEFAULT_DATA_ROOT,
+    event_id_floor: int = 0,
     after_event_time: str = "",
     after_event_id: int = 0,
     through_event_id: int | None = None,
@@ -119,6 +120,7 @@ def run_player_log_sessionization(
     def execute() -> player_sessionizer.PlayerLogSessionizationSummary:
         return player_sessionizer.sessionize_stored_player_log_events(
             db_path,
+            event_id_floor=event_id_floor,
             after_event_time=after_event_time,
             after_event_id=after_event_id,
             through_event_id=through_event_id,

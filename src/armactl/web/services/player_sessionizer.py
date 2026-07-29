@@ -98,6 +98,7 @@ class _CloseApplicationResult:
 def sessionize_stored_player_log_events(
     db_path: Path,
     *,
+    event_id_floor: int = 0,
     after_event_time: str = "",
     after_event_id: int = 0,
     through_event_id: int | None = None,
@@ -106,6 +107,7 @@ def sessionize_stored_player_log_events(
     progress_callback: Callable[[PlayerLogSessionizationSummary], None] | None = None,
 ) -> PlayerLogSessionizationSummary:
     """Run the existing sessionizer over bounded durable event pages."""
+    generation_floor = max(0, int(event_id_floor))
     cursor_time = after_event_time
     cursor_id = max(0, int(after_event_id))
     high_water = None if through_event_id is None else max(0, int(through_event_id))
@@ -127,17 +129,9 @@ def sessionize_stored_player_log_events(
         if remaining_events <= 0:
             break
         current_limit = min(bounded_limit, remaining_events)
-        if high_water is not None and player_registry.has_late_player_log_event_for_sessionization(
+        events = player_registry.list_player_log_events_for_trusted_time_sessionization(
             db_path,
-            after_event_time=cursor_time,
-            after_event_id=cursor_id,
-            through_event_id=high_water,
-        ):
-            raise HistoricalBackfillRequiredError(
-                "Stored event evidence predates the durable sessionization cursor."
-            )
-        events = player_registry.list_player_log_events_for_sessionization(
-            db_path,
+            event_id_floor=generation_floor,
             after_event_time=cursor_time,
             after_event_id=cursor_id,
             through_event_id=high_water,
@@ -164,8 +158,9 @@ def sessionize_stored_player_log_events(
         if len(events) < current_limit:
             break
 
-    next_events = player_registry.list_player_log_events_for_sessionization(
+    next_events = player_registry.list_player_log_events_for_trusted_time_sessionization(
         db_path,
+        event_id_floor=generation_floor,
         after_event_time=cursor_time,
         after_event_id=cursor_id,
         through_event_id=high_water,

@@ -18,6 +18,7 @@ from armactl.web.services import (
     player_live_session_scanner,
     player_registry,
     player_session_mutation,
+    player_sessionizer,
 )
 from armactl.web.services import (
     player_session_scheduler_runner as runner,
@@ -28,6 +29,7 @@ NOW = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc)
 PLAYER_ALPHA_ID = "11111111-1111-4111-8111-111111111111"
 PLAYER_BRAVO_ID = "22222222-2222-4222-8222-222222222222"
 PLAYER_CHARLIE_ID = "33333333-3333-4333-8333-333333333333"
+PLAYER_DELTA_ID = "44444444-4444-4444-8444-444444444444"
 
 
 def _players_db(data_root: Path) -> Path:
@@ -304,6 +306,112 @@ def test_late_event_fails_closed_before_applying_offending_page(
     state = player_registry.get_player_session_pipeline_state(_players_db(tmp_path))
     assert state.last_processed_ingest_generation == 1
     assert state.last_sessionized_event_id == 1
+
+
+def test_first_generation_sessionizes_historical_inversions_in_trusted_time_order(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_successful_downstream(monkeypatch)
+    _commit_generation(
+        tmp_path,
+        (
+            _event(PLAYER_ALPHA_ID, "2026-06-20T10:02:00+00:00", "later-first"),
+            _event(PLAYER_BRAVO_ID, "2026-06-20T10:00:00+00:00", "earlier-second"),
+            _event(PLAYER_CHARLIE_ID, "2026-06-20T10:01:00+00:00", "middle-third"),
+        ),
+    )
+
+    result = runner.run_player_session_scheduler_once(data_root=tmp_path, now=NOW)
+    state = player_registry.get_player_session_pipeline_state(_players_db(tmp_path))
+
+    assert result.outcome == "completed"
+    assert result.session_events_scanned == 3
+    assert _session_count(tmp_path) == 3
+    assert state.last_sessionized_event_id == 1
+    assert state.last_sessionized_event_time == "2026-06-20T10:02:00+00:00"
+    assert state.sessionization_order_version == runner.SESSIONIZATION_ORDER_VERSION
+
+
+def test_legacy_partial_cursor_promotes_only_when_it_is_a_trusted_time_prefix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_successful_downstream(monkeypatch)
+    _commit_generation(
+        tmp_path,
+        (
+            _event(PLAYER_ALPHA_ID, "2026-06-20T10:00:00+00:00", "first"),
+            _event(PLAYER_BRAVO_ID, "2026-06-20T10:01:00+00:00", "second"),
+            _event(PLAYER_CHARLIE_ID, "2026-06-20T10:03:00+00:00", "fourth-by-time"),
+            _event(PLAYER_DELTA_ID, "2026-06-20T10:02:00+00:00", "third-by-time"),
+        ),
+    )
+    db_path = _players_db(tmp_path)
+    prefix = player_sessionizer.sessionize_stored_player_log_events(
+        db_path,
+        through_event_id=2,
+    )
+    player_registry.upsert_player_session_pipeline_state(
+        db_path,
+        player_registry.PlayerSessionPipelineState(
+            instance="default",
+            current_generation_max_event_id=4,
+            last_sessionized_event_id=prefix.last_event_id,
+            last_sessionized_event_time=prefix.last_event_time,
+            last_result="failed",
+            last_error_code="historical_backfill_required",
+            updated_at=NOW.isoformat(),
+        ),
+    )
+
+    result = runner.run_player_session_scheduler_once(
+        data_root=tmp_path,
+        now=NOW + timedelta(minutes=1),
+    )
+    state = player_registry.get_player_session_pipeline_state(db_path)
+
+    assert result.outcome == "completed"
+    assert _session_count(tmp_path) == 4
+    assert state.last_sessionized_event_id == 3
+    assert state.last_sessionized_event_time == "2026-06-20T10:03:00+00:00"
+    assert state.sessionization_order_version == runner.SESSIONIZATION_ORDER_VERSION
+
+
+def test_incompatible_legacy_partial_cursor_still_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_successful_downstream(monkeypatch)
+    _commit_generation(
+        tmp_path,
+        (
+            _event(PLAYER_ALPHA_ID, "2026-06-20T10:02:00+00:00", "processed"),
+            _event(PLAYER_BRAVO_ID, "2026-06-20T10:00:00+00:00", "missed"),
+        ),
+    )
+    db_path = _players_db(tmp_path)
+    player_registry.upsert_player_session_pipeline_state(
+        db_path,
+        player_registry.PlayerSessionPipelineState(
+            instance="default",
+            current_generation_max_event_id=2,
+            last_sessionized_event_id=1,
+            last_sessionized_event_time="2026-06-20T10:02:00+00:00",
+            last_result="failed",
+            last_error_code="historical_backfill_required",
+            updated_at=NOW.isoformat(),
+        ),
+    )
+
+    result = runner.run_player_session_scheduler_once(
+        data_root=tmp_path,
+        now=NOW + timedelta(minutes=1),
+    )
+
+    assert result.outcome == "failed"
+    assert result.error_code == "historical_backfill_required"
+    assert _session_count(tmp_path) == 0
 
 
 @pytest.mark.parametrize(
@@ -954,12 +1062,13 @@ def test_sessionizer_hard_caps_each_pass_at_five_thousand_events(
     def list_page(
         db_path,
         *,
+        event_id_floor=0,
         after_event_time="",
         after_event_id=0,
         through_event_id=None,
         limit=None,
     ):
-        del db_path, after_event_time
+        del db_path, event_id_floor, after_event_time
         high_water = through_event_id or total_events
         remaining = max(0, high_water - after_event_id)
         count = min(remaining, limit or remaining)
@@ -970,13 +1079,8 @@ def test_sessionizer_hard_caps_each_pass_at_five_thousand_events(
 
     monkeypatch.setattr(
         player_sessionizer.player_registry,
-        "list_player_log_events_for_sessionization",
+        "list_player_log_events_for_trusted_time_sessionization",
         list_page,
-    )
-    monkeypatch.setattr(
-        player_sessionizer.player_registry,
-        "has_late_player_log_event_for_sessionization",
-        lambda *a, **k: False,
     )
     monkeypatch.setattr(
         player_sessionizer,

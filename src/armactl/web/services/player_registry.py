@@ -44,7 +44,7 @@ from armactl.web.services.player_identity import (
 )
 
 PLAYER_REGISTRY_DB_NAME = "players.db"
-PLAYER_REGISTRY_SCHEMA_VERSION = "12"
+PLAYER_REGISTRY_SCHEMA_VERSION = "13"
 PRIVATE_PLAYER_REGISTRY_FILE_MODE = 0o600
 DEFAULT_PLAYER_HISTORY_EVENT_LIMIT = 100
 MAX_PLAYER_HISTORY_EVENT_LIMIT = 250
@@ -504,9 +504,12 @@ class PlayerSessionPipelineState:
     last_processed_ingest_generation: int = 0
     last_consumed_ingest_success_at: str = ""
     last_consumed_ingest_generation_max_event_id: int = 0
+    current_ingest_generation: int = 0
+    current_ingest_success_at: str = ""
     current_generation_max_event_id: int = 0
     last_sessionized_event_id: int = 0
     last_sessionized_event_time: str = ""
+    sessionization_order_version: int = 0
     last_live_scan_at: str = ""
     last_maintenance_at: str = ""
     next_maintenance_due_at: str = ""
@@ -1236,11 +1239,16 @@ def _ensure_player_session_pipeline_state_schema(connection: sqlite3.Connection)
             last_consumed_ingest_success_at TEXT NOT NULL DEFAULT '',
             last_consumed_ingest_generation_max_event_id INTEGER NOT NULL DEFAULT 0
                 CHECK(last_consumed_ingest_generation_max_event_id >= 0),
+            current_ingest_generation INTEGER NOT NULL DEFAULT 0
+                CHECK(current_ingest_generation >= 0),
+            current_ingest_success_at TEXT NOT NULL DEFAULT '',
             current_generation_max_event_id INTEGER NOT NULL DEFAULT 0
                 CHECK(current_generation_max_event_id >= 0),
             last_sessionized_event_id INTEGER NOT NULL DEFAULT 0
                 CHECK(last_sessionized_event_id >= 0),
             last_sessionized_event_time TEXT NOT NULL DEFAULT '',
+            sessionization_order_version INTEGER NOT NULL DEFAULT 0
+                CHECK(sessionization_order_version >= 0),
             last_live_scan_at TEXT NOT NULL DEFAULT '',
             last_maintenance_at TEXT NOT NULL DEFAULT '',
             next_maintenance_due_at TEXT NOT NULL DEFAULT '',
@@ -1276,6 +1284,20 @@ def _ensure_player_session_pipeline_state_schema(connection: sqlite3.Connection)
                 "current_generation_max_event_id",
                 "current_generation_max_event_id INTEGER NOT NULL DEFAULT 0 "
                 "CHECK(current_generation_max_event_id >= 0)",
+            ),
+            (
+                "current_ingest_generation",
+                "current_ingest_generation INTEGER NOT NULL DEFAULT 0 "
+                "CHECK(current_ingest_generation >= 0)",
+            ),
+            (
+                "current_ingest_success_at",
+                "current_ingest_success_at TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "sessionization_order_version",
+                "sessionization_order_version INTEGER NOT NULL DEFAULT 0 "
+                "CHECK(sessionization_order_version >= 0)",
             ),
             (
                 "next_maintenance_due_at",
@@ -1487,6 +1509,10 @@ def _run_player_registry_migrations(connection: sqlite3.Connection) -> None:
         _ensure_player_log_ingest_metadata_schema(connection)
         _ensure_player_session_pipeline_state_schema(connection)
         _write_player_registry_schema_version(connection, 12)
+        current_version = 12
+    if current_version < 13:
+        _ensure_player_session_pipeline_state_schema(connection)
+        _write_player_registry_schema_version(connection, 13)
 
 
 def ensure_player_registry_db(db_path: Path) -> Path:
@@ -1649,6 +1675,13 @@ def _player_session_pipeline_state_from_row(
                 0,
             )
         ),
+        current_ingest_generation=_safe_ingest_int(
+            _ingest_row_value(row, "current_ingest_generation", 0)
+        ),
+        current_ingest_success_at=_safe_ingest_text(
+            _ingest_row_value(row, "current_ingest_success_at"),
+            max_length=80,
+        ),
         current_generation_max_event_id=_safe_ingest_int(
             _ingest_row_value(row, "current_generation_max_event_id", 0)
         ),
@@ -1658,6 +1691,9 @@ def _player_session_pipeline_state_from_row(
         last_sessionized_event_time=_safe_ingest_text(
             _ingest_row_value(row, "last_sessionized_event_time"),
             max_length=80,
+        ),
+        sessionization_order_version=_safe_ingest_int(
+            _ingest_row_value(row, "sessionization_order_version", 0)
         ),
         last_live_scan_at=_safe_ingest_text(
             _ingest_row_value(row, "last_live_scan_at"), max_length=80
@@ -1738,6 +1774,13 @@ def upsert_player_session_pipeline_state(
         last_consumed_ingest_generation_max_event_id=_safe_ingest_int(
             state.last_consumed_ingest_generation_max_event_id
         ),
+        current_ingest_generation=_safe_ingest_int(
+            state.current_ingest_generation
+        ),
+        current_ingest_success_at=_safe_ingest_text(
+            state.current_ingest_success_at,
+            max_length=80,
+        ),
         current_generation_max_event_id=_safe_ingest_int(
             state.current_generation_max_event_id
         ),
@@ -1745,6 +1788,9 @@ def upsert_player_session_pipeline_state(
         last_sessionized_event_time=_safe_ingest_text(
             state.last_sessionized_event_time,
             max_length=80,
+        ),
+        sessionization_order_version=_safe_ingest_int(
+            state.sessionization_order_version
         ),
         last_live_scan_at=_safe_ingest_text(state.last_live_scan_at, max_length=80),
         last_maintenance_at=_safe_ingest_text(
@@ -1772,9 +1818,12 @@ def upsert_player_session_pipeline_state(
         persisted.last_processed_ingest_generation,
         persisted.last_consumed_ingest_success_at,
         persisted.last_consumed_ingest_generation_max_event_id,
+        persisted.current_ingest_generation,
+        persisted.current_ingest_success_at,
         persisted.current_generation_max_event_id,
         persisted.last_sessionized_event_id,
         persisted.last_sessionized_event_time,
+        persisted.sessionization_order_version,
         persisted.last_live_scan_at,
         persisted.last_maintenance_at,
         persisted.next_maintenance_due_at,
@@ -1794,12 +1843,14 @@ def upsert_player_session_pipeline_state(
                 last_processed_ingest_generation,
                 last_consumed_ingest_success_at,
                 last_consumed_ingest_generation_max_event_id,
+                current_ingest_generation, current_ingest_success_at,
                 current_generation_max_event_id,
                 last_sessionized_event_id, last_sessionized_event_time,
+                sessionization_order_version,
                 last_live_scan_at, last_maintenance_at, next_maintenance_due_at,
                 consecutive_failures, last_failure_stage, last_result,
                 last_error_code, interrupted, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(instance) DO UPDATE SET
                 last_attempt_at = excluded.last_attempt_at,
                 last_started_at = excluded.last_started_at,
@@ -1810,9 +1861,12 @@ def upsert_player_session_pipeline_state(
                 last_consumed_ingest_success_at = excluded.last_consumed_ingest_success_at,
                 last_consumed_ingest_generation_max_event_id =
                     excluded.last_consumed_ingest_generation_max_event_id,
+                current_ingest_generation = excluded.current_ingest_generation,
+                current_ingest_success_at = excluded.current_ingest_success_at,
                 current_generation_max_event_id = excluded.current_generation_max_event_id,
                 last_sessionized_event_id = excluded.last_sessionized_event_id,
                 last_sessionized_event_time = excluded.last_sessionized_event_time,
+                sessionization_order_version = excluded.sessionization_order_version,
                 last_live_scan_at = excluded.last_live_scan_at,
                 last_maintenance_at = excluded.last_maintenance_at,
                 next_maintenance_due_at = excluded.next_maintenance_due_at,
@@ -4308,30 +4362,44 @@ def list_player_log_events(
         connection.close()
 
 
-def list_player_log_events_for_sessionization(
+def list_player_log_events_for_trusted_time_sessionization(
     db_path: Path,
     *,
+    event_id_floor: int = 0,
     after_event_time: str = "",
     after_event_id: int = 0,
     through_event_id: int | None = None,
     limit: int | None = None,
 ) -> list[PlayerLogEventRecord]:
-    """List one bounded event-ID page for the existing sessionizer."""
-    del after_event_time
+    """List one bounded generation page in trusted occurrence-time order."""
     connection = _connect_existing_readonly(db_path)
     if connection is None or not _table_exists(connection, "player_log_events"):
         if connection is not None:
             connection.close()
         return []
+    effective_time = "COALESCE(occurred_at, observed_at, collected_at, created_at)"
     where_clauses = ["event_id > ?"]
-    params: list[object] = [_safe_ingest_int(after_event_id)]
+    params: list[object] = [_safe_ingest_int(event_id_floor)]
     if through_event_id is not None:
         where_clauses.append("event_id <= ?")
         params.append(_safe_ingest_int(through_event_id))
+    safe_after_time = _safe_ingest_text(after_event_time, max_length=80)
+    if safe_after_time:
+        where_clauses.append(
+            f"({effective_time} > ? OR "
+            f"({effective_time} = ? AND event_id > ?))"
+        )
+        params.extend(
+            (
+                safe_after_time,
+                safe_after_time,
+                _safe_ingest_int(after_event_id),
+            )
+        )
     sql = (
         "SELECT * FROM player_log_events WHERE "
         + " AND ".join(where_clauses)
-        + " ORDER BY event_id ASC"
+        + f" ORDER BY {effective_time} ASC, event_id ASC"
     )
     if limit is not None:
         sql += " LIMIT ?"
@@ -4343,39 +4411,57 @@ def list_player_log_events_for_sessionization(
         connection.close()
 
 
-def has_late_player_log_event_for_sessionization(
+def legacy_sessionization_cursor_matches_trusted_time_prefix(
     db_path: Path,
     *,
+    event_id_floor: int,
     after_event_time: str,
     after_event_id: int,
     through_event_id: int,
 ) -> bool:
-    """Detect newly inserted evidence older than the persisted trusted-time cursor."""
+    """Prove that a legacy event-ID cursor is also a trusted-time prefix."""
+    safe_floor = _safe_ingest_int(event_id_floor)
+    safe_after_id = _safe_ingest_int(after_event_id)
+    safe_high_water = _safe_ingest_int(through_event_id)
     safe_after_time = _safe_ingest_text(after_event_time, max_length=80)
-    if not safe_after_time:
+    if safe_after_id == safe_floor and not safe_after_time:
+        return True
+    if (
+        not safe_after_time
+        or safe_after_id < safe_floor
+        or safe_after_id > safe_high_water
+    ):
         return False
     connection = _connect_existing_readonly(db_path)
     if connection is None or not _table_exists(connection, "player_log_events"):
         if connection is not None:
             connection.close()
         return False
+    effective_time = "COALESCE(occurred_at, observed_at, collected_at, created_at)"
     try:
-        row = connection.execute(
-            """
+        processed_after_cursor = connection.execute(
+            f"""
             SELECT 1
             FROM player_log_events
             WHERE event_id > ?
               AND event_id <= ?
-              AND COALESCE(occurred_at, observed_at, collected_at, created_at) < ?
+              AND {effective_time} > ?
             LIMIT 1
             """,
-            (
-                _safe_ingest_int(after_event_id),
-                _safe_ingest_int(through_event_id),
-                safe_after_time,
-            ),
+            (safe_floor, safe_after_id, safe_after_time),
         ).fetchone()
-        return row is not None
+        unprocessed_before_cursor = connection.execute(
+            f"""
+            SELECT 1
+            FROM player_log_events
+            WHERE event_id > ?
+              AND event_id <= ?
+              AND {effective_time} < ?
+            LIMIT 1
+            """,
+            (max(safe_floor, safe_after_id), safe_high_water, safe_after_time),
+        ).fetchone()
+        return processed_after_cursor is None and unprocessed_before_cursor is None
     finally:
         connection.close()
 

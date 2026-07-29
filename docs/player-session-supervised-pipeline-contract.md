@@ -469,20 +469,28 @@ generation instead of leaking them into the old one.
 A generation owns the fixed event-ID range after the previously consumed
 generation maximum and through its persisted generation maximum.
 
-Before mutating a bounded page, F3-b must validate that trusted event occurrence
-times are nondecreasing in `event_id` order, both against the persisted last
-sessionized occurrence time and within the complete page. Only a validated page
-is processed in ascending `event_id` order; after this gate, that order is
-equivalent to the existing stable occurrence-time order, with event ID as the
-tie-breaker. The page cursor advances only after the complete page commits.
+Within one fixed ingest-generation event-ID range, F3-b reads bounded pages in
+trusted occurrence-time order with event ID as the deterministic tie-breaker.
+The durable cursor is the last committed `(trusted occurrence time, event ID)`
+tuple, not an assumption that insertion order equals occurrence order. This
+handles normal historical-log discovery and rotated-file rescans whose newer
+database IDs can legitimately carry older occurrence times.
 
-The state therefore stores the current generation maximum, the last committed
-sessionized event ID, the last committed trusted occurrence time, and the last
-fully consumed generation maximum. A late/historical event whose trusted time
-would move backward stops before applying the offending page with bounded
-`historical_backfill_required` state. It is never silently skipped, reordered
-across an already committed page, or treated as consumed. Historical oversized
-log backfill and any explicit replay workflow remain outside F3.
+Schema v13 records the cursor-order version and the fixed target generation
+tuple. A pre-v13 partial cursor is promoted automatically only when read-only SQL
+proves that its processed event-ID prefix is exactly the same trusted-time
+prefix. Otherwise the pipeline remains fail-closed with bounded
+`historical_backfill_required` state. A new generation whose evidence predates
+the fully consumed prior-generation cursor is also rejected before mutation.
+
+The state stores the fixed current generation number, success timestamp and
+maximum event ID, the last committed trusted-time cursor, and the last fully
+consumed generation tuple. Page progress advances only after the complete page
+commits. If ingest advances while a bounded backlog is being consumed, the
+pipeline finishes the fixed older generation first, skips live scan and
+maintenance, and consumes the newer generation on a later cycle. No evidence is
+silently skipped or treated as consumed. Explicit repair of a genuinely
+incompatible historical prefix remains outside the automatic path.
 
 ### Locking And Dedupe Ownership
 

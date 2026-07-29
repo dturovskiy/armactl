@@ -21,6 +21,7 @@ from armactl.web.services import (
 _STATE_TABLE: Final = "web_player_session_scheduler_state"
 DEFAULT_MAINTENANCE_INTERVAL: Final = timedelta(hours=1)
 MAX_STORED_FAILURE_COUNT: Final = 30
+SESSIONIZATION_ORDER_VERSION: Final = 1
 
 _DIAGNOSTIC_CODE_RE: Final = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 
@@ -148,9 +149,12 @@ class PlayerSessionSchedulerStatus:
     last_processed_ingest_generation: int = 0
     last_consumed_ingest_success_at: str = ""
     last_consumed_ingest_generation_max_event_id: int = 0
+    current_ingest_generation: int = 0
+    current_ingest_success_at: str = ""
     current_generation_max_event_id: int = 0
     last_sessionized_event_id: int = 0
     last_sessionized_event_time: str = ""
+    sessionization_order_version: int = 0
     last_live_scan_at: str = ""
     last_maintenance_at: str = ""
     next_maintenance_due_at: str = ""
@@ -207,9 +211,12 @@ class PlayerSessionSchedulerStatus:
             "last_consumed_ingest_generation_max_event_id": (
                 self.last_consumed_ingest_generation_max_event_id
             ),
+            "current_ingest_generation": self.current_ingest_generation,
+            "current_ingest_success_at": self.current_ingest_success_at,
             "current_generation_max_event_id": self.current_generation_max_event_id,
             "last_sessionized_event_id": self.last_sessionized_event_id,
             "last_sessionized_event_time": self.last_sessionized_event_time,
+            "sessionization_order_version": self.sessionization_order_version,
             "last_live_scan_at": self.last_live_scan_at,
             "last_maintenance_at": self.last_maintenance_at,
             "next_maintenance_due_at": self.next_maintenance_due_at,
@@ -572,10 +579,83 @@ def run_player_session_scheduler_once(
                     generation_proven=True,
                 )
 
+            generation_floor = state.last_consumed_ingest_generation_max_event_id
+            resuming_generation = (
+                state.current_ingest_generation
+                > state.last_processed_ingest_generation
+                and state.current_generation_max_event_id > generation_floor
+            )
+            if resuming_generation:
+                target_generation = state.current_ingest_generation
+                target_success_at = state.current_ingest_success_at
+                target_max_event_id = state.current_generation_max_event_id
+            else:
+                target_generation = freshness.completed_generation
+                target_success_at = freshness.last_success_at
+                target_max_event_id = freshness.generation_max_event_id
+
+            legacy_cursor_promoted = False
+            if state.sessionization_order_version < SESSIONIZATION_ORDER_VERSION:
+                if not player_registry.legacy_sessionization_cursor_matches_trusted_time_prefix(
+                    registry_db_path,
+                    event_id_floor=generation_floor,
+                    after_event_time=state.last_sessionized_event_time,
+                    after_event_id=state.last_sessionized_event_id,
+                    through_event_id=target_max_event_id,
+                ):
+                    _persist_failure(
+                        registry_db_path,
+                        state,
+                        stage="sessionize",
+                        error_code="historical_backfill_required",
+                        now_text=checked_at_text,
+                    )
+                    return _failed_result(
+                        instance=normalized,
+                        checked_at=checked_at_text,
+                        stage="sessionize",
+                        error_code="historical_backfill_required",
+                        generation_proven=True,
+                    )
+                state = replace(
+                    state,
+                    sessionization_order_version=SESSIONIZATION_ORDER_VERSION,
+                )
+                legacy_cursor_promoted = True
+
+            if (
+                not resuming_generation
+                and not legacy_cursor_promoted
+                and not player_registry.legacy_sessionization_cursor_matches_trusted_time_prefix(
+                    registry_db_path,
+                    event_id_floor=generation_floor,
+                    after_event_time=state.last_sessionized_event_time,
+                    after_event_id=generation_floor,
+                    through_event_id=target_max_event_id,
+                )
+            ):
+                _persist_failure(
+                    registry_db_path,
+                    state,
+                    stage="sessionize",
+                    error_code="historical_backfill_required",
+                    now_text=checked_at_text,
+                )
+                return _failed_result(
+                    instance=normalized,
+                    checked_at=checked_at_text,
+                    stage="sessionize",
+                    error_code="historical_backfill_required",
+                    generation_proven=True,
+                )
+
             working_state = replace(
                 state,
                 last_started_at=checked_at_text,
-                current_generation_max_event_id=freshness.generation_max_event_id,
+                current_ingest_generation=target_generation,
+                current_ingest_success_at=target_success_at,
+                current_generation_max_event_id=target_max_event_id,
+                sessionization_order_version=SESSIONIZATION_ORDER_VERSION,
                 last_result="sessionizing",
                 last_failure_stage="",
                 last_error_code="",
@@ -607,9 +687,10 @@ def run_player_session_scheduler_once(
                 session_summary = player_session_mutation.run_player_log_sessionization(
                     normalized,
                     data_root=root,
+                    event_id_floor=generation_floor,
                     after_event_time=working_state.last_sessionized_event_time,
                     after_event_id=working_state.last_sessionized_event_id,
-                    through_event_id=freshness.generation_max_event_id,
+                    through_event_id=target_max_event_id,
                     page_limit=page_limit,
                     max_pages=max_pages,
                     progress_callback=persist_page,
@@ -660,6 +741,42 @@ def run_player_session_scheduler_once(
                     error_code="backlog_remaining",
                     generation_proven=True,
                     session_summary=session_summary,
+                )
+
+            if target_generation < freshness.completed_generation:
+                backlog_state = replace(
+                    working_state,
+                    last_completed_at=checked_at_text,
+                    last_processed_ingest_generation=target_generation,
+                    last_consumed_ingest_success_at=target_success_at,
+                    last_consumed_ingest_generation_max_event_id=target_max_event_id,
+                    last_sessionized_event_id=session_summary.last_event_id,
+                    last_sessionized_event_time=session_summary.last_event_time,
+                    last_result="backlog_remaining",
+                    last_failure_stage="",
+                    last_error_code="",
+                    interrupted=False,
+                    updated_at=checked_at_text,
+                )
+                player_registry.upsert_player_session_pipeline_state(
+                    registry_db_path,
+                    backlog_state,
+                )
+                return PlayerSessionSchedulerRunResult(
+                    instance=normalized,
+                    checked_at=checked_at_text,
+                    outcome="failed",
+                    failure_stage="sessionize",
+                    error_code="backlog_remaining",
+                    generation_proven=True,
+                    session_pages_completed=session_summary.pages_completed,
+                    session_events_scanned=session_summary.events_scanned,
+                    session_observations_applied=(
+                        session_summary.observations_applied
+                    ),
+                    session_sessions_created=session_summary.sessions_created,
+                    session_sessions_updated=session_summary.sessions_updated,
+                    session_sessions_closed=session_summary.sessions_closed,
                 )
 
             try:
@@ -754,14 +871,17 @@ def run_player_session_scheduler_once(
                 working_state,
                 last_completed_at=checked_at_text,
                 last_success_at=checked_at_text,
-                last_processed_ingest_generation=freshness.completed_generation,
-                last_consumed_ingest_success_at=freshness.last_success_at,
+                last_processed_ingest_generation=target_generation,
+                last_consumed_ingest_success_at=target_success_at,
                 last_consumed_ingest_generation_max_event_id=(
-                    freshness.generation_max_event_id
+                    target_max_event_id
                 ),
-                current_generation_max_event_id=freshness.generation_max_event_id,
+                current_ingest_generation=target_generation,
+                current_ingest_success_at=target_success_at,
+                current_generation_max_event_id=target_max_event_id,
                 last_sessionized_event_id=session_summary.last_event_id,
                 last_sessionized_event_time=session_summary.last_event_time,
+                sessionization_order_version=SESSIONIZATION_ORDER_VERSION,
                 last_maintenance_at=(
                     checked_at_text if maintenance_due else working_state.last_maintenance_at
                 ),
@@ -908,9 +1028,12 @@ def read_player_session_scheduler_status(
         last_consumed_ingest_generation_max_event_id=(
             pipeline.last_consumed_ingest_generation_max_event_id
         ),
+        current_ingest_generation=pipeline.current_ingest_generation,
+        current_ingest_success_at=pipeline.current_ingest_success_at,
         current_generation_max_event_id=pipeline.current_generation_max_event_id,
         last_sessionized_event_id=pipeline.last_sessionized_event_id,
         last_sessionized_event_time=pipeline.last_sessionized_event_time,
+        sessionization_order_version=pipeline.sessionization_order_version,
         last_live_scan_at=pipeline.last_live_scan_at,
         last_maintenance_at=pipeline.last_maintenance_at,
         next_maintenance_due_at=pipeline.next_maintenance_due_at,
