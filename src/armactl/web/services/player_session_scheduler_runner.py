@@ -1,37 +1,42 @@
-"""Explicit opt-in player-session scheduler runner foundation."""
+"""Synchronous supervised player-session pipeline orchestrator."""
 
 from __future__ import annotations
 
+import re
 import sqlite3
-from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Final
 from urllib.parse import quote
 
 from armactl import paths
-from armactl.web.jobs.models import JobRecord
-from armactl.web.runtime import ensure_web_db
 from armactl.web.services import (
-    player_live_session_scan,
-    player_log_sessionization,
-    player_session_maintenance,
-    player_session_scheduler_policy,
+    player_log_ingest,
+    player_registry,
+    player_session_mutation,
+    player_sessionizer,
 )
 
-SCHEDULER_USERNAME: Final = "player-session-scheduler"
-MAX_STORED_FAILURE_COUNT: Final = 30
 _STATE_TABLE: Final = "web_player_session_scheduler_state"
+DEFAULT_MAINTENANCE_INTERVAL: Final = timedelta(hours=1)
+MAX_STORED_FAILURE_COUNT: Final = 30
+
+_DIAGNOSTIC_CODE_RE: Final = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
+
+
+def _safe_diagnostic_code(value: object, *, fallback: str = "unknown") -> str:
+    text = str(value or "").strip()
+    return text if not text or _DIAGNOSTIC_CODE_RE.fullmatch(text) else fallback
 
 
 class PlayerSessionSchedulerRunnerError(RuntimeError):
-    """Raised when the explicit player-session scheduler cannot run safely."""
+    """Raised when the supervised pipeline cannot be executed safely."""
 
 
 @dataclass(frozen=True)
 class PlayerSessionSchedulerState:
-    """Safe persisted state for one scheduler job kind."""
+    """Read-only compatibility diagnostics from the legacy web scheduler table."""
 
     instance: str
     job_kind: str
@@ -56,41 +61,132 @@ class PlayerSessionSchedulerState:
 
 
 @dataclass(frozen=True)
-class PlayerSessionSchedulerStatusJob:
-    """Read-only scheduler status for one allowed job kind."""
+class PlayerSessionSchedulerRunResult:
+    """Counts-only outcome of one synchronous ordered pipeline pass."""
 
-    job_kind: str
-    last_attempt_at: str
-    last_success_at: str
-    last_failure_at: str
-    next_due_at: str
-    failure_count: int
-    due: bool
+    instance: str
+    checked_at: str
+    outcome: str
+    failure_stage: str = ""
+    error_code: str = ""
+    generation_proven: bool = False
+    session_pages_completed: int = 0
+    session_events_scanned: int = 0
+    session_observations_applied: int = 0
+    session_sessions_created: int = 0
+    session_sessions_updated: int = 0
+    session_sessions_closed: int = 0
+    live_reliable: bool = False
+    live_observed_count: int = 0
+    live_observations_applied: int = 0
+    live_sessions_created: int = 0
+    live_sessions_updated: int = 0
+    live_sessions_closed: int = 0
+    maintenance_due: bool = False
+    maintenance_performed: bool = False
+    stale_sessions_closed: int = 0
+    retained_sessions_deleted: int = 0
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "failure_stage", _safe_diagnostic_code(self.failure_stage)
+        )
+        object.__setattr__(self, "error_code", _safe_diagnostic_code(self.error_code))
+
+    @property
+    def success(self) -> bool:
+        return self.outcome in {"completed", "no_new_generation"}
+
+    @property
+    def exit_code(self) -> int:
+        return 0 if self.outcome in {"completed", "no_new_generation"} else 1
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "job_kind": self.job_kind,
-            "last_attempt_at": self.last_attempt_at,
-            "last_success_at": self.last_success_at,
-            "last_failure_at": self.last_failure_at,
-            "next_due_at": self.next_due_at,
-            "failure_count": self.failure_count,
-            "due": self.due,
+            "instance": self.instance,
+            "checked_at": self.checked_at,
+            "outcome": self.outcome,
+            "failure_stage": self.failure_stage,
+            "error_code": self.error_code,
+            "success": self.success,
+            "generation_proven": self.generation_proven,
+            "session_pages_completed": self.session_pages_completed,
+            "session_events_scanned": self.session_events_scanned,
+            "session_observations_applied": self.session_observations_applied,
+            "session_sessions_created": self.session_sessions_created,
+            "session_sessions_updated": self.session_sessions_updated,
+            "session_sessions_closed": self.session_sessions_closed,
+            "live_reliable": self.live_reliable,
+            "live_observed_count": self.live_observed_count,
+            "live_observations_applied": self.live_observations_applied,
+            "live_sessions_created": self.live_sessions_created,
+            "live_sessions_updated": self.live_sessions_updated,
+            "live_sessions_closed": self.live_sessions_closed,
+            "maintenance_due": self.maintenance_due,
+            "maintenance_performed": self.maintenance_performed,
+            "stale_sessions_closed": self.stale_sessions_closed,
+            "retained_sessions_deleted": self.retained_sessions_deleted,
         }
 
 
 @dataclass(frozen=True)
 class PlayerSessionSchedulerStatus:
-    """Safe read-only scheduler status for operator visibility."""
+    """Bounded read-only pipeline and compatibility status."""
 
     instance: str
     checked_at: str
     state: str
     reason: str
-    state_row_count: int
-    jobs: tuple[PlayerSessionSchedulerStatusJob, ...]
+    freshness_status: str = player_registry.PLAYER_LOG_INGEST_STATUS_UNAVAILABLE
+    completed_generation: int = 0
+    generation_max_event_id: int = 0
+    last_attempt_at: str = ""
+    last_started_at: str = ""
+    last_completed_at: str = ""
+    last_success_at: str = ""
+    last_failure_at: str = ""
+    last_processed_ingest_generation: int = 0
+    last_consumed_ingest_success_at: str = ""
+    last_consumed_ingest_generation_max_event_id: int = 0
+    current_generation_max_event_id: int = 0
+    last_sessionized_event_id: int = 0
+    last_sessionized_event_time: str = ""
+    last_live_scan_at: str = ""
+    last_maintenance_at: str = ""
+    next_maintenance_due_at: str = ""
+    consecutive_failures: int = 0
+    last_failure_stage: str = ""
+    last_result: str = ""
+    last_error_code: str = ""
+    interrupted: bool = False
+    lock_state: str = "unknown"
+    legacy_state_row_count: int = 0
     automatic_scheduler_enabled: bool = False
     service_timer_daemon_enabled: bool = False
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "state",
+            "reason",
+            "freshness_status",
+            "last_failure_stage",
+            "last_result",
+            "last_error_code",
+            "lock_state",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _safe_diagnostic_code(getattr(self, field_name)),
+            )
+
+    @property
+    def state_row_count(self) -> int:
+        return int(bool(self.last_result or self.last_success_at or self.consecutive_failures))
+
+    @property
+    def jobs(self) -> tuple[object, ...]:
+        return ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -98,91 +194,36 @@ class PlayerSessionSchedulerStatus:
             "checked_at": self.checked_at,
             "state": self.state,
             "reason": self.reason,
-            "state_row_count": self.state_row_count,
+            "freshness_status": self.freshness_status,
+            "completed_generation": self.completed_generation,
+            "generation_max_event_id": self.generation_max_event_id,
+            "last_attempt_at": self.last_attempt_at,
+            "last_started_at": self.last_started_at,
+            "last_completed_at": self.last_completed_at,
+            "last_success_at": self.last_success_at,
+            "last_failure_at": self.last_failure_at,
+            "last_processed_ingest_generation": self.last_processed_ingest_generation,
+            "last_consumed_ingest_success_at": self.last_consumed_ingest_success_at,
+            "last_consumed_ingest_generation_max_event_id": (
+                self.last_consumed_ingest_generation_max_event_id
+            ),
+            "current_generation_max_event_id": self.current_generation_max_event_id,
+            "last_sessionized_event_id": self.last_sessionized_event_id,
+            "last_sessionized_event_time": self.last_sessionized_event_time,
+            "last_live_scan_at": self.last_live_scan_at,
+            "last_maintenance_at": self.last_maintenance_at,
+            "next_maintenance_due_at": self.next_maintenance_due_at,
+            "consecutive_failures": self.consecutive_failures,
+            "last_failure_stage": self.last_failure_stage,
+            "last_result": self.last_result,
+            "last_error_code": self.last_error_code,
+            "interrupted": self.interrupted,
+            "lock_state": self.lock_state,
+            "legacy_state_row_count": self.legacy_state_row_count,
             "automatic_scheduler_enabled": self.automatic_scheduler_enabled,
             "service_timer_daemon_enabled": self.service_timer_daemon_enabled,
-            "jobs": [job.to_dict() for job in self.jobs],
+            "jobs": [],
         }
-
-
-@dataclass(frozen=True)
-class PlayerSessionSchedulerJobResult:
-    """One job-kind decision from a scheduler pass."""
-
-    job_kind: str
-    due: bool
-    outcome: str
-    created: bool = False
-    job_id: int | None = None
-    next_due_at: str = ""
-    failure_count: int = 0
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "job_kind": self.job_kind,
-            "due": self.due,
-            "outcome": self.outcome,
-            "created": self.created,
-            "job_id": self.job_id,
-            "next_due_at": self.next_due_at,
-            "failure_count": self.failure_count,
-        }
-
-
-@dataclass(frozen=True)
-class PlayerSessionSchedulerRunResult:
-    """Controlled summary for one explicit scheduler run."""
-
-    instance: str
-    checked_at: str
-    jobs: tuple[PlayerSessionSchedulerJobResult, ...]
-
-    @property
-    def checked_count(self) -> int:
-        return len(self.jobs)
-
-    @property
-    def due_count(self) -> int:
-        return sum(1 for job in self.jobs if job.due)
-
-    @property
-    def enqueued_count(self) -> int:
-        return sum(1 for job in self.jobs if job.outcome == "enqueued")
-
-    @property
-    def active_count(self) -> int:
-        return sum(1 for job in self.jobs if job.outcome == "active")
-
-    @property
-    def failed_count(self) -> int:
-        return sum(1 for job in self.jobs if job.outcome == "failed")
-
-    @property
-    def success(self) -> bool:
-        return self.failed_count == 0
-
-    @property
-    def exit_code(self) -> int:
-        return 0 if self.success else 1
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "instance": self.instance,
-            "checked_at": self.checked_at,
-            "checked_count": self.checked_count,
-            "due_count": self.due_count,
-            "enqueued_count": self.enqueued_count,
-            "active_count": self.active_count,
-            "failed_count": self.failed_count,
-            "success": self.success,
-            "jobs": [job.to_dict() for job in self.jobs],
-        }
-
-
-SchedulerEnqueue = Callable[
-    [Path, str],
-    tuple[JobRecord, bool],
-]
 
 
 def _utc_now() -> datetime:
@@ -194,14 +235,10 @@ def _datetime_text(value: datetime) -> str:
 
 
 def _parse_datetime(value: object) -> datetime | None:
-    if not isinstance(value, str):
+    if not isinstance(value, str) or not value.strip():
         return None
-    text = value.strip()
-    if not text:
-        return None
-    normalized = f"{text[:-1]}+00:00" if text.endswith("Z") else text
     try:
-        parsed = datetime.fromisoformat(normalized)
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
     except ValueError:
         return None
     if parsed.tzinfo is None:
@@ -216,17 +253,16 @@ def _safe_instance(instance: object) -> str:
         raise PlayerSessionSchedulerRunnerError("Instance name is invalid.") from error
 
 
-def _connect(db_path: Path) -> sqlite3.Connection:
-    try:
-        ensure_web_db(db_path)
-        connection = sqlite3.connect(db_path)
-        connection.execute("PRAGMA foreign_keys = ON")
-    except (OSError, RuntimeError, sqlite3.Error) as error:
-        raise PlayerSessionSchedulerRunnerError(
-            "Failed to open player-session scheduler state."
-        ) from error
-    connection.row_factory = sqlite3.Row
-    return connection
+def _data_root_from_legacy_db_path(db_path: Path | None) -> Path:
+    if db_path is not None:
+        candidate = Path(db_path)
+        if candidate.name == "web.db" and candidate.parent.name == "web":
+            return candidate.parent.parent
+    return paths.DEFAULT_DATA_ROOT
+
+
+def _readonly_db_uri(db_path: Path) -> str:
+    return f"file:{quote(str(db_path), safe='/')}?mode=ro"
 
 
 def _state_from_row(row: sqlite3.Row) -> PlayerSessionSchedulerState:
@@ -242,37 +278,25 @@ def _state_from_row(row: sqlite3.Row) -> PlayerSessionSchedulerState:
     )
 
 
-def get_player_session_scheduler_state(
-    db_path: Path,
-    *,
-    job_kind: str,
-    instance: str = paths.DEFAULT_INSTANCE_NAME,
-) -> PlayerSessionSchedulerState | None:
-    """Return safe scheduler state for one job kind, if it exists."""
-    normalized_instance = _safe_instance(instance)
-    with _connect(db_path) as connection:
-        row = connection.execute(
-            f"""
-            SELECT instance, job_kind, last_attempt_at, last_success_at,
-                   last_failure_at, next_due_at, failure_count, updated_at
-            FROM {_STATE_TABLE}
-            WHERE instance = ? AND job_kind = ?
-            """,
-            (normalized_instance, job_kind),
-        ).fetchone()
-    if row is None:
-        return None
-    return _state_from_row(row)
-
-
 def list_player_session_scheduler_state(
     db_path: Path,
     *,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
 ) -> tuple[PlayerSessionSchedulerState, ...]:
-    """Return safe scheduler state rows for one instance."""
-    normalized_instance = _safe_instance(instance)
-    with _connect(db_path) as connection:
+    """Read legacy enqueue diagnostics without creating or migrating web.db."""
+    normalized = _safe_instance(instance)
+    try:
+        if not Path(db_path).is_file():
+            return ()
+        connection = sqlite3.connect(_readonly_db_uri(Path(db_path)), uri=True)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA query_only = ON")
+        table = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (_STATE_TABLE,),
+        ).fetchone()
+        if table is None:
+            return ()
         rows = connection.execute(
             f"""
             SELECT instance, job_kind, last_attempt_at, last_success_at,
@@ -281,426 +305,620 @@ def list_player_session_scheduler_state(
             WHERE instance = ?
             ORDER BY job_kind ASC
             """,
-            (normalized_instance,),
+            (normalized,),
         ).fetchall()
-    return tuple(_state_from_row(row) for row in rows)
-
-
-def _readonly_db_uri(db_path: Path) -> str:
-    quoted_path = quote(str(db_path), safe="/")
-    return f"file:{quoted_path}?mode=ro"
-
-
-def _status_job_from_state(
-    job_policy: player_session_scheduler_policy.AutomaticSessionJobPolicy,
-    state: PlayerSessionSchedulerState | None,
-    *,
-    now: datetime,
-) -> PlayerSessionSchedulerStatusJob:
-    return PlayerSessionSchedulerStatusJob(
-        job_kind=job_policy.job_kind,
-        last_attempt_at=state.last_attempt_at if state is not None else "",
-        last_success_at=state.last_success_at if state is not None else "",
-        last_failure_at=state.last_failure_at if state is not None else "",
-        next_due_at=state.next_due_at if state is not None else "",
-        failure_count=state.failure_count if state is not None else 0,
-        due=_is_due(state, now=now),
-    )
-
-
-def _status_from_states(
-    *,
-    instance: str,
-    checked_at: datetime,
-    states_by_kind: dict[str, PlayerSessionSchedulerState],
-    reason: str,
-) -> PlayerSessionSchedulerStatus:
-    allowed_kinds = set(player_session_scheduler_policy.AUTOMATIC_SESSION_JOB_KINDS)
-    filtered_states = {
-        job_kind: state
-        for job_kind, state in states_by_kind.items()
-        if job_kind in allowed_kinds
-    }
-    state_row_count = len(filtered_states)
-    state_name = "available" if state_row_count else "empty"
-    status_reason = reason
-    if reason == "ok" and not state_row_count:
-        status_reason = "no_rows"
-    jobs = tuple(
-        _status_job_from_state(
-            job_policy,
-            filtered_states.get(job_policy.job_kind),
-            now=checked_at,
-        )
-        for job_policy in player_session_scheduler_policy.AUTOMATIC_SESSION_JOB_POLICIES
-    )
-    return PlayerSessionSchedulerStatus(
-        instance=instance,
-        checked_at=_datetime_text(checked_at),
-        state=state_name,
-        reason=status_reason,
-        state_row_count=state_row_count,
-        automatic_scheduler_enabled=bool(
-            player_session_scheduler_policy.AUTOMATIC_SESSION_SCHEDULER_ENABLED
-        ),
-        service_timer_daemon_enabled=False,
-        jobs=jobs,
-    )
-
-
-def _empty_status(
-    *,
-    instance: str,
-    checked_at: datetime,
-    reason: str,
-    state: str = "empty",
-) -> PlayerSessionSchedulerStatus:
-    status = _status_from_states(
-        instance=instance,
-        checked_at=checked_at,
-        states_by_kind={},
-        reason=reason,
-    )
-    return PlayerSessionSchedulerStatus(
-        instance=status.instance,
-        checked_at=status.checked_at,
-        state=state,
-        reason=reason,
-        state_row_count=0,
-        automatic_scheduler_enabled=status.automatic_scheduler_enabled,
-        service_timer_daemon_enabled=status.service_timer_daemon_enabled,
-        jobs=status.jobs,
-    )
-
-
-def read_player_session_scheduler_status(
-    db_path: Path,
-    *,
-    instance: str = paths.DEFAULT_INSTANCE_NAME,
-    now: datetime | None = None,
-) -> PlayerSessionSchedulerStatus:
-    """Return safe scheduler status without creating or mutating web.db."""
-    normalized_instance = _safe_instance(instance)
-    checked_at = now.astimezone(timezone.utc) if now is not None else _utc_now()
-    try:
-        db_exists = db_path.is_file()
-    except OSError:
-        db_exists = False
-    if not db_exists:
-        return _empty_status(
-            instance=normalized_instance,
-            checked_at=checked_at,
-            reason="web_db_missing",
-        )
-
-    try:
-        connection = sqlite3.connect(_readonly_db_uri(db_path), uri=True)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA query_only = ON")
-        table_row = connection.execute(
-            "SELECT name FROM sqlite_master WHERE type = ? AND name = ?",
-            ("table", _STATE_TABLE),
-        ).fetchone()
-        if table_row is None:
-            return _empty_status(
-                instance=normalized_instance,
-                checked_at=checked_at,
-                reason="state_table_missing",
-            )
-        placeholders = ", ".join(
-            "?" for _ in player_session_scheduler_policy.AUTOMATIC_SESSION_JOB_KINDS
-        )
-        rows = connection.execute(
-            f"""
-            SELECT instance, job_kind, last_attempt_at, last_success_at,
-                   last_failure_at, next_due_at, failure_count, updated_at
-            FROM {_STATE_TABLE}
-            WHERE instance = ? AND job_kind IN ({placeholders})
-            ORDER BY job_kind ASC
-            """,
-            (
-                normalized_instance,
-                *player_session_scheduler_policy.AUTOMATIC_SESSION_JOB_KINDS,
-            ),
-        ).fetchall()
-    except (OSError, RuntimeError, sqlite3.Error):
-        return _empty_status(
-            instance=normalized_instance,
-            checked_at=checked_at,
-            reason="state_unavailable",
-            state="unavailable",
-        )
+        return tuple(_state_from_row(row) for row in rows)
+    except (OSError, sqlite3.Error, ValueError):
+        return ()
     finally:
         try:
             connection.close()
         except (NameError, sqlite3.Error):
             pass
 
-    states_by_kind = {str(row["job_kind"] or ""): _state_from_row(row) for row in rows}
-    return _status_from_states(
-        instance=normalized_instance,
-        checked_at=checked_at,
-        states_by_kind=states_by_kind,
-        reason="ok",
-    )
 
-
-def _write_state(
+def get_player_session_scheduler_state(
     db_path: Path,
     *,
-    instance: str,
     job_kind: str,
-    last_attempt_at: str,
-    last_success_at: str,
-    last_failure_at: str,
-    next_due_at: str,
-    failure_count: int,
-    updated_at: str,
-) -> PlayerSessionSchedulerState:
-    bounded_failure_count = min(max(0, int(failure_count)), MAX_STORED_FAILURE_COUNT)
-    with _connect(db_path) as connection:
-        connection.execute(
-            f"""
-            INSERT INTO {_STATE_TABLE}(
-                instance, job_kind, last_attempt_at, last_success_at,
-                last_failure_at, next_due_at, failure_count, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(instance, job_kind) DO UPDATE SET
-                last_attempt_at = excluded.last_attempt_at,
-                last_success_at = excluded.last_success_at,
-                last_failure_at = excluded.last_failure_at,
-                next_due_at = excluded.next_due_at,
-                failure_count = excluded.failure_count,
-                updated_at = excluded.updated_at
-            """,
-            (
-                instance,
-                job_kind,
-                last_attempt_at,
-                last_success_at,
-                last_failure_at,
-                next_due_at,
-                bounded_failure_count,
-                updated_at,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> PlayerSessionSchedulerState | None:
+    for state in list_player_session_scheduler_state(db_path, instance=instance):
+        if state.job_kind == job_kind:
+            return state
+    return None
+
+
+def _failure_state(
+    state: player_registry.PlayerSessionPipelineState,
+    *,
+    stage: str,
+    error_code: str,
+    now_text: str,
+) -> player_registry.PlayerSessionPipelineState:
+    return replace(
+        state,
+        last_completed_at=now_text,
+        last_failure_at=now_text,
+        consecutive_failures=min(
+            MAX_STORED_FAILURE_COUNT,
+            state.consecutive_failures + 1,
+        ),
+        last_failure_stage=stage,
+        last_result="failed",
+        last_error_code=error_code,
+        interrupted=False,
+        updated_at=now_text,
+    )
+
+
+def _persist_failure(
+    db_path: Path,
+    state: player_registry.PlayerSessionPipelineState,
+    *,
+    stage: str,
+    error_code: str,
+    now_text: str,
+) -> None:
+    try:
+        player_registry.upsert_player_session_pipeline_state(
+            db_path,
+            _failure_state(
+                state,
+                stage=stage,
+                error_code=error_code,
+                now_text=now_text,
             ),
         )
-    state = get_player_session_scheduler_state(
-        db_path,
+    except (OSError, sqlite3.Error, ValueError):
+        return
+
+
+def _failed_result(
+    *,
+    instance: str,
+    checked_at: str,
+    stage: str,
+    error_code: str,
+    generation_proven: bool = False,
+    session_summary: player_sessionizer.PlayerLogSessionizationSummary | None = None,
+    live_summary: Any | None = None,
+    maintenance_due: bool = False,
+) -> PlayerSessionSchedulerRunResult:
+    session = session_summary or player_sessionizer.PlayerLogSessionizationSummary()
+    return PlayerSessionSchedulerRunResult(
         instance=instance,
-        job_kind=job_kind,
+        checked_at=checked_at,
+        outcome="failed",
+        failure_stage=stage,
+        error_code=error_code,
+        generation_proven=generation_proven,
+        session_pages_completed=session.pages_completed,
+        session_events_scanned=session.events_scanned,
+        session_observations_applied=session.observations_applied,
+        session_sessions_created=session.sessions_created,
+        session_sessions_updated=session.sessions_updated,
+        session_sessions_closed=session.sessions_closed,
+        live_reliable=bool(getattr(live_summary, "reliable_evidence", False)),
+        live_observed_count=max(0, int(getattr(live_summary, "observed_count", 0))),
+        live_observations_applied=max(
+            0,
+            int(getattr(live_summary, "observations_applied", 0)),
+        ),
+        live_sessions_created=max(0, int(getattr(live_summary, "sessions_created", 0))),
+        live_sessions_updated=max(0, int(getattr(live_summary, "sessions_updated", 0))),
+        live_sessions_closed=max(0, int(getattr(live_summary, "sessions_closed", 0))),
+        maintenance_due=maintenance_due,
     )
-    if state is None:
-        raise PlayerSessionSchedulerRunnerError("Failed to store scheduler state.")
-    return state
 
 
-def _is_due(
-    state: PlayerSessionSchedulerState | None,
+def _maintenance_is_due(
+    state: player_registry.PlayerSessionPipelineState,
     *,
     now: datetime,
 ) -> bool:
-    if state is None:
-        return True
-    next_due = _parse_datetime(state.next_due_at)
-    return next_due is None or next_due <= now
+    next_due = _parse_datetime(state.next_maintenance_due_at)
+    if next_due is not None:
+        return next_due <= now
+    last = _parse_datetime(state.last_maintenance_at)
+    return last is None or last + DEFAULT_MAINTENANCE_INTERVAL <= now
 
 
-def _bounded_failure_count(state: PlayerSessionSchedulerState | None) -> int:
-    if state is None:
-        return 1
-    return min(state.failure_count + 1, MAX_STORED_FAILURE_COUNT)
-
-
-def _failure_backoff(
-    job_policy: player_session_scheduler_policy.AutomaticSessionJobPolicy,
-    failure_count: int,
-) -> timedelta:
-    backoff = job_policy.initial_failure_backoff
-    for _ in range(1, max(1, min(failure_count, MAX_STORED_FAILURE_COUNT))):
-        backoff *= 2
-        if backoff >= job_policy.maximum_failure_backoff:
-            return job_policy.maximum_failure_backoff
-    return min(backoff, job_policy.maximum_failure_backoff)
-
-
-def _ensure_live_scan_job(db_path: Path, instance: str) -> tuple[JobRecord, bool]:
-    return player_live_session_scan.ensure_player_live_session_scan_job(
-        db_path,
-        requested_by_username=SCHEDULER_USERNAME,
-        instance=instance,
-    )
-
-
-def _ensure_log_sessionization_job(
+def _fresh_generation_is_proven(
     db_path: Path,
-    instance: str,
-) -> tuple[JobRecord, bool]:
-    return player_log_sessionization.ensure_player_log_sessionization_job(
+    freshness: player_registry.PlayerLogIngestFreshness,
+) -> bool:
+    if freshness.status != player_registry.PLAYER_LOG_INGEST_STATUS_FRESH:
+        return False
+    if not freshness.last_success_at or not freshness.coverage_started_at:
+        return False
+    checkpoints = player_registry.list_player_log_ingest_checkpoints(
         db_path,
-        requested_by_username=SCHEDULER_USERNAME,
-        instance=instance,
+        scope=player_log_ingest.PLAYER_LOG_INGEST_SCOPE,
     )
-
-
-def _ensure_session_maintenance_job(
-    db_path: Path,
-    instance: str,
-) -> tuple[JobRecord, bool]:
-    return player_session_maintenance.ensure_player_session_maintenance_job(
-        db_path,
-        requested_by_username=SCHEDULER_USERNAME,
-        instance=instance,
-    )
-
-
-_ENQUEUE_BY_KIND: Final[dict[str, SchedulerEnqueue]] = {
-    "players:scan-live-sessions": _ensure_live_scan_job,
-    "players:sessionize-log-events": _ensure_log_sessionization_job,
-    "players:session-maintenance": _ensure_session_maintenance_job,
-}
-
-
-def _ensure_runner_policy_is_allowed() -> None:
-    policy_kinds = set(player_session_scheduler_policy.automatic_job_policy_by_kind())
-    enqueued_kinds = set(_ENQUEUE_BY_KIND)
-    if policy_kinds != enqueued_kinds:
-        raise PlayerSessionSchedulerRunnerError(
-            "Player-session scheduler policy and enqueue map do not match."
-        )
-
-
-def _result_for_not_due(
-    job_policy: player_session_scheduler_policy.AutomaticSessionJobPolicy,
-    state: PlayerSessionSchedulerState,
-) -> PlayerSessionSchedulerJobResult:
-    return PlayerSessionSchedulerJobResult(
-        job_kind=job_policy.job_kind,
-        due=False,
-        outcome="not_due",
-        next_due_at=state.next_due_at,
-        failure_count=state.failure_count,
-    )
-
-
-def _record_success(
-    db_path: Path,
-    *,
-    instance: str,
-    job_policy: player_session_scheduler_policy.AutomaticSessionJobPolicy,
-    state: PlayerSessionSchedulerState | None,
-    now: datetime,
-    created: bool,
-    job_id: int,
-) -> PlayerSessionSchedulerJobResult:
-    now_text = _datetime_text(now)
-    next_due_at = _datetime_text(now + job_policy.minimum_interval)
-    stored = _write_state(
-        db_path,
-        instance=instance,
-        job_kind=job_policy.job_kind,
-        last_attempt_at=now_text,
-        last_success_at=now_text,
-        last_failure_at=state.last_failure_at if state is not None else "",
-        next_due_at=next_due_at,
-        failure_count=0,
-        updated_at=now_text,
-    )
-    return PlayerSessionSchedulerJobResult(
-        job_kind=job_policy.job_kind,
-        due=True,
-        outcome="enqueued" if created else "active",
-        created=created,
-        job_id=job_id,
-        next_due_at=stored.next_due_at,
-        failure_count=stored.failure_count,
-    )
-
-
-def _record_failure(
-    db_path: Path,
-    *,
-    instance: str,
-    job_policy: player_session_scheduler_policy.AutomaticSessionJobPolicy,
-    state: PlayerSessionSchedulerState | None,
-    now: datetime,
-) -> PlayerSessionSchedulerJobResult:
-    failure_count = _bounded_failure_count(state)
-    now_text = _datetime_text(now)
-    next_due_at = _datetime_text(now + _failure_backoff(job_policy, failure_count))
-    stored = _write_state(
-        db_path,
-        instance=instance,
-        job_kind=job_policy.job_kind,
-        last_attempt_at=now_text,
-        last_success_at=state.last_success_at if state is not None else "",
-        last_failure_at=now_text,
-        next_due_at=next_due_at,
-        failure_count=failure_count,
-        updated_at=now_text,
-    )
-    return PlayerSessionSchedulerJobResult(
-        job_kind=job_policy.job_kind,
-        due=True,
-        outcome="failed",
-        next_due_at=stored.next_due_at,
-        failure_count=stored.failure_count,
+    return any(
+        checkpoint.last_scanned_at and checkpoint.coverage_started_at
+        for checkpoint in checkpoints
     )
 
 
 def run_player_session_scheduler_once(
-    db_path: Path,
+    db_path: Path | None = None,
     *,
     instance: str = paths.DEFAULT_INSTANCE_NAME,
+    data_root: Path | None = None,
     now: datetime | None = None,
+    page_limit: int = player_registry.DEFAULT_PLAYER_SESSIONIZATION_EVENT_PAGE_LIMIT,
+    max_pages: int = player_sessionizer.DEFAULT_SESSIONIZATION_MAX_PAGES,
 ) -> PlayerSessionSchedulerRunResult:
-    """Check due session scheduler jobs once and enqueue allowed active jobs."""
-    _ensure_runner_policy_is_allowed()
-    normalized_instance = _safe_instance(instance)
+    """Execute one ordered synchronous pipeline pass without web jobs or threads."""
+    normalized = _safe_instance(instance)
+    root = data_root or _data_root_from_legacy_db_path(db_path)
     checked_at = now.astimezone(timezone.utc) if now is not None else _utc_now()
-
-    results: list[PlayerSessionSchedulerJobResult] = []
-    for job_policy in player_session_scheduler_policy.AUTOMATIC_SESSION_JOB_POLICIES:
-        state = get_player_session_scheduler_state(
-            db_path,
-            instance=normalized_instance,
-            job_kind=job_policy.job_kind,
-        )
-        if state is not None and not _is_due(state, now=checked_at):
-            results.append(_result_for_not_due(job_policy, state))
-            continue
-
-        try:
-            job, created = _ENQUEUE_BY_KIND[job_policy.job_kind](
-                db_path,
-                normalized_instance,
+    checked_at_text = _datetime_text(checked_at)
+    registry_db_path = player_registry.player_registry_db_path(
+        normalized,
+        data_root=root,
+    )
+    try:
+        if not registry_db_path.is_file():
+            return _failed_result(
+                instance=normalized,
+                checked_at=checked_at_text,
+                stage="ingest_generation",
+                error_code="players_db_missing",
             )
-        except Exception:
-            results.append(
-                _record_failure(
-                    db_path,
-                    instance=normalized_instance,
-                    job_policy=job_policy,
-                    state=state,
-                    now=checked_at,
+    except OSError:
+        return _failed_result(
+            instance=normalized,
+            checked_at=checked_at_text,
+            stage="ingest_generation",
+            error_code="players_db_unavailable",
+        )
+
+    try:
+        with player_session_mutation.acquire_player_session_mutation_lock(
+            normalized,
+            data_root=root,
+        ):
+            try:
+                player_registry.ensure_player_registry_db(registry_db_path)
+                state = player_registry.get_player_session_pipeline_state(
+                    registry_db_path,
+                    instance=normalized,
                 )
+                state = player_registry.upsert_player_session_pipeline_state(
+                    registry_db_path,
+                    replace(
+                        state,
+                        last_attempt_at=checked_at_text,
+                        last_result="evaluating",
+                        last_failure_stage="",
+                        last_error_code="",
+                        updated_at=checked_at_text,
+                    ),
+                )
+            except (OSError, sqlite3.Error, RuntimeError, ValueError):
+                return _failed_result(
+                    instance=normalized,
+                    checked_at=checked_at_text,
+                    stage="ingest_generation",
+                    error_code="players_db_unavailable",
+                )
+            freshness = player_registry.get_player_log_ingest_freshness(
+                registry_db_path,
+                scope=player_log_ingest.PLAYER_LOG_INGEST_SCOPE,
             )
-            continue
+            if freshness.status != player_registry.PLAYER_LOG_INGEST_STATUS_FRESH:
+                _persist_failure(
+                    registry_db_path,
+                    state,
+                    stage="ingest_generation",
+                    error_code="fresh_generation_unavailable",
+                    now_text=checked_at_text,
+                )
+                return _failed_result(
+                    instance=normalized,
+                    checked_at=checked_at_text,
+                    stage="ingest_generation",
+                    error_code="fresh_generation_unavailable",
+                )
+            if freshness.completed_generation <= state.last_processed_ingest_generation:
+                skipped_state = replace(
+                    state,
+                    last_completed_at=checked_at_text,
+                    last_result="no_new_generation",
+                    last_failure_stage="",
+                    last_error_code="",
+                    interrupted=False,
+                    updated_at=checked_at_text,
+                )
+                player_registry.upsert_player_session_pipeline_state(
+                    registry_db_path,
+                    skipped_state,
+                )
+                return PlayerSessionSchedulerRunResult(
+                    instance=normalized,
+                    checked_at=checked_at_text,
+                    outcome="no_new_generation",
+                )
+            if not _fresh_generation_is_proven(registry_db_path, freshness):
+                _persist_failure(
+                    registry_db_path,
+                    state,
+                    stage="ingest_generation",
+                    error_code="fresh_generation_unproven",
+                    now_text=checked_at_text,
+                )
+                return _failed_result(
+                    instance=normalized,
+                    checked_at=checked_at_text,
+                    stage="ingest_generation",
+                    error_code="fresh_generation_unproven",
+                )
+            if freshness.generation_max_event_id < state.last_sessionized_event_id:
+                _persist_failure(
+                    registry_db_path,
+                    state,
+                    stage="sessionize",
+                    error_code="historical_backfill_required",
+                    now_text=checked_at_text,
+                )
+                return _failed_result(
+                    instance=normalized,
+                    checked_at=checked_at_text,
+                    stage="sessionize",
+                    error_code="historical_backfill_required",
+                    generation_proven=True,
+                )
 
-        results.append(
-            _record_success(
-                db_path,
-                instance=normalized_instance,
-                job_policy=job_policy,
-                state=state,
-                now=checked_at,
-                created=created,
-                job_id=job.id,
+            working_state = replace(
+                state,
+                last_started_at=checked_at_text,
+                current_generation_max_event_id=freshness.generation_max_event_id,
+                last_result="sessionizing",
+                last_failure_stage="",
+                last_error_code="",
+                interrupted=True,
+                updated_at=checked_at_text,
             )
+            player_registry.upsert_player_session_pipeline_state(
+                registry_db_path,
+                working_state,
+            )
+
+            def persist_page(
+                summary: player_sessionizer.PlayerLogSessionizationSummary,
+            ) -> None:
+                nonlocal working_state
+                working_state = replace(
+                    working_state,
+                    last_sessionized_event_id=summary.last_event_id,
+                    last_sessionized_event_time=summary.last_event_time,
+                    last_result="sessionizing",
+                    updated_at=checked_at_text,
+                )
+                player_registry.upsert_player_session_pipeline_state(
+                    registry_db_path,
+                    working_state,
+                )
+
+            try:
+                session_summary = player_session_mutation.run_player_log_sessionization(
+                    normalized,
+                    data_root=root,
+                    after_event_time=working_state.last_sessionized_event_time,
+                    after_event_id=working_state.last_sessionized_event_id,
+                    through_event_id=freshness.generation_max_event_id,
+                    page_limit=page_limit,
+                    max_pages=max_pages,
+                    progress_callback=persist_page,
+                    acquire_lock=False,
+                )
+            except player_sessionizer.HistoricalBackfillRequiredError:
+                _persist_failure(
+                    registry_db_path,
+                    working_state,
+                    stage="sessionize",
+                    error_code="historical_backfill_required",
+                    now_text=checked_at_text,
+                )
+                return _failed_result(
+                    instance=normalized,
+                    checked_at=checked_at_text,
+                    stage="sessionize",
+                    error_code="historical_backfill_required",
+                    generation_proven=True,
+                )
+            except (OSError, sqlite3.Error, RuntimeError, ValueError):
+                _persist_failure(
+                    registry_db_path,
+                    working_state,
+                    stage="sessionize",
+                    error_code="sessionize_failed",
+                    now_text=checked_at_text,
+                )
+                return _failed_result(
+                    instance=normalized,
+                    checked_at=checked_at_text,
+                    stage="sessionize",
+                    error_code="sessionize_failed",
+                    generation_proven=True,
+                )
+            if session_summary.backlog_remaining:
+                _persist_failure(
+                    registry_db_path,
+                    working_state,
+                    stage="sessionize",
+                    error_code="backlog_remaining",
+                    now_text=checked_at_text,
+                )
+                return _failed_result(
+                    instance=normalized,
+                    checked_at=checked_at_text,
+                    stage="sessionize",
+                    error_code="backlog_remaining",
+                    generation_proven=True,
+                    session_summary=session_summary,
+                )
+
+            try:
+                live_summary = player_session_mutation.run_live_player_session_scan(
+                    normalized,
+                    data_root=root,
+                    observed_at=checked_at_text,
+                    acquire_lock=False,
+                )
+            except (OSError, sqlite3.Error, RuntimeError, ValueError):
+                _persist_failure(
+                    registry_db_path,
+                    working_state,
+                    stage="live_scan",
+                    error_code="live_scan_failed",
+                    now_text=checked_at_text,
+                )
+                return _failed_result(
+                    instance=normalized,
+                    checked_at=checked_at_text,
+                    stage="live_scan",
+                    error_code="live_scan_failed",
+                    generation_proven=True,
+                    session_summary=session_summary,
+                )
+            if not live_summary.success or not live_summary.reliable_evidence:
+                error_code = live_summary.reliability_error_code or "unreliable_roster"
+                _persist_failure(
+                    registry_db_path,
+                    working_state,
+                    stage="live_scan",
+                    error_code=error_code,
+                    now_text=checked_at_text,
+                )
+                return _failed_result(
+                    instance=normalized,
+                    checked_at=checked_at_text,
+                    stage="live_scan",
+                    error_code=error_code,
+                    generation_proven=True,
+                    session_summary=session_summary,
+                    live_summary=live_summary,
+                )
+            working_state = replace(
+                working_state,
+                last_live_scan_at=checked_at_text,
+                last_result="live_scan_completed",
+                updated_at=checked_at_text,
+            )
+            player_registry.upsert_player_session_pipeline_state(
+                registry_db_path,
+                working_state,
+            )
+
+            maintenance_due = _maintenance_is_due(working_state, now=checked_at)
+            maintenance_summary = None
+            if maintenance_due:
+                try:
+                    maintenance_summary = (
+                        player_session_mutation.run_player_session_maintenance(
+                            normalized,
+                            data_root=root,
+                            now=checked_at,
+                            acquire_lock=False,
+                        )
+                    )
+                except (OSError, sqlite3.Error, RuntimeError, ValueError):
+                    _persist_failure(
+                        registry_db_path,
+                        working_state,
+                        stage="maintenance",
+                        error_code="maintenance_failed",
+                        now_text=checked_at_text,
+                    )
+                    return _failed_result(
+                        instance=normalized,
+                        checked_at=checked_at_text,
+                        stage="maintenance",
+                        error_code="maintenance_failed",
+                        generation_proven=True,
+                        session_summary=session_summary,
+                        live_summary=live_summary,
+                        maintenance_due=True,
+                    )
+
+            next_maintenance_due_at = working_state.next_maintenance_due_at
+            if maintenance_due:
+                next_maintenance_due_at = _datetime_text(
+                    checked_at + DEFAULT_MAINTENANCE_INTERVAL
+                )
+            completed_state = replace(
+                working_state,
+                last_completed_at=checked_at_text,
+                last_success_at=checked_at_text,
+                last_processed_ingest_generation=freshness.completed_generation,
+                last_consumed_ingest_success_at=freshness.last_success_at,
+                last_consumed_ingest_generation_max_event_id=(
+                    freshness.generation_max_event_id
+                ),
+                current_generation_max_event_id=freshness.generation_max_event_id,
+                last_sessionized_event_id=session_summary.last_event_id,
+                last_sessionized_event_time=session_summary.last_event_time,
+                last_maintenance_at=(
+                    checked_at_text if maintenance_due else working_state.last_maintenance_at
+                ),
+                next_maintenance_due_at=next_maintenance_due_at,
+                consecutive_failures=0,
+                last_failure_stage="",
+                last_result="completed",
+                last_error_code="",
+                interrupted=False,
+                updated_at=checked_at_text,
+            )
+            player_registry.upsert_player_session_pipeline_state(
+                registry_db_path,
+                completed_state,
+            )
+            return PlayerSessionSchedulerRunResult(
+                instance=normalized,
+                checked_at=checked_at_text,
+                outcome="completed",
+                generation_proven=True,
+                session_pages_completed=session_summary.pages_completed,
+                session_events_scanned=session_summary.events_scanned,
+                session_observations_applied=session_summary.observations_applied,
+                session_sessions_created=session_summary.sessions_created,
+                session_sessions_updated=session_summary.sessions_updated,
+                session_sessions_closed=session_summary.sessions_closed,
+                live_reliable=True,
+                live_observed_count=live_summary.observed_count,
+                live_observations_applied=live_summary.observations_applied,
+                live_sessions_created=live_summary.sessions_created,
+                live_sessions_updated=live_summary.sessions_updated,
+                live_sessions_closed=live_summary.sessions_closed,
+                maintenance_due=maintenance_due,
+                maintenance_performed=maintenance_summary is not None,
+                stale_sessions_closed=(
+                    maintenance_summary.stale_close.sessions_closed
+                    if maintenance_summary is not None
+                    else 0
+                ),
+                retained_sessions_deleted=(
+                    maintenance_summary.retention_cleanup.sessions_deleted
+                    if maintenance_summary is not None
+                    else 0
+                ),
+            )
+    except player_session_mutation.PlayerSessionMutationBusyError:
+        return _failed_result(
+            instance=normalized,
+            checked_at=checked_at_text,
+            stage="lock",
+            error_code="db_contention",
+        )
+    except (OSError, sqlite3.Error, RuntimeError, ValueError):
+        return _failed_result(
+            instance=normalized,
+            checked_at=checked_at_text,
+            stage="pipeline",
+            error_code="pipeline_failed",
         )
 
-    return PlayerSessionSchedulerRunResult(
-        instance=normalized_instance,
+
+def read_player_session_scheduler_status(
+    db_path: Path | None = None,
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    data_root: Path | None = None,
+    now: datetime | None = None,
+) -> PlayerSessionSchedulerStatus:
+    """Read players.db and legacy diagnostics without creating or migrating either."""
+    normalized = _safe_instance(instance)
+    root = data_root or _data_root_from_legacy_db_path(db_path)
+    checked_at = now.astimezone(timezone.utc) if now is not None else _utc_now()
+    registry_db_path = player_registry.player_registry_db_path(
+        normalized,
+        data_root=root,
+    )
+    legacy_count = (
+        len(list_player_session_scheduler_state(db_path, instance=normalized))
+        if db_path is not None
+        else 0
+    )
+    lock_state = player_session_mutation.read_player_session_mutation_lock_state(
+        normalized,
+        data_root=root,
+    )
+    try:
+        exists = registry_db_path.is_file()
+    except OSError:
+        exists = False
+    if not exists:
+        return PlayerSessionSchedulerStatus(
+            instance=normalized,
+            checked_at=_datetime_text(checked_at),
+            state="empty",
+            reason="players_db_missing",
+            lock_state=lock_state,
+            legacy_state_row_count=legacy_count,
+        )
+    freshness = player_registry.get_player_log_ingest_freshness(
+        registry_db_path,
+        scope=player_log_ingest.PLAYER_LOG_INGEST_SCOPE,
+    )
+    pipeline = player_registry.get_player_session_pipeline_state(
+        registry_db_path,
+        instance=normalized,
+    )
+    has_state = bool(pipeline.updated_at)
+    reason = "pipeline_state_missing"
+    state_name = "empty"
+    if has_state:
+        if pipeline.interrupted:
+            state_name = "degraded"
+            reason = "interrupted"
+        elif pipeline.last_result == "failed":
+            state_name = "failed"
+            reason = pipeline.last_error_code or "pipeline_failed"
+        elif lock_state == "busy":
+            state_name = "busy"
+            reason = "mutation_in_progress"
+        elif freshness.status != player_registry.PLAYER_LOG_INGEST_STATUS_FRESH:
+            state_name = "waiting_for_ingest"
+            reason = freshness.status or "fresh_generation_unavailable"
+        elif pipeline.last_result in {"completed", "no_new_generation"}:
+            state_name = "healthy"
+            reason = "ok"
+        else:
+            state_name = "available"
+            reason = "ready"
+    return PlayerSessionSchedulerStatus(
+        instance=normalized,
         checked_at=_datetime_text(checked_at),
-        jobs=tuple(results),
+        state=state_name,
+        reason=reason,
+        freshness_status=freshness.status,
+        completed_generation=freshness.completed_generation,
+        generation_max_event_id=freshness.generation_max_event_id,
+        last_attempt_at=pipeline.last_attempt_at,
+        last_started_at=pipeline.last_started_at,
+        last_completed_at=pipeline.last_completed_at,
+        last_success_at=pipeline.last_success_at,
+        last_failure_at=pipeline.last_failure_at,
+        last_processed_ingest_generation=pipeline.last_processed_ingest_generation,
+        last_consumed_ingest_success_at=pipeline.last_consumed_ingest_success_at,
+        last_consumed_ingest_generation_max_event_id=(
+            pipeline.last_consumed_ingest_generation_max_event_id
+        ),
+        current_generation_max_event_id=pipeline.current_generation_max_event_id,
+        last_sessionized_event_id=pipeline.last_sessionized_event_id,
+        last_sessionized_event_time=pipeline.last_sessionized_event_time,
+        last_live_scan_at=pipeline.last_live_scan_at,
+        last_maintenance_at=pipeline.last_maintenance_at,
+        next_maintenance_due_at=pipeline.next_maintenance_due_at,
+        consecutive_failures=pipeline.consecutive_failures,
+        last_failure_stage=pipeline.last_failure_stage,
+        last_result=pipeline.last_result,
+        last_error_code=pipeline.last_error_code,
+        interrupted=pipeline.interrupted,
+        lock_state=lock_state,
+        legacy_state_row_count=legacy_count,
     )

@@ -650,6 +650,7 @@ def run_player_log_ingest_once(
         data_root=data_root,
     )
     plan: PlayerLogIngestPlan | None = None
+    parsed: player_log_collector.PlayerLogParsedCollection | None = None
     summary: PlayerLogCollectionSummary | None = None
 
     try:
@@ -666,13 +667,12 @@ def run_player_log_ingest_once(
                 max_bytes=max_bytes,
             )
             try:
-                summary = player_log_collector.collect_player_log_events(
+                parsed = player_log_collector.scan_player_log_events(
                     plan.scan_requests,
-                    registry_db_path,
-                    dry_run=False,
                     max_bytes=max_bytes,
                     max_lines=max_lines,
                 )
+                summary = parsed.summary
             except Exception:
                 _record_failed_freshness(
                     registry_db_path,
@@ -695,12 +695,6 @@ def run_player_log_ingest_once(
                     summary,
                     updated_at=freshness_at,
                 )
-                checkpoint_updated = bool(
-                    player_registry.upsert_player_log_ingest_checkpoints(
-                        registry_db_path,
-                        checkpoint_records,
-                    )
-                )
                 coverage_started_at = _active_coverage_started_at(
                     plan,
                     checkpoint_records,
@@ -716,18 +710,23 @@ def run_player_log_ingest_once(
                     plan.skipped_reason_counts,
                     _collector_skip_reason_counts(summary),
                 )
-                player_registry.record_player_log_ingest_freshness(
+                commit = player_registry.commit_player_log_ingest_generation(
                     registry_db_path,
+                    event_batches=parsed.event_batches,
+                    checkpoints=checkpoint_records,
                     scope=plan.scope,
                     status=freshness_status,
                     last_run_at=freshness_at,
                     scanned_files=summary.files_scanned,
                     parsed_events=summary.matched_events,
-                    stored_events=summary.stored_events,
                     skipped_files=summary.files_skipped + plan.skipped_files,
                     skipped_reasons=format_reason_counts(skipped_reason_counts),
-                    checkpoint_updated=checkpoint_updated,
                     coverage_started_at=coverage_started_at,
+                )
+                checkpoint_updated = commit.checkpoint_count > 0
+                summary = player_log_collector.apply_player_log_ingest_results(
+                    parsed,
+                    commit.batch_results,
                 )
             except Exception:
                 _record_failed_freshness(

@@ -169,6 +169,70 @@ class PlayerLogCollectionSummary:
         }
 
 
+@dataclass(frozen=True)
+class PlayerLogParsedCollection:
+    """Parsed bounded batches before any registry mutation."""
+
+    summary: PlayerLogCollectionSummary
+    event_batches: tuple[tuple[PlayerLogEvent, ...], ...]
+
+
+def scan_player_log_events(
+    log_paths: (
+        os.PathLike[str]
+        | str
+        | PlayerLogScanRequest
+        | Iterable[os.PathLike[str] | str | PlayerLogScanRequest]
+    ),
+    *,
+    max_bytes: int = DEFAULT_MAX_FILE_BYTES,
+    max_lines: int = DEFAULT_MAX_FILE_LINES,
+) -> PlayerLogParsedCollection:
+    """Parse bounded log requests without mutating players.db."""
+    if max_bytes < 1:
+        raise ValueError("max_bytes must be positive")
+    if max_lines < 1:
+        raise ValueError("max_lines must be positive")
+    requests = _normalize_log_requests(log_paths)
+    file_summaries: list[PlayerLogCollectionFileSummary] = []
+    event_batches: list[tuple[PlayerLogEvent, ...]] = []
+    for request in requests:
+        file_summary, parsed_events = _scan_log_file(
+            request,
+            max_bytes=max_bytes,
+            max_lines=max_lines,
+        )
+        file_summaries.append(file_summary)
+        event_batches.append(tuple(parsed_events))
+    summary = _build_collection_summary(
+        dry_run=True,
+        file_summaries=tuple(file_summaries),
+    )
+    return PlayerLogParsedCollection(
+        summary=summary,
+        event_batches=tuple(event_batches),
+    )
+
+
+def apply_player_log_ingest_results(
+    parsed: PlayerLogParsedCollection,
+    results: Iterable[player_registry.PlayerLogEventIngestResult],
+) -> PlayerLogCollectionSummary:
+    """Merge atomic registry counts into a previously parsed collection."""
+    result_rows = tuple(results)
+    if len(result_rows) != len(parsed.summary.files):
+        raise ValueError("ingest result count must match parsed file count")
+    file_summaries = tuple(
+        replace(
+            file_summary,
+            stored_events=result.stored_count,
+            duplicate_events=result.duplicate_count,
+        )
+        for file_summary, result in zip(parsed.summary.files, result_rows, strict=True)
+    )
+    return _build_collection_summary(dry_run=False, file_summaries=file_summaries)
+
+
 def collect_player_log_events(
     log_paths: (
         os.PathLike[str]

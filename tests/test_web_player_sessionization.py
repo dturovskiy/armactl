@@ -101,6 +101,9 @@ def _roster(*players: CurrentPlayer) -> CurrentPlayerRoster:
         count_source="rcon",
         roster_available=True,
         roster_configured=True,
+        rcon_status="ok",
+        roster_source="rcon",
+        query_attempt_count=1,
     )
 
 
@@ -808,7 +811,9 @@ def test_live_session_scanner_ignores_unreliable_roster_rows(
         data_root=tmp_path,
     )
 
-    assert summary.success is True
+    assert summary.success is False
+    assert summary.reliable_evidence is False
+    assert summary.reliability_error_code == "unreliable_roster_row"
     assert summary.roster_rows_seen == 1
     assert summary.reliable_rows_seen == 0
     assert summary.unreliable_rows_ignored == 1
@@ -966,7 +971,9 @@ def test_live_session_scanner_does_not_create_sessions_from_count_only_a2s(
         data_root=tmp_path,
     )
 
-    assert summary.success is True
+    assert summary.success is False
+    assert summary.reliable_evidence is False
+    assert summary.reliability_error_code == "roster_unavailable"
     assert summary.observed_count == 7
     assert summary.roster_rows_seen == 0
     assert summary.reliable_rows_seen == 0
@@ -1025,7 +1032,9 @@ def test_live_session_scanner_unavailable_and_a2s_do_not_advance_absence(
     assert unavailable.success is False
     assert unavailable.roster_unavailable == 1
     assert unavailable.sessions_closed == 0
-    assert count_only.success is True
+    assert count_only.success is False
+    assert count_only.reliable_evidence is False
+    assert count_only.reliability_error_code == "roster_unavailable"
     assert count_only.observed_count == 7
     assert count_only.scans_considered == 0
     assert count_only.sessions_closed == 0
@@ -1108,17 +1117,20 @@ def test_live_session_scanner_sanitizes_forbidden_values_and_columns(
                     display_name="Alpha token=raw-player-secret 198.51.100.9",
                     reliable_id=PLAYER_ALPHA_ID,
                     admin_reference=PLAYER_ALPHA_ID,
-                    source=f"{raw_path} token=raw-source-secret",
+                    source="rcon.guid",
                 ),
             ),
             total_count=1,
-            source=f"rcon.roster {raw_path}",
+            source="rcon.roster",
             status="available",
             error="",
             observed_count=1,
             count_source="rcon",
             roster_available=True,
             roster_configured=True,
+            rcon_status="ok",
+            roster_source="rcon",
+            query_attempt_count=1,
         ),
     )
 
@@ -1169,17 +1181,20 @@ def test_live_session_scan_job_dedupes_and_audits_counts_only(
                     display_name="Alpha token=raw-player-secret 198.51.100.9",
                     reliable_id=PLAYER_ALPHA_ID,
                     admin_reference=PLAYER_ALPHA_ID,
-                    source=f"{raw_path} token=raw-source-secret",
+                    source="rcon.guid",
                 ),
             ),
             total_count=1,
-            source=f"rcon.roster {raw_path}",
+            source="rcon.roster",
             status="available",
             error="",
             observed_count=1,
             count_source="rcon",
             roster_available=True,
             roster_configured=True,
+            rcon_status="ok",
+            roster_source="rcon",
+            query_attempt_count=1,
         ),
     )
     started_jobs: list[int] = []
@@ -1228,11 +1243,11 @@ def test_live_session_scan_job_dedupes_and_audits_counts_only(
     assert "sessions_created=1" in job.stdout_tail
     assert "sessions_closed=0" in job.stdout_tail
     assert "sessions_not_closed=0" in job.stdout_tail
-    assert [event["details"]["phase"] for event in events] == [
-        "intent",
-        "intent",
-        "outcome",
-    ]
+    assert len(events) == 3
+    assert all(
+        all(str(value).isdigit() for value in event["details"].values())
+        for event in events
+    )
     outcome = events[-1]
     assert outcome["action"] == player_sessions.PLAYER_LIVE_SESSION_SCAN_ACTION
     assert outcome["target"] == player_sessions.PLAYER_LIVE_SESSION_SCAN_JOB_KIND
@@ -1318,11 +1333,11 @@ def test_sessionization_job_dedupes_and_audits_counts_only(
     assert job.status == "succeeded"
     assert "events_scanned=1" in job.stdout_tail
     assert "sessions_created=1" in job.stdout_tail
-    assert [event["details"]["phase"] for event in events] == [
-        "intent",
-        "intent",
-        "outcome",
-    ]
+    assert len(events) == 3
+    assert all(
+        all(str(value).isdigit() for value in event["details"].values())
+        for event in events
+    )
     outcome = events[-1]
     assert outcome["action"] == player_sessions.PLAYER_LOG_SESSIONIZATION_ACTION
     assert outcome["target"] == player_sessions.PLAYER_LOG_SESSIONIZATION_JOB_KIND
@@ -1610,11 +1625,11 @@ def test_session_maintenance_job_dedupes_and_audits_counts_only(
     assert "retention_sessions_deleted=1" in job.stdout_tail
     assert {row["reliable_id"] for row in rows} == {PLAYER_ALPHA_ID}
     assert rows[0]["end_reason"] == player_registry.PLAYER_SESSION_END_REASON_STALE_TIMEOUT
-    assert [event["details"]["phase"] for event in events] == [
-        "intent",
-        "intent",
-        "outcome",
-    ]
+    assert len(events) == 3
+    assert all(
+        all(str(value).isdigit() for value in event["details"].values())
+        for event in events
+    )
     outcome = events[-1]
     assert outcome["action"] == player_sessions.PLAYER_SESSION_MAINTENANCE_ACTION
     assert outcome["target"] == player_sessions.PLAYER_SESSION_MAINTENANCE_JOB_KIND

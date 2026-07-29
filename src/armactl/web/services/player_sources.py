@@ -40,6 +40,11 @@ class CurrentPlayerRoster:
     count_source: str = "unknown"
     roster_available: bool = False
     roster_configured: bool = False
+    rcon_status: str = "unavailable"
+    roster_source: str = "unknown"
+    query_attempt_count: int = 0
+    duplicate_query_attempts: bool = False
+    count_mismatch: bool = False
 
 
 def _safe_count(value: object, *, fallback: int = 0) -> int:
@@ -91,4 +96,9 @@ def load_current_player_roster(
         count_source=count_source,
         roster_available=bool(view.roster_available),
         roster_configured=bool(view.roster_configured),
+        rcon_status="ok" if view.roster_available else "unavailable",
+        roster_source="rcon" if view.roster_available else "unknown",
+        query_attempt_count=1,
+        duplicate_query_attempts=False,
+        count_mismatch=bool(view.warning),
     )

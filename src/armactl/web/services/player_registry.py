@@ -44,7 +44,7 @@ from armactl.web.services.player_identity import (
 )
 
 PLAYER_REGISTRY_DB_NAME = "players.db"
-PLAYER_REGISTRY_SCHEMA_VERSION = "11"
+PLAYER_REGISTRY_SCHEMA_VERSION = "12"
 PRIVATE_PLAYER_REGISTRY_FILE_MODE = 0o600
 DEFAULT_PLAYER_HISTORY_EVENT_LIMIT = 100
 MAX_PLAYER_HISTORY_EVENT_LIMIT = 250
@@ -56,6 +56,8 @@ MAX_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT = 5000
 DEFAULT_PLAYER_SESSION_ABSENCE_CONFIRMATION_SCANS = 2
 MAX_PLAYER_SESSION_ABSENCE_CONFIRMATION_SCANS = 20
 DEFAULT_PLAYER_SESSION_RECONNECT_GRACE_SECONDS = 10 * 60
+DEFAULT_PLAYER_SESSIONIZATION_EVENT_PAGE_LIMIT = 250
+MAX_PLAYER_SESSIONIZATION_EVENT_PAGE_LIMIT = 1000
 _LEGACY_DEFAULT_TIMESTAMP = "1970-01-01T00:00:00+00:00"
 PLAYER_LOG_EVENT_TEXT_MAX_LENGTH = 240
 PLAYER_LOG_EVENT_REF_MAX_LENGTH = 240
@@ -284,6 +286,23 @@ class PlayerLogEventIngestResult:
 
 
 @dataclass(frozen=True)
+class PlayerLogIngestGenerationCommitResult:
+    """Atomic ingest generation commit result with per-batch counts."""
+
+    batch_results: tuple[PlayerLogEventIngestResult, ...]
+    checkpoint_count: int
+    freshness: PlayerLogIngestFreshness
+
+    @property
+    def stored_count(self) -> int:
+        return sum(result.stored_count for result in self.batch_results)
+
+    @property
+    def duplicate_count(self) -> int:
+        return sum(result.duplicate_count for result in self.batch_results)
+
+
+@dataclass(frozen=True)
 class PlayerLogEventRecord:
     """One sanitized persisted player log event row for read-only views."""
 
@@ -468,6 +487,35 @@ class PlayerLogIngestFreshness:
     skipped_reasons: str = ""
     checkpoint_updated: bool = False
     coverage_started_at: str = ""
+    completed_generation: int = 0
+    generation_max_event_id: int = 0
+
+
+@dataclass(frozen=True)
+class PlayerSessionPipelineState:
+    """One durable counts-only supervised pipeline state row per instance."""
+
+    instance: str
+    last_attempt_at: str = ""
+    last_started_at: str = ""
+    last_completed_at: str = ""
+    last_success_at: str = ""
+    last_failure_at: str = ""
+    last_processed_ingest_generation: int = 0
+    last_consumed_ingest_success_at: str = ""
+    last_consumed_ingest_generation_max_event_id: int = 0
+    current_generation_max_event_id: int = 0
+    last_sessionized_event_id: int = 0
+    last_sessionized_event_time: str = ""
+    last_live_scan_at: str = ""
+    last_maintenance_at: str = ""
+    next_maintenance_due_at: str = ""
+    consecutive_failures: int = 0
+    last_failure_stage: str = ""
+    last_result: str = ""
+    last_error_code: str = ""
+    interrupted: bool = False
+    updated_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -502,6 +550,14 @@ def _bounded_player_session_list_limit(value: object) -> int:
     except (TypeError, ValueError):
         return DEFAULT_PLAYER_SESSION_LIST_LIMIT
     return max(1, min(parsed, MAX_PLAYER_SESSION_LIST_LIMIT))
+
+
+def _bounded_player_sessionization_event_page_limit(value: object) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_PLAYER_SESSIONIZATION_EVENT_PAGE_LIMIT
+    return max(1, min(parsed, MAX_PLAYER_SESSIONIZATION_EVENT_PAGE_LIMIT))
 
 
 def _bounded_player_session_absence_confirmation_scans(value: object) -> int:
@@ -1117,7 +1173,11 @@ def _ensure_player_log_ingest_metadata_schema(connection: sqlite3.Connection) ->
             skipped_reasons TEXT NOT NULL DEFAULT '',
             checkpoint_updated INTEGER NOT NULL DEFAULT 0
                 CHECK(checkpoint_updated IN (0, 1)),
-            coverage_started_at TEXT NOT NULL DEFAULT ''
+            coverage_started_at TEXT NOT NULL DEFAULT '',
+            completed_generation INTEGER NOT NULL DEFAULT 0
+                CHECK(completed_generation >= 0),
+            generation_max_event_id INTEGER NOT NULL DEFAULT 0
+                CHECK(generation_max_event_id >= 0)
         )
         """
     )
@@ -1145,6 +1205,85 @@ def _ensure_player_log_ingest_metadata_schema(connection: sqlite3.Connection) ->
             (
                 "coverage_started_at",
                 "coverage_started_at TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "completed_generation",
+                "completed_generation INTEGER NOT NULL DEFAULT 0 CHECK(completed_generation >= 0)",
+            ),
+            (
+                "generation_max_event_id",
+                (
+                    "generation_max_event_id INTEGER NOT NULL DEFAULT 0 "
+                    "CHECK(generation_max_event_id >= 0)"
+                ),
+            ),
+        ),
+    )
+
+
+def _ensure_player_session_pipeline_state_schema(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS player_session_pipeline_state (
+            instance TEXT PRIMARY KEY CHECK(length(trim(instance)) > 0),
+            last_attempt_at TEXT NOT NULL DEFAULT '',
+            last_started_at TEXT NOT NULL DEFAULT '',
+            last_completed_at TEXT NOT NULL DEFAULT '',
+            last_success_at TEXT NOT NULL DEFAULT '',
+            last_failure_at TEXT NOT NULL DEFAULT '',
+            last_processed_ingest_generation INTEGER NOT NULL DEFAULT 0
+                CHECK(last_processed_ingest_generation >= 0),
+            last_consumed_ingest_success_at TEXT NOT NULL DEFAULT '',
+            last_consumed_ingest_generation_max_event_id INTEGER NOT NULL DEFAULT 0
+                CHECK(last_consumed_ingest_generation_max_event_id >= 0),
+            current_generation_max_event_id INTEGER NOT NULL DEFAULT 0
+                CHECK(current_generation_max_event_id >= 0),
+            last_sessionized_event_id INTEGER NOT NULL DEFAULT 0
+                CHECK(last_sessionized_event_id >= 0),
+            last_sessionized_event_time TEXT NOT NULL DEFAULT '',
+            last_live_scan_at TEXT NOT NULL DEFAULT '',
+            last_maintenance_at TEXT NOT NULL DEFAULT '',
+            next_maintenance_due_at TEXT NOT NULL DEFAULT '',
+            consecutive_failures INTEGER NOT NULL DEFAULT 0
+                CHECK(consecutive_failures >= 0),
+            last_failure_stage TEXT NOT NULL DEFAULT '',
+            last_result TEXT NOT NULL DEFAULT '',
+            last_error_code TEXT NOT NULL DEFAULT '',
+            interrupted INTEGER NOT NULL DEFAULT 0
+                CHECK(interrupted IN (0, 1)),
+            updated_at TEXT NOT NULL CHECK(length(updated_at) > 0)
+        )
+        """
+    )
+    _ensure_columns(
+        connection,
+        "player_session_pipeline_state",
+        (
+            ("last_attempt_at", "last_attempt_at TEXT NOT NULL DEFAULT ''"),
+            ("last_started_at", "last_started_at TEXT NOT NULL DEFAULT ''"),
+            ("last_completed_at", "last_completed_at TEXT NOT NULL DEFAULT ''"),
+            ("last_failure_at", "last_failure_at TEXT NOT NULL DEFAULT ''"),
+            (
+                "last_consumed_ingest_success_at",
+                "last_consumed_ingest_success_at TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "last_consumed_ingest_generation_max_event_id",
+                "last_consumed_ingest_generation_max_event_id INTEGER NOT NULL "
+                "DEFAULT 0 CHECK(last_consumed_ingest_generation_max_event_id >= 0)",
+            ),
+            (
+                "current_generation_max_event_id",
+                "current_generation_max_event_id INTEGER NOT NULL DEFAULT 0 "
+                "CHECK(current_generation_max_event_id >= 0)",
+            ),
+            (
+                "next_maintenance_due_at",
+                "next_maintenance_due_at TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "interrupted",
+                "interrupted INTEGER NOT NULL DEFAULT 0 CHECK(interrupted IN (0, 1))",
             ),
         ),
     )
@@ -1343,6 +1482,11 @@ def _run_player_registry_migrations(connection: sqlite3.Connection) -> None:
     if current_version < 11:
         _ensure_player_log_ingest_metadata_schema(connection)
         _write_player_registry_schema_version(connection, 11)
+        current_version = 11
+    if current_version < 12:
+        _ensure_player_log_ingest_metadata_schema(connection)
+        _ensure_player_session_pipeline_state_schema(connection)
+        _write_player_registry_schema_version(connection, 12)
 
 
 def ensure_player_registry_db(db_path: Path) -> Path:
@@ -1458,7 +1602,230 @@ def _player_log_ingest_freshness_from_row(row: sqlite3.Row) -> PlayerLogIngestFr
             _ingest_row_value(row, "coverage_started_at"),
             max_length=80,
         ),
+        completed_generation=_safe_ingest_int(
+            _ingest_row_value(row, "completed_generation", 0)
+        ),
+        generation_max_event_id=_safe_ingest_int(
+            _ingest_row_value(row, "generation_max_event_id", 0)
+        ),
     )
+
+
+def _default_player_session_pipeline_state(instance: str) -> PlayerSessionPipelineState:
+    return PlayerSessionPipelineState(instance=paths.validate_instance_name(instance))
+
+
+def _player_session_pipeline_state_from_row(
+    row: sqlite3.Row,
+) -> PlayerSessionPipelineState:
+    return PlayerSessionPipelineState(
+        instance=paths.validate_instance_name(str(row["instance"])),
+        last_attempt_at=_safe_ingest_text(
+            _ingest_row_value(row, "last_attempt_at"), max_length=80
+        ),
+        last_started_at=_safe_ingest_text(
+            _ingest_row_value(row, "last_started_at"), max_length=80
+        ),
+        last_completed_at=_safe_ingest_text(
+            _ingest_row_value(row, "last_completed_at"), max_length=80
+        ),
+        last_success_at=_safe_ingest_text(
+            _ingest_row_value(row, "last_success_at"), max_length=80
+        ),
+        last_failure_at=_safe_ingest_text(
+            _ingest_row_value(row, "last_failure_at"), max_length=80
+        ),
+        last_processed_ingest_generation=_safe_ingest_int(
+            _ingest_row_value(row, "last_processed_ingest_generation", 0)
+        ),
+        last_consumed_ingest_success_at=_safe_ingest_text(
+            _ingest_row_value(row, "last_consumed_ingest_success_at"),
+            max_length=80,
+        ),
+        last_consumed_ingest_generation_max_event_id=_safe_ingest_int(
+            _ingest_row_value(
+                row,
+                "last_consumed_ingest_generation_max_event_id",
+                0,
+            )
+        ),
+        current_generation_max_event_id=_safe_ingest_int(
+            _ingest_row_value(row, "current_generation_max_event_id", 0)
+        ),
+        last_sessionized_event_id=_safe_ingest_int(
+            _ingest_row_value(row, "last_sessionized_event_id", 0)
+        ),
+        last_sessionized_event_time=_safe_ingest_text(
+            _ingest_row_value(row, "last_sessionized_event_time"),
+            max_length=80,
+        ),
+        last_live_scan_at=_safe_ingest_text(
+            _ingest_row_value(row, "last_live_scan_at"), max_length=80
+        ),
+        last_maintenance_at=_safe_ingest_text(
+            _ingest_row_value(row, "last_maintenance_at"), max_length=80
+        ),
+        next_maintenance_due_at=_safe_ingest_text(
+            _ingest_row_value(row, "next_maintenance_due_at"), max_length=80
+        ),
+        consecutive_failures=_safe_ingest_int(
+            _ingest_row_value(row, "consecutive_failures", 0)
+        ),
+        last_failure_stage=_safe_ingest_text(
+            _ingest_row_value(row, "last_failure_stage"), max_length=40
+        ),
+        last_result=_safe_ingest_text(
+            _ingest_row_value(row, "last_result"), max_length=40
+        ),
+        last_error_code=_safe_ingest_text(
+            _ingest_row_value(row, "last_error_code"), max_length=80
+        ),
+        interrupted=bool(_safe_ingest_int(_ingest_row_value(row, "interrupted", 0))),
+        updated_at=_safe_ingest_text(
+            _ingest_row_value(row, "updated_at"), max_length=80
+        ),
+    )
+
+
+def get_player_session_pipeline_state(
+    db_path: Path,
+    *,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> PlayerSessionPipelineState:
+    """Read pipeline state without creating or migrating players.db."""
+    normalized = paths.validate_instance_name(instance)
+    connection = _connect_existing_readonly(db_path)
+    if connection is None:
+        return _default_player_session_pipeline_state(normalized)
+    try:
+        if not _table_exists(connection, "player_session_pipeline_state"):
+            return _default_player_session_pipeline_state(normalized)
+        row = connection.execute(
+            "SELECT * FROM player_session_pipeline_state WHERE instance = ?",
+            (normalized,),
+        ).fetchone()
+        if row is None:
+            return _default_player_session_pipeline_state(normalized)
+        return _player_session_pipeline_state_from_row(row)
+    except (sqlite3.Error, ValueError):
+        return _default_player_session_pipeline_state(normalized)
+    finally:
+        connection.close()
+
+
+def upsert_player_session_pipeline_state(
+    db_path: Path,
+    state: PlayerSessionPipelineState,
+) -> PlayerSessionPipelineState:
+    """Persist one bounded supervised pipeline state row."""
+    normalized = paths.validate_instance_name(state.instance)
+    ensure_player_registry_db(db_path)
+    updated_at = _safe_ingest_text(state.updated_at, max_length=80) or _utc_now()
+    persisted = PlayerSessionPipelineState(
+        instance=normalized,
+        last_attempt_at=_safe_ingest_text(state.last_attempt_at, max_length=80),
+        last_started_at=_safe_ingest_text(state.last_started_at, max_length=80),
+        last_completed_at=_safe_ingest_text(state.last_completed_at, max_length=80),
+        last_success_at=_safe_ingest_text(state.last_success_at, max_length=80),
+        last_failure_at=_safe_ingest_text(state.last_failure_at, max_length=80),
+        last_processed_ingest_generation=_safe_ingest_int(
+            state.last_processed_ingest_generation
+        ),
+        last_consumed_ingest_success_at=_safe_ingest_text(
+            state.last_consumed_ingest_success_at,
+            max_length=80,
+        ),
+        last_consumed_ingest_generation_max_event_id=_safe_ingest_int(
+            state.last_consumed_ingest_generation_max_event_id
+        ),
+        current_generation_max_event_id=_safe_ingest_int(
+            state.current_generation_max_event_id
+        ),
+        last_sessionized_event_id=_safe_ingest_int(state.last_sessionized_event_id),
+        last_sessionized_event_time=_safe_ingest_text(
+            state.last_sessionized_event_time,
+            max_length=80,
+        ),
+        last_live_scan_at=_safe_ingest_text(state.last_live_scan_at, max_length=80),
+        last_maintenance_at=_safe_ingest_text(
+            state.last_maintenance_at,
+            max_length=80,
+        ),
+        next_maintenance_due_at=_safe_ingest_text(
+            state.next_maintenance_due_at,
+            max_length=80,
+        ),
+        consecutive_failures=_safe_ingest_int(state.consecutive_failures),
+        last_failure_stage=_safe_ingest_text(state.last_failure_stage, max_length=40),
+        last_result=_safe_ingest_text(state.last_result, max_length=40),
+        last_error_code=_safe_ingest_text(state.last_error_code, max_length=80),
+        interrupted=bool(state.interrupted),
+        updated_at=updated_at,
+    )
+    values = (
+        persisted.instance,
+        persisted.last_attempt_at,
+        persisted.last_started_at,
+        persisted.last_completed_at,
+        persisted.last_success_at,
+        persisted.last_failure_at,
+        persisted.last_processed_ingest_generation,
+        persisted.last_consumed_ingest_success_at,
+        persisted.last_consumed_ingest_generation_max_event_id,
+        persisted.current_generation_max_event_id,
+        persisted.last_sessionized_event_id,
+        persisted.last_sessionized_event_time,
+        persisted.last_live_scan_at,
+        persisted.last_maintenance_at,
+        persisted.next_maintenance_due_at,
+        persisted.consecutive_failures,
+        persisted.last_failure_stage,
+        persisted.last_result,
+        persisted.last_error_code,
+        1 if persisted.interrupted else 0,
+        persisted.updated_at,
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO player_session_pipeline_state(
+                instance, last_attempt_at, last_started_at, last_completed_at,
+                last_success_at, last_failure_at,
+                last_processed_ingest_generation,
+                last_consumed_ingest_success_at,
+                last_consumed_ingest_generation_max_event_id,
+                current_generation_max_event_id,
+                last_sessionized_event_id, last_sessionized_event_time,
+                last_live_scan_at, last_maintenance_at, next_maintenance_due_at,
+                consecutive_failures, last_failure_stage, last_result,
+                last_error_code, interrupted, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(instance) DO UPDATE SET
+                last_attempt_at = excluded.last_attempt_at,
+                last_started_at = excluded.last_started_at,
+                last_completed_at = excluded.last_completed_at,
+                last_success_at = excluded.last_success_at,
+                last_failure_at = excluded.last_failure_at,
+                last_processed_ingest_generation = excluded.last_processed_ingest_generation,
+                last_consumed_ingest_success_at = excluded.last_consumed_ingest_success_at,
+                last_consumed_ingest_generation_max_event_id =
+                    excluded.last_consumed_ingest_generation_max_event_id,
+                current_generation_max_event_id = excluded.current_generation_max_event_id,
+                last_sessionized_event_id = excluded.last_sessionized_event_id,
+                last_sessionized_event_time = excluded.last_sessionized_event_time,
+                last_live_scan_at = excluded.last_live_scan_at,
+                last_maintenance_at = excluded.last_maintenance_at,
+                next_maintenance_due_at = excluded.next_maintenance_due_at,
+                consecutive_failures = excluded.consecutive_failures,
+                last_failure_stage = excluded.last_failure_stage,
+                last_result = excluded.last_result,
+                last_error_code = excluded.last_error_code,
+                interrupted = excluded.interrupted,
+                updated_at = excluded.updated_at
+            """,
+            values,
+        )
+    return persisted
 
 
 def list_player_log_ingest_checkpoints(
@@ -1590,8 +1957,9 @@ def record_player_log_ingest_freshness(
             "INSERT INTO player_log_ingest_freshness("
             "scope, status, last_run_at, last_success_at, updated_at, "
             "scanned_files, parsed_events, stored_events, skipped_files, "
-            "skipped_reasons, checkpoint_updated, coverage_started_at"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "skipped_reasons, checkpoint_updated, coverage_started_at, "
+            "completed_generation, generation_max_event_id"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(scope) DO UPDATE SET "
             "status = excluded.status, "
             "last_run_at = excluded.last_run_at, "
@@ -1603,7 +1971,9 @@ def record_player_log_ingest_freshness(
             "skipped_files = excluded.skipped_files, "
             "skipped_reasons = excluded.skipped_reasons, "
             "checkpoint_updated = excluded.checkpoint_updated, "
-            "coverage_started_at = excluded.coverage_started_at",
+            "coverage_started_at = excluded.coverage_started_at, "
+            "completed_generation = excluded.completed_generation, "
+            "generation_max_event_id = excluded.generation_max_event_id",
             (
                 safe_scope,
                 safe_status,
@@ -1617,6 +1987,8 @@ def record_player_log_ingest_freshness(
                 safe_skipped_reasons,
                 1 if checkpoint_updated else 0,
                 safe_coverage_started_at,
+                previous.completed_generation,
+                previous.generation_max_event_id,
             ),
         )
     return get_player_log_ingest_freshness(db_path, scope=safe_scope)
@@ -1645,6 +2017,180 @@ def get_player_log_ingest_freshness(
         return _default_player_log_ingest_freshness(safe_scope)
     finally:
         connection.close()
+
+
+def _upsert_player_log_ingest_checkpoints_in_connection(
+    connection: sqlite3.Connection,
+    checkpoints: Iterable[PlayerLogIngestCheckpoint],
+) -> int:
+    written = 0
+    for checkpoint in checkpoints:
+        safe_scope = _safe_ingest_text(checkpoint.scope) or "player_logs"
+        safe_source_key = _safe_ingest_text(checkpoint.source_key, max_length=120)
+        if not safe_source_key:
+            continue
+        connection.execute(
+            """
+            INSERT INTO player_log_ingest_checkpoints(
+                scope, source_key, source_label, size_bytes, mtime_ns,
+                fingerprint, status, last_scanned_at, next_offset,
+                coverage_started_at, parser_event_date, parser_time_of_day,
+                file_identity, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(scope, source_key) DO UPDATE SET
+                source_label = excluded.source_label,
+                size_bytes = excluded.size_bytes,
+                mtime_ns = excluded.mtime_ns,
+                fingerprint = excluded.fingerprint,
+                status = excluded.status,
+                last_scanned_at = excluded.last_scanned_at,
+                next_offset = excluded.next_offset,
+                coverage_started_at = excluded.coverage_started_at,
+                parser_event_date = excluded.parser_event_date,
+                parser_time_of_day = excluded.parser_time_of_day,
+                file_identity = excluded.file_identity,
+                updated_at = excluded.updated_at
+            """,
+            (
+                safe_scope,
+                safe_source_key,
+                _safe_ingest_text(checkpoint.source_label),
+                _safe_ingest_int(checkpoint.size_bytes),
+                _safe_ingest_int(checkpoint.mtime_ns),
+                _safe_ingest_text(checkpoint.fingerprint, max_length=120),
+                _safe_ingest_text(checkpoint.status, max_length=40) or "scanned",
+                _safe_ingest_text(checkpoint.last_scanned_at, max_length=80),
+                _safe_ingest_int(checkpoint.next_offset),
+                _safe_ingest_text(checkpoint.coverage_started_at, max_length=80),
+                _safe_ingest_text(checkpoint.parser_event_date, max_length=20),
+                _safe_ingest_text(checkpoint.parser_time_of_day, max_length=30),
+                _safe_ingest_text(checkpoint.file_identity, max_length=120),
+                _safe_ingest_text(checkpoint.updated_at, max_length=80) or _utc_now(),
+            ),
+        )
+        written += 1
+    return written
+
+
+def commit_player_log_ingest_generation(
+    db_path: Path,
+    *,
+    event_batches: Iterable[Iterable[PlayerLogEvent]],
+    checkpoints: Iterable[PlayerLogIngestCheckpoint],
+    scope: str,
+    status: str,
+    last_run_at: str,
+    scanned_files: int,
+    parsed_events: int,
+    skipped_files: int,
+    skipped_reasons: str = "",
+    coverage_started_at: str = "",
+) -> PlayerLogIngestGenerationCommitResult:
+    """Atomically persist events, checkpoints, and completed generation truth."""
+    safe_scope = _safe_ingest_text(scope) or "player_logs"
+    safe_status = _safe_ingest_status(status)
+    safe_last_run_at = _safe_ingest_text(last_run_at, max_length=80) or _utc_now()
+    batches = tuple(tuple(batch) for batch in event_batches)
+    checkpoint_records = tuple(checkpoints)
+    ensure_player_registry_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("BEGIN IMMEDIATE")
+        previous_row = connection.execute(
+            "SELECT * FROM player_log_ingest_freshness WHERE scope = ?",
+            (safe_scope,),
+        ).fetchone()
+        previous = (
+            _player_log_ingest_freshness_from_row(previous_row)
+            if previous_row is not None
+            else _default_player_log_ingest_freshness(safe_scope)
+        )
+        batch_results = tuple(
+            _ingest_player_log_events_in_connection(
+                connection,
+                batch,
+                ingested_at=safe_last_run_at,
+            )
+            for batch in batches
+        )
+        checkpoint_count = _upsert_player_log_ingest_checkpoints_in_connection(
+            connection,
+            checkpoint_records,
+        )
+        max_row = connection.execute(
+            "SELECT COALESCE(MAX(event_id), 0) FROM player_log_events"
+        ).fetchone()
+        max_event_id = _safe_ingest_int(max_row[0] if max_row is not None else 0)
+        completed_generation = previous.completed_generation
+        generation_max_event_id = previous.generation_max_event_id
+        last_success_at = previous.last_success_at
+        if safe_status == PLAYER_LOG_INGEST_STATUS_FRESH:
+            completed_generation += 1
+            generation_max_event_id = max_event_id
+            last_success_at = safe_last_run_at
+        stored_events = sum(result.stored_count for result in batch_results)
+        freshness = PlayerLogIngestFreshness(
+            scope=safe_scope,
+            status=safe_status,
+            last_run_at=safe_last_run_at,
+            last_success_at=last_success_at,
+            updated_at=safe_last_run_at,
+            scanned_files=_safe_ingest_int(scanned_files),
+            parsed_events=_safe_ingest_int(parsed_events),
+            stored_events=stored_events,
+            skipped_files=_safe_ingest_int(skipped_files),
+            skipped_reasons=_safe_ingest_text(skipped_reasons, max_length=240),
+            checkpoint_updated=checkpoint_count > 0,
+            coverage_started_at=_safe_ingest_text(coverage_started_at, max_length=80),
+            completed_generation=completed_generation,
+            generation_max_event_id=generation_max_event_id,
+        )
+        connection.execute(
+            """
+            INSERT INTO player_log_ingest_freshness(
+                scope, status, last_run_at, last_success_at, updated_at,
+                scanned_files, parsed_events, stored_events, skipped_files,
+                skipped_reasons, checkpoint_updated, coverage_started_at,
+                completed_generation, generation_max_event_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(scope) DO UPDATE SET
+                status = excluded.status,
+                last_run_at = excluded.last_run_at,
+                last_success_at = excluded.last_success_at,
+                updated_at = excluded.updated_at,
+                scanned_files = excluded.scanned_files,
+                parsed_events = excluded.parsed_events,
+                stored_events = excluded.stored_events,
+                skipped_files = excluded.skipped_files,
+                skipped_reasons = excluded.skipped_reasons,
+                checkpoint_updated = excluded.checkpoint_updated,
+                coverage_started_at = excluded.coverage_started_at,
+                completed_generation = excluded.completed_generation,
+                generation_max_event_id = excluded.generation_max_event_id
+            """,
+            (
+                freshness.scope,
+                freshness.status,
+                freshness.last_run_at,
+                freshness.last_success_at,
+                freshness.updated_at,
+                freshness.scanned_files,
+                freshness.parsed_events,
+                freshness.stored_events,
+                freshness.skipped_files,
+                freshness.skipped_reasons,
+                1 if freshness.checkpoint_updated else 0,
+                freshness.coverage_started_at,
+                freshness.completed_generation,
+                freshness.generation_max_event_id,
+            ),
+        )
+    return PlayerLogIngestGenerationCommitResult(
+        batch_results=batch_results,
+        checkpoint_count=checkpoint_count,
+        freshness=freshness,
+    )
 
 
 def _player_from_row(row: sqlite3.Row) -> KnownPlayer:
@@ -3316,35 +3862,46 @@ def ingest_player_log_events(
     ingested_at: str | None = None,
 ) -> PlayerLogEventIngestResult:
     """Persist sanitized parsed player log events into the registry database."""
+    ensure_player_registry_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("BEGIN IMMEDIATE")
+        return _ingest_player_log_events_in_connection(
+            connection,
+            events,
+            ingested_at=ingested_at,
+        )
+
+
+def _ingest_player_log_events_in_connection(
+    connection: sqlite3.Connection,
+    events: Iterable[PlayerLogEvent],
+    *,
+    ingested_at: str | None = None,
+) -> PlayerLogEventIngestResult:
     timestamp = ingested_at or _utc_now()
     rows = tuple(
         _player_log_event_row(event, collected_at=timestamp, created_at=timestamp)
         for event in events
     )
-
-    ensure_player_registry_db(db_path)
     stored_count = 0
     duplicate_count = 0
-    with sqlite3.connect(db_path) as connection:
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("BEGIN IMMEDIATE")
-        for row in rows:
-            if _player_log_event_exists(connection, row):
-                duplicate_count += 1
-                continue
-            observed_at = _trusted_player_log_event_time(row)
-            if observed_at:
-                _record_player_log_event_observations(
-                    connection,
-                    row,
-                    observed_at=observed_at,
-                )
-            cursor = _insert_player_log_event(connection, row)
-            if cursor.rowcount == 1:
-                stored_count += 1
-            else:
-                duplicate_count += 1
-
+    for row in rows:
+        if _player_log_event_exists(connection, row):
+            duplicate_count += 1
+            continue
+        observed_at = _trusted_player_log_event_time(row)
+        if observed_at:
+            _record_player_log_event_observations(
+                connection,
+                row,
+                observed_at=observed_at,
+            )
+        cursor = _insert_player_log_event(connection, row)
+        if cursor.rowcount == 1:
+            stored_count += 1
+        else:
+            duplicate_count += 1
     return PlayerLogEventIngestResult(
         stored_count=stored_count,
         duplicate_count=duplicate_count,
@@ -3753,25 +4310,74 @@ def list_player_log_events(
 
 def list_player_log_events_for_sessionization(
     db_path: Path,
+    *,
+    after_event_time: str = "",
+    after_event_id: int = 0,
+    through_event_id: int | None = None,
+    limit: int | None = None,
 ) -> list[PlayerLogEventRecord]:
-    """List stored player log events in stable ingest order for sessionization."""
-    connection = _connect_existing(db_path)
-    if connection is None:
+    """List one bounded event-ID page for the existing sessionizer."""
+    del after_event_time
+    connection = _connect_existing_readonly(db_path)
+    if connection is None or not _table_exists(connection, "player_log_events"):
+        if connection is not None:
+            connection.close()
         return []
-
+    where_clauses = ["event_id > ?"]
+    params: list[object] = [_safe_ingest_int(after_event_id)]
+    if through_event_id is not None:
+        where_clauses.append("event_id <= ?")
+        params.append(_safe_ingest_int(through_event_id))
+    sql = (
+        "SELECT * FROM player_log_events WHERE "
+        + " AND ".join(where_clauses)
+        + " ORDER BY event_id ASC"
+    )
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(_bounded_player_sessionization_event_page_limit(limit))
     try:
-        with connection:
-            rows = connection.execute(
-                """
-                SELECT *
-                FROM player_log_events
-                ORDER BY COALESCE(occurred_at, observed_at, collected_at, created_at) ASC,
-                         event_id ASC
-                """
-            ).fetchall()
+        rows = connection.execute(sql, tuple(params)).fetchall()
+        return [_player_log_event_record_from_row(row) for row in rows]
     finally:
         connection.close()
-    return [_player_log_event_record_from_row(row) for row in rows]
+
+
+def has_late_player_log_event_for_sessionization(
+    db_path: Path,
+    *,
+    after_event_time: str,
+    after_event_id: int,
+    through_event_id: int,
+) -> bool:
+    """Detect newly inserted evidence older than the persisted trusted-time cursor."""
+    safe_after_time = _safe_ingest_text(after_event_time, max_length=80)
+    if not safe_after_time:
+        return False
+    connection = _connect_existing_readonly(db_path)
+    if connection is None or not _table_exists(connection, "player_log_events"):
+        if connection is not None:
+            connection.close()
+        return False
+    try:
+        row = connection.execute(
+            """
+            SELECT 1
+            FROM player_log_events
+            WHERE event_id > ?
+              AND event_id <= ?
+              AND COALESCE(occurred_at, observed_at, collected_at, created_at) < ?
+            LIMIT 1
+            """,
+            (
+                _safe_ingest_int(after_event_id),
+                _safe_ingest_int(through_event_id),
+                safe_after_time,
+            ),
+        ).fetchone()
+        return row is not None
+    finally:
+        connection.close()
 
 
 def _empty_player_summary(player: KnownPlayer) -> PlayerSummary:

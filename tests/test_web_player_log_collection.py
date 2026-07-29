@@ -348,7 +348,7 @@ def test_player_log_collection_job_failure_uses_safe_job_and_audit_messages(
 
     monkeypatch.setattr(
         player_logs.player_log_collector,
-        "collect_player_log_events",
+        "scan_player_log_events",
         fail_collect,
     )
     monkeypatch.setattr(
@@ -608,8 +608,13 @@ def test_player_log_collection_job_audits_uncontrolled_skip_as_failure(
 
     monkeypatch.setattr(
         player_logs.player_log_collector,
-        "collect_player_log_events",
-        lambda *args, **kwargs: summary,
+        "scan_player_log_events",
+        lambda *args, **kwargs: (
+            player_logs.player_log_collector.PlayerLogParsedCollection(
+                summary=summary,
+                event_batches=((), ()),
+            )
+        ),
     )
     monkeypatch.setattr(
         player_logs,
@@ -669,7 +674,7 @@ def test_allowlist_resolver_uses_instance_config_console_logs_only(tmp_path: Pat
 
 
 
-def test_player_log_collection_job_reuses_existing_collector_storage_path(
+def test_player_log_collection_job_reuses_existing_parser_and_atomic_storage(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -677,16 +682,16 @@ def test_player_log_collection_job_reuses_existing_collector_storage_path(
     from armactl.web.services import player_log_collection
 
     allowed_log = _write_console_log(tmp_path, _fixture_lines())
-    calls: list[tuple[tuple[object, ...], Path, dict[str, object]]] = []
-    real_collect = player_logs.player_log_collector.collect_player_log_events
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    real_scan = player_logs.player_log_collector.scan_player_log_events
 
-    def spy_collect(log_paths, db_path, **kwargs):
-        calls.append((tuple(log_paths), Path(db_path), dict(kwargs)))
-        return real_collect(log_paths, db_path, **kwargs)
+    def spy_collect(log_paths, **kwargs):
+        calls.append((tuple(log_paths), dict(kwargs)))
+        return real_scan(log_paths, **kwargs)
 
     monkeypatch.setattr(
         player_logs.player_log_collector,
-        "collect_player_log_events",
+        "scan_player_log_events",
         spy_collect,
     )
     monkeypatch.setattr(
@@ -713,8 +718,9 @@ def test_player_log_collection_job_reuses_existing_collector_storage_path(
     request = calls[0][0][0]
     assert isinstance(request, player_logs.player_log_collector.PlayerLogScanRequest)
     assert request.path == allowed_log
-    assert calls[0][1] == tmp_path / "default" / "players.db"
-    assert calls[0][2]["dry_run"] is False
+    assert "dry_run" not in calls[0][1]
+    assert calls[0][1]["max_bytes"] == player_logs.DEFAULT_MAX_FILE_BYTES
+    assert calls[0][1]["max_lines"] == player_logs.DEFAULT_MAX_FILE_LINES
     assert len(_event_rows(tmp_path / "default" / "players.db")) == 2
 
 

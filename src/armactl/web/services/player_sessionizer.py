@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from armactl import player_log_events
@@ -12,6 +13,15 @@ from armactl.web.services.player_identity import normalize_reliable_player_id
 
 SESSIONIZATION_CHECKPOINT_SOURCE = "player_log_events"
 SESSIONIZATION_CHECKPOINT_PREFIX = "event:"
+DEFAULT_SESSIONIZATION_MAX_PAGES = 20
+MAX_SESSIONIZATION_EVENTS_PER_PASS = 5000
+
+
+class HistoricalBackfillRequiredError(RuntimeError):
+    """Raised before applying evidence older than the durable trusted-time cursor."""
+
+    code = "historical_backfill_required"
+
 
 _CONNECT_EVENT_TYPES = {
     player_log_events.EVENT_TYPE_PLAYER_AUTHENTICATED,
@@ -42,6 +52,10 @@ class PlayerLogSessionizationSummary:
     sessions_created: int = 0
     sessions_updated: int = 0
     sessions_closed: int = 0
+    pages_completed: int = 0
+    last_event_id: int = 0
+    last_event_time: str = ""
+    backlog_remaining: bool = False
 
 
 @dataclass(frozen=True)
@@ -83,13 +97,92 @@ class _CloseApplicationResult:
 
 def sessionize_stored_player_log_events(
     db_path: Path,
+    *,
+    after_event_time: str = "",
+    after_event_id: int = 0,
+    through_event_id: int | None = None,
+    page_limit: int = player_registry.DEFAULT_PLAYER_SESSIONIZATION_EVENT_PAGE_LIMIT,
+    max_pages: int = DEFAULT_SESSIONIZATION_MAX_PAGES,
+    progress_callback: Callable[[PlayerLogSessionizationSummary], None] | None = None,
 ) -> PlayerLogSessionizationSummary:
-    """Open/update sessions from already stored sanitized player log events.
+    """Run the existing sessionizer over bounded durable event pages."""
+    cursor_time = after_event_time
+    cursor_id = max(0, int(after_event_id))
+    high_water = None if through_event_id is None else max(0, int(through_event_id))
+    bounded_limit = max(
+        1,
+        min(
+            int(page_limit),
+            player_registry.MAX_PLAYER_SESSIONIZATION_EVENT_PAGE_LIMIT,
+        ),
+    )
+    bounded_pages = max(1, int(max_pages))
+    total = PlayerLogSessionizationSummary(
+        last_event_id=cursor_id,
+        last_event_time=cursor_time,
+    )
 
-    This is a stored-log pass only. It does not read live logs, poll RCON/A2S,
-    close stale sessions, or calculate session statistics.
-    """
-    events = player_registry.list_player_log_events_for_sessionization(db_path)
+    for _page_number in range(bounded_pages):
+        remaining_events = MAX_SESSIONIZATION_EVENTS_PER_PASS - total.events_scanned
+        if remaining_events <= 0:
+            break
+        current_limit = min(bounded_limit, remaining_events)
+        if high_water is not None and player_registry.has_late_player_log_event_for_sessionization(
+            db_path,
+            after_event_time=cursor_time,
+            after_event_id=cursor_id,
+            through_event_id=high_water,
+        ):
+            raise HistoricalBackfillRequiredError(
+                "Stored event evidence predates the durable sessionization cursor."
+            )
+        events = player_registry.list_player_log_events_for_sessionization(
+            db_path,
+            after_event_time=cursor_time,
+            after_event_id=cursor_id,
+            through_event_id=high_water,
+            limit=current_limit,
+        )
+        if not events:
+            break
+        page_last_time, page_last_id = _validate_event_page(
+            events,
+            after_event_time=cursor_time,
+            after_event_id=cursor_id,
+        )
+        page = _sessionize_event_page(db_path, events)
+        total = _combine_sessionization_summaries(
+            total,
+            page,
+            last_event_id=page_last_id,
+            last_event_time=page_last_time,
+        )
+        cursor_time = page_last_time
+        cursor_id = page_last_id
+        if progress_callback is not None:
+            progress_callback(total)
+        if len(events) < current_limit:
+            break
+
+    next_events = player_registry.list_player_log_events_for_sessionization(
+        db_path,
+        after_event_time=cursor_time,
+        after_event_id=cursor_id,
+        through_event_id=high_water,
+        limit=1,
+    )
+    return PlayerLogSessionizationSummary(
+        **{
+            **total.__dict__,
+            "backlog_remaining": bool(next_events),
+        }
+    )
+
+
+def _sessionize_event_page(
+    db_path: Path,
+    events: list[player_registry.PlayerLogEventRecord],
+) -> PlayerLogSessionizationSummary:
     events_ignored = 0
     observations_considered = 0
     observations_applied = 0
@@ -98,14 +191,12 @@ def sessionize_stored_player_log_events(
     sessions_created = 0
     sessions_updated = 0
     sessions_closed = 0
-
     for event in events:
         observations = tuple(_observations_from_event(event))
         close_evidence = tuple(_close_evidence_from_event(event))
         if not observations and not close_evidence:
             events_ignored += 1
             continue
-
         for observation in observations:
             observations_considered += 1
             reliable_id = normalize_reliable_player_id(observation.reliable_id)
@@ -115,7 +206,6 @@ def sessionize_stored_player_log_events(
             if _should_skip_observation(db_path, reliable_id, observation, event):
                 observations_skipped += 1
                 continue
-
             result = player_registry.observe_player_session(
                 db_path,
                 reliable_id=reliable_id,
@@ -135,28 +225,22 @@ def sessionize_stored_player_log_events(
             )
             if result.ignored_count:
                 observations_ignored += result.ignored_count
-                continue
-            if not result.written:
+            elif not result.written:
                 observations_skipped += 1
-                continue
-            observations_applied += 1
-            if result.created:
-                sessions_created += 1
-            elif result.updated:
-                sessions_updated += 1
-
+            else:
+                observations_applied += 1
+                sessions_created += int(result.created)
+                sessions_updated += int(result.updated)
         for evidence in close_evidence:
             observations_considered += 1
             result = _apply_close_evidence(db_path, evidence)
             if result.ignored:
                 observations_ignored += 1
-                continue
-            if result.applied:
+            elif result.applied:
                 observations_applied += 1
                 sessions_closed += result.sessions_closed
-                continue
-            observations_skipped += 1
-
+            else:
+                observations_skipped += 1
     return PlayerLogSessionizationSummary(
         events_scanned=len(events),
         events_ignored=events_ignored,
@@ -167,6 +251,59 @@ def sessionize_stored_player_log_events(
         sessions_created=sessions_created,
         sessions_updated=sessions_updated,
         sessions_closed=sessions_closed,
+        pages_completed=1,
+    )
+
+
+def _validate_event_page(
+    events: list[player_registry.PlayerLogEventRecord],
+    *,
+    after_event_time: str,
+    after_event_id: int,
+) -> tuple[str, int]:
+    previous_time = after_event_time
+    previous_id = after_event_id
+    previous_dt = _parse_datetime(previous_time) if previous_time else None
+    for event in events:
+        event_time = _event_cursor_time(event)
+        event_dt = _parse_datetime(event_time)
+        if event_dt is None:
+            raise HistoricalBackfillRequiredError("Stored event has no valid trusted time.")
+        if previous_dt is not None and (event_dt, event.event_id) <= (
+            previous_dt,
+            previous_id,
+        ):
+            raise HistoricalBackfillRequiredError(
+                "Stored event order is not monotonic at the page boundary."
+            )
+        previous_time = event_time
+        previous_id = event.event_id
+        previous_dt = event_dt
+    return previous_time, previous_id
+
+
+def _combine_sessionization_summaries(
+    left: PlayerLogSessionizationSummary,
+    right: PlayerLogSessionizationSummary,
+    *,
+    last_event_id: int,
+    last_event_time: str,
+) -> PlayerLogSessionizationSummary:
+    return PlayerLogSessionizationSummary(
+        events_scanned=left.events_scanned + right.events_scanned,
+        events_ignored=left.events_ignored + right.events_ignored,
+        observations_considered=(
+            left.observations_considered + right.observations_considered
+        ),
+        observations_applied=left.observations_applied + right.observations_applied,
+        observations_skipped=left.observations_skipped + right.observations_skipped,
+        observations_ignored=left.observations_ignored + right.observations_ignored,
+        sessions_created=left.sessions_created + right.sessions_created,
+        sessions_updated=left.sessions_updated + right.sessions_updated,
+        sessions_closed=left.sessions_closed + right.sessions_closed,
+        pages_completed=left.pages_completed + right.pages_completed,
+        last_event_id=last_event_id,
+        last_event_time=last_event_time,
     )
 
 
@@ -502,6 +639,15 @@ def _checkpoint_event_id(session: player_registry.PlayerSessionRecord) -> int | 
     return event_id if event_id > 0 else None
 
 
+def _event_cursor_time(event: player_registry.PlayerLogEventRecord) -> str:
+    return (
+        event.occurred_at
+        or event.observed_at
+        or event.collected_at
+        or event.created_at
+    )
+
+
 def _event_observed_at(event: player_registry.PlayerLogEventRecord) -> str:
     return event.occurred_at or event.observed_at
 
@@ -520,6 +666,9 @@ def _parse_datetime(value: str) -> datetime | None:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)

@@ -40,6 +40,8 @@ class LivePlayerSessionScanSummary:
     sessions_skipped: int = 0
     source_failures: int = 0
     roster_unavailable: int = 0
+    reliable_evidence: bool = False
+    reliability_error_code: str = ""
     success: bool = True
 
 
@@ -66,8 +68,7 @@ def _safe_count(value: object, *, fallback: int = 0) -> int:
 def _observed_count(roster: player_sources.CurrentPlayerRoster) -> int:
     row_count = len(roster.players)
     fallback = _safe_count(roster.total_count, fallback=row_count)
-    observed = _safe_count(roster.observed_count, fallback=fallback)
-    return max(observed, row_count)
+    return _safe_count(roster.observed_count, fallback=fallback)
 
 
 def _normalized_player_id(player: player_sources.CurrentPlayer) -> str:
@@ -98,23 +99,43 @@ def _reliable_roster_rows(
     )
 
 
-def _is_reliable_absence_scan(
+def _reliable_roster_evidence(
     roster: player_sources.CurrentPlayerRoster,
     reliable_rows: _ReliableRosterRows,
     *,
     observed_count: int,
-) -> bool:
-    source = str(roster.source or "").casefold()
-    count_source = str(roster.count_source or "").casefold()
+) -> tuple[bool, str]:
     if not roster.available or not roster.roster_available:
-        return False
-    if source != "rcon.roster" and count_source != "rcon":
-        return False
-    if reliable_rows.unreliable_rows_ignored or reliable_rows.duplicate_rows_ignored:
-        return False
-    if observed_count != len(roster.players):
-        return False
-    return reliable_rows.reliable_rows_seen == len(roster.players)
+        return False, "roster_unavailable"
+    legacy_rcon = (
+        str(roster.source or "").casefold() == "rcon.roster"
+        and str(roster.count_source or "").casefold() == "rcon"
+    )
+    rcon_status = str(roster.rcon_status or "").casefold()
+    if rcon_status != "ok" and not (rcon_status == "unavailable" and legacy_rcon):
+        return False, "rcon_failed"
+    roster_source = str(roster.roster_source or "").casefold()
+    if roster_source != "rcon" and not (roster_source == "unknown" and legacy_rcon):
+        return False, "non_rcon_roster"
+    query_attempt_count = roster.query_attempt_count or int(legacy_rcon)
+    if roster.duplicate_query_attempts or query_attempt_count != 1:
+        return False, "duplicate_query_attempt"
+    if roster.count_mismatch or observed_count != len(roster.players):
+        return False, "count_mismatch"
+    if any(
+        not str(player.source or "").casefold().startswith("rcon.")
+        for player in roster.players
+    ):
+        return False, "mixed_roster_source"
+    if reliable_rows.unreliable_rows_ignored:
+        return False, "unreliable_roster_row"
+    if reliable_rows.duplicate_rows_ignored:
+        return False, "duplicate_reliable_id"
+    if reliable_rows.reliable_rows_seen != len(roster.players):
+        return False, "unreliable_roster_row"
+    if len(reliable_rows.players_by_id) != observed_count:
+        return False, "count_mismatch"
+    return True, ""
 
 
 def _unavailable_summary(
@@ -127,6 +148,10 @@ def _unavailable_summary(
         roster_rows_seen=len(roster.players) if roster is not None else 0,
         source_failures=1 if source_failed else 0,
         roster_unavailable=0 if source_failed else 1,
+        reliable_evidence=False,
+        reliability_error_code=(
+            "source_failed" if source_failed else "roster_unavailable"
+        ),
         success=False,
     )
 
@@ -161,21 +186,26 @@ def scan_live_player_sessions_once(
     observed_count = _observed_count(roster)
     reliable_rows = _reliable_roster_rows(roster_rows)
     observations_considered = len(reliable_rows.players_by_id)
-    absence_scan = _is_reliable_absence_scan(
+    reliable_evidence, reliability_error_code = _reliable_roster_evidence(
         roster,
         reliable_rows,
         observed_count=observed_count,
     )
-    scans_considered = 1 if absence_scan else 0
-    if observations_considered == 0 and not absence_scan:
+    if not reliable_evidence:
         return LivePlayerSessionScanSummary(
             observed_count=observed_count,
             roster_rows_seen=len(roster_rows),
             reliable_rows_seen=reliable_rows.reliable_rows_seen,
             unreliable_rows_ignored=reliable_rows.unreliable_rows_ignored,
             duplicate_rows_ignored=reliable_rows.duplicate_rows_ignored,
-            scans_considered=scans_considered,
+            source_failures=int(reliability_error_code == "rcon_failed"),
+            roster_unavailable=int(reliability_error_code == "roster_unavailable"),
+            reliable_evidence=False,
+            reliability_error_code=reliability_error_code,
+            success=False,
         )
+    absence_scan = True
+    scans_considered = 1
 
     db_path = player_registry.player_registry_db_path(
         normalized_instance,
@@ -284,4 +314,6 @@ def scan_live_player_sessions_once(
         sessions_updated=sessions_updated,
         sessions_closed=sessions_closed,
         sessions_skipped=sessions_skipped,
+        reliable_evidence=True,
+        success=True,
     )

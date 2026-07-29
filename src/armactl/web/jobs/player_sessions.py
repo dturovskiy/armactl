@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 from armactl import paths
@@ -18,11 +17,10 @@ from armactl.web.jobs.runner import (
 from armactl.web.jobs.store import get_or_create_active_job
 from armactl.web.services import (
     player_live_session_scanner,
-    player_registry,
+    player_session_mutation,
     player_sessionizer,
 )
 from armactl.web.services.audit import AuditLogError, append_audit_event
-from armactl.web.services.player_identity import safe_player_text
 
 PLAYER_LOG_SESSIONIZATION_JOB_KIND = "players:sessionize-log-events"
 PLAYER_LOG_SESSIONIZATION_ACTION = "players.log-events.sessionize"
@@ -33,10 +31,6 @@ PLAYER_SESSION_MAINTENANCE_SCOPE = "player_sessions"
 PLAYER_LIVE_SESSION_SCAN_JOB_KIND = "players:scan-live-sessions"
 PLAYER_LIVE_SESSION_SCAN_ACTION = "players.sessions.scan-live"
 PLAYER_LIVE_SESSION_SCAN_SCOPE = "live_current_roster"
-DEFAULT_PLAYER_SESSION_STALE_TIMEOUT = timedelta(hours=24)
-DEFAULT_CLOSED_PLAYER_SESSION_RETENTION = timedelta(days=90)
-
-
 class PlayerLogSessionizationAuditError(RuntimeError):
     """Raised when sessionization completes but audit cannot be written."""
 
@@ -47,14 +41,6 @@ class PlayerSessionMaintenanceAuditError(RuntimeError):
 
 class PlayerLiveSessionScanAuditError(RuntimeError):
     """Raised when live session scan completes but audit cannot be written."""
-
-
-@dataclass(frozen=True)
-class PlayerSessionMaintenanceSummary:
-    """Counts-only summary of explicit player-session maintenance."""
-
-    stale_close: player_registry.PlayerSessionStaleCloseResult
-    retention_cleanup: player_registry.PlayerSessionRetentionCleanupResult
 
 
 def _data_root_from_web_db_path(db_path: Path) -> Path:
@@ -134,11 +120,8 @@ def _count_details(
     reason_class: str = "",
     reason_message: str = "",
 ) -> dict[str, object]:
+    del phase, job_id, reason_class, reason_message
     details: dict[str, object] = {
-        "phase": phase,
-        "job_kind": PLAYER_LOG_SESSIONIZATION_JOB_KIND,
-        "job_id": str(job_id or ""),
-        "scope": PLAYER_LOG_SESSIONIZATION_SCOPE,
         "events_scanned": "0",
         "events_ignored": "0",
         "observations_considered": "0",
@@ -163,10 +146,6 @@ def _count_details(
                 "sessions_closed": str(summary.sessions_closed),
             }
         )
-    if reason_class:
-        details["reason_class"] = safe_player_text(reason_class, max_length=120)
-    if reason_message:
-        details["reason_message"] = safe_player_text(reason_message, max_length=240)
     return details
 
 
@@ -196,18 +175,15 @@ def _summary_output(summary: player_sessionizer.PlayerLogSessionizationSummary) 
 
 
 def _maintenance_count_details(
-    summary: PlayerSessionMaintenanceSummary | None,
+    summary: player_session_mutation.PlayerSessionMaintenanceSummary | None,
     *,
     phase: str,
     job_id: int | None,
     reason_class: str = "",
     reason_message: str = "",
 ) -> dict[str, object]:
+    del phase, job_id, reason_class, reason_message
     details: dict[str, object] = {
-        "phase": phase,
-        "job_kind": PLAYER_SESSION_MAINTENANCE_JOB_KIND,
-        "job_id": str(job_id or ""),
-        "scope": PLAYER_SESSION_MAINTENANCE_SCOPE,
         "open_sessions_scanned": "0",
         "stale_sessions_overdue": "0",
         "stale_sessions_closed": "0",
@@ -234,14 +210,12 @@ def _maintenance_count_details(
                 ),
             }
         )
-    if reason_class:
-        details["reason_class"] = safe_player_text(reason_class, max_length=120)
-    if reason_message:
-        details["reason_message"] = safe_player_text(reason_message, max_length=240)
     return details
 
 
-def _maintenance_summary_message(summary: PlayerSessionMaintenanceSummary) -> str:
+def _maintenance_summary_message(
+    summary: player_session_mutation.PlayerSessionMaintenanceSummary,
+) -> str:
     changed = (
         summary.stale_close.sessions_closed
         + summary.retention_cleanup.sessions_deleted
@@ -251,7 +225,9 @@ def _maintenance_summary_message(summary: PlayerSessionMaintenanceSummary) -> st
     return "Player session maintenance completed."
 
 
-def _maintenance_summary_output(summary: PlayerSessionMaintenanceSummary) -> str:
+def _maintenance_summary_output(
+    summary: player_session_mutation.PlayerSessionMaintenanceSummary,
+) -> str:
     return (
         "Player session maintenance counts: "
         f"open_sessions_scanned={summary.stale_close.open_sessions_scanned}; "
@@ -274,11 +250,8 @@ def live_session_scan_count_details(
     job_id: int | None,
 ) -> dict[str, object]:
     """Return counts-only audit details for explicit live session scans."""
+    del phase, job_id
     details: dict[str, object] = {
-        "phase": phase,
-        "job_kind": PLAYER_LIVE_SESSION_SCAN_JOB_KIND,
-        "job_id": str(job_id or ""),
-        "scope": PLAYER_LIVE_SESSION_SCAN_SCOPE,
         "observed_count": "0",
         "roster_rows_seen": "0",
         "reliable_rows_seen": "0",
@@ -360,36 +333,6 @@ def _live_scan_summary_output(
     )
 
 
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _run_player_session_maintenance(
-    registry_db_path: Path,
-    *,
-    now: datetime,
-) -> PlayerSessionMaintenanceSummary:
-    close_observed_at = now.isoformat()
-    stale_cutoff = (now - DEFAULT_PLAYER_SESSION_STALE_TIMEOUT).isoformat()
-    retention_cutoff = (now - DEFAULT_CLOSED_PLAYER_SESSION_RETENTION).isoformat()
-    stale_close = player_registry.close_stale_open_player_sessions(
-        registry_db_path,
-        last_seen_before=stale_cutoff,
-        close_observed_at=close_observed_at,
-        source=player_registry.PLAYER_SESSION_SOURCE_SCANNER_CHECKPOINT,
-        source_ref="session-maintenance:stale-timeout",
-        confidence=player_registry.PLAYER_SESSION_CONFIDENCE_LOW,
-    )
-    retention_cleanup = player_registry.cleanup_player_sessions_by_retention(
-        registry_db_path,
-        closed_before=retention_cutoff,
-    )
-    return PlayerSessionMaintenanceSummary(
-        stale_close=stale_close,
-        retention_cleanup=retention_cleanup,
-    )
-
-
 def _append_sessionization_outcome_audit(
     audit_log_path: Path,
     *,
@@ -453,7 +396,7 @@ def _append_maintenance_outcome_audit(
     username: str,
     instance: str,
     job_id: int,
-    summary: PlayerSessionMaintenanceSummary | None,
+    summary: player_session_mutation.PlayerSessionMaintenanceSummary | None,
     success: bool,
     message: str,
     reason_class: str = "",
@@ -559,10 +502,6 @@ def handle_player_log_sessionization(context: JobContext) -> JobHandlerResult:
     instance = _safe_instance(context.job.instance)
     data_root = _data_root_from_web_db_path(context.db_path)
     audit_log_path = paths.web_audit_log_file(data_root)
-    registry_db_path = player_registry.player_registry_db_path(
-        instance,
-        data_root=data_root,
-    )
     context.append_output(
         stdout=(
             "Starting player log sessionization: "
@@ -571,7 +510,10 @@ def handle_player_log_sessionization(context: JobContext) -> JobHandlerResult:
     )
 
     try:
-        summary = player_sessionizer.sessionize_stored_player_log_events(registry_db_path)
+        summary = player_session_mutation.run_player_log_sessionization(
+            instance,
+            data_root=data_root,
+        )
     except Exception as error:
         _audit_failure_or_raise(
             audit_log_path,
@@ -638,15 +580,15 @@ def start_player_log_sessionization_worker(db_path, job_id: int) -> threading.Th
     return thread
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def handle_player_session_maintenance(context: JobContext) -> JobHandlerResult:
     """Run explicit stale-close and retention cleanup for one queued job."""
     instance = _safe_instance(context.job.instance)
     data_root = _data_root_from_web_db_path(context.db_path)
     audit_log_path = paths.web_audit_log_file(data_root)
-    registry_db_path = player_registry.player_registry_db_path(
-        instance,
-        data_root=data_root,
-    )
     context.append_output(
         stdout=(
             "Starting player session maintenance: "
@@ -655,7 +597,11 @@ def handle_player_session_maintenance(context: JobContext) -> JobHandlerResult:
     )
 
     try:
-        summary = _run_player_session_maintenance(registry_db_path, now=_utc_now())
+        summary = player_session_mutation.run_player_session_maintenance(
+            instance,
+            data_root=data_root,
+            now=_utc_now(),
+        )
     except Exception as error:
         _maintenance_audit_failure_or_raise(
             audit_log_path,
@@ -733,7 +679,7 @@ def handle_player_live_session_scan(context: JobContext) -> JobHandlerResult:
     audit_log_path = paths.web_audit_log_file(data_root)
 
     try:
-        summary = player_live_session_scanner.scan_live_player_sessions_once(
+        summary = player_session_mutation.run_live_player_session_scan(
             instance,
             data_root=data_root,
         )

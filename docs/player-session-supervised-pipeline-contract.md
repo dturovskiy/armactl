@@ -1,36 +1,22 @@
 # Player Session Supervised Pipeline Contract
 
-Status: **F3-a architecture audit and design complete.** F3-b implementation and F3-c production acceptance remain pending.
+Status: **F3-b implementation complete locally and validated.** F3-c production enablement and acceptance remain pending.
 
-This document is the source of truth for the supervised automatic player-session pipeline. It records the real current call graph, the enqueue-versus-execution gap, ownership boundaries, failure behavior, and exactly one recommended implementation architecture. It does not implement or enable runtime code, services, timers, routes, jobs, UI, or production changes.
+This document is the source of truth for the supervised automatic player-session pipeline. It records the F3-a call-graph audit and the implemented F3-b correction for the enqueue-versus-execution gap, including ownership boundaries, durable state, failure behavior, generated units, and explicit lifecycle controls. The code change does not install or enable the timer, restart the game or web service, mutate a live instance, or claim F3-c production acceptance.
 
 ## Decision Summary
 
-The existing command:
+F3-a proved that the former command:
 
 ```text
 armactl players sessions scheduler run --once
 ```
 
-does **not** guarantee execution or completion of player-session work. It only persists or reuses queued `web_jobs` rows and then records the scheduler attempt as successful. It does not call a job dispatcher, start a worker, wait for a terminal job state, or verify stage output.
+persisted or reused queued `web_jobs` rows and returned without proving execution or completion. F3-b replaces that automatic path with one synchronous ordered orchestrator that calls the shared typed mutation services directly, does not load the web job registry, does not start a web worker thread, and records success only after terminal durable work.
 
-The only current code paths that start player-session workers are the explicit manual web action wrappers. Those wrappers create daemon threads inside the current web process. There is no general queue-draining worker, no app-start recovery loop, and no systemd worker that guarantees queued jobs will be consumed.
+The manual POST action wrappers remain asynchronous web jobs for operator UX, but their handlers now call the same mutation services and contend on the same per-instance nonblocking `flock` as the automatic orchestrator. The legacy scheduler table remains read-only compatibility diagnostics and its enqueue timestamps are never imported as execution truth.
 
-Consequences:
-
-- the scheduler CLI process can exit successfully while session jobs remain queued;
-- stopping or restarting `armactl-web.service` does not cause queued jobs to be picked up later;
-- a daemon-thread worker can be interrupted by web-process exit;
-- an orphaned queued row has no lease and no stale-queue recovery path, remains active indefinitely, and can suppress every later enqueue for the same job kind and instance;
-- current scheduler `last_success_at` means “enqueue/dedupe call returned,” not “session work completed.”
-
-These are P0 gates for enabling F3 automation, not evidence of an active
-automatic production incident. The session scheduler service/timer is still
-disabled and uninstalled. The manual daemon-thread durability limitation is
-real, but the enqueue-only path becomes a production blocker only if it is used
-as automatic execution without F3-b.
-
-F3-b must not hide this gap with wording. The narrow correction is to reuse the existing session services in one synchronous supervised orchestrator that does not depend on `web_jobs` or an in-process web worker.
+The generated oneshot/timer and explicit install/enable/disable/status commands exist, but the timer remains disabled and inactive after first install and is not installed or enabled by this implementation change. F3-c must still prove the production installation, enablement, observation window, and rollback path.
 
 ## Scope And Non-Negotiable Truth Rules
 
@@ -66,16 +52,18 @@ systemd timer (120 s, completion-relative)
               -> player_registry ingest/checkpoints/freshness
               -> terminal typed result before process exit
 
-Current session scheduler path
+Current F3-b session scheduler path
 
-operator/possible future systemd caller
-  -> armactl players sessions scheduler run --once
-     -> run_player_session_scheduler_once(...)
-        -> ensure_player_*_job(...)
-           -> get_or_create_active_job(...)
-              -> INSERT/return queued web_jobs row
-        -> record scheduler last_success_at/next_due_at
-     -> process exits
+operator or generated systemd oneshot
+  -> armactl players sessions scheduler run --once [--scheduled]
+     -> run_player_session_scheduler_once(...), synchronously
+        -> acquire shared per-instance nonblocking flock
+        -> prove newer completed fresh ingest generation/high-water
+        -> bounded event_id sessionization with monotonic trusted-time validation
+        -> one exact reliable live RCON scan
+        -> maintenance only when due
+        -> durable terminal pipeline state
+     -> process exits only after terminal result
 
 Current manual web session action path
 
@@ -103,9 +91,11 @@ GET /players or /players/current.json
      -> nullable result; no writes and no enqueue
 ```
 
-## Real Call Graph
+## Call Graph Audit
 
-### Scheduler CLI
+The former scheduler subsection records the F3-a defect that F3-b replaced. The manual jobs, stored-log sessionizer, live scanner, maintenance, and read-only stats subsections describe the reusable paths retained by F3-b.
+
+### Former Scheduler CLI (F3-a, Resolved)
 
 ```text
 cli.py
@@ -216,7 +206,7 @@ The aggregator is not a pipeline mutation stage. It stays request-time, read-onl
 | Reconnect merge | `player_registry.observe_player_session` | instance `players.db` transaction | Existing 10-minute and identity/server-run gates remain authoritative. |
 | Current stats values | read-only enrichment query | no materialized counters | Derived only from existing proven session and event evidence. |
 | Manual session requests, progress, lease, and dedupe | web job store | `web.db` / `web_jobs` | Manual operator workflow ledger only; it is not automatic pipeline execution truth. |
-| Current session scheduler due/backoff metadata | scheduler runner | `web.db` / scheduler state table | Currently records enqueue outcomes, not work completion; must not be treated as execution truth. |
+| Legacy session scheduler due/backoff metadata | compatibility reader | `web.db` / scheduler state table | Historical enqueue outcomes only; F3-b never reads them as execution truth or updates them. |
 | F3-b automatic pipeline state and sessionization cursor | synchronous orchestrator | instance `players.db` / one `player_session_pipeline_state` row | Selected sole automatic-control ledger. It advances only from completed synchronous stages and is independent of `web_jobs` and `armactl-web.service`. |
 | Current worker liveness hint | in-process token plus `web_jobs` lease | web process memory + `web.db` | A fresh lease is only recent heartbeat metadata. It is not an OS-level durable worker guarantee. |
 | Audit trail | audit service | append-only audit file | Supplemental operator evidence; not a substitute for DB/service completion state. |
@@ -225,12 +215,9 @@ The aggregator is not a pipeline mutation stage. It stays request-time, read-onl
 
 ### Competing Ledgers
 
-The current design has two independent control ledgers for automatic intent:
+F3-a found two independent ledgers for automatic intent: scheduler due/backoff rows and active `web_jobs` rows. Neither proved completed work, and an orphaned row could suppress later enqueue attempts.
 
-1. scheduler due/backoff rows; and
-2. active `web_jobs` rows.
-
-Neither proves completed session work. An enqueue can update scheduler success while an active queued row prevents future requests forever. F3-b must make one synchronous pipeline-run state the automatic-control ledger and leave `web_jobs` exclusively as the manual-job ledger.
+F3-b resolves that conflict: `player_session_pipeline_state` is the only automatic-control ledger, `web_jobs` is manual workflow metadata only, and the legacy scheduler table is read-only diagnostics.
 
 The selected F3-b ledger lives in the instance `players.db`, next to the event,
 freshness, lifecycle, session, and absence evidence it coordinates. The legacy
@@ -239,7 +226,9 @@ diagnostics only: F3-b does not consult or update them, does not copy their
 enqueue-based success timestamps into the new state, and must label them as
 legacy enqueue metadata until a later explicit removal slice.
 
-## Findings
+## F3-a Historical Findings
+
+The following pre-fix findings explain the F3-b design. They are resolved by the synchronous orchestrator unless an item explicitly remains a later operational concern.
 
 ### P0 Implementation Gates
 
@@ -291,7 +280,7 @@ The current planning policy allows stored-log sessionization every five minutes 
 
 Dedupe prevents duplicate active rows, but it does not ensure execution, completion, recovery, or ordering. Documentation must not present it as an execution guarantee.
 
-## Execution-Guarantee Answers
+## F3-a Pre-Fix Execution-Guarantee Answers
 
 1. **Does the current scheduler execute work synchronously?** No.
 2. **Does it start a worker?** No.
@@ -449,12 +438,11 @@ The first F3-b contract uses:
 - systemd `TimeoutStartSec=240s` for the session pipeline oneshot;
 - one immediate ingest-readiness evaluation per invocation, with no sleep/poll loop;
 - bounded stored-event batches, initially at most 5,000 newly ingested event rows per pass;
-- a 150-second sessionization budget;
-- a 15-second live-scan budget;
-- existing bounded maintenance batches, with a 30-second maintenance budget;
+- existing bounded RCON/source query timeouts for the live scan;
+- existing bounded maintenance batches;
 - restrained CPU/I/O priority and `UMask=0077`, matching the established ingest service pattern.
 
-The hard service timeout is a failure guard. It does not mark a stage successful.
+The hard service timeout is the outer failure guard, not success truth. F3-b does not add independent wall-clock success timers around Python mutation stages; stage order, bounded event counts, source query timeouts, and terminal results determine progress.
 
 A batch that does not reach the current ingest generation high-water records `backlog_remaining=true`, does not advance the consumed-generation token, and skips live scan and maintenance. The next cycle resumes from the single persisted sessionization cursor. This prevents an unprocessed lifecycle boundary from being overtaken by live or maintenance work.
 
@@ -559,22 +547,20 @@ No field can be updated to success merely because a job row was created or time 
 
 `players sessions scheduler status` remains read-only and must not create/migrate `players.db`, enqueue work, start a worker, or repair metadata.
 
-Required safe fields:
+The F3-b status exposes:
 
-- service/timer installed, enabled, active, failed, last result, next trigger;
+- service/timer installed, enabled, active, and their bounded systemd status metadata;
 - configured cadence, initial offset, and runtime guard;
-- automatic pipeline enabled/disabled policy;
 - lock state as idle/busy/unknown, without PID or path output;
-- current ingest state, freshness status, checkpoint count, safe freshness timestamp, and whether a newer consumable generation exists;
+- current ingest freshness status and completed generation high-water;
 - last attempt/start/completion/success/failure timestamps;
 - interrupted state;
 - consecutive failure count;
 - last failure stage and bounded reason code;
 - last consumed ingest generation timestamp;
-- sessionization high-water and backlog count, counts only;
-- per-stage last outcome, duration, and sanitized counts;
+- current and consumed sessionization high-water;
 - next maintenance due;
-- overall readiness: disabled, waiting_for_ingest, ready, busy, degraded, failed, or healthy.
+- overall pipeline state: empty, waiting_for_ingest, available, busy, degraded, failed, or healthy.
 
 Status must not claim that current-player stats are available. Stats readiness remains per-player and read-only because coverage can differ from each session opening.
 
@@ -582,12 +568,9 @@ Status must not claim that current-player stats are available. Stats readiness r
 
 Each scheduled run emits one bounded summary plus optional per-stage counts:
 
-- stage name and outcome;
-- duration;
+- terminal outcome, failure stage, and bounded reason code;
 - event/session/roster/absence/retention counts;
-- freshness/readiness codes;
-- backlog count;
-- lock-busy and timeout codes.
+- generation, backlog, lock-busy, source reliability, and timeout outcome codes.
 
 Output must not contain:
 
@@ -599,7 +582,7 @@ Output must not contain:
 - IP addresses;
 - secrets, tokens, cookies, webhook URLs, or credentials.
 
-Routine successful unchanged/not-due cycles should not spam the durable audit log. Persist bounded transition audit for first failure, recovery, enable/disable, freshness/readiness transition, and production acceptance actions. Journald remains counts-only.
+Routine successful unchanged/not-due cycles do not write durable audit entries. F3-b journald output is counts-only; any future durable transition-audit integration must preserve the same bounded privacy contract.
 
 ### Install, Enable, Disable, And Status Contract
 
@@ -772,7 +755,7 @@ Before any production rollout, focused tests must prove at least:
   idempotently;
 - install is idempotent, disabled by default, preserves existing enablement, and
   does not restart or start game/web/session work;
-- status, CLI, journald, and audit output remain counts-only and sanitized;
+- status, CLI, and journald output remain counts-only and sanitized;
 - existing manual POST jobs still use the same mutation services and shared lock;
 - full project tests pass because scheduler semantics, registry schema, manual
   jobs, CLI, generated units, and read-only player routes are shared behavior.
@@ -870,7 +853,6 @@ Stop F3-b implementation or F3-c rollout and leave/return the timer disabled whe
 
 ## Out Of Scope
 
-- F3-b runtime implementation in this audit slice;
 - F3-c production installation, enablement, observation, or acceptance;
 - Discord or public combat-stat enrichment;
 - historical oversized-log backfill;
@@ -888,5 +870,5 @@ Stop F3-b implementation or F3-c rollout and leave/return the timer disabled whe
 ## Work Status
 
 - [x] **F3-a:** trace real execution paths, answer enqueue-versus-execution, assign source-of-truth ownership, define ordering/recovery, and select one supervised architecture.
-- [ ] **F3-b:** implement the synchronous supervised player-session service/timer and the contract above.
+- [x] **F3-b:** implement and locally validate the synchronous supervised player-session service/timer, atomic ingest generations, bounded cursor, exact live-roster gate, shared mutation lock, and disabled-by-default lifecycle controls.
 - [ ] **F3-c:** complete staged Serhiivka-first, approval-gated Chervonopilya production acceptance.

@@ -43,9 +43,6 @@ def _append_sessionization_intent_audit(
         message="Player log sessionization requested.",
         exit_code=0,
         details={
-            "phase": "intent",
-            "job_kind": player_sessions.PLAYER_LOG_SESSIONIZATION_JOB_KIND,
-            "scope": player_sessions.PLAYER_LOG_SESSIONIZATION_SCOPE,
             "events_scanned": "0",
             "events_ignored": "0",
             "observations_considered": "0",

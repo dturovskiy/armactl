@@ -436,7 +436,7 @@ def test_uncontrolled_failure_does_not_mark_fresh_or_leak_details(
 
     monkeypatch.setattr(
         player_log_ingest.player_log_collector,
-        "collect_player_log_events",
+        "scan_player_log_events",
         fail_collect,
     )
 
@@ -711,7 +711,7 @@ def test_cli_failure_output_and_audit_are_sanitized(
 
     monkeypatch.setattr(
         player_log_ingest.player_log_collector,
-        "collect_player_log_events",
+        "scan_player_log_events",
         fail_collect,
     )
 

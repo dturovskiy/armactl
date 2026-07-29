@@ -1388,54 +1388,77 @@ def players_log_ingest_run(
 
 
 def _format_player_session_scheduler_run_result(result) -> str:
-    lines = [
-        "Player session scheduler checked due jobs.",
-        f"  Instance:       {result.instance}",
-        f"  Checked at:     {result.checked_at}",
-        f"  Checked:        {result.checked_count}",
-        f"  Due:            {result.due_count}",
-        f"  Enqueued:       {result.enqueued_count}",
-        f"  Active:         {result.active_count}",
-        f"  Failed:         {result.failed_count}",
-        (
-            "  Runner mode:    explicit --once only; no service, timer, "
-            "or daemon is installed/enabled."
-        ),
-    ]
-    for job in result.jobs:
-        job_id = f" job=#{job.job_id}" if job.job_id is not None else ""
-        lines.append(
-            f"  - {job.job_kind}: {job.outcome}{job_id}; next due {job.next_due_at or 'unknown'}"
-        )
-    return "\n".join(lines)
+    """Return counts-only text suitable for the systemd journal."""
+    return (
+        "player_session_pipeline "
+        f"outcome={result.outcome} "
+        f"completed={int(result.outcome == 'completed')} "
+        f"no_new_generation={int(result.outcome == 'no_new_generation')} "
+        f"failed={int(result.outcome == 'failed')} "
+        f"failure_stage={result.failure_stage or 'none'} "
+        f"error_code={result.error_code or 'none'} "
+        f"generation_proven={int(result.generation_proven)} "
+        f"session_pages={result.session_pages_completed} "
+        f"session_events={result.session_events_scanned} "
+        f"session_observations={result.session_observations_applied} "
+        f"session_created={result.session_sessions_created} "
+        f"session_updated={result.session_sessions_updated} "
+        f"session_closed={result.session_sessions_closed} "
+        f"live_reliable={int(result.live_reliable)} "
+        f"live_observed={result.live_observed_count} "
+        f"live_observations={result.live_observations_applied} "
+        f"live_created={result.live_sessions_created} "
+        f"live_updated={result.live_sessions_updated} "
+        f"live_closed={result.live_sessions_closed} "
+        f"maintenance_due={int(result.maintenance_due)} "
+        f"maintenance_performed={int(result.maintenance_performed)} "
+        f"stale_closed={result.stale_sessions_closed} "
+        f"retained_deleted={result.retained_sessions_deleted}"
+    )
 
 
 def _format_player_session_scheduler_status(status) -> str:
-    def timestamp(value: str) -> str:
-        return value or "-"
+    pipeline = status.pipeline
+    service = status.service
+    timer = status.timer
+    return "\n".join(
+        [
+            "Player session pipeline status (read-only).",
+            f"  State:             {pipeline.state} ({pipeline.reason})",
+            f"  Freshness:         {pipeline.freshness_status}",
+            f"  Generation:        {pipeline.completed_generation}",
+            f"  Processed gen:     {pipeline.last_processed_ingest_generation}",
+            f"  Event high-water:  {pipeline.generation_max_event_id}",
+            f"  Session cursor:    {pipeline.last_sessionized_event_id}",
+            f"  Lock state:        {pipeline.lock_state}",
+            f"  Interrupted:       {pipeline.interrupted}",
+            f"  Last attempt:      {pipeline.last_attempt_at or '-'}",
+            f"  Last started:      {pipeline.last_started_at or '-'}",
+            f"  Last completed:    {pipeline.last_completed_at or '-'}",
+            f"  Last success:      {pipeline.last_success_at or '-'}",
+            f"  Last failure:      {pipeline.last_failure_at or '-'}",
+            f"  Maintenance due:   {pipeline.next_maintenance_due_at or '-'}",
+            f"  Last result:       {pipeline.last_result or '-'}",
+            f"  Failure stage:     {pipeline.last_failure_stage or '-'}",
+            f"  Failure count:     {pipeline.consecutive_failures}",
+            f"  Timer cadence:     {status.cadence_seconds}s",
+            f"  Initial offset:    {status.initial_delay_seconds}s",
+            f"  Runtime guard:     {status.runtime_guard_seconds}s",
+            f"  Service installed: {bool(service.get('exists'))}",
+            f"  Service active:    {bool(service.get('active'))}",
+            f"  Timer installed:   {bool(timer.get('exists'))}",
+            f"  Timer enabled:     {bool(timer.get('enabled'))}",
+            f"  Timer active:      {bool(timer.get('active'))}",
+            f"  Legacy rows:       {pipeline.legacy_state_row_count}",
+        ]
+    )
 
-    lines = [
-        "Player session scheduler status (read-only).",
-        f"  Instance:       {status.instance}",
-        f"  Checked at:     {status.checked_at}",
-        f"  State:          {status.state} ({status.reason})",
-        f"  State rows:     {status.state_row_count}",
-        "  Auto scheduler: disabled"
-        if not status.automatic_scheduler_enabled
-        else "  Auto scheduler: enabled",
-        "  Service mode:   no service, timer, or daemon is installed/enabled.",
-    ]
-    for job in status.jobs:
-        due_text = "due" if job.due else "not due"
-        lines.append(
-            f"  - {job.job_kind}: {due_text}; "
-            f"last attempt {timestamp(job.last_attempt_at)}; "
-            f"last success {timestamp(job.last_success_at)}; "
-            f"last failure {timestamp(job.last_failure_at)}; "
-            f"next due {timestamp(job.next_due_at)}; "
-            f"failures {job.failure_count}"
-        )
-    return "\n".join(lines)
+
+def _format_player_session_pipeline_action(result) -> str:
+    return (
+        f"player_session_pipeline_action success={int(result.success)} "
+        f"steps={len(result.results)}"
+    )
 
 
 @players.group("sessions")
@@ -1448,30 +1471,102 @@ def players_sessions_scheduler() -> None:
     """Manage the opt-in player-session scheduler runner."""
 
 
+@players_sessions_scheduler.command("install")
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Optional armactl data root.",
+)
+@click.pass_context
+def players_sessions_scheduler_install(
+    ctx: click.Context,
+    data_root: Path | None,
+) -> None:
+    """Install the generated units without implicitly enabling them."""
+    from armactl.player_session_pipeline_service import (
+        install_player_session_pipeline_service,
+    )
+
+    result = install_player_session_pipeline_service(
+        ctx.obj["instance"],
+        data_root=data_root or paths.DEFAULT_DATA_ROOT,
+    )
+    if ctx.obj["json"]:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+    else:
+        click.echo(_format_player_session_pipeline_action(result))
+    if result.exit_code:
+        raise click.exceptions.Exit(result.exit_code)
+
+
+@players_sessions_scheduler.command("enable")
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Optional armactl data root.",
+)
+@click.pass_context
+def players_sessions_scheduler_enable(
+    ctx: click.Context,
+    data_root: Path | None,
+) -> None:
+    """Explicitly enable and start the generated timer."""
+    from armactl.player_session_pipeline_service import (
+        enable_player_session_pipeline_timer,
+    )
+
+    result = enable_player_session_pipeline_timer(
+        ctx.obj["instance"],
+        data_root=data_root or paths.DEFAULT_DATA_ROOT,
+    )
+    if ctx.obj["json"]:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+    else:
+        click.echo(_format_player_session_pipeline_action(result))
+    if result.exit_code:
+        raise click.exceptions.Exit(result.exit_code)
+
+
+@players_sessions_scheduler.command("disable")
+@click.pass_context
+def players_sessions_scheduler_disable(ctx: click.Context) -> None:
+    """Stop and disable the generated timer only."""
+    from armactl.player_session_pipeline_service import (
+        disable_player_session_pipeline_timer,
+    )
+
+    result = disable_player_session_pipeline_timer(ctx.obj["instance"])
+    if ctx.obj["json"]:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+    else:
+        click.echo(_format_player_session_pipeline_action(result))
+    if result.exit_code:
+        raise click.exceptions.Exit(result.exit_code)
+
+
 @players_sessions_scheduler.command("status")
 @click.option(
     "--data-root",
     type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
     default=None,
-    help="Optional armactl data root containing web.db.",
+    help="Optional armactl data root.",
 )
 @click.pass_context
 def players_sessions_scheduler_status(
     ctx: click.Context,
     data_root: Path | None,
 ) -> None:
-    """Show read-only player-session scheduler state."""
-    from armactl.web.runtime import web_db_file
-    from armactl.web.services.player_session_scheduler_runner import (
-        read_player_session_scheduler_status,
+    """Show read-only pipeline and generated-unit state."""
+    from armactl.player_session_pipeline_service import (
+        get_player_session_pipeline_service_status,
     )
 
-    root = data_root or paths.DEFAULT_DATA_ROOT
-    status = read_player_session_scheduler_status(
-        web_db_file(root),
-        instance=ctx.obj["instance"],
+    status = get_player_session_pipeline_service_status(
+        ctx.obj["instance"],
+        data_root=data_root or paths.DEFAULT_DATA_ROOT,
     )
-
     if ctx.obj["json"]:
         click.echo(json.dumps(status.to_dict(), indent=2))
     else:
@@ -1479,47 +1574,47 @@ def players_sessions_scheduler_status(
 
 
 @players_sessions_scheduler.command("run")
-@click.option("--once", is_flag=True, help="Check due jobs once and exit.")
+@click.option("--once", is_flag=True, help="Run one synchronous pipeline pass.")
+@click.option(
+    "--scheduled",
+    is_flag=True,
+    help="Mark invocation as the generated systemd oneshot.",
+)
 @click.option(
     "--data-root",
     type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
     default=None,
-    help="Optional armactl data root containing web.db.",
+    help="Optional armactl data root.",
 )
 @click.pass_context
 def players_sessions_scheduler_run(
     ctx: click.Context,
     once: bool,
+    scheduled: bool,
     data_root: Path | None,
 ) -> None:
-    """Run the explicit player-session scheduler once."""
-    from armactl.web.runtime import web_db_file
+    """Run the synchronous supervised player-session pipeline once."""
     from armactl.web.services.player_session_scheduler_runner import (
         PlayerSessionSchedulerRunnerError,
         run_player_session_scheduler_once,
     )
 
     if not once:
-        raise click.ClickException(
-            "Only --once is supported; no scheduler service, timer, daemon, "
-            "or background thread is installed or enabled."
-        )
-
-    root = data_root or paths.DEFAULT_DATA_ROOT
+        raise click.ClickException("Only --once is supported.")
+    del scheduled
     try:
         result = run_player_session_scheduler_once(
-            web_db_file(root),
             instance=ctx.obj["instance"],
+            data_root=data_root or paths.DEFAULT_DATA_ROOT,
         )
     except PlayerSessionSchedulerRunnerError as error:
         raise click.ClickException(str(error)) from error
-
     if ctx.obj["json"]:
         click.echo(json.dumps(result.to_dict(), indent=2))
     else:
         click.echo(_format_player_session_scheduler_run_result(result))
-    if not result.success:
-        sys.exit(result.exit_code)
+    if result.exit_code:
+        raise click.exceptions.Exit(result.exit_code)
 
 
 @players.group("current-cache")

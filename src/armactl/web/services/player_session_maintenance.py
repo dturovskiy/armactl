@@ -43,9 +43,6 @@ def _append_maintenance_intent_audit(
         message="Player session maintenance requested.",
         exit_code=0,
         details={
-            "phase": "intent",
-            "job_kind": player_sessions.PLAYER_SESSION_MAINTENANCE_JOB_KIND,
-            "scope": player_sessions.PLAYER_SESSION_MAINTENANCE_SCOPE,
             "open_sessions_scanned": "0",
             "stale_sessions_overdue": "0",
             "stale_sessions_closed": "0",
