@@ -350,6 +350,49 @@ def test_registry_db_creation_has_schema_metadata(tmp_path: Path):
     assert (
         "idx_player_session_lifecycle_boundaries_at" in _sqlite_indexes(db_path)
     )
+    assert "idx_player_log_events_sessionization_order" in _sqlite_indexes(db_path)
+
+
+def test_registry_db_migrates_v13_event_time_sort_keys_idempotently(
+    tmp_path: Path,
+) -> None:
+    from armactl.web.services import player_registry
+
+    db_path = tmp_path / "default" / "players.db"
+    event = _parse_log_event(
+        "BACKEND : Authenticated player: "
+        f"rplIdentity=42 identityId={PLAYER_ALPHA_ID} name=Alpha",
+        observed_at="2026-07-26T11:22:29.310000Z",
+        raw_source_ref="migration-fixture",
+    )
+    player_registry.ingest_player_log_events(db_path, [event])
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE player_log_events SET event_time_utc_us = 0"
+        )
+        connection.execute(
+            "UPDATE player_registry_schema_meta SET value = ? WHERE key = ?",
+            ("13", "schema_version"),
+        )
+
+    player_registry.ensure_player_registry_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        first = connection.execute(
+            "SELECT event_time_utc_us FROM player_log_events"
+        ).fetchone()
+    assert first is not None
+    assert first[0] == 1_785_064_949_310_000
+    assert _registry_schema_version(db_path) == (
+        player_registry.PLAYER_REGISTRY_SCHEMA_VERSION
+    )
+    assert "idx_player_log_events_sessionization_order" in _sqlite_indexes(db_path)
+
+    player_registry.ensure_player_registry_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        second = connection.execute(
+            "SELECT event_time_utc_us FROM player_log_events"
+        ).fetchone()
+    assert second == first
 
 
 def test_registry_db_migrates_v4_history_indexes_idempotently(tmp_path: Path):

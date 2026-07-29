@@ -484,10 +484,19 @@ tuple, not an assumption that insertion order equals occurrence order. This
 handles normal historical-log discovery and rotated-file rescans whose newer
 database IDs can legitimately carry older occurrence times.
 
-Schema v13 records the cursor-order version and the fixed target generation
-tuple. A pre-v13 partial cursor is promoted automatically only when read-only SQL
-proves that its processed event-ID prefix is exactly the same trusted-time
-prefix. Otherwise the pipeline remains fail-closed with bounded
+Schema v14 stores a canonical signed UTC microsecond sort key for every event.
+Migration derives it from the same occurrence/observation/collection/recorded
+timestamp precedence used by the read model and fails closed if an existing row
+has no valid timestamp. Sessionization and history indexes order by this numeric
+key, with event ID as the deterministic tie-breaker; raw ISO text is retained as
+evidence/display data but is not ordering truth. This prevents mixed ISO
+precision such as `...29Z` and `...29.310000Z` from being misordered
+lexicographically.
+
+Schema v13 introduced the cursor-order version and fixed target generation
+tuple. A pre-v13 partial cursor is promoted automatically only when read-only
+SQL proves that its processed event-ID prefix is exactly the same canonical
+trusted-time prefix. Otherwise the pipeline remains fail-closed with bounded
 `historical_backfill_required` state. A new generation whose evidence predates
 the fully consumed prior-generation cursor is also rejected before mutation.
 

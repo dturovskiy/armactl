@@ -44,7 +44,7 @@ from armactl.web.services.player_identity import (
 )
 
 PLAYER_REGISTRY_DB_NAME = "players.db"
-PLAYER_REGISTRY_SCHEMA_VERSION = "13"
+PLAYER_REGISTRY_SCHEMA_VERSION = "14"
 PRIVATE_PLAYER_REGISTRY_FILE_MODE = 0o600
 DEFAULT_PLAYER_HISTORY_EVENT_LIMIT = 100
 MAX_PLAYER_HISTORY_EVENT_LIMIT = 250
@@ -87,6 +87,7 @@ _PLAYER_LOG_EVENT_INSERT_COLUMNS = (
     "log_timestamp",
     "time_source",
     "time_confidence",
+    "event_time_utc_us",
     "player_id",
     "player_name",
     "session_player_id",
@@ -121,6 +122,7 @@ _PLAYER_LOG_EVENT_DEDUPE_COLUMNS = tuple(
         "created_at",
         "connection_id",
         "be_slot",
+        "event_time_utc_us",
     }
 )
 _PLAYER_LOG_EVENT_LEGACY_V7_DEDUPE_COLUMNS = tuple(
@@ -131,6 +133,7 @@ _PLAYER_LOG_EVENT_LEGACY_V7_DEDUPE_COLUMNS = tuple(
         "occurred_at",
         "time_source",
         "time_confidence",
+        "event_time_utc_us",
         "collected_at",
         "created_at",
         "connection_id",
@@ -723,6 +726,26 @@ def _ensure_player_names_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+def _event_time_utc_microseconds(value: object) -> int | None:
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
+    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    delta = parsed - epoch
+    return (
+        (delta.days * 86_400 + delta.seconds) * 1_000_000
+        + delta.microseconds
+    )
+
+
 def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
@@ -738,6 +761,7 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
             log_timestamp TEXT,
             time_source TEXT NOT NULL DEFAULT 'unavailable',
             time_confidence TEXT NOT NULL DEFAULT 'ambiguous',
+            event_time_utc_us INTEGER NOT NULL DEFAULT 0,
             player_id TEXT,
             player_name TEXT,
             session_player_id TEXT,
@@ -776,6 +800,10 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
             (
                 "time_confidence",
                 "time_confidence TEXT NOT NULL DEFAULT 'ambiguous'",
+            ),
+            (
+                "event_time_utc_us",
+                "event_time_utc_us INTEGER NOT NULL DEFAULT 0",
             ),
             ("collected_at", "collected_at TEXT"),
         ),
@@ -826,7 +854,7 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_player_log_events_history_order
         ON player_log_events(
-            COALESCE(occurred_at, observed_at, collected_at, created_at) DESC,
+            event_time_utc_us DESC,
             event_id DESC
         )
         """
@@ -836,7 +864,7 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_player_log_events_type_history_order
         ON player_log_events(
             event_type,
-            COALESCE(occurred_at, observed_at, collected_at, created_at) DESC,
+            event_time_utc_us DESC,
             event_id DESC
         )
         """
@@ -846,7 +874,7 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_player_log_events_player_history_order
         ON player_log_events(
             player_id,
-            COALESCE(occurred_at, observed_at, collected_at, created_at) DESC,
+            event_time_utc_us DESC,
             event_id DESC
         )
         """
@@ -856,7 +884,7 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_player_log_events_victim_history_order
         ON player_log_events(
             victim_id,
-            COALESCE(occurred_at, observed_at, collected_at, created_at) DESC,
+            event_time_utc_us DESC,
             event_id DESC
         )
         """
@@ -866,10 +894,47 @@ def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_player_log_events_instigator_history_order
         ON player_log_events(
             instigator_id,
-            COALESCE(occurred_at, observed_at, collected_at, created_at) DESC,
+            event_time_utc_us DESC,
             event_id DESC
         )
         """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_log_events_sessionization_order
+        ON player_log_events(event_time_utc_us ASC, event_id ASC)
+        """
+    )
+
+
+def _backfill_player_log_event_sort_keys(connection: sqlite3.Connection) -> None:
+    rows = connection.execute(
+        """
+        SELECT event_id, occurred_at, observed_at, collected_at, created_at
+        FROM player_log_events
+        """
+    ).fetchall()
+    updates: list[tuple[int, int]] = []
+    for event_id, occurred_at, observed_at, collected_at, created_at in rows:
+        effective_time = (
+            occurred_at
+            or observed_at
+            or collected_at
+            or created_at
+        )
+        sort_key = _event_time_utc_microseconds(effective_time)
+        if sort_key is None:
+            raise RuntimeError(
+                "Player log event has no valid timestamp for ordered migration."
+            )
+        updates.append((sort_key, int(event_id)))
+    connection.executemany(
+        """
+        UPDATE player_log_events
+        SET event_time_utc_us = ?
+        WHERE event_id = ?
+        """,
+        updates,
     )
 
 
@@ -1318,6 +1383,7 @@ def _drop_player_log_event_history_indexes(connection: sqlite3.Connection) -> No
         "idx_player_log_events_player_history_order",
         "idx_player_log_events_victim_history_order",
         "idx_player_log_events_instigator_history_order",
+        "idx_player_log_events_sessionization_order",
     ):
         connection.execute(f"DROP INDEX IF EXISTS {_quote_identifier(index_name)}")
 
@@ -1513,6 +1579,12 @@ def _run_player_registry_migrations(connection: sqlite3.Connection) -> None:
     if current_version < 13:
         _ensure_player_session_pipeline_state_schema(connection)
         _write_player_registry_schema_version(connection, 13)
+        current_version = 13
+    if current_version < 14:
+        _drop_player_log_event_history_indexes(connection)
+        _ensure_player_log_events_schema(connection)
+        _backfill_player_log_event_sort_keys(connection)
+        _write_player_registry_schema_version(connection, 14)
 
 
 def ensure_player_registry_db(db_path: Path) -> Path:
@@ -4070,6 +4142,11 @@ def _player_log_event_row(
     occurred_at = _safe_event_text(event.occurred_at)
     observed_at = _safe_event_text(event.observed_at)
     raw_timestamp = _safe_event_text(event.raw_timestamp)
+    event_time_utc_us = _event_time_utc_microseconds(
+        occurred_at or observed_at or collected_at or created_at
+    )
+    if event_time_utc_us is None:
+        raise ValueError("Player log event timestamp is invalid.")
     row: dict[str, object] = {
         "event_key": "",
         "event_type": _safe_event_text(event.event_type) or "unknown",
@@ -4086,6 +4163,7 @@ def _player_log_event_row(
             observed_at,
             raw_timestamp,
         ),
+        "event_time_utc_us": event_time_utc_us,
         "player_id": _safe_event_player_id(event.player_id),
         "player_name": _safe_event_text(event.player_name),
         "session_player_id": _safe_event_correlation(event.session_player_id),
@@ -4346,10 +4424,7 @@ def list_player_log_events(
     sql = "SELECT * FROM player_log_events"
     if where_clauses:
         sql += " WHERE " + " AND ".join(where_clauses)
-    sql += (
-        " ORDER BY COALESCE(occurred_at, observed_at, collected_at, created_at) "
-        "DESC, event_id DESC LIMIT ?"
-    )
+    sql += " ORDER BY event_time_utc_us DESC, event_id DESC LIMIT ?"
     params.append(normalized_limit)
 
     try:
@@ -4377,7 +4452,6 @@ def list_player_log_events_for_trusted_time_sessionization(
         if connection is not None:
             connection.close()
         return []
-    effective_time = "COALESCE(occurred_at, observed_at, collected_at, created_at)"
     where_clauses = ["event_id > ?"]
     params: list[object] = [_safe_ingest_int(event_id_floor)]
     if through_event_id is not None:
@@ -4385,21 +4459,25 @@ def list_player_log_events_for_trusted_time_sessionization(
         params.append(_safe_ingest_int(through_event_id))
     safe_after_time = _safe_ingest_text(after_event_time, max_length=80)
     if safe_after_time:
+        after_time_utc_us = _event_time_utc_microseconds(safe_after_time)
+        if after_time_utc_us is None:
+            connection.close()
+            return []
         where_clauses.append(
-            f"({effective_time} > ? OR "
-            f"({effective_time} = ? AND event_id > ?))"
+            "(event_time_utc_us > ? OR "
+            "(event_time_utc_us = ? AND event_id > ?))"
         )
         params.extend(
             (
-                safe_after_time,
-                safe_after_time,
+                after_time_utc_us,
+                after_time_utc_us,
                 _safe_ingest_int(after_event_id),
             )
         )
     sql = (
         "SELECT * FROM player_log_events WHERE "
         + " AND ".join(where_clauses)
-        + f" ORDER BY {effective_time} ASC, event_id ASC"
+        + " ORDER BY event_time_utc_us ASC, event_id ASC"
     )
     if limit is not None:
         sql += " LIMIT ?"
@@ -4437,29 +4515,36 @@ def legacy_sessionization_cursor_matches_trusted_time_prefix(
         if connection is not None:
             connection.close()
         return False
-    effective_time = "COALESCE(occurred_at, observed_at, collected_at, created_at)"
+    after_time_utc_us = _event_time_utc_microseconds(safe_after_time)
+    if after_time_utc_us is None:
+        connection.close()
+        return False
     try:
         processed_after_cursor = connection.execute(
-            f"""
+            """
             SELECT 1
             FROM player_log_events
             WHERE event_id > ?
               AND event_id <= ?
-              AND {effective_time} > ?
+              AND event_time_utc_us > ?
             LIMIT 1
             """,
-            (safe_floor, safe_after_id, safe_after_time),
+            (safe_floor, safe_after_id, after_time_utc_us),
         ).fetchone()
         unprocessed_before_cursor = connection.execute(
-            f"""
+            """
             SELECT 1
             FROM player_log_events
             WHERE event_id > ?
               AND event_id <= ?
-              AND {effective_time} < ?
+              AND event_time_utc_us < ?
             LIMIT 1
             """,
-            (max(safe_floor, safe_after_id), safe_high_water, safe_after_time),
+            (
+                max(safe_floor, safe_after_id),
+                safe_high_water,
+                after_time_utc_us,
+            ),
         ).fetchone()
         return processed_after_cursor is None and unprocessed_before_cursor is None
     finally:

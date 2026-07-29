@@ -289,6 +289,45 @@ def test_bounded_cursor_resume_blocks_downstream_until_backlog_clears(
     assert live_calls == [1]
 
 
+def test_mixed_iso_precision_uses_canonical_utc_order(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fractional = _event(
+        PLAYER_ALPHA_ID,
+        "2026-07-26T11:22:29.310000Z",
+        "fractional",
+    )
+    whole_second = _event(
+        PLAYER_BRAVO_ID,
+        "2026-07-26T11:22:29Z",
+        "whole-second",
+    )
+    _commit_generation(tmp_path, (fractional, whole_second))
+    _patch_successful_downstream(monkeypatch)
+
+    ordered = player_registry.list_player_log_events_for_trusted_time_sessionization(
+        _players_db(tmp_path),
+        through_event_id=2,
+    )
+    result = runner.run_player_session_scheduler_once(
+        instance="default",
+        data_root=tmp_path,
+        now=NOW,
+    )
+    state = player_registry.get_player_session_pipeline_state(_players_db(tmp_path))
+
+    assert [event.source_ref for event in ordered] == [
+        "whole-second",
+        "fractional",
+    ]
+    assert result.outcome == "completed"
+    assert result.error_code == ""
+    assert state.last_sessionized_event_id == 1
+    assert state.last_sessionized_event_time == "2026-07-26T11:22:29.310000Z"
+    assert _session_count(tmp_path) == 2
+
+
 def test_newer_generation_waits_as_nonfailure_backlog_after_resumed_target(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
