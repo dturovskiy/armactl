@@ -266,7 +266,7 @@ The ingest acceptance criteria “freshness updates without the manual button”
 - [x] Confirm that no generic web worker drains those queued rows, web restart does not resume them, and an orphaned queued row can remain active indefinitely and block later requests.
 - [x] Define one F3-b architecture: a disabled-by-default systemd oneshot/timer calling a synchronous ordered orchestrator that gates on a completed fresh ingest generation, then runs stored-log sessionization, reliable live scan, and due maintenance under one shared lock.
 - [x] Preserve read-only current stats, reconnect/lifecycle gates, repeated reliable absence, nullable unavailable results, and counts-only privacy constraints.
-- [ ] Implement F3-b runtime code and generated units.
+- [x] Implement F3-b runtime code and generated units.
 - [ ] Complete F3-c Serhiivka-first, approval-gated Chervonopilya production acceptance.
 
 The full execution, ordering, failure/recovery, cadence, status, privacy, rollout, and stop-condition contract is [player-session-supervised-pipeline-contract.md](player-session-supervised-pipeline-contract.md).
