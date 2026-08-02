@@ -29,6 +29,7 @@ from armactl.web.services import (
     player_live_session_scan,
     player_log_collection,
     player_log_sessionization,
+    player_session_details,
     player_session_maintenance,
 )
 
@@ -384,6 +385,10 @@ def _render_player_sessions_page(
         status=request.query_params.get("status", ""),
         end_reason=request.query_params.get("end_reason", ""),
         source=request.query_params.get("source", ""),
+        from_time=request.query_params.get("from", ""),
+        to_time=request.query_params.get("to", ""),
+        before_time=request.query_params.get("before_time", ""),
+        before_session_id=request.query_params.get("before_session_id", ""),
         limit=request.query_params.get("limit", ""),
         web_db_path=current.config.db_path,
     )
@@ -400,11 +405,69 @@ def _render_player_sessions_page(
             "status": page.status,
             "end_reason": page.end_reason,
             "source": page.source,
+            "from_time": page.from_time,
+            "to_time": page.to_time,
             "limit": page.limit,
             "sessions": page.sessions,
             "session_job_notice": _session_job_notice_from_query(request),
         },
         status_code=status_code,
+    )
+    if form_csrf.should_set_cookie:
+        set_csrf_cookie(response, form_csrf.token, current.config)
+    return response
+
+
+def _render_player_session_detail_page(
+    request: Request,
+    current: CurrentSession,
+    session_id: str,
+) -> Response:
+    if not require_permission(current, PLAYERS_VIEW):
+        return permission_denied_response()
+
+    page = players_page_model.load_player_session_detail_page(
+        session_id,
+        paths.DEFAULT_INSTANCE_NAME,
+        data_root=current.config.data_root,
+        query=request.query_params.get("q", ""),
+        reliable_id=request.query_params.get("player_id", ""),
+        status=request.query_params.get("status", ""),
+        end_reason=request.query_params.get("end_reason", ""),
+        source=request.query_params.get("source", ""),
+        from_time=request.query_params.get("from", ""),
+        to_time=request.query_params.get("to", ""),
+        limit=request.query_params.get("limit", ""),
+        before_time=request.query_params.get("before_time", ""),
+        before_session_id=request.query_params.get("before_session_id", ""),
+        timeline_limit=request.query_params.get("timeline_limit", ""),
+        timeline_before_time=request.query_params.get(
+            "timeline_before_time",
+            "",
+        ),
+        timeline_before_event_id=request.query_params.get(
+            "timeline_before_event_id",
+            "",
+        ),
+    )
+    response_status = status.HTTP_200_OK
+    if page.status in {
+        player_session_details.PLAYER_SESSION_DETAIL_STATUS_INVALID_ID,
+        player_session_details.PLAYER_SESSION_DETAIL_STATUS_NOT_FOUND,
+    }:
+        response_status = status.HTTP_404_NOT_FOUND
+    form_csrf = get_form_csrf_token(request, current)
+    response = request.app.state.templates.TemplateResponse(
+        request=request,
+        name="player_session_detail.html",
+        context={
+            "current_user": current.user,
+            "csrf_token": form_csrf.token,
+            "page": page,
+            "detail": page.detail,
+            "timeline_rows": page.timeline_rows,
+        },
+        status_code=response_status,
     )
     if form_csrf.should_set_cookie:
         set_csrf_cookie(response, form_csrf.token, current.config)
@@ -427,6 +490,15 @@ def player_sessions_page(request: Request) -> Response:
     if current is None:
         return _redirect_to_login(request)
     return _render_player_sessions_page(request, current)
+
+
+@router.get("/players/sessions/{session_id}", response_class=HTMLResponse)
+def player_session_detail_page(request: Request, session_id: str) -> Response:
+    """Render one stored player session and its bounded safe timeline."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    return _render_player_session_detail_page(request, current, session_id)
 
 
 @router.get("/players", response_class=HTMLResponse)

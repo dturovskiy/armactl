@@ -367,6 +367,14 @@ def test_player_session_dynamic_translation_keys_exist_in_locales():
         "Live player session scan completed.",
         "Live player session scan failed.",
         "No reliable live player session observations found.",
+        "Stored as not closed; this is recorded evidence, not a live online guarantee.",
+        "Stored as closed from recorded evidence; the close time is not an exact leave time.",
+        "Stored session state is evidence only.",
+        "Incomplete",
+        "Other player event",
+        "Recorded player evidence",
+        "Faction evidence",
+        "Stats unavailable because fresh log coverage does not span the player session.",
     }
 
     assert sorted(keys - _locale_keys("en")) == []

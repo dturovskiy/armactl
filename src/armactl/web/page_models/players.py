@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlencode
 
 from armactl import paths, player_log_events
 from armactl.web.jobs import models as job_models
@@ -14,6 +15,8 @@ from armactl.web.services import (
     player_current_cache,
     player_current_enrichment,
     player_registry,
+    player_session_details,
+    player_session_stats,
     player_sources,
 )
 from armactl.web.services.player_identity import normalize_player_query, safe_player_text
@@ -98,9 +101,6 @@ PLAYER_SESSION_STATUS_OPTIONS = (
     ("", "All statuses"),
     *PLAYER_SESSION_STATUS_LABELS.items(),
 )
-PLAYER_SESSION_STATUS_VALUES = frozenset(
-    status for status, _label in PLAYER_SESSION_STATUS_OPTIONS if status
-)
 PLAYER_SESSION_END_REASON_LABELS = {
     player_registry.PLAYER_SESSION_END_REASON_DISCONNECT: "Disconnect evidence",
     player_registry.PLAYER_SESSION_END_REASON_SERVER_BOUNDARY: (
@@ -124,9 +124,6 @@ PLAYER_SESSION_END_REASON_OPTIONS = (
     ("", "All end reasons"),
     *PLAYER_SESSION_END_REASON_LABELS.items(),
 )
-PLAYER_SESSION_END_REASON_VALUES = frozenset(
-    reason for reason, _label in PLAYER_SESSION_END_REASON_OPTIONS if reason
-)
 PLAYER_SESSION_SOURCE_LABELS = {
     player_registry.PLAYER_SESSION_SOURCE_BACKEND_AUTH: "Log evidence",
     player_registry.PLAYER_SESSION_SOURCE_NETWORK_PLAYER_UPDATE: "Log evidence",
@@ -145,9 +142,6 @@ PLAYER_SESSION_SOURCE_LABELS = {
 PLAYER_SESSION_SOURCE_OPTIONS = (
     ("", "All sources"),
     *PLAYER_SESSION_SOURCE_LABELS.items(),
-)
-PLAYER_SESSION_SOURCE_VALUES = frozenset(
-    source for source, _label in PLAYER_SESSION_SOURCE_OPTIONS if source
 )
 PLAYER_SESSION_CONFIDENCE_LABELS = {
     player_registry.PLAYER_SESSION_CONFIDENCE_HIGH: "High confidence",
@@ -176,6 +170,21 @@ PLAYER_SESSION_ACTIVE_JOB_STATUSES = frozenset(
         job_models.JOB_STATUS_RUNNING,
     }
 )
+PLAYER_SESSION_TIMELINE_DEFAULT_LIMIT = 50
+PLAYER_SESSION_STATE_EXPLANATIONS = {
+    player_registry.PLAYER_SESSION_STATUS_OPEN: (
+        "Stored as not closed; this is recorded evidence, not a live online guarantee."
+    ),
+    player_registry.PLAYER_SESSION_STATUS_CLOSED: (
+        "Stored as closed from recorded evidence; the close time is not an exact leave time."
+    ),
+}
+PLAYER_SESSION_FRESHNESS_LABELS = {
+    player_session_stats.FRESHNESS_STATUS_UNAVAILABLE: "Unavailable",
+    player_session_stats.FRESHNESS_STATUS_INCOMPLETE: "Incomplete",
+    player_session_stats.FRESHNESS_STATUS_STALE: "Stale",
+    player_session_stats.FRESHNESS_STATUS_FRESH: "Fresh",
+}
 
 
 @dataclass(frozen=True)
@@ -359,10 +368,18 @@ class PlayerSessionsPage:
     status: str
     end_reason: str
     source: str
+    from_time: str
+    to_time: str
+    before_time: str
+    before_session_id: str
     limit: int
-    sessions: tuple[player_registry.PlayerSessionRecord, ...]
+    search_status: str
+    sessions: tuple[player_session_details.PlayerSessionSearchItem, ...]
     summary: player_registry.PlayerSessionSummary
     active_jobs: tuple[PlayerSessionJobIndicator, ...]
+    next_page_url: str
+    session_detail_urls: dict[int, str]
+    has_filters: bool
     status_options: tuple[tuple[str, str], ...]
     status_labels: dict[str, str]
     end_reason_options: tuple[tuple[str, str], ...]
@@ -370,6 +387,46 @@ class PlayerSessionsPage:
     source_options: tuple[tuple[str, str], ...]
     source_labels: dict[str, str]
     confidence_labels: dict[str, str]
+
+
+@dataclass(frozen=True)
+class PlayerSessionTimelineParticipant:
+    """One safe named timeline participant without a reliable/internal ID."""
+
+    label: str
+    name: str
+
+
+@dataclass(frozen=True)
+class PlayerSessionTimelineRow:
+    """Template-ready high-signal timeline row."""
+
+    event_time: str
+    event_label: str
+    participants: tuple[PlayerSessionTimelineParticipant, ...]
+    participant_fallback: str
+    details: tuple[PlayerHistoryField, ...]
+    diagnostics: tuple[PlayerHistoryField, ...]
+
+
+@dataclass(frozen=True)
+class PlayerSessionDetailPage:
+    """Read-only authenticated session detail integration model."""
+
+    instance: str
+    status: str
+    detail: player_session_details.PlayerSessionDetail | None
+    timeline_status: str
+    timeline_rows: tuple[PlayerSessionTimelineRow, ...]
+    timeline_unavailable_reason: str
+    back_url: str
+    older_timeline_url: str
+    status_labels: dict[str, str]
+    state_explanations: dict[str, str]
+    end_reason_labels: dict[str, str]
+    source_labels: dict[str, str]
+    confidence_labels: dict[str, str]
+    freshness_labels: dict[str, str]
 
 
 def _moderation_player(player: player_sources.CurrentPlayer) -> ModerationPlayer:
@@ -906,27 +963,6 @@ def _player_log_ingest_freshness_indicator(
     )
 
 
-def _normalize_session_status(value: object) -> str:
-    candidate = safe_player_text(value, max_length=40)
-    if candidate in PLAYER_SESSION_STATUS_VALUES:
-        return candidate
-    return ""
-
-
-def _normalize_session_end_reason(value: object) -> str:
-    candidate = safe_player_text(value, max_length=80)
-    if candidate in PLAYER_SESSION_END_REASON_VALUES:
-        return candidate
-    return ""
-
-
-def _normalize_session_source(value: object) -> str:
-    candidate = safe_player_text(value, max_length=80)
-    if candidate in PLAYER_SESSION_SOURCE_VALUES:
-        return candidate
-    return ""
-
-
 def load_player_history_page(
     instance: str = paths.DEFAULT_INSTANCE_NAME,
     *,
@@ -1008,6 +1044,156 @@ def _load_active_player_session_jobs(
     return tuple(indicator for indicator in indicators if indicator is not None)
 
 
+def _normalize_session_list_limit(value: object) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return player_registry.DEFAULT_PLAYER_SESSION_LIST_LIMIT
+    return max(1, min(parsed, player_registry.MAX_PLAYER_SESSION_LIST_LIMIT))
+
+
+def _session_list_query_items(
+    *,
+    query: str,
+    reliable_id: str,
+    status: str,
+    end_reason: str,
+    source: str,
+    from_time: str,
+    to_time: str,
+    limit: int,
+    before_time: str = "",
+    before_session_id: str = "",
+) -> list[tuple[str, str]]:
+    values = (
+        ("q", query),
+        ("player_id", reliable_id),
+        ("status", status),
+        ("end_reason", end_reason),
+        ("source", source),
+        ("from", from_time),
+        ("to", to_time),
+        ("limit", str(limit)),
+        ("before_time", before_time),
+        ("before_session_id", before_session_id),
+    )
+    return [(key, value) for key, value in values if value]
+
+
+def _query_url(path: str, query_items: list[tuple[str, str]]) -> str:
+    query_string = urlencode(query_items)
+    return f"{path}?{query_string}" if query_string else path
+
+
+def _safe_timeline_source_labels(source: str) -> tuple[str, ...]:
+    labels: list[str] = []
+    for part in (part for part in source.split("+") if part):
+        label = PLAYER_HISTORY_SOURCE_LABELS.get(part, "Other evidence")
+        if label not in labels:
+            labels.append(label)
+    return tuple(labels)
+
+
+def _timeline_participants(
+    event: player_session_details.PlayerSessionTimelineItem,
+) -> tuple[PlayerSessionTimelineParticipant, ...]:
+    participants: list[PlayerSessionTimelineParticipant] = []
+    player_name = safe_player_text(event.player_name, max_length=160)
+    victim_name = safe_player_text(event.victim_name, max_length=160)
+    instigator_name = safe_player_text(event.instigator_name, max_length=160)
+    if player_name:
+        participants.append(
+            PlayerSessionTimelineParticipant(label="Player", name=player_name)
+        )
+    if victim_name:
+        participants.append(
+            PlayerSessionTimelineParticipant(label="Victim", name=victim_name)
+        )
+    if instigator_name and not (
+        event.suicide and instigator_name == victim_name
+    ):
+        participants.append(
+            PlayerSessionTimelineParticipant(
+                label="Instigator",
+                name=instigator_name,
+            )
+        )
+    return tuple(participants)
+
+
+def _timeline_details(
+    event: player_session_details.PlayerSessionTimelineItem,
+) -> tuple[PlayerHistoryField, ...]:
+    fields: list[PlayerHistoryField] = []
+
+    def add(field: PlayerHistoryField | None) -> None:
+        _add_history_field(fields, field)
+
+    add(_history_text_field("Faction evidence", event.player_faction))
+    if (
+        event.victim_faction
+        and event.instigator_faction
+        and event.victim_faction == event.instigator_faction
+    ):
+        add(_history_text_field("Faction evidence", event.victim_faction))
+    else:
+        add(_history_text_field("Victim faction", event.victim_faction))
+        add(_history_text_field("Instigator faction", event.instigator_faction))
+    add(_history_text_field("Damage", event.damage_type))
+    add(_history_text_field("Hit", event.hit_zone))
+    add(_history_distance_field(event.distance_m))
+    markers = tuple(
+        label
+        for enabled, label in (
+            (event.teamkill, "TK"),
+            (event.suicide, "Suicide"),
+            (event.ai_instigator, "AI"),
+        )
+        if enabled
+    )
+    add(_history_labels_field("Markers", markers))
+    return tuple(fields)
+
+
+def _timeline_diagnostics(
+    event: player_session_details.PlayerSessionTimelineItem,
+) -> tuple[PlayerHistoryField, ...]:
+    fields: list[PlayerHistoryField] = []
+    _add_history_field(
+        fields,
+        _history_labels_field(
+            "Source",
+            _safe_timeline_source_labels(event.source),
+        ),
+    )
+    confidence = PLAYER_HISTORY_CONFIDENCE_LABELS.get(
+        event.confidence,
+        "Unknown confidence",
+    )
+    if event.confidence:
+        _add_history_field(
+            fields,
+            _history_labels_field("Confidence", (confidence,)),
+        )
+    return tuple(fields)
+
+
+def _timeline_row(
+    event: player_session_details.PlayerSessionTimelineItem,
+) -> PlayerSessionTimelineRow:
+    return PlayerSessionTimelineRow(
+        event_time=safe_player_text(event.occurred_at, max_length=80),
+        event_label=PLAYER_HISTORY_EVENT_TYPE_LABELS.get(
+            event.event_type,
+            "Other player event",
+        ),
+        participants=_timeline_participants(event),
+        participant_fallback="Recorded player evidence",
+        details=_timeline_details(event),
+        diagnostics=_timeline_diagnostics(event),
+    )
+
+
 def load_player_sessions_page(
     instance: str = paths.DEFAULT_INSTANCE_NAME,
     *,
@@ -1017,6 +1203,10 @@ def load_player_sessions_page(
     status: str = "",
     end_reason: str = "",
     source: str = "",
+    from_time: str = "",
+    to_time: str = "",
+    before_time: str = "",
+    before_session_id: str = "",
     limit: object = player_registry.DEFAULT_PLAYER_SESSION_LIST_LIMIT,
     web_db_path: Path | None = None,
 ) -> PlayerSessionsPage:
@@ -1024,21 +1214,63 @@ def load_player_sessions_page(
     normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
     normalized_query = normalize_player_query(query)
     normalized_reliable_id = safe_player_text(reliable_id, max_length=120)
-    normalized_status = _normalize_session_status(status)
-    normalized_end_reason = _normalize_session_end_reason(end_reason)
-    normalized_source = _normalize_session_source(source)
-    try:
-        normalized_limit = int(limit)
-    except (TypeError, ValueError):
-        normalized_limit = player_registry.DEFAULT_PLAYER_SESSION_LIST_LIMIT
-    normalized_limit = max(
-        1,
-        min(normalized_limit, player_registry.MAX_PLAYER_SESSION_LIST_LIMIT),
+    normalized_status = safe_player_text(status, max_length=40)
+    normalized_end_reason = safe_player_text(end_reason, max_length=80)
+    normalized_source = safe_player_text(source, max_length=80)
+    normalized_from_time = safe_player_text(from_time, max_length=80)
+    normalized_to_time = safe_player_text(to_time, max_length=80)
+    normalized_before_time = safe_player_text(before_time, max_length=80)
+    normalized_before_session_id = safe_player_text(
+        before_session_id,
+        max_length=32,
     )
+    normalized_limit = _normalize_session_list_limit(limit)
     registry_path = player_registry.player_registry_db_path(
         normalized_instance,
         data_root=data_root,
     )
+    search_result = player_session_details.search_player_sessions(
+        registry_path,
+        limit=normalized_limit,
+        reliable_id=normalized_reliable_id,
+        query=normalized_query,
+        status=normalized_status,
+        end_reason=normalized_end_reason,
+        source=normalized_source,
+        before_time=normalized_before_time,
+        before_session_id=normalized_before_session_id,
+        from_time=normalized_from_time,
+        to_time=normalized_to_time,
+    )
+    current_query_items = _session_list_query_items(
+        query=normalized_query,
+        reliable_id=normalized_reliable_id,
+        status=normalized_status,
+        end_reason=normalized_end_reason,
+        source=normalized_source,
+        from_time=normalized_from_time,
+        to_time=normalized_to_time,
+        limit=search_result.limit,
+        before_time=normalized_before_time,
+        before_session_id=normalized_before_session_id,
+    )
+    next_page_url = ""
+    if search_result.next_cursor is not None:
+        next_page_url = _query_url(
+            "/players/sessions",
+            _session_list_query_items(
+                query=normalized_query,
+                reliable_id=normalized_reliable_id,
+                status=normalized_status,
+                end_reason=normalized_end_reason,
+                source=normalized_source,
+                from_time=normalized_from_time,
+                to_time=normalized_to_time,
+                limit=search_result.limit,
+                before_time=search_result.next_cursor.evidence_time,
+                before_session_id=str(search_result.next_cursor.session_id),
+            ),
+        )
     return PlayerSessionsPage(
         instance=normalized_instance,
         query=normalized_query,
@@ -1046,20 +1278,36 @@ def load_player_sessions_page(
         status=normalized_status,
         end_reason=normalized_end_reason,
         source=normalized_source,
-        limit=normalized_limit,
-        sessions=tuple(
-            player_registry.list_player_sessions(
-                registry_path,
-                limit=normalized_limit,
-                reliable_id=normalized_reliable_id,
-                query=normalized_query,
-                status=normalized_status,
-                end_reason=normalized_end_reason,
-                source=normalized_source,
-            )
-        ),
+        from_time=normalized_from_time,
+        to_time=normalized_to_time,
+        before_time=normalized_before_time,
+        before_session_id=normalized_before_session_id,
+        limit=search_result.limit,
+        search_status=search_result.status,
+        sessions=search_result.items,
         summary=player_registry.summarize_player_sessions(registry_path),
         active_jobs=_load_active_player_session_jobs(web_db_path),
+        next_page_url=next_page_url,
+        session_detail_urls={
+            session.session_id: _query_url(
+                f"/players/sessions/{session.session_id}",
+                current_query_items,
+            )
+            for session in search_result.items
+        },
+        has_filters=any(
+            (
+                normalized_query,
+                normalized_reliable_id,
+                normalized_status,
+                normalized_end_reason,
+                normalized_source,
+                normalized_from_time,
+                normalized_to_time,
+                normalized_before_time,
+                normalized_before_session_id,
+            )
+        ),
         status_options=PLAYER_SESSION_STATUS_OPTIONS,
         status_labels=PLAYER_SESSION_STATUS_LABELS,
         end_reason_options=PLAYER_SESSION_END_REASON_OPTIONS,
@@ -1067,4 +1315,134 @@ def load_player_sessions_page(
         source_options=PLAYER_SESSION_SOURCE_OPTIONS,
         source_labels=PLAYER_SESSION_SOURCE_LABELS,
         confidence_labels=PLAYER_SESSION_CONFIDENCE_LABELS,
+    )
+
+
+def load_player_session_detail_page(
+    session_id: object,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+    *,
+    data_root: Path = paths.DEFAULT_DATA_ROOT,
+    query: str = "",
+    reliable_id: str = "",
+    status: str = "",
+    end_reason: str = "",
+    source: str = "",
+    from_time: str = "",
+    to_time: str = "",
+    limit: object = player_registry.DEFAULT_PLAYER_SESSION_LIST_LIMIT,
+    before_time: str = "",
+    before_session_id: str = "",
+    timeline_limit: object = PLAYER_SESSION_TIMELINE_DEFAULT_LIMIT,
+    timeline_before_time: str = "",
+    timeline_before_event_id: str = "",
+    now_at: str | None = None,
+) -> PlayerSessionDetailPage:
+    """Integrate one query-only detail and bounded timeline for templates."""
+    normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
+    normalized_query = normalize_player_query(query)
+    normalized_reliable_id = safe_player_text(reliable_id, max_length=120)
+    normalized_status = safe_player_text(status, max_length=40)
+    normalized_end_reason = safe_player_text(end_reason, max_length=80)
+    normalized_source = safe_player_text(source, max_length=80)
+    normalized_from_time = safe_player_text(from_time, max_length=80)
+    normalized_to_time = safe_player_text(to_time, max_length=80)
+    normalized_before_time = safe_player_text(before_time, max_length=80)
+    normalized_before_session_id = safe_player_text(
+        before_session_id,
+        max_length=32,
+    )
+    normalized_limit = _normalize_session_list_limit(limit)
+    normalized_timeline_limit = (
+        PLAYER_SESSION_TIMELINE_DEFAULT_LIMIT
+        if timeline_limit in ("", None)
+        else _normalize_history_limit(timeline_limit)
+    )
+    normalized_timeline_before_time = safe_player_text(
+        timeline_before_time,
+        max_length=80,
+    )
+    normalized_timeline_before_event_id = safe_player_text(
+        timeline_before_event_id,
+        max_length=32,
+    )
+    list_query_items = _session_list_query_items(
+        query=normalized_query,
+        reliable_id=normalized_reliable_id,
+        status=normalized_status,
+        end_reason=normalized_end_reason,
+        source=normalized_source,
+        from_time=normalized_from_time,
+        to_time=normalized_to_time,
+        limit=normalized_limit,
+        before_time=normalized_before_time,
+        before_session_id=normalized_before_session_id,
+    )
+    back_url = _query_url("/players/sessions", list_query_items)
+    registry_path = player_registry.player_registry_db_path(
+        normalized_instance,
+        data_root=data_root,
+    )
+    detail_result = player_session_details.load_player_session_detail(
+        registry_path,
+        session_id,
+        now_at=now_at,
+    )
+    timeline_status = player_session_details.PLAYER_SESSION_TIMELINE_STATUS_UNAVAILABLE
+    timeline_rows: tuple[PlayerSessionTimelineRow, ...] = ()
+    timeline_unavailable_reason = ""
+    older_timeline_url = ""
+    if (
+        detail_result.status
+        == player_session_details.PLAYER_SESSION_DETAIL_STATUS_OK
+        and detail_result.detail is not None
+    ):
+        timeline_result = player_session_details.load_player_session_timeline(
+            registry_path,
+            session_id,
+            limit=normalized_timeline_limit,
+            before_time=normalized_timeline_before_time,
+            before_event_id=normalized_timeline_before_event_id,
+            now_at=now_at,
+        )
+        timeline_status = timeline_result.status
+        timeline_rows = tuple(
+            _timeline_row(event) for event in timeline_result.items
+        )
+        timeline_unavailable_reason = safe_player_text(
+            timeline_result.unavailable_reason,
+            max_length=240,
+        )
+        if timeline_result.next_cursor is not None:
+            timeline_query_items = [
+                *list_query_items,
+                ("timeline_limit", str(timeline_result.limit)),
+                (
+                    "timeline_before_time",
+                    timeline_result.next_cursor.event_time,
+                ),
+                (
+                    "timeline_before_event_id",
+                    str(timeline_result.next_cursor.event_id),
+                ),
+            ]
+            older_timeline_url = _query_url(
+                f"/players/sessions/{detail_result.detail.session_id}",
+                timeline_query_items,
+            )
+    return PlayerSessionDetailPage(
+        instance=normalized_instance,
+        status=detail_result.status,
+        detail=detail_result.detail,
+        timeline_status=timeline_status,
+        timeline_rows=timeline_rows,
+        timeline_unavailable_reason=timeline_unavailable_reason,
+        back_url=back_url,
+        older_timeline_url=older_timeline_url,
+        status_labels=PLAYER_SESSION_STATUS_LABELS,
+        state_explanations=PLAYER_SESSION_STATE_EXPLANATIONS,
+        end_reason_labels=PLAYER_SESSION_END_REASON_LABELS,
+        source_labels=PLAYER_SESSION_SOURCE_LABELS,
+        confidence_labels=PLAYER_SESSION_CONFIDENCE_LABELS,
+        freshness_labels=PLAYER_SESSION_FRESHNESS_LABELS,
     )

@@ -2987,7 +2987,8 @@ def test_player_sessions_route_is_read_only_and_does_not_load_current_cache(
     response = client.get("/players/sessions", follow_redirects=False)
 
     assert response.status_code == 200
-    assert "No player sessions recorded yet." in response.text
+    assert "Player session search is unavailable." in response.text
+    assert "Stored player session data could not be read." in response.text
     assert 'data-player-session-summary' in response.text
     assert 'data-summary-open-count="0"' in response.text
     assert 'data-summary-closed-count="0"' in response.text

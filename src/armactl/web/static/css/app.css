@@ -1061,6 +1061,7 @@ button.warning {
 
 .player-search-form input[type="search"],
 .player-search-form input[type="number"],
+.player-search-form input[type="datetime-local"],
 .player-search-form select {
   box-sizing: border-box;
   width: 100%;
@@ -1207,6 +1208,19 @@ button.warning {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
+}
+
+.player-filter-help {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.player-session-validation {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0;
 }
 
 .player-table-wrap {
@@ -1456,6 +1470,209 @@ button.warning {
   flex-wrap: wrap;
   gap: 6px 18px;
   min-width: 0;
+}
+
+.player-session-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.player-session-detail-page {
+  min-width: 0;
+}
+
+.player-session-back-link {
+  margin: 0 0 16px;
+}
+
+.player-session-detail-heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.player-session-detail-heading > div {
+  min-width: 0;
+}
+
+.player-session-detail-heading h2 {
+  margin: 3px 0 0;
+}
+
+.player-session-detail-section {
+  min-width: 0;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.player-session-detail-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  margin: 10px 0 0;
+}
+
+.player-session-detail-list > div {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(170px, 28%) minmax(0, 1fr);
+  gap: 8px 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.player-session-detail-list > div:last-child {
+  border-bottom: 0;
+}
+
+.player-session-detail-list dt {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.player-session-detail-list dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.player-session-evidence-meta,
+.player-session-value-note {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.player-session-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 10px;
+  border-block: 1px solid var(--border);
+}
+
+.player-session-stats-grid > div {
+  display: grid;
+  gap: 3px;
+  padding: 12px;
+  text-align: center;
+}
+
+.player-session-stats-grid > div + div {
+  border-left: 1px solid var(--border);
+}
+
+.player-session-stats-grid span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.player-session-stats-grid strong {
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.player-session-stats-unavailable {
+  margin-top: 12px;
+}
+
+.player-session-participants {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.player-session-timeline-table th:nth-child(1) { width: 170px; }
+.player-session-timeline-table th:nth-child(2) { width: 145px; }
+.player-session-timeline-table th:nth-child(3) { width: auto; }
+.player-session-timeline-table th:nth-child(4) { width: 170px; }
+
+@media (max-width: 760px) {
+  .player-sessions-table-wrap,
+  .player-session-timeline-wrap {
+    overflow-x: visible;
+  }
+
+  .player-sessions-table,
+  .player-session-timeline-table {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .player-sessions-table thead,
+  .player-session-timeline-table thead {
+    display: none;
+  }
+
+  .player-sessions-table tbody,
+  .player-sessions-table tr,
+  .player-sessions-table td,
+  .player-session-timeline-table tbody,
+  .player-session-timeline-table tr,
+  .player-session-timeline-table td {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+  }
+
+  .player-sessions-table .player-session-main-row,
+  .player-session-timeline-table .player-event-main-row {
+    margin-top: 12px;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel-strong);
+  }
+
+  .player-sessions-table .player-session-main-row td,
+  .player-session-timeline-table .player-event-main-row td {
+    display: grid;
+    grid-template-columns: minmax(112px, 38%) minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    border-left: 0;
+    white-space: normal;
+  }
+
+  .player-sessions-table .player-session-main-row td::before,
+  .player-session-timeline-table .player-event-main-row td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+
+  .player-sessions-table .player-session-details-row td,
+  .player-session-timeline-table .player-event-details-row td,
+  .player-session-timeline-table .player-event-diagnostics-row td {
+    padding-inline: 10px;
+  }
+
+  .player-session-detail-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .player-session-detail-heading .status-pill {
+    align-self: flex-start;
+  }
+
+  .player-session-detail-list > div {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .player-session-timeline-table .player-event-actions,
+  .player-sessions-table .player-session-actions {
+    width: min(100%, 220px);
+  }
 }
 
 .player-event-detail-field,

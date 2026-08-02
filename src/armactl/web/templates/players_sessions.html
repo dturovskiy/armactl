@@ -112,7 +112,24 @@
     <span class="muted">{{ tr("Showing {count} session(s)", count=sessions|length) }}</span>
   </div>
 
-  <form method="get" action="/players/sessions" class="player-search-form player-history-filter-form">
+  {% if page.search_status == "invalid_filter" %}
+    <section class="notice-panel notice-warning player-session-validation" role="alert">
+      <strong>{{ t("Session filters are invalid.") }}</strong>
+      <span>{{ t("Check the reliable ID, stored state, end reason, evidence source, and UTC range.") }}</span>
+    </section>
+  {% elif page.search_status == "invalid_cursor" %}
+    <section class="notice-panel notice-warning player-session-validation" role="alert">
+      <strong>{{ t("This older-page link is invalid.") }}</strong>
+      <span>{{ t("Apply the filters again to start from the newest sessions.") }}</span>
+    </section>
+  {% elif page.search_status == "unavailable" %}
+    <section class="notice-panel notice-unavailable player-session-validation" role="status">
+      <strong>{{ t("Player session search is unavailable.") }}</strong>
+      <span>{{ t("Stored player session data could not be read.") }}</span>
+    </section>
+  {% endif %}
+
+  <form method="get" action="/players/sessions" class="player-search-form player-history-filter-form" data-player-session-filter-form>
     <div class="player-history-filter-grid">
       <label>
         <span>{{ t("Session state") }}</span>
@@ -143,8 +160,20 @@
         <input type="search" name="player_id" value="{{ player_id }}" autocomplete="off">
       </label>
       <label>
-        <span>{{ t("Name") }}</span>
+        <span>{{ t("Nickname or alias") }}</span>
         <input type="search" name="q" value="{{ query }}" autocomplete="off">
+      </label>
+      <label>
+        <span>{{ t("From (browser local time)") }}</span>
+        <input type="datetime-local" step="1" data-player-session-local-input data-utc-target="player-session-from-utc">
+        <input id="player-session-from-utc" type="hidden" name="from" value="{{ from_time }}">
+        <span class="player-filter-help">{{ t("Converted to UTC when filters are applied.") }}</span>
+      </label>
+      <label>
+        <span>{{ t("To (browser local time)") }}</span>
+        <input type="datetime-local" step="1" data-player-session-local-input data-utc-target="player-session-to-utc">
+        <input id="player-session-to-utc" type="hidden" name="to" value="{{ to_time }}">
+        <span class="player-filter-help">{{ t("Converted to UTC when filters are applied.") }}</span>
       </label>
       <label>
         <span>{{ t("Limit") }}</span>
@@ -155,10 +184,13 @@
       <button type="submit">{{ t("Apply filters") }}</button>
       <a class="button-link secondary-link" href="/players/sessions">{{ t("Clear") }}</a>
     </div>
+    <noscript>
+      <span class="muted">{{ t("Browser-local time filters require JavaScript; existing UTC bounds remain unchanged.") }}</span>
+    </noscript>
   </form>
 
-  {% if sessions %}
-    <div class="player-table-wrap">
+  {% if page.search_status == "ok" and sessions %}
+    <div class="player-table-wrap player-sessions-table-wrap">
       <table class="player-sessions-table">
         <thead>
           <tr>
@@ -172,28 +204,27 @@
         </thead>
         <tbody>
         {% for session in sessions %}
-          {% set has_session_details = session.reliable_id or session.open_source or session.last_seen_source or session.close_source or session.end_reason %}
+          {% set has_session_details = session.reliable_id or session.open_source or session.last_evidence_source or session.close_source or session.close_reason %}
           <tr class="player-session-main-row">
-            <td>
+            <td data-label="{{ t('Player') }}">
               <strong class="wrap-value">{{ session.name_last }}</strong>
               {% if session.name_at_open and session.name_at_open != session.name_last %}
                 <span class="player-row-subtle wrap-value">{{ t("First observed as") }}: {{ session.name_at_open }}</span>
               {% endif %}
             </td>
-            <td>
+            <td data-label="{{ t('Session state') }}">
               {% set status_label = page.status_labels.get(session.status, "Unknown status") %}
               <span class="status-pill">{{ t(status_label) }}</span>
             </td>
-            <td>{{ local_time(session.open_observed_at) }}</td>
-            <td>{{ local_time(session.last_seen_at) }}</td>
-            <td>{{ local_time(session.close_observed_at) }}</td>
-            <td>
+            <td data-label="{{ t('First evidence') }}">{{ local_time(session.first_evidence_at) }}</td>
+            <td data-label="{{ t('Last evidence') }}">{{ local_time(session.last_evidence_at) }}</td>
+            <td data-label="{{ t('Close evidence') }}">{{ local_time(session.close_evidence_at) }}</td>
+            <td data-label="{{ t('Available actions') }}">
               <div class="player-session-actions">
                 {% if has_session_details %}
                   <button type="button" class="button-link secondary-link player-session-action-button" data-player-session-toggle data-player-session-target="player-session-details-{{ loop.index }}" aria-controls="player-session-details-{{ loop.index }}" aria-expanded="false">{{ t("Details") }}</button>
-                {% else %}
-                  <span class="muted">-</span>
                 {% endif %}
+                <a class="button-link secondary-link player-session-action-button" href="{{ page.session_detail_urls.get(session.session_id, '/players/sessions') }}">{{ t("Open session") }}</a>
               </div>
             </td>
           </tr>
@@ -204,10 +235,10 @@
                   <div class="player-session-evidence-cell">
                     <span class="player-diagnostic-line"><strong>{{ t("Player ID") }}:</strong> <span class="player-id-cell player-id-clip" title="{{ session.reliable_id }}">{{ session.reliable_id }}</span></span>
                     {{ source_line("First evidence", session.open_source, session.open_confidence) }}
-                    {{ source_line("Last evidence", session.last_seen_source, session.last_seen_confidence) }}
+                    {{ source_line("Last evidence", session.last_evidence_source, session.last_evidence_confidence) }}
                     {{ source_line("Close evidence", session.close_source, session.close_confidence) }}
-                    {% if session.end_reason %}
-                      <span class="player-diagnostic-line"><strong>{{ t("End reason") }}:</strong> <span>{{ t(page.end_reason_labels.get(session.end_reason, "Unknown close reason")) }}</span></span>
+                    {% if session.close_reason %}
+                      <span class="player-diagnostic-line"><strong>{{ t("End reason") }}:</strong> <span>{{ t(page.end_reason_labels.get(session.close_reason, "Unknown close reason")) }}</span></span>
                     {% endif %}
                   </div>
                 </div>
@@ -218,9 +249,14 @@
         </tbody>
       </table>
     </div>
-  {% elif query or player_id or status or end_reason or source %}
+    {% if page.next_page_url %}
+      <nav class="player-session-pagination" aria-label="{{ t('Session pagination') }}">
+        <a class="button-link secondary-link" href="{{ page.next_page_url }}">{{ t("Older") }}</a>
+      </nav>
+    {% endif %}
+  {% elif page.search_status == "ok" and page.has_filters %}
     <p class="muted">{{ t("No player sessions match filters.") }}</p>
-  {% else %}
+  {% elif page.search_status == "ok" %}
     <div class="notice-panel notice-unavailable">
       <strong>{{ t("No player sessions recorded yet.") }}</strong>
     </div>

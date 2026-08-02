@@ -1,6 +1,6 @@
 # Player Session Detail And Search Contract
 
-Status: **Slice 6b query/DTO foundation complete. Slice 6c UI remains gated.**
+Status: **Slice 6c authenticated UI complete. Slice 6d VM smoke remains staged and approval-gated.**
 
 This document is the source of truth for the next authenticated player-session read surface after F3-c production acceptance. It defines search, one-session detail, conflict semantics, reuse ownership, privacy, pagination, and implementation slices without adding a second player truth pipeline.
 
@@ -8,7 +8,7 @@ This document is the source of truth for the next authenticated player-session r
 
 Implement one read-only server-rendered session detail page and extend the existing session list search. Do not add a public JSON API in the first implementation. Do not load event details for every list row.
 
-The list remains `/players/sessions`. A new authenticated detail route may use `/players/sessions/{session_id}` where `session_id` is an internal record locator, not a public player identifier. The list keeps its compact columns and existing closed-by-default evidence row; the dedicated detail page carries richer session evidence and bounded event/stat context.
+The list remains `/players/sessions`. The authenticated detail route uses `/players/sessions/{session_id}` where `session_id` is an internal record locator, not a public player identifier. The list keeps its compact columns and existing closed-by-default evidence row; the dedicated detail page carries richer session evidence and bounded event/stat context.
 
 ## Current State Audit
 
@@ -33,11 +33,14 @@ Slice 6b foundation now implemented:
 - `player_session_details` provides sanitized typed search/detail DTOs and controlled invalid/not-found/unavailable results without routes, templates, CSS, browser JavaScript, or JSON API work.
 - `list_player_summaries(...)` remains all-time stored-event data and is not used for session detail or current-session truth.
 
-Remaining runtime gaps:
+Slice 6c UI now implemented:
 
-- There is still no one-session detail route or template.
-- List cursor controls, alias/time filter UX, browser-local rendering, and presentation of the already bounded high-signal detail timeline remain Slice 6c work.
-- Slice 6d VM smoke remains staged and approval-gated.
+- `/players/sessions` integrates alias/exact-ID/status/end-reason/source/UTC-range filters and deterministic older-page keyset navigation through the Slice 6b service contract.
+- `/players/sessions/{session_id}` is an authenticated server-rendered detail page with sanitized stored evidence, shared nullable session stats, and a bounded high-signal event timeline.
+- List state is preserved across detail/back and pagination links, human timestamps use the shared browser-local renderer, and local datetime inputs convert explicitly to UTC without guessing when JavaScript is unavailable.
+- EN/UK, auth/permission, query-only/no-write, missing/legacy storage, conflict, pagination, responsive presentation, nullable-stat, and sensitive-output regressions cover the surface.
+
+Remaining runtime gap: Slice 6d VM smoke remains staged and approval-gated.
 
 ## P1 Gates Before Runtime UI - closed by Slice 6b
 
@@ -181,12 +184,12 @@ Forbidden output:
 
 Stop after Slice 6b if a route/template would need duplicated SQL or if closed-session coverage cannot be proven truthfully.
 
-### Slice 6c: Authenticated UI
+### Slice 6c: Authenticated UI - complete
 
-- [ ] Add the thin authenticated detail route and server-rendered template.
-- [ ] Add list keyset navigation, alias/time filters, preserved back-link state, and browser-local time inputs/display.
-- [ ] Keep details responsive and closed/secondary by default; do not widen the compact table.
-- [ ] Add EN/UK labels and route/template/i18n/read-only regression tests.
+- [x] Add the thin authenticated detail route and server-rendered template.
+- [x] Add list keyset navigation, alias/time filters, preserved back-link state, and browser-local time inputs/display.
+- [x] Keep details responsive and closed/secondary by default; do not widen the compact table.
+- [x] Add EN/UK labels and route/template/i18n/read-only regression tests.
 
 ### Slice 6d: VM Smoke
 
