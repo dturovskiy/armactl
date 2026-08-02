@@ -190,6 +190,7 @@ Stop after Slice 6b if a route/template would need duplicated SQL or if closed-s
 - [x] Add list keyset navigation, alias/time filters, preserved back-link state, and browser-local time inputs/display.
 - [x] Keep details responsive and closed/secondary by default; do not widen the compact table.
 - [x] Add EN/UK labels and route/template/i18n/read-only regression tests.
+- [x] Keep the stored-session list primary, collapse manual recovery tools and advanced search by default, and explain that page refresh only rereads storage while the configured supervised pipeline performs automatic updates.
 
 ### Slice 6d: VM Smoke
 

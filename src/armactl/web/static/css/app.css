@@ -1169,6 +1169,74 @@ button.warning {
   margin-bottom: 18px;
 }
 
+.player-session-primary-heading {
+  align-items: flex-end;
+  margin-top: 14px;
+}
+
+.player-session-primary-heading h2,
+.player-session-primary-heading p {
+  margin: 0;
+}
+
+.player-session-primary-heading p {
+  margin-top: 4px;
+}
+
+.player-session-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.player-session-automation-note {
+  margin: 6px 0 14px;
+}
+
+.player-session-disclosure {
+  margin: 0 0 14px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.player-session-disclosure + .player-session-disclosure {
+  margin-top: -15px;
+  border-top: 0;
+}
+
+.player-session-disclosure summary {
+  padding: 11px 2px;
+  cursor: pointer;
+}
+
+.player-session-disclosure summary::marker {
+  color: var(--accent);
+}
+
+.player-session-disclosure-title {
+  margin-left: 4px;
+  font-weight: 700;
+}
+
+.player-session-disclosure-note {
+  display: block;
+  margin: 3px 0 0 22px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.player-session-disclosure-body {
+  padding: 2px 0 14px;
+}
+
+.player-session-disclosure .player-session-operator-panel,
+.player-session-disclosure .player-history-filter-form {
+  margin-bottom: 0;
+}
+
 .player-session-job-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1594,6 +1662,14 @@ button.warning {
 .player-session-timeline-table th:nth-child(4) { width: 170px; }
 
 @media (max-width: 760px) {
+  .player-session-primary-heading {
+    align-items: stretch;
+  }
+
+  .player-session-heading-actions {
+    justify-content: space-between;
+  }
+
   .player-sessions-table-wrap,
   .player-session-timeline-wrap {
     overflow-x: visible;

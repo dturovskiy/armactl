@@ -415,6 +415,13 @@ def test_session_keyset_older_link_preserves_allowlisted_filters(tmp_path: Path)
         "before_time",
         "before_session_id",
     }
+    refresh_url = _href_with_text(first.text, "Refresh list")
+    refresh_query = parse_qs(urlsplit(refresh_url).query)
+    assert refresh_query == {
+        "q": ["Pager"],
+        "status": ["open"],
+        "limit": ["2"],
+    }
 
     second = client.get(older_url)
     assert second.status_code == 200
@@ -431,6 +438,43 @@ def test_session_keyset_older_link_preserves_allowlisted_filters(tmp_path: Path)
     assert len(first_names) == 2
     assert len(second_names) == 1
     assert first_names.isdisjoint(second_names)
+
+
+def test_session_page_hides_manual_tools_and_filters_until_needed(tmp_path: Path):
+    db_path = tmp_path / "default" / "players.db"
+    opened, *_rest = _recent_times()
+    _open_session(db_path, name="Disclosure Player", opened_at=opened)
+    client = _authed_client(tmp_path)
+
+    response = client.get("/players/sessions")
+
+    assert response.status_code == 200
+    assert (
+        "Opening or refreshing this page reads the latest stored sessions; "
+        "it does not run a scan."
+    ) in response.text
+    assert "Manual tools are only for diagnostics or recovery." in response.text
+    assert (
+        '<details class="player-session-disclosure '
+        'player-session-tools-disclosure">'
+    ) in response.text
+    assert (
+        '<details class="player-session-disclosure '
+        'player-session-filter-disclosure">'
+    ) in response.text
+    assert 'action="/players/sessions/scan-live"' in response.text
+    assert 'action="/players/sessions/sessionize-log-events"' in response.text
+    assert 'action="/players/sessions/maintenance"' in response.text
+
+    filtered = client.get(
+        "/players/sessions",
+        params={"q": "Disclosure Player"},
+    )
+    assert filtered.status_code == 200
+    assert (
+        '<details class="player-session-disclosure '
+        'player-session-filter-disclosure" open>'
+    ) in filtered.text
 
 
 def test_detail_invalid_not_found_and_legacy_states_are_sanitized(tmp_path: Path):
@@ -780,6 +824,9 @@ def test_session_presentation_keeps_compact_columns_and_local_time_contract():
     assert '<th>{{ t("Evidence source") }}</th>' not in list_template
     assert "data-player-session-row hidden" in list_template
     assert "Open session" in list_template
+    assert "player-session-tools-disclosure" in list_template
+    assert "player-session-filter-disclosure" in list_template
+    assert "page.refresh_url" in list_template
     assert "format_web_timestamp" in list_template
     assert 'type="datetime-local"' in list_template
     assert 'type="hidden" name="from"' in list_template
@@ -787,6 +834,7 @@ def test_session_presentation_keeps_compact_columns_and_local_time_contract():
     assert "toISOString()" in script
     assert "hasExplicitTimezone" in script
     assert "@media (max-width: 760px)" in css
+    assert ".player-session-disclosure" in css
     assert ".player-session-timeline-table" in css
     assert "format_web_timestamp" in detail_template
     assert "data-player-history-row" in detail_template

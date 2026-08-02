@@ -44,29 +44,19 @@
     <span class="player-section-tab disabled">{{ t("Ban list") }} · {{ t("Planned") }}</span>
   </nav>
 
-  <section class="player-session-operator-panel" aria-labelledby="player-session-operator-heading">
-    <div class="section-heading-row">
-      <h2 id="player-session-operator-heading">{{ t("Manual session jobs") }}</h2>
-      <a class="button-link secondary-link" href="/jobs">{{ t("Open background jobs") }}</a>
+  <div class="section-heading-row player-session-primary-heading">
+    <div>
+      <h2>{{ t("Player sessions") }}</h2>
+      <p class="muted">{{ t("Opening or refreshing this page reads the latest stored sessions; it does not run a scan.") }}</p>
     </div>
-    <div class="player-session-job-actions">
-      <form method="post" action="/players/sessions/scan-live" class="player-session-job-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit">{{ t("Scan live sessions") }}</button>
-        <span class="muted">{{ t("Observe current roster into sessions") }}</span>
-      </form>
-      <form method="post" action="/players/sessions/sessionize-log-events" class="player-session-job-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit">{{ t("Sessionize logs") }}</button>
-        <span class="muted">{{ t("Process stored log evidence") }}</span>
-      </form>
-      <form method="post" action="/players/sessions/maintenance" class="player-session-job-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit">{{ t("Session maintenance") }}</button>
-        <span class="muted">{{ t("Close stale / clean old closed sessions") }}</span>
-      </form>
+    <div class="player-session-heading-actions">
+      <span class="muted">{{ tr("Showing {count} session(s)", count=sessions|length) }}</span>
+      <a class="button-link secondary-link" href="{{ page.refresh_url }}">{{ t("Refresh list") }}</a>
     </div>
-  </section>
+  </div>
+  <p class="player-session-automation-note muted">
+    {{ t("When configured, the supervised pipeline updates stored sessions automatically. Manual tools are only for diagnostics or recovery.") }}
+  </p>
 
   <section class="player-session-summary" data-player-session-summary>
     <div class="player-summary-grid player-session-summary-grid">
@@ -107,10 +97,42 @@
     </section>
   {% endif %}
 
-  <div class="section-heading-row">
-    <h2>{{ t("Player sessions") }}</h2>
-    <span class="muted">{{ tr("Showing {count} session(s)", count=sessions|length) }}</span>
-  </div>
+  <details class="player-session-disclosure player-session-tools-disclosure">
+    <summary>
+      <span class="player-session-disclosure-title">{{ t("Manual tools") }}</span>
+      <span class="player-session-disclosure-note">{{ t("Diagnostics and recovery only; normal updates do not require these actions.") }}</span>
+    </summary>
+    <section class="player-session-operator-panel player-session-disclosure-body" aria-labelledby="player-session-operator-heading">
+      <div class="section-heading-row">
+        <h2 id="player-session-operator-heading">{{ t("Manual session jobs") }}</h2>
+        <a class="button-link secondary-link" href="/jobs">{{ t("Open background jobs") }}</a>
+      </div>
+      <div class="player-session-job-actions">
+        <form method="post" action="/players/sessions/scan-live" class="player-session-job-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit">{{ t("Scan live sessions") }}</button>
+          <span class="muted">{{ t("Observe current roster into sessions") }}</span>
+        </form>
+        <form method="post" action="/players/sessions/sessionize-log-events" class="player-session-job-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit">{{ t("Sessionize logs") }}</button>
+          <span class="muted">{{ t("Process stored log evidence") }}</span>
+        </form>
+        <form method="post" action="/players/sessions/maintenance" class="player-session-job-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit">{{ t("Session maintenance") }}</button>
+          <span class="muted">{{ t("Close stale / clean old closed sessions") }}</span>
+        </form>
+      </div>
+    </section>
+  </details>
+
+  <details class="player-session-disclosure player-session-filter-disclosure"{% if page.filters_active or page.search_status != "ok" %} open{% endif %}>
+    <summary>
+      <span class="player-session-disclosure-title">{{ t("Search and filters") }}</span>
+      <span class="player-session-disclosure-note">{{ t("Find older sessions by nickname, identity, evidence, or browser-local time.") }}</span>
+    </summary>
+    <div class="player-session-disclosure-body">
 
   {% if page.search_status == "invalid_filter" %}
     <section class="notice-panel notice-warning player-session-validation" role="alert">
@@ -188,6 +210,8 @@
       <span class="muted">{{ t("Browser-local time filters require JavaScript; existing UTC bounds remain unchanged.") }}</span>
     </noscript>
   </form>
+    </div>
+  </details>
 
   {% if page.search_status == "ok" and sessions %}
     <div class="player-table-wrap player-sessions-table-wrap">

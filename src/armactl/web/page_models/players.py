@@ -377,9 +377,11 @@ class PlayerSessionsPage:
     sessions: tuple[player_session_details.PlayerSessionSearchItem, ...]
     summary: player_registry.PlayerSessionSummary
     active_jobs: tuple[PlayerSessionJobIndicator, ...]
+    refresh_url: str
     next_page_url: str
     session_detail_urls: dict[int, str]
     has_filters: bool
+    filters_active: bool
     status_options: tuple[tuple[str, str], ...]
     status_labels: dict[str, str]
     end_reason_options: tuple[tuple[str, str], ...]
@@ -1254,6 +1256,19 @@ def load_player_sessions_page(
         before_time=normalized_before_time,
         before_session_id=normalized_before_session_id,
     )
+    refresh_url = _query_url(
+        "/players/sessions",
+        _session_list_query_items(
+            query=normalized_query,
+            reliable_id=normalized_reliable_id,
+            status=normalized_status,
+            end_reason=normalized_end_reason,
+            source=normalized_source,
+            from_time=normalized_from_time,
+            to_time=normalized_to_time,
+            limit=search_result.limit,
+        ),
+    )
     next_page_url = ""
     if search_result.next_cursor is not None:
         next_page_url = _query_url(
@@ -1287,6 +1302,7 @@ def load_player_sessions_page(
         sessions=search_result.items,
         summary=player_registry.summarize_player_sessions(registry_path),
         active_jobs=_load_active_player_session_jobs(web_db_path),
+        refresh_url=refresh_url,
         next_page_url=next_page_url,
         session_detail_urls={
             session.session_id: _query_url(
@@ -1306,6 +1322,17 @@ def load_player_sessions_page(
                 normalized_to_time,
                 normalized_before_time,
                 normalized_before_session_id,
+            )
+        ),
+        filters_active=any(
+            (
+                normalized_query,
+                normalized_reliable_id,
+                normalized_status,
+                normalized_end_reason,
+                normalized_source,
+                normalized_from_time,
+                normalized_to_time,
             )
         ),
         status_options=PLAYER_SESSION_STATUS_OPTIONS,

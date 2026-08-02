@@ -322,6 +322,16 @@ def test_player_session_dynamic_translation_keys_exist_in_locales():
         "Latest evidence",
         "Active session jobs",
         "Session freshness jobs are queued or running.",
+        "Opening or refreshing this page reads the latest stored sessions; it does not run a scan.",
+        (
+            "When configured, the supervised pipeline updates stored sessions "
+            "automatically. Manual tools are only for diagnostics or recovery."
+        ),
+        "Refresh list",
+        "Manual tools",
+        "Diagnostics and recovery only; normal updates do not require these actions.",
+        "Search and filters",
+        "Find older sessions by nickname, identity, evidence, or browser-local time.",
         "Manual session jobs",
         "Scan live sessions",
         "Observe current roster into sessions",
