@@ -274,11 +274,11 @@ Out of scope:
 
 #### 1. Production Hardening For Local Dashboard
 
-- Current state: auth has owner setup, session-token digests, CSRF, login throttling, runtime-scoped cookies, `HttpOnly`, `SameSite=Lax`, and optional `Secure` cookies through `ARMACTL_WEB_HTTPS_REQUIRED`. Exposure warnings exist for non-local binds, and deployment docs now distinguish local/same-host from gateway-managed VM profiles. `/healthz` is minimal liveness only. Logs, reports, previews, audit details, and job tails are bounded and redacted. `web.db` has migrations, active-job dedupe, queued duplicate metadata repair, running/stale job diagnostics, explicit stale-running abandoned recovery, and pending-work fallback sidecar storage.
-- Risk: HTTPS/proxy/firewall guarantees are still operator deployment assumptions. `ARMACTL_WEB_HTTPS_REQUIRED` controls cookie `Secure` behavior only; it does not prove gateway, firewall, VPN, or reverse-proxy protection. `/healthz` does not prove DB, auth, template, job-store, or filesystem readiness. Background jobs run in daemon threads inside the web process, so interrupted `running` jobs may need operator-visible recovery.
-- Proposed slice: keep `/healthz` as liveness, then add a small authenticated runtime/readiness diagnostic or CLI status if VM smoke shows a need. Confirm secure cookies and exposure warnings on local, LAN, and reverse-proxy paths.
+- Current state: auth has owner setup, session-token digests, CSRF, login throttling, runtime-scoped cookies, `HttpOnly`, `SameSite=Lax`, and optional `Secure` cookies through `ARMACTL_WEB_HTTPS_REQUIRED`. Exposure warnings exist for non-local binds, and deployment docs now distinguish local/same-host from gateway-managed VM profiles. `/healthz` remains minimal liveness; public-safe `/readyz` and CLI status check read-only `web.db` and optional `players.db` schema compatibility using the running process version. Logs, reports, previews, audit details, and job tails are bounded and redacted. `web.db` has migrations, active-job dedupe, queued duplicate metadata repair, running/stale job diagnostics, explicit stale-running abandoned recovery, and pending-work fallback sidecar storage.
+- Risk: HTTPS/proxy/firewall guarantees are still operator deployment assumptions. `ARMACTL_WEB_HTTPS_REQUIRED` controls cookie `Secure` behavior only; it does not prove gateway, firewall, VPN, or reverse-proxy protection. Readiness intentionally does not claim full auth, template, job-handler, or filesystem readiness. Background jobs run in daemon threads inside the web process, so interrupted `running` jobs may need operator-visible recovery.
+- Implemented slice: keep `/healthz` as liveness, add bounded schema readiness, require service restart plus liveness/readiness after code/schema deploys, and expose all three outcomes through `armactl web service restart/status`.
 - Files/modules likely touched: `src/armactl/web/routes/health.py`, `src/armactl/web/page_models/dashboard.py`, `src/armactl/web/security/exposure.py`, `src/armactl/web/runtime/db.py`, `src/armactl/web/jobs/store.py`, `src/armactl/web/services/job_integrity.py`, `docs/web-deployment.md`.
-- Validation/smoke needed: `curl -fsS http://127.0.0.1:8765/healthz`; login/logout; bad password; CSRF failure; secure-cookie flag with `--https-required`; `/dashboard`, `/logs`, `/report`, `/jobs`; real `journalctl` redaction review; focused auth/exposure/logs/jobs/runtime/pending-work tests.
+- Validation/smoke needed: `curl -fsS http://127.0.0.1:8765/healthz`; `curl -fsS http://127.0.0.1:8765/readyz`; login/logout; bad password; CSRF failure; secure-cookie flag with `--https-required`; `/dashboard`, `/logs`, `/report`, `/jobs`; real `journalctl` redaction review; focused auth/exposure/logs/jobs/runtime/pending-work tests.
 - Stop condition: operators can tell whether the web process is alive, runtime state is degraded, dashboard exposure is intentionally protected, and stale jobs have a recovery path.
 
 #### 2. Server Update UX After VM Smoke
@@ -354,6 +354,7 @@ git diff --check
 ./armactl status
 ./armactl web service status
 curl -fsS http://127.0.0.1:8765/healthz
+curl -fsS http://127.0.0.1:8765/readyz
 curl -fsS http://127.0.0.1:8765/public/server-status.json
 systemctl status armactl-web.service armareforger.service armareforger-restart.timer --no-pager
 sudo journalctl -u armactl-web.service -n 200 --no-pager

@@ -877,12 +877,18 @@ def _echo_web_service_result_and_wait_for_http(action: str, result) -> None:
     if not result.success:
         sys.exit(result.exit_code or 1)
 
-    from armactl.web.service import check_web_http_health
+    from armactl.web.service import check_web_http_health, check_web_http_readiness
 
     http_result = check_web_http_health(timeout_seconds=20)
     http_marker = "✓" if http_result.success else "✗"
     click.echo(f"  {http_marker} {http_result.message}")
-    sys.exit(0 if http_result.success else http_result.exit_code or 1)
+    if not http_result.success:
+        sys.exit(http_result.exit_code or 1)
+
+    readiness_result = check_web_http_readiness(timeout_seconds=20)
+    readiness_marker = "\u2713" if readiness_result.success else "\u2717"
+    click.echo(f"  {readiness_marker} {readiness_result.message}")
+    sys.exit(0 if readiness_result.success else readiness_result.exit_code or 1)
 
 
 def _echo_web_service_restart_result(result) -> None:
@@ -892,6 +898,9 @@ def _echo_web_service_restart_result(result) -> None:
     if result.http_result is not None:
         http_marker = "✓" if result.http_result.success else "✗"
         click.echo(f"  {http_marker} {result.http_result.message}")
+    if result.readiness_result is not None:
+        readiness_marker = "\u2713" if result.readiness_result.success else "\u2717"
+        click.echo(f"  {readiness_marker} {result.readiness_result.message}")
     if not result.success:
         click.echo(f"  ✗ {result.message}")
     sys.exit(0 if result.success else result.exit_code or 1)
@@ -939,9 +948,9 @@ def web_service_stop() -> None:
 
 @web_service.command("restart", help="Restart armactl-web.service.")
 def web_service_restart() -> None:
-    from armactl.web.service import restart_web_service_and_wait_for_health
+    from armactl.web.service import restart_web_service_and_wait_for_readiness
 
-    _echo_web_service_restart_result(restart_web_service_and_wait_for_health())
+    _echo_web_service_restart_result(restart_web_service_and_wait_for_readiness())
 
 
 @web_service.command("enable", help="Enable armactl-web.service on boot.")
@@ -1023,6 +1032,11 @@ def web_service_status(data_root: Path | None) -> None:
         http_marker = "✓" if http.get("success") else "✗"
         http_message = http.get("message", "unknown")
         click.echo(f"  HTTP check:     {http_marker} {http_message}")
+    readiness = status.get("readiness", {})
+    if isinstance(readiness, dict) and readiness:
+        readiness_marker = "\u2713" if readiness.get("success") else "\u2717"
+        readiness_message = readiness.get("message", "unknown")
+        click.echo(f"  Readiness:      {readiness_marker} {readiness_message}")
 
 
 # ---------------------------------------------------------------------------

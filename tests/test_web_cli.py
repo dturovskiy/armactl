@@ -790,6 +790,7 @@ def test_web_service_lifecycle_cli_calls_service_helpers(monkeypatch):
         return web_service.WebServiceRestartResult(
             systemctl_result=ServiceResult(True, "restart armactl-web.service"),
             http_result=ServiceResult(True, "http ready"),
+            readiness_result=ServiceResult(True, "schema ready"),
             success=True,
             message="restart and health ok",
             exit_code=0,
@@ -799,7 +800,7 @@ def test_web_service_lifecycle_cli_calls_service_helpers(monkeypatch):
     monkeypatch.setattr(web_service, "stop_web_service", result_for("stop"))
     monkeypatch.setattr(
         web_service,
-        "restart_web_service_and_wait_for_health",
+        "restart_web_service_and_wait_for_readiness",
         restart_result,
     )
     monkeypatch.setattr(web_service, "enable_web_service", result_for("enable"))
@@ -809,6 +810,11 @@ def test_web_service_lifecycle_cli_calls_service_helpers(monkeypatch):
         "check_web_http_health",
         lambda timeout_seconds=0.0: ServiceResult(True, "http ready"),
     )
+    monkeypatch.setattr(
+        web_service,
+        "check_web_http_readiness",
+        lambda timeout_seconds=0.0: ServiceResult(True, "schema ready"),
+    )
 
     for command in ("start", "stop", "restart", "enable", "disable"):
         result = invoke_web("service", command)
@@ -816,6 +822,8 @@ def test_web_service_lifecycle_cli_calls_service_helpers(monkeypatch):
         assert result.exit_code == 0
         assert f"Web service {command}." in result.output
         assert f"{command} armactl-web.service" in result.output
+        if command == "restart":
+            assert "schema ready" in result.output
 
     assert calls == ["start", "stop", "restart", "enable", "disable"]
 
@@ -826,7 +834,7 @@ def test_web_service_restart_cli_reports_health_failure(monkeypatch):
 
     monkeypatch.setattr(
         web_service,
-        "restart_web_service_and_wait_for_health",
+        "restart_web_service_and_wait_for_readiness",
         lambda: web_service.WebServiceRestartResult(
             systemctl_result=ServiceResult(True, "systemctl restart ok", 0),
             http_result=ServiceResult(False, "http health timed out", 1),
@@ -852,7 +860,7 @@ def test_web_service_restart_cli_systemctl_failure_stays_failure(monkeypatch):
 
     monkeypatch.setattr(
         web_service,
-        "restart_web_service_and_wait_for_health",
+        "restart_web_service_and_wait_for_readiness",
         lambda: web_service.WebServiceRestartResult(
             systemctl_result=ServiceResult(False, "systemctl restart failed", 7),
             http_result=ServiceResult(True, "http ready", 0),
@@ -914,6 +922,7 @@ def test_web_service_status_prints_safe_summary(tmp_path: Path, monkeypatch):
             "main_pid": 321,
             "runtime": {"success": True, "message": "runtime ready", "exit_code": 0},
             "http": {"success": True, "message": "http ready", "exit_code": 0},
+            "readiness": {"success": True, "message": "schema ready", "exit_code": 0},
             "config": {
                 "available": True,
                 "data_root": str(config.data_root),
@@ -937,6 +946,7 @@ def test_web_service_status_prints_safe_summary(tmp_path: Path, monkeypatch):
     assert "Enabled:        yes" in result.output
     assert "PID:            321" in result.output
     assert f"Bind:           127.0.0.1:{WEB_PANEL_DEFAULT_PORT}" in result.output
+    assert "schema ready" in result.output
     assert "HTTP check:     ✓ http ready" in result.output
     assert config.session_secret not in result.output
     assert "ARMACTL_WEB_SESSION_SECRET" not in result.output

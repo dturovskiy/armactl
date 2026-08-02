@@ -162,20 +162,32 @@ Check the service:
 ./armactl web service status
 ```
 
-Check the health endpoint on the server host:
+Check liveness and schema readiness on the server host:
 
 ```bash
 curl http://127.0.0.1:8765/healthz
+curl http://127.0.0.1:8765/readyz
 ```
 
 For a gateway-managed VM that binds to a specific VM LAN IP instead of
 `0.0.0.0`, check the VM LAN address or the protected gateway route instead.
 
-Expected response:
+Expected liveness response:
 
 ```json
 {"ok":true}
 ```
+
+Readiness returns only bounded component states:
+
+```json
+{"ok":true,"checks":{"web_db":{"ok":true,"status":"ready"},"players_db":{"ok":true,"status":"ready"}}}
+```
+
+`/healthz` proves only that the HTTP process is alive. `/readyz` additionally
+proves that the running process can safely read the current web and player DB
+schemas. Missing optional player storage is reported as `not_configured` and
+does not create a database.
 
 Then open the login page in a browser and verify:
 
@@ -192,6 +204,11 @@ Then open the login page in a browser and verify:
 ./armactl web service stop
 ./armactl web service start
 ```
+
+After pulling Python code or DB-schema changes, restart `armactl-web.service`
+before considering the deployment complete. A successful deploy requires the
+restart command, `/healthz`, and `/readyz` to pass. A green liveness check
+alone does not prove that the running process supports the current DB schema.
 
 For logs:
 
@@ -296,6 +313,20 @@ Do not reuse default Arma service ports for the dashboard:
 ./armactl web service start
 ./armactl web service status
 ```
+
+### Readiness Fails After An Update
+
+A 404 from `/readyz` means the running process predates the readiness route. A
+`schema_newer` component means the running process is older than the database
+schema it is trying to read. Restart only the web service, then recheck:
+
+```bash
+./armactl web service restart
+./armactl web service status
+curl -fsS http://127.0.0.1:8765/readyz
+```
+
+Do not hand-edit schema metadata or restart the game service for this condition.
 
 ### Owner Is Not Configured
 

@@ -22,9 +22,9 @@ Closed result:
 
 Closed result:
 
-- `armactl web service restart` reports `systemctl restart` and `/healthz` wait as separate bounded outcomes.
-- Success requires both `systemctl restart armactl-web.service` success and HTTP health success.
-- `systemctl` failure/timeout and HTTP health wait failure return controlled diagnostics; HTTP OK is not treated as proof of restart success after a failed restart command.
+- `armactl web service restart` reports `systemctl restart`, `/healthz` liveness, and `/readyz` schema readiness as separate bounded outcomes.
+- Success requires the restart command, HTTP liveness, and running-process schema compatibility to pass.
+- A stale process, missing readiness route, newer DB schema, restart timeout, or HTTP failure returns controlled diagnostics; liveness alone is never treated as deploy success.
 - Scope is only `armactl-web.service`; game server restart/helper behavior stays out of scope.
 
 ## P1: Long-Lived Theme Toggle CSRF Drift (Closed)

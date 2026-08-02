@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import tempfile
 import time
@@ -40,6 +41,7 @@ from armactl.web.security.exposure import get_exposure_warning
 
 WEB_SERVICE_RESTART_SYSTEMCTL_TIMEOUT_SECONDS = 20
 WEB_SERVICE_RESTART_HEALTH_TIMEOUT_SECONDS = 10.0
+WEB_SERVICE_RESTART_READINESS_TIMEOUT_SECONDS = 10.0
 
 
 @dataclass(frozen=True)
@@ -57,6 +59,7 @@ class WebServiceRestartResult:
     success: bool
     message: str
     exit_code: int = 0
+    readiness_result: ServiceResult | None = None
 
 
 def web_service_name() -> str:
@@ -150,6 +153,11 @@ def web_health_url(config: WebRuntimeConfig) -> str:
     return f"http://{host}:{config.bind_port}/healthz"
 
 
+def web_readiness_url(config: WebRuntimeConfig) -> str:
+    host = _health_check_host(config.bind_host)
+    return f"http://{host}:{config.bind_port}/readyz"
+
+
 def check_web_http_health(
     config: WebRuntimeConfig | None = None,
     data_root: Path | None = None,
@@ -190,6 +198,74 @@ def check_web_http_health(
         tr(
             "Web HTTP health check failed at {url}: {error}",
             url=url,
+            error=last_error or _("Unknown"),
+        ),
+        1,
+    )
+
+
+def check_web_http_readiness(
+    config: WebRuntimeConfig | None = None,
+    data_root: Path | None = None,
+    *,
+    timeout_seconds: float = 0.0,
+) -> ServiceResult:
+    """Check schema readiness reported by the currently running web process."""
+    try:
+        runtime_config = config or load_web_runtime_config(data_root)
+    except WebRuntimeConfigError as error:
+        return ServiceResult(
+            False,
+            tr(
+                "Web HTTP readiness check unavailable: {error}",
+                error=redact_sensitive_text(error),
+            ),
+            1,
+        )
+
+    url = web_readiness_url(runtime_config)
+    deadline = time.monotonic() + max(timeout_seconds, 0.0)
+    last_error = ""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    while True:
+        try:
+            with opener.open(url, timeout=1.0) as response:
+                if response.status == 200:
+                    try:
+                        payload = json.loads(response.read(8192).decode("utf-8"))
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        last_error = "invalid JSON response"
+                    else:
+                        if isinstance(payload, dict) and payload.get("ok") is True:
+                            return ServiceResult(
+                                True,
+                                _("Web HTTP readiness check is ready."),
+                            )
+                        last_error = "readiness response is not ready"
+                else:
+                    last_error = f"HTTP {response.status}"
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return ServiceResult(
+                    False,
+                    _(
+                        "Web readiness endpoint is unavailable; restart "
+                        "armactl-web.service after updating armactl."
+                    ),
+                    1,
+                )
+            last_error = f"HTTP {error.code}"
+        except (OSError, TimeoutError, urllib.error.URLError) as error:
+            last_error = redact_sensitive_text(error)
+
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.2)
+
+    return ServiceResult(
+        False,
+        tr(
+            "Web HTTP readiness check failed: {error}",
             error=last_error or _("Unknown"),
         ),
         1,
@@ -346,6 +422,20 @@ def _run_web_http_health_wait(timeout_seconds: float) -> ServiceResult:
         )
 
 
+def _run_web_http_readiness_wait(timeout_seconds: float) -> ServiceResult:
+    try:
+        return check_web_http_readiness(timeout_seconds=timeout_seconds)
+    except Exception as error:
+        return ServiceResult(
+            False,
+            tr(
+                "Web HTTP readiness wait failed: {error}",
+                error=redact_sensitive_text(error),
+            ),
+            1,
+        )
+
+
 def restart_web_service_and_wait_for_health(
     *,
     restart_timeout_seconds: int = WEB_SERVICE_RESTART_SYSTEMCTL_TIMEOUT_SECONDS,
@@ -381,6 +471,41 @@ def restart_web_service_and_wait_for_health(
         success=False,
         message=_("Web service restart command succeeded, but HTTP health wait failed."),
         exit_code=http_result.exit_code or 1,
+    )
+
+
+def restart_web_service_and_wait_for_readiness(
+    *,
+    restart_timeout_seconds: int = WEB_SERVICE_RESTART_SYSTEMCTL_TIMEOUT_SECONDS,
+    health_timeout_seconds: float = WEB_SERVICE_RESTART_HEALTH_TIMEOUT_SECONDS,
+    readiness_timeout_seconds: float = WEB_SERVICE_RESTART_READINESS_TIMEOUT_SECONDS,
+) -> WebServiceRestartResult:
+    """Restart web and prove systemd, liveness, and schema readiness separately."""
+    result = restart_web_service_and_wait_for_health(
+        restart_timeout_seconds=restart_timeout_seconds,
+        health_timeout_seconds=health_timeout_seconds,
+    )
+    if not result.success:
+        return result
+
+    readiness_result = _run_web_http_readiness_wait(readiness_timeout_seconds)
+    if not readiness_result.success:
+        return WebServiceRestartResult(
+            systemctl_result=result.systemctl_result,
+            http_result=result.http_result,
+            readiness_result=readiness_result,
+            success=False,
+            message=_("Web service restart command succeeded, but HTTP readiness wait failed."),
+            exit_code=readiness_result.exit_code or 1,
+        )
+
+    return WebServiceRestartResult(
+        systemctl_result=result.systemctl_result,
+        http_result=result.http_result,
+        readiness_result=readiness_result,
+        success=True,
+        message=_("Web service restart command succeeded and HTTP health/readiness are ready."),
+        exit_code=0,
     )
 
 
@@ -421,15 +546,19 @@ def get_web_service_status(data_root: Path | None = None) -> dict[str, Any]:
     status = get_service_status(web_service_name())
     if config is None:
         http_result = ServiceResult(False, _("Web HTTP health check unavailable."), 1)
+        readiness_result = ServiceResult(False, _("Web HTTP readiness check unavailable."), 1)
     elif status.get("active"):
         http_result = check_web_http_health(config=config)
+        readiness_result = check_web_http_readiness(config=config)
     else:
         http_result = ServiceResult(False, _("Web service is not active."), 1)
+        readiness_result = ServiceResult(False, _("Web service is not active."), 1)
     status.update(
         service_file=str(web_service_file()),
         installed=web_service_file().exists(),
         runtime=check_web_service_runtime().to_dict(),
         http=http_result.to_dict(),
+        readiness=readiness_result.to_dict(),
         config=_safe_config_status(config, config_error),
     )
     return status

@@ -157,6 +157,7 @@ def test_web_health_url_checks_loopback_for_wildcard_bind(tmp_path: Path) -> Non
     config = replace(ensure_web_runtime(tmp_path), bind_host="0.0.0.0", bind_port=8765)
 
     assert service.web_health_url(config) == "http://127.0.0.1:8765/healthz"
+    assert service.web_readiness_url(config) == "http://127.0.0.1:8765/readyz"
 
 
 def test_web_service_lifecycle_helpers_call_fixed_unit(monkeypatch):
@@ -273,6 +274,42 @@ def test_restart_web_service_systemctl_failure_stays_failure(monkeypatch):
     )
 
 
+def test_restart_web_service_requires_schema_readiness(monkeypatch):
+    from armactl.web import service
+
+    base_result = service.WebServiceRestartResult(
+        systemctl_result=ServiceResult(True, "systemctl restart ok", 0),
+        http_result=ServiceResult(True, "http ready", 0),
+        success=True,
+        message="restart and health ready",
+    )
+    readiness: dict[str, ServiceResult] = {}
+    monkeypatch.setattr(
+        service,
+        "restart_web_service_and_wait_for_health",
+        lambda **_kwargs: base_result,
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_web_http_readiness_wait",
+        lambda timeout_seconds: readiness["result"],
+    )
+
+    readiness["result"] = ServiceResult(False, "schema mismatch", 9)
+    failed = service.restart_web_service_and_wait_for_readiness(readiness_timeout_seconds=3.0)
+    assert failed.success is False
+    assert failed.exit_code == 9
+    assert failed.readiness_result is readiness["result"]
+    assert "readiness wait failed" in failed.message
+
+    readiness["result"] = ServiceResult(True, "schema ready", 0)
+    passed = service.restart_web_service_and_wait_for_readiness(readiness_timeout_seconds=3.0)
+    assert passed.success is True
+    assert passed.exit_code == 0
+    assert passed.readiness_result is readiness["result"]
+    assert "health/readiness are ready" in passed.message
+
+
 def test_web_service_status_uses_service_manager_and_redacts_config(
     tmp_path: Path,
     monkeypatch,
@@ -296,6 +333,16 @@ def test_web_service_status_uses_service_manager_and_redacts_config(
         "check_web_service_runtime",
         lambda project_root=None: ServiceResult(True, "runtime ready"),
     )
+    monkeypatch.setattr(
+        service,
+        "check_web_http_health",
+        lambda config=None: ServiceResult(True, "http ready"),
+    )
+    monkeypatch.setattr(
+        service,
+        "check_web_http_readiness",
+        lambda config=None: ServiceResult(True, "schema ready"),
+    )
 
     status = service.get_web_service_status(tmp_path)
 
@@ -303,6 +350,8 @@ def test_web_service_status_uses_service_manager_and_redacts_config(
     assert status["active"] is True
     assert status["enabled"] is True
     assert status["runtime"]["success"] is True
+    assert status["http"]["success"] is True
+    assert status["readiness"]["success"] is True
     assert status["config"]["bind_port"] == config.bind_port
     assert status["config"]["exposure_warning"] is None
     assert config.session_secret not in str(status)
