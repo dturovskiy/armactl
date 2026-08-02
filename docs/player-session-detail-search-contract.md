@@ -1,6 +1,6 @@
 # Player Session Detail And Search Contract
 
-Status: **Slice 6a audit/design complete. Runtime implementation remains gated.**
+Status: **Slice 6b query/DTO foundation complete. Slice 6c UI remains gated.**
 
 This document is the source of truth for the next authenticated player-session read surface after F3-c production acceptance. It defines search, one-session detail, conflict semantics, reuse ownership, privacy, pagination, and implementation slices without adding a second player truth pipeline.
 
@@ -23,21 +23,28 @@ Existing reusable owners:
 - `player_registry.list_player_log_events(...)` and the player-history page already own safe event labels and default-versus-diagnostic event classification.
 - shared browser-local `<time data-local-time>` rendering remains the only normal timestamp presentation path.
 
-Current gaps:
+Slice 6b foundation now implemented:
 
-- Session-name search matches only `name_at_open` and `name_last`; it does not include known alias history from `player_names`.
-- Exact reliable-ID filtering exists, but there is no one-session detail page.
-- The list has a bounded limit but no older-page keyset cursor.
-- `get_player_session(...)` and `list_player_sessions_for_reliable_id(...)` use the normal existing connection rather than the explicit query-only connection. They must not be called from a new GET route as-is.
-- `player_current_enrichment` has correct session-window/stat rules, but its private implementation is open-session specific. Copying that SQL into a detail service would create a second truth implementation.
-- `list_player_summaries(...)` derives all-time stored-event counters. It is not session-scoped and must not be reused for session detail, current-session stats, Discord, or public claims.
+- `player_registry.get_player_session_readonly(...)` returns a typed controlled result through SQLite URI `mode=ro` plus `PRAGMA query_only = ON`; it never calls schema ensure/migration. Existing mutation-oriented `get_player_session(...)` and `list_player_sessions_for_reliable_id(...)` callers remain unchanged for the sessionizer/writer path.
+- `player_registry.query_player_sessions(...)` owns the bounded parameterized alias-aware query, UTC range filters, and allowlisted status/end-reason/source filters. Invalid filters fail closed. Alias matching uses `EXISTS` against `player_names`, so one stored session appears once and same-name reliable identities stay separate.
+- The new session query uses deterministic keyset pagination over validated evidence time and descending `session_id`, fetches at most bounded `limit + 1`, and uses no `OFFSET`.
+- `player_registry.query_player_session_events(...)` owns the bounded trusted-occurrence-time event query for one proven session window. It uses exact/derived occurrence evidence, reliable identity matching, and an event-time plus `event_id` keyset cursor.
+- `player_session_stats` now owns the shared freshness, session-window, lifecycle/server-run, combat, faction, and reconnect evaluation used by both current-player enrichment and future detail DTOs. It supports proven open and closed stored sessions.
+- `player_session_details` provides sanitized typed search/detail DTOs and controlled invalid/not-found/unavailable results without routes, templates, CSS, browser JavaScript, or JSON API work.
+- `list_player_summaries(...)` remains all-time stored-event data and is not used for session detail or current-session truth.
 
-## P1 Gates Before Runtime UI
+Remaining runtime gaps:
 
-1. Add an explicit query-only single-session read helper, or safely convert the existing single-session read helper to `_connect_existing_readonly(...)` with regression coverage for all callers.
-2. Extract or expose one reusable session-window/stat evaluator used by both current-player enrichment and session detail. The detail path must not copy event classification, freshness, lifecycle, reconnect, or faction precedence rules.
-3. Add bounded keyset pagination before presenting the session list as complete history. Do not use unbounded queries or load all rows into Python.
-4. Keep alias search identity-safe: names discover reliable identities, but matching names never merge identities or create a session relationship.
+- There is still no one-session detail route or template.
+- List cursor controls, alias/time filter UX, browser-local rendering, and presentation of the already bounded high-signal detail timeline remain Slice 6c work.
+- Slice 6d VM smoke remains staged and approval-gated.
+
+## P1 Gates Before Runtime UI - closed by Slice 6b
+
+1. The new detail lookup is explicitly query-only and covered for missing/current/legacy storage without changing sessionizer mutation helpers.
+2. Current enrichment and detail stats use the same evaluator and classification SQL.
+3. Session-list and proven-window event history now have bounded deterministic keyset queries with no unbounded Python load.
+4. Alias search discovers sessions by reliable identity without identity merging or duplicate rows.
 
 Runtime implementation must stop if any gate would require a parallel storage layer, GET mutation, or duplicated stats SQL.
 
@@ -164,13 +171,13 @@ Forbidden output:
 - [x] Decide server-rendered detail first; no new JSON API.
 - [x] Define query, pagination, identity conflict, privacy, and acceptance contracts.
 
-### Slice 6b: Query And DTO Foundation - next
+### Slice 6b: Query And DTO Foundation - complete
 
-- [ ] Add query-only single-session read and bounded keyset list/event queries.
-- [ ] Add alias-aware session search without identity merging or duplicate rows.
-- [ ] Extract/reuse one session-window stats evaluator for open and closed session detail.
-- [ ] Add typed sanitized detail/search DTOs and missing-schema/unavailable behavior.
-- [ ] Add focused service tests for query-only access, bounds, ordering, conflicts, freshness, lifecycle, and no fake zeroes.
+- [x] Add query-only single-session read plus bounded keyset session-list and proven-window event queries; keep only timeline presentation/integration for Slice 6c.
+- [x] Add alias-aware session search without identity merging or duplicate rows.
+- [x] Extract/reuse one session-window stats evaluator for open and closed session detail.
+- [x] Add typed sanitized detail/search DTOs and missing-schema/unavailable behavior.
+- [x] Add focused service tests for query-only access, bounds, ordering, conflicts, freshness, lifecycle, and no fake zeroes.
 
 Stop after Slice 6b if a route/template would need duplicated SQL or if closed-session coverage cannot be proven truthfully.
 

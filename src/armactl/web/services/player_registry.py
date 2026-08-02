@@ -9,7 +9,7 @@ import os
 import re
 import sqlite3
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -19,6 +19,7 @@ from armactl.player_log_events import (
     CONFIDENCE_HIGH,
     CONFIDENCE_MEDIUM,
     EVENT_TIME_CONFIDENCE_AMBIGUOUS,
+    EVENT_TIME_CONFIDENCE_DERIVED,
     EVENT_TIME_CONFIDENCE_EXACT,
     EVENT_TIME_SOURCE_CALLER_OBSERVED_AT,
     EVENT_TIME_SOURCE_CALLER_OCCURRED_AT,
@@ -51,6 +52,7 @@ MAX_PLAYER_HISTORY_EVENT_LIMIT = 250
 DEFAULT_PLAYER_LIST_LIMIT = 100
 DEFAULT_PLAYER_SESSION_LIST_LIMIT = 100
 MAX_PLAYER_SESSION_LIST_LIMIT = 250
+MAX_PLAYER_SESSION_QUERY_LENGTH = 120
 DEFAULT_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT = 500
 MAX_PLAYER_SESSION_MAINTENANCE_BATCH_LIMIT = 5000
 DEFAULT_PLAYER_SESSION_ABSENCE_CONFIRMATION_SCANS = 2
@@ -220,6 +222,22 @@ PLAYER_SESSION_INFERRED_OR_STALE_END_REASONS = tuple(
     reason for reason in PLAYER_SESSION_END_REASONS
     if reason != PLAYER_SESSION_END_REASON_DISCONNECT
 )
+PLAYER_SESSION_READ_STATUS_OK = "ok"
+PLAYER_SESSION_READ_STATUS_INVALID_ID = "invalid_id"
+PLAYER_SESSION_READ_STATUS_NOT_FOUND = "not_found"
+PLAYER_SESSION_READ_STATUS_UNAVAILABLE = "unavailable"
+PLAYER_SESSION_QUERY_STATUS_OK = "ok"
+PLAYER_SESSION_QUERY_STATUS_INVALID_CURSOR = "invalid_cursor"
+PLAYER_SESSION_QUERY_STATUS_INVALID_FILTER = "invalid_filter"
+PLAYER_SESSION_QUERY_STATUS_UNAVAILABLE = "unavailable"
+PLAYER_SESSION_EVENT_QUERY_STATUS_OK = "ok"
+PLAYER_SESSION_EVENT_QUERY_STATUS_INVALID_CURSOR = "invalid_cursor"
+PLAYER_SESSION_EVENT_QUERY_STATUS_INVALID_WINDOW = "invalid_window"
+PLAYER_SESSION_EVENT_QUERY_STATUS_UNAVAILABLE = "unavailable"
+_PLAYER_SESSION_EVIDENCE_TIME_SQL = (
+    "COALESCE(NULLIF(close_observed_at, ''), "
+    "NULLIF(last_seen_at, ''), NULLIF(open_observed_at, ''))"
+)
 
 
 @dataclass(frozen=True)
@@ -368,6 +386,24 @@ class PlayerLogEventRecord:
 
 
 @dataclass(frozen=True)
+class PlayerLogEventCursor:
+    """Validated deterministic cursor for an older stored-event page."""
+
+    event_time: str
+    event_id: int
+
+
+@dataclass(frozen=True)
+class PlayerSessionEventQueryResult:
+    """Controlled bounded keyset result over one proven session window."""
+
+    status: str
+    events: tuple[PlayerLogEventRecord, ...] = field(default_factory=tuple, repr=False)
+    next_cursor: PlayerLogEventCursor | None = None
+    limit: int = DEFAULT_PLAYER_HISTORY_EVENT_LIMIT
+
+
+@dataclass(frozen=True)
 class PlayerSessionRecord:
     """One sanitized persisted player session row."""
 
@@ -410,6 +446,32 @@ class PlayerSessionRecord:
     scanner_checkpoint_at: str
     created_at: str
     updated_at: str
+
+
+@dataclass(frozen=True)
+class PlayerSessionCursor:
+    """Validated deterministic cursor for an older stored-session page."""
+
+    evidence_time: str
+    session_id: int
+
+
+@dataclass(frozen=True)
+class PlayerSessionReadResult:
+    """Controlled result for one query-only stored-session lookup."""
+
+    status: str
+    session: PlayerSessionRecord | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True)
+class PlayerSessionQueryResult:
+    """Controlled bounded keyset result over stored player sessions."""
+
+    status: str
+    sessions: tuple[PlayerSessionRecord, ...] = field(default_factory=tuple, repr=False)
+    next_cursor: PlayerSessionCursor | None = None
+    limit: int = DEFAULT_PLAYER_SESSION_LIST_LIMIT
 
 
 @dataclass(frozen=True)
@@ -1611,9 +1673,16 @@ def _connect_existing(db_path: Path) -> sqlite3.Connection | None:
 def _connect_existing_readonly(db_path: Path) -> sqlite3.Connection | None:
     if not db_path.is_file():
         return None
-    quoted_path = quote(str(db_path), safe="/:")
-    connection = sqlite3.connect(f"file:{quoted_path}?mode=ro", uri=True)
-    connection.row_factory = sqlite3.Row
+    quoted_path = quote(db_path.resolve().as_posix(), safe="/:")
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(f"file:{quoted_path}?mode=ro", uri=True)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA query_only = ON")
+    except (OSError, sqlite3.Error):
+        if connection is not None:
+            connection.close()
+        return None
     return connection
 
 
@@ -3423,6 +3492,476 @@ def close_player_session(
         connection.close()
 
 
+_PLAYER_SESSION_READ_REQUIRED_COLUMNS = frozenset(
+    PlayerSessionRecord.__dataclass_fields__
+)
+_PLAYER_NAME_ALIAS_REQUIRED_COLUMNS = frozenset({"reliable_id", "name"})
+
+
+def _player_session_read_schema_available(
+    connection: sqlite3.Connection,
+    *,
+    aliases_required: bool = False,
+) -> bool:
+    if not _PLAYER_SESSION_READ_REQUIRED_COLUMNS.issubset(
+        _table_columns(connection, "player_sessions")
+    ):
+        return False
+    if aliases_required and not _PLAYER_NAME_ALIAS_REQUIRED_COLUMNS.issubset(
+        _table_columns(connection, "player_names")
+    ):
+        return False
+    return True
+
+
+def _normalized_player_session_id(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return parsed if parsed > 0 else 0
+
+
+def _normalized_aware_utc_timestamp(
+    value: object,
+    *,
+    allow_empty: bool,
+) -> tuple[str, bool]:
+    raw_value = safe_player_text(value, max_length=80)
+    if not raw_value:
+        return "", allow_empty
+    try:
+        parsed = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+    except ValueError:
+        return "", False
+    if parsed.tzinfo is None:
+        return "", False
+    return parsed.astimezone(timezone.utc).isoformat(), True
+
+
+def _normalized_player_session_cursor(
+    before_time: object,
+    before_session_id: object,
+) -> tuple[PlayerSessionCursor | None, bool]:
+    raw_time = safe_player_text(before_time, max_length=80)
+    raw_session_id = safe_player_text(before_session_id, max_length=32)
+    if not raw_time and not raw_session_id:
+        return None, True
+    if not raw_time or not raw_session_id:
+        return None, False
+    session_id = _normalized_player_session_id(raw_session_id)
+    if session_id < 1:
+        return None, False
+    evidence_time, evidence_time_valid = _normalized_aware_utc_timestamp(
+        raw_time,
+        allow_empty=False,
+    )
+    if not evidence_time_valid:
+        return None, False
+    return (
+        PlayerSessionCursor(
+            evidence_time=evidence_time,
+            session_id=session_id,
+        ),
+        True,
+    )
+
+
+def _normalized_player_log_event_cursor(
+    before_time: object,
+    before_event_id: object,
+) -> tuple[PlayerLogEventCursor | None, bool]:
+    raw_time = safe_player_text(before_time, max_length=80)
+    raw_event_id = safe_player_text(before_event_id, max_length=32)
+    if not raw_time and not raw_event_id:
+        return None, True
+    if not raw_time or not raw_event_id:
+        return None, False
+    event_id = _normalized_player_session_id(raw_event_id)
+    event_time, event_time_valid = _normalized_aware_utc_timestamp(
+        raw_time,
+        allow_empty=False,
+    )
+    if event_id < 1 or not event_time_valid:
+        return None, False
+    return PlayerLogEventCursor(event_time=event_time, event_id=event_id), True
+
+
+def _player_session_query_filters(
+    *,
+    reliable_id: object,
+    query: object,
+    status: object,
+    end_reason: object,
+    source: object,
+    from_time: object,
+    to_time: object,
+) -> tuple[list[str], list[object], bool]:
+    raw_reliable_id = safe_player_text(reliable_id, max_length=120)
+    normalized_reliable_id = normalize_reliable_player_id(raw_reliable_id)
+    if raw_reliable_id and not normalized_reliable_id:
+        return [], [], False
+    normalized_query = safe_player_text(
+        query,
+        max_length=MAX_PLAYER_SESSION_QUERY_LENGTH,
+    )
+    raw_status = _safe_session_text(status, max_length=40)
+    normalized_status = _normalize_session_status_filter(status)
+    raw_end_reason = _safe_session_text(end_reason, max_length=80)
+    normalized_end_reason = _normalize_session_end_reason_filter(end_reason)
+    raw_source = _safe_session_text(source, max_length=80)
+    normalized_source = raw_source if raw_source in PLAYER_SESSION_SOURCES else ""
+    if (
+        (raw_status and not normalized_status)
+        or (raw_end_reason and not normalized_end_reason)
+        or (raw_source and not normalized_source)
+    ):
+        return [], [], False
+    normalized_from, from_valid = _normalized_aware_utc_timestamp(
+        from_time,
+        allow_empty=True,
+    )
+    normalized_to, to_valid = _normalized_aware_utc_timestamp(
+        to_time,
+        allow_empty=True,
+    )
+    if not from_valid or not to_valid:
+        return [], [], False
+    if normalized_from and normalized_to and normalized_from > normalized_to:
+        return [], [], False
+
+    where_clauses: list[str] = []
+    params: list[object] = []
+    if normalized_reliable_id:
+        where_clauses.append("sessions.reliable_id = ?")
+        params.append(normalized_reliable_id)
+    if normalized_query:
+        pattern = f"%{normalized_query}%"
+        where_clauses.append(
+            "("
+            "sessions.name_at_open LIKE ? OR "
+            "sessions.name_last LIKE ? OR "
+            "EXISTS ("
+            "SELECT 1 FROM player_names AS aliases "
+            "WHERE aliases.reliable_id = sessions.reliable_id "
+            "AND aliases.name LIKE ?"
+            ")"
+            ")"
+        )
+        params.extend((pattern, pattern, pattern))
+    if normalized_status:
+        where_clauses.append("sessions.status = ?")
+        params.append(normalized_status)
+    if normalized_end_reason:
+        where_clauses.append("COALESCE(sessions.end_reason, '') = ?")
+        params.append(normalized_end_reason)
+    if normalized_source:
+        where_clauses.append(
+            "("
+            "sessions.open_source = ? OR "
+            "sessions.last_seen_source = ? OR "
+            "COALESCE(sessions.close_source, '') = ?"
+            ")"
+        )
+        params.extend((normalized_source, normalized_source, normalized_source))
+    if normalized_from:
+        where_clauses.append(f"julianday({_PLAYER_SESSION_EVIDENCE_TIME_SQL}) >= julianday(?)")
+        params.append(normalized_from)
+    if normalized_to:
+        where_clauses.append(f"julianday({_PLAYER_SESSION_EVIDENCE_TIME_SQL}) <= julianday(?)")
+        params.append(normalized_to)
+    return where_clauses, params, True
+
+
+def get_player_session_readonly(
+    db_path: Path,
+    session_id: object,
+) -> PlayerSessionReadResult:
+    """Read exactly one existing session through a query-only connection."""
+    normalized_session_id = _normalized_player_session_id(session_id)
+    if normalized_session_id < 1:
+        return PlayerSessionReadResult(status=PLAYER_SESSION_READ_STATUS_INVALID_ID)
+    connection = _connect_existing_readonly(db_path)
+    if connection is None:
+        return PlayerSessionReadResult(status=PLAYER_SESSION_READ_STATUS_UNAVAILABLE)
+    try:
+        if not _player_session_read_schema_available(connection):
+            return PlayerSessionReadResult(status=PLAYER_SESSION_READ_STATUS_UNAVAILABLE)
+        row = _fetch_player_session_by_id(connection, normalized_session_id)
+        if row is None:
+            return PlayerSessionReadResult(status=PLAYER_SESSION_READ_STATUS_NOT_FOUND)
+        return PlayerSessionReadResult(
+            status=PLAYER_SESSION_READ_STATUS_OK,
+            session=_player_session_record_from_row(row),
+        )
+    except (IndexError, KeyError, TypeError, ValueError, sqlite3.Error):
+        return PlayerSessionReadResult(status=PLAYER_SESSION_READ_STATUS_UNAVAILABLE)
+    finally:
+        connection.close()
+
+
+def query_player_sessions(
+    db_path: Path,
+    *,
+    limit: object = DEFAULT_PLAYER_SESSION_LIST_LIMIT,
+    reliable_id: object = "",
+    query: object = "",
+    status: object = "",
+    end_reason: object = "",
+    source: object = "",
+    before_time: object = "",
+    before_session_id: object = "",
+    from_time: object = "",
+    to_time: object = "",
+) -> PlayerSessionQueryResult:
+    """Return one bounded deterministic session page without OFFSET or writes."""
+    normalized_limit = _bounded_player_session_list_limit(limit)
+    cursor, cursor_valid = _normalized_player_session_cursor(
+        before_time,
+        before_session_id,
+    )
+    if not cursor_valid:
+        return PlayerSessionQueryResult(
+            status=PLAYER_SESSION_QUERY_STATUS_INVALID_CURSOR,
+            limit=normalized_limit,
+        )
+
+    connection = _connect_existing_readonly(db_path)
+    if connection is None:
+        return PlayerSessionQueryResult(
+            status=PLAYER_SESSION_QUERY_STATUS_UNAVAILABLE,
+            limit=normalized_limit,
+        )
+    try:
+        if not _player_session_read_schema_available(
+            connection,
+            aliases_required=True,
+        ):
+            return PlayerSessionQueryResult(
+                status=PLAYER_SESSION_QUERY_STATUS_UNAVAILABLE,
+                limit=normalized_limit,
+            )
+        where_clauses, params, filters_valid = _player_session_query_filters(
+            reliable_id=reliable_id,
+            query=query,
+            status=status,
+            end_reason=end_reason,
+            source=source,
+            from_time=from_time,
+            to_time=to_time,
+        )
+        if not filters_valid:
+            return PlayerSessionQueryResult(
+                status=PLAYER_SESSION_QUERY_STATUS_INVALID_FILTER,
+                limit=normalized_limit,
+            )
+
+        evidence_time_sql = _PLAYER_SESSION_EVIDENCE_TIME_SQL
+        where_clauses.append(f"julianday({evidence_time_sql}) IS NOT NULL")
+        if cursor is not None:
+            where_clauses.append(
+                "("
+                f"julianday({evidence_time_sql}) < julianday(?) OR "
+                "("
+                f"julianday({evidence_time_sql}) = julianday(?) "
+                "AND sessions.session_id < ?"
+                ")"
+                ")"
+            )
+            params.extend(
+                (cursor.evidence_time, cursor.evidence_time, cursor.session_id)
+            )
+
+        sql = (
+            "SELECT sessions.*, "
+            f"{evidence_time_sql} AS query_evidence_time "
+            "FROM player_sessions AS sessions "
+            "WHERE "
+            + " AND ".join(where_clauses)
+            + " ORDER BY "
+            f"julianday({evidence_time_sql}) DESC, sessions.session_id DESC "
+            "LIMIT ?"
+        )
+        params.append(normalized_limit + 1)
+        rows = connection.execute(sql, tuple(params)).fetchall()
+        has_more = len(rows) > normalized_limit
+        page_rows = rows[:normalized_limit]
+        next_cursor: PlayerSessionCursor | None = None
+        if has_more and page_rows:
+            last_row = page_rows[-1]
+            evidence_time = _parse_session_timestamp(
+                _safe_session_text(last_row["query_evidence_time"], max_length=80)
+            )
+            if evidence_time is None:
+                return PlayerSessionQueryResult(
+                    status=PLAYER_SESSION_QUERY_STATUS_UNAVAILABLE,
+                    limit=normalized_limit,
+                )
+            next_cursor = PlayerSessionCursor(
+                evidence_time=evidence_time.isoformat(),
+                session_id=int(last_row["session_id"]),
+            )
+        return PlayerSessionQueryResult(
+            status=PLAYER_SESSION_QUERY_STATUS_OK,
+            sessions=tuple(
+                _player_session_record_from_row(row) for row in page_rows
+            ),
+            next_cursor=next_cursor,
+            limit=normalized_limit,
+        )
+    except (IndexError, KeyError, TypeError, ValueError, sqlite3.Error):
+        return PlayerSessionQueryResult(
+            status=PLAYER_SESSION_QUERY_STATUS_UNAVAILABLE,
+            limit=normalized_limit,
+        )
+    finally:
+        connection.close()
+
+
+_PLAYER_SESSION_EVENT_READ_REQUIRED_COLUMNS = (
+    frozenset(PlayerLogEventRecord.__dataclass_fields__) | {"event_time_utc_us"}
+)
+
+
+def query_player_session_events(
+    db_path: Path,
+    *,
+    reliable_id: object,
+    window_started_at: object,
+    window_ended_at: object,
+    limit: object = DEFAULT_PLAYER_HISTORY_EVENT_LIMIT,
+    before_time: object = "",
+    before_event_id: object = "",
+) -> PlayerSessionEventQueryResult:
+    """Return one bounded trusted-time event page for a proven session window."""
+    normalized_limit = _bounded_player_history_limit(limit)
+    normalized_reliable_id = normalize_reliable_player_id(reliable_id)
+    normalized_start, start_valid = _normalized_aware_utc_timestamp(
+        window_started_at,
+        allow_empty=False,
+    )
+    normalized_end, end_valid = _normalized_aware_utc_timestamp(
+        window_ended_at,
+        allow_empty=False,
+    )
+    if (
+        not normalized_reliable_id
+        or not start_valid
+        or not end_valid
+        or normalized_start > normalized_end
+    ):
+        return PlayerSessionEventQueryResult(
+            status=PLAYER_SESSION_EVENT_QUERY_STATUS_INVALID_WINDOW,
+            limit=normalized_limit,
+        )
+    cursor, cursor_valid = _normalized_player_log_event_cursor(
+        before_time,
+        before_event_id,
+    )
+    if not cursor_valid:
+        return PlayerSessionEventQueryResult(
+            status=PLAYER_SESSION_EVENT_QUERY_STATUS_INVALID_CURSOR,
+            limit=normalized_limit,
+        )
+
+    start_us = _event_time_utc_microseconds(normalized_start)
+    end_us = _event_time_utc_microseconds(normalized_end)
+    cursor_us = (
+        _event_time_utc_microseconds(cursor.event_time)
+        if cursor is not None
+        else None
+    )
+    if start_us is None or end_us is None:
+        return PlayerSessionEventQueryResult(
+            status=PLAYER_SESSION_EVENT_QUERY_STATUS_INVALID_WINDOW,
+            limit=normalized_limit,
+        )
+    if cursor is not None and (
+        cursor_us is None or cursor_us < start_us or cursor_us > end_us
+    ):
+        return PlayerSessionEventQueryResult(
+            status=PLAYER_SESSION_EVENT_QUERY_STATUS_INVALID_CURSOR,
+            limit=normalized_limit,
+        )
+
+    connection = _connect_existing_readonly(db_path)
+    if connection is None:
+        return PlayerSessionEventQueryResult(
+            status=PLAYER_SESSION_EVENT_QUERY_STATUS_UNAVAILABLE,
+            limit=normalized_limit,
+        )
+    try:
+        if not _PLAYER_SESSION_EVENT_READ_REQUIRED_COLUMNS.issubset(
+            _table_columns(connection, "player_log_events")
+        ):
+            return PlayerSessionEventQueryResult(
+                status=PLAYER_SESSION_EVENT_QUERY_STATUS_UNAVAILABLE,
+                limit=normalized_limit,
+            )
+        where_clauses = [
+            "event_time_utc_us >= ?",
+            "event_time_utc_us <= ?",
+            "occurred_at != ''",
+            "time_confidence IN (?, ?)",
+            "(player_id = ? OR victim_id = ? OR instigator_id = ?)",
+        ]
+        params: list[object] = [
+            start_us,
+            end_us,
+            EVENT_TIME_CONFIDENCE_EXACT,
+            EVENT_TIME_CONFIDENCE_DERIVED,
+            normalized_reliable_id,
+            normalized_reliable_id,
+            normalized_reliable_id,
+        ]
+        if cursor is not None and cursor_us is not None:
+            where_clauses.append(
+                "(event_time_utc_us < ? OR "
+                "(event_time_utc_us = ? AND event_id < ?))"
+            )
+            params.extend((cursor_us, cursor_us, cursor.event_id))
+        params.append(normalized_limit + 1)
+        rows = connection.execute(
+            "SELECT * FROM player_log_events WHERE "
+            + " AND ".join(where_clauses)
+            + " ORDER BY event_time_utc_us DESC, event_id DESC LIMIT ?",
+            tuple(params),
+        ).fetchall()
+        has_more = len(rows) > normalized_limit
+        page_rows = rows[:normalized_limit]
+        next_cursor: PlayerLogEventCursor | None = None
+        if has_more and page_rows:
+            last_row = page_rows[-1]
+            event_time, event_time_valid = _normalized_aware_utc_timestamp(
+                last_row["occurred_at"],
+                allow_empty=False,
+            )
+            if not event_time_valid:
+                return PlayerSessionEventQueryResult(
+                    status=PLAYER_SESSION_EVENT_QUERY_STATUS_UNAVAILABLE,
+                    limit=normalized_limit,
+                )
+            next_cursor = PlayerLogEventCursor(
+                event_time=event_time,
+                event_id=int(last_row["event_id"]),
+            )
+        return PlayerSessionEventQueryResult(
+            status=PLAYER_SESSION_EVENT_QUERY_STATUS_OK,
+            events=tuple(_player_log_event_record_from_row(row) for row in page_rows),
+            next_cursor=next_cursor,
+            limit=normalized_limit,
+        )
+    except (IndexError, KeyError, TypeError, ValueError, sqlite3.Error):
+        return PlayerSessionEventQueryResult(
+            status=PLAYER_SESSION_EVENT_QUERY_STATUS_UNAVAILABLE,
+            limit=normalized_limit,
+        )
+    finally:
+        connection.close()
+
+
 def get_player_session(db_path: Path, session_id: int) -> PlayerSessionRecord | None:
     """Return one sanitized player session row by session ID."""
     connection = _connect_existing(db_path)
@@ -3568,7 +4107,15 @@ def list_player_sessions(
     connection = _connect_existing_readonly(db_path)
     if connection is None:
         return []
-    if not _table_exists(connection, "player_sessions"):
+    try:
+        schema_available = _player_session_read_schema_available(
+            connection,
+            aliases_required=True,
+        )
+    except sqlite3.Error:
+        connection.close()
+        return []
+    if not schema_available:
         connection.close()
         return []
 
@@ -3578,7 +4125,10 @@ def list_player_sessions(
     if raw_reliable_id and not normalized_reliable_id:
         connection.close()
         return []
-    normalized_query = safe_player_text(query, max_length=120)
+    normalized_query = safe_player_text(
+        query,
+        max_length=MAX_PLAYER_SESSION_QUERY_LENGTH,
+    )
     normalized_status = _normalize_session_status_filter(status)
     normalized_end_reason = _normalize_session_end_reason_filter(end_reason)
     normalized_source = _safe_session_source(source, default="")
@@ -3589,9 +4139,19 @@ def list_player_sessions(
         where_clauses.append("reliable_id = ?")
         params.append(normalized_reliable_id)
     if normalized_query:
-        where_clauses.append("(name_at_open LIKE ? OR name_last LIKE ?)")
+        where_clauses.append(
+            "("
+            "name_at_open LIKE ? OR "
+            "name_last LIKE ? OR "
+            "EXISTS ("
+            "SELECT 1 FROM player_names AS aliases "
+            "WHERE aliases.reliable_id = player_sessions.reliable_id "
+            "AND aliases.name LIKE ?"
+            ")"
+            ")"
+        )
         pattern = f"%{normalized_query}%"
-        params.extend((pattern, pattern))
+        params.extend((pattern, pattern, pattern))
     if normalized_status:
         where_clauses.append("status = ?")
         params.append(normalized_status)
@@ -3619,9 +4179,14 @@ def list_player_sessions(
 
     try:
         rows = connection.execute(sql, tuple(params)).fetchall()
+    except sqlite3.Error:
+        return []
     finally:
         connection.close()
-    return [_player_session_record_from_row(row) for row in rows]
+    try:
+        return [_player_session_record_from_row(row) for row in rows]
+    except (IndexError, KeyError, TypeError, ValueError):
+        return []
 
 
 def clear_player_session_live_absence_windows(
