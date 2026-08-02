@@ -128,7 +128,7 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 | Web audit log | `~/armactl-data/logs/web/audit.log` | JSON-lines records for mutating web actions. Player refresh stores phase/source/counts and controlled failure metadata. Player log web collection stores intent/outcome phases, job kind, allowlist scope, limits, and aggregate counts only. Admin actions store target ID and changed status. | Raw player names for player refresh, raw log lines, raw absolute log paths, IPs, passwords, RCON secrets, tracebacks. | No audit retention/rotation in current code. Web log view tails and redacts output. |
 | Game config | `~/armactl-data/<instance>/config/config.json` | Official `game.admins` ID list, server config including A2S/RCON ports and configured secrets. | Player registry, sessions/history, banlist manager state. | Config backups are managed by config save flows; no player-specific retention. |
 | Admin label sidecar | `~/armactl-data/<instance>/admins-state.json` | Local display labels and sources for game admins. | Player history, IPs, secrets, ban/kick state. | Written atomically with mode `0600`; no retention. |
-| SAT UUID map / SAT config | `sat-admin-uuid-map.json`, `config/ServerAdminTools_Config.json` | Optional SAT UUID mappings; SAT config admins/gameMasters and existing SAT `bans` field. | No armactl ban manager records. | SAT guard can clear placeholder-only `bans`; no ban retention policy. |
+| SAT UUID map / SAT config | `sat-admin-uuid-map.json`, `config/ServerAdminTools_Config.json` | Optional SAT UUID mappings; SAT config admins/gameMasters and existing SAT `bans` field. | No armactl ban manager records. | SAT guard can clear placeholder-only `bans` and otherwise preserves them. Slice 7a explicitly keeps this field non-authoritative and does not mirror native bans into it. |
 | Discord stats env | `~/armactl-data/<instance>/bot/discord-stats.env` | Enabled flag, webhook URL, interval, Discord message ID, instance. | Player history and roster cache. | Written with mode `0600`; no player retention. |
 | Server console logs | `~/armactl-data/<instance>/config/logs/*/console.log` | Server runtime logs and `-logStats` telemetry. | Structured armactl player sessions/history. | `cleaner.py` can delete log files under the instance config tree when operator cleanup is run; metrics only reads bounded tails. |
 
@@ -166,11 +166,12 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 
 ### Banlist Manager
 
-- Pick and document the actual source of truth before implementation: game config, SAT config, or RCON command flow. Current code only has SAT placeholder cleanup and no RCON ban/kick commands.
-- Validate ban targets with the same reliable identity rules used by admins/player registry.
-- Add audited dry-run/confirm flows, backups for config/SAT mutations, controlled rollback, and pending restart/work behavior where applicable.
-- Do not store RCON/admin passwords, raw secrets, or IPs in ban records by default.
-- Keep ban/kick implementation separate from the current inventory and read-only player slices.
+- Slice 7a is documented in [banlist-moderation-contract.md](banlist-moderation-contract.md).
+- The native Reforger server ban list accessed through typed admin RCON operations is the sole runtime source of truth. `config.json`, SAT `bans`, `players.db`, `web.db`, sidecars, and audit records must not become mirrored or shadow ban registries.
+- Ban/unban targets use normalized reliable identities. Nicknames are search/display context only; kick uses a freshly re-resolved transient player ID matched to the reliable identity.
+- Runtime work is ordered: Slice 7b read-only native list and parser fixtures, Slice 7c verified/idempotent mutations and recovery, Slice 7d UI integration, and Slice 7e Serhiivka-first production acceptance.
+- The runtime workflow requires a dedicated `players:moderate` permission, POST-only CSRF-protected mutations, intent audit, authoritative read-before/read-after verification, bounded typed RCON commands, and explicit uncertainty/recovery without blind inverse commands.
+- IP storage, IP bans, SAT/WCS mirroring, nickname-only targeting, arbitrary RCON commands, public/Discord moderation data, and automatic moderation remain out of scope.
 
 ### Rollback / Audit
 
@@ -193,5 +194,5 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 - Slice 2: read-only players page / improved players view from the existing live roster, registry, and stored event history, without new schema or moderation mutations.
 - Slice 3: automatic live scanner/sessionization scheduling, full session UI/detail/API beyond the read-only list, remaining conflict policies, and retention scheduling on top of the parser/import/storage/session-schema/session-writer/live-scan foundation, with no IP storage by default.
 - Slice 4: richer search/filter across reliable IDs, known names, and session metadata after the read-only filters need expansion.
-- Slice 5: banlist manager with chosen source of truth, audited confirmation, backup/rollback, and redacted errors.
+- Slice 7: implement the audited native banlist/moderation contract in ordered Slices 7b-7e; Slice 7a design is complete, while runtime list, mutation, UI, and staged production gates remain open.
 - Slice 6: Discord stats enrichment after stable player history exists; do not guess K/D, playtime, faction, role, or moderation state from the current roster alone.

@@ -194,7 +194,7 @@ Next player slices should remain public/free/local core scope:
 - slice 6a: complete — audit/design for query-only session detail, alias-aware search, keyset pagination, shared session-window stats, and conflict/privacy rules in [player-session-detail-search-contract.md](player-session-detail-search-contract.md);
 - slice 6b: complete — query-only detail/search DTO foundation, alias-safe search, fail-closed time/source filters, bounded session/event keyset pagination, shared open/closed session stats, and focused regressions;
 - slice 6c: complete — thin authenticated list/detail UI, preserved filters, browser-local time controls/display, responsive EN/UK presentation, bounded timeline, nullable shared stats, and read-only/privacy regressions; Slice 6d staged VM smoke remains separate and open;
-- slice 7: audited banlist manager after source-of-truth, rollback, and identity rules are settled;
+- slice 7: audited native banlist/moderation manager. Slice 7a source-of-truth, identity/IP, permission, verification, recovery, and UX design is complete in [banlist-moderation-contract.md](banlist-moderation-contract.md); runtime Slices 7b-7e remain gated and staged;
 - slice 8: Discord stats enrichment after stable authenticated web player truth exists.
 
 Do not add ban/kick mutations, materialized aggregate counters, IP tracking, live journal readers, browser/GET/app-start/JS/hidden-thread session triggers, a public session surface/JSON API, or Discord enrichment until later slices explicitly choose those sources and truth labels. Manual operator-triggered log collection remains the allowlisted background job; F2 supervised ingest remains the explicit synchronous service/timer; current-roster registry refresh remains `players:refresh-current`; and automatic current-roster cache refresh remains the safe snapshot-only `players current-cache run`. F3-b automates only those existing session services through the documented synchronous ordered oneshot/timer; legacy scheduler rows remain compatibility diagnostics rather than execution truth. F3-c production enablement and staged acceptance are complete on both target VMs.
@@ -262,7 +262,7 @@ P1 next slices:
 P2 later:
 
 - Richer session UI/detail/API remains a separate later decision after completed F3-b/F3-c supervision acceptance.
-- Audited banlist/moderation manager after identity, rollback, source-of-truth, and recovery rules are settled.
+- Native banlist/moderation runtime Slices 7b-7e after the completed [Slice 7a contract](banlist-moderation-contract.md): typed read-only RCON ban-list adapter first, then verified/idempotent mutations, UI integration, and Serhiivka-first production acceptance. SAT ban mirroring, IP moderation, nickname-only actions, and arbitrary RCON remain out of scope.
 - Broader web/TUI parity where operators prove it matters.
 - Low-noise dead-code audit tooling after an allowlist exists.
 - Rich Discord/player statistics after reliable player history/session data is stable enough.
