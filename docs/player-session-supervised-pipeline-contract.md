@@ -1,8 +1,8 @@
 # Player Session Supervised Pipeline Contract
 
-Status: **F3-b implementation complete locally and validated.** F3-c production enablement and acceptance remain pending.
+Status: **F3-b implementation and F3-c staged production acceptance are complete.**
 
-This document is the source of truth for the supervised automatic player-session pipeline. It records the F3-a call-graph audit and the implemented F3-b correction for the enqueue-versus-execution gap, including ownership boundaries, durable state, failure behavior, generated units, and explicit lifecycle controls. The code change does not install or enable the timer, restart the game or web service, mutate a live instance, or claim F3-c production acceptance.
+This document is the source of truth for the supervised automatic player-session pipeline. It records the F3-a call-graph audit and the implemented F3-b correction for the enqueue-versus-execution gap, including ownership boundaries, durable state, failure behavior, generated units, and explicit lifecycle controls. The implementation itself remains disabled by default; F3-c explicitly installed/enabled it on Serhiivka first and then Chervonopilya without restarting the game or web service.
 
 ## Decision Summary
 
@@ -16,7 +16,7 @@ persisted or reused queued `web_jobs` rows and returned without proving executio
 
 The manual POST action wrappers remain asynchronous web jobs for operator UX, but their handlers now call the same mutation services and contend on the same per-instance nonblocking `flock` as the automatic orchestrator. The legacy scheduler table remains read-only compatibility diagnostics and its enqueue timestamps are never imported as execution truth.
 
-The generated oneshot/timer and explicit install/enable/disable/status commands exist, but the timer remains disabled and inactive after first install and is not installed or enabled by this implementation change. F3-c must still prove the production installation, enablement, observation window, and rollback path.
+The generated oneshot/timer remains disabled and inactive after first install and is enabled only by an explicit operator action. F3-c proved production installation, explicit enablement, automatic terminal cycles, failure recovery, privacy, and rollback disable/enable on both target VMs.
 
 ## Scope And Non-Negotiable Truth Rules
 
@@ -789,7 +789,7 @@ Before any production rollout, focused tests must prove at least:
 
 ## F3-c Production Rollout Plan
 
-F3-c is not complete until the implemented F3-b contract passes staged production observation.
+F3-c completed staged production observation on Serhiivka first and then Chervonopilya after explicit approval.
 
 ### Stage 1: Serhiivka Only
 
@@ -813,48 +813,48 @@ Proceed only after Serhiivka has passed every required scenario, evidence has be
 
 ### Supervision And Execution
 
-- [ ] Session service/timer install is disabled by default.
-- [ ] Explicit enable starts only the player-session timer.
-- [ ] No game or web restart is required.
-- [ ] A scheduled invocation executes session stages synchronously and exits only after a terminal result.
-- [ ] `last_success_at` corresponds to completed stage work, not enqueue.
-- [ ] Stopping/restarting `armactl-web.service` does not prevent or interrupt the automatic pipeline.
-- [ ] Stale manual queued/running metadata does not block automatic execution.
-- [ ] No overlapping automatic/manual session mutation occurs.
+- [x] Session service/timer install is disabled by default.
+- [x] Explicit enable starts only the player-session timer.
+- [x] No game or web restart is required.
+- [x] A scheduled invocation executes session stages synchronously and exits only after a terminal result.
+- [x] `last_success_at` corresponds to completed stage work, not enqueue.
+- [x] Stopping/restarting `armactl-web.service` does not prevent or interrupt the automatic pipeline.
+- [x] Stale manual queued/running metadata does not block automatic execution.
+- [x] No overlapping automatic/manual session mutation occurs.
 
 ### Player And Session Truth
 
-- [ ] A reliable player entering is observed automatically and creates/updates the correct session.
-- [ ] Name-only or unreliable rows create no session.
-- [ ] A2S remains count-only.
-- [ ] Faction selection appears automatically as last-known in-session evidence.
-- [ ] Kill, death, and teamkill evidence appears automatically within the proven current play-session window.
-- [ ] Disconnect evidence closes the connection span when correlation is unambiguous.
-- [ ] Source failure does not close a session or advance an absence window.
-- [ ] One reliable absence scan does not close the session.
-- [ ] Repeated reliable RCON absence closes the connection span conservatively.
-- [ ] Reconnect within 10 minutes continues the same play session only when all existing gates pass.
-- [ ] Reconnect after the grace window creates a new play session.
-- [ ] A lifecycle boundary always creates a new play session and prevents cross-boundary merge.
-- [ ] Stats reset or continue exactly with the resulting play-session/server-run boundary.
-- [ ] No manual “Update events from logs,” “Sessionize logs,” “Scan live sessions,” or “Session maintenance” button is required.
+- [x] A reliable player entering is observed automatically and creates/updates the correct session.
+- [x] Name-only or unreliable rows create no session.
+- [x] A2S remains count-only.
+- [x] Faction selection appears automatically as last-known in-session evidence.
+- [x] Kill, death, and teamkill evidence appears automatically within the proven current play-session window.
+- [x] Disconnect evidence closes the connection span when correlation is unambiguous.
+- [x] Source failure does not close a session or advance an absence window.
+- [x] One reliable absence scan does not close the session.
+- [x] Repeated reliable RCON absence closes the connection span conservatively.
+- [x] Reconnect within 10 minutes continues the same play session only when all existing gates pass.
+- [x] Reconnect after the grace window creates a new play session.
+- [x] A lifecycle boundary always creates a new play session and prevents cross-boundary merge.
+- [x] Stats reset or continue exactly with the resulting play-session/server-run boundary.
+- [x] No manual “Update events from logs,” “Sessionize logs,” “Scan live sessions,” or “Session maintenance” button is required.
 
 ### Freshness, Idempotence, And Privacy
 
-- [ ] Missing, stale, partial, failed, or incomplete coverage produces nullable values, not fake zeroes.
-- [ ] Coverage that starts after session opening does not claim current stats.
-- [ ] Repeated cycles create no duplicate events, sessions, reconnect merges, absence confirmations, or stat counts.
-- [ ] Sessionization backlog blocks downstream stages until the generation is fully processed.
-- [ ] Journald, CLI, status, and audit output contain counts and safe reason codes only.
-- [ ] No raw paths, raw lines, raw RCON rows, names, IDs, IPs, source refs, or secrets appear in scheduled output.
-- [ ] `GET` routes remain read-only and do not trigger any pipeline stage.
+- [x] Missing, stale, partial, failed, or incomplete coverage produces nullable values, not fake zeroes.
+- [x] Coverage that starts after session opening does not claim current stats.
+- [x] Repeated cycles create no duplicate events, sessions, reconnect merges, absence confirmations, or stat counts.
+- [x] Sessionization backlog blocks downstream stages until the generation is fully processed.
+- [x] Journald, CLI, status, and audit output contain counts and safe reason codes only.
+- [x] No raw paths, raw lines, raw RCON rows, names, IDs, IPs, source refs, or secrets appear in scheduled output.
+- [x] `GET` routes remain read-only and do not trigger any pipeline stage.
 
 ### Rollout Sequence
 
-- [ ] Serhiivka passes first.
-- [ ] Serhiivka evidence is reviewed before Chervonopilya approval.
-- [ ] Chervonopilya is enabled only after explicit approval.
-- [ ] No game server with active players is restarted merely for acceptance.
+- [x] Serhiivka passes first.
+- [x] Serhiivka evidence is reviewed before Chervonopilya approval.
+- [x] Chervonopilya is enabled only after explicit approval.
+- [x] No game server with active players is restarted merely for acceptance.
 
 ## Stop Conditions
 
@@ -880,7 +880,6 @@ Stop F3-b implementation or F3-c rollout and leave/return the timer disabled whe
 
 ## Out Of Scope
 
-- F3-c production installation, enablement, observation, or acceptance;
 - Discord or public combat-stat enrichment;
 - historical oversized-log backfill;
 - role truth or loadout parsing;
@@ -898,4 +897,4 @@ Stop F3-b implementation or F3-c rollout and leave/return the timer disabled whe
 
 - [x] **F3-a:** trace real execution paths, answer enqueue-versus-execution, assign source-of-truth ownership, define ordering/recovery, and select one supervised architecture.
 - [x] **F3-b:** implement and locally validate the synchronous supervised player-session service/timer, atomic ingest generations, bounded cursor, exact live-roster gate, shared mutation lock, and disabled-by-default lifecycle controls.
-- [ ] **F3-c:** complete staged Serhiivka-first, approval-gated Chervonopilya production acceptance.
+- [x] **F3-c:** complete staged Serhiivka-first, approval-gated Chervonopilya production acceptance.
