@@ -8,6 +8,7 @@ __all__ = [
     "discord_stats_actions",
     "file_uploads",
     "mod_actions",
+    "native_banlist",
     "pending_restart",
     "pending_work",
     "player_current_cache",

@@ -142,7 +142,9 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 - Public status fails closed with a generic error. Discord roster output labels count-only or partial-roster states explicitly instead of creating synthetic player rows. Unknown log sources and permission failures return controlled responses without tracebacks.
 - Player IDs/names are visible on authenticated moderation pages and stored in `players.db`; treat them as moderation data. Public website status does not publish names or IDs. Discord stats publishes sanitized current roster names by design, bounded only by Discord message safety with an explicit truncation marker.
 - No code currently adds IP storage for players. Tests assert player registry/event tables do not contain `ip`, `ip_address`, or raw-line columns, event ingest redacts address-like values before storage, and `/players/history` does not render raw source paths, IPs, or raw log lines.
-- Existing RCON code reads the configured password to query the roster but does not persist it and does not implement ban/kick commands.
+- RCON code reads the configured password transiently for roster queries and
+  the typed one-page native ban-list read. It persists neither the password nor
+  native response and implements no ban/unban/kick command.
 - The earlier admin/mod post-mutation pending-work gap is closed for current admin/mod/config/file-replacement flows through shared or covered recovery paths. Future moderation, banlist, broader config, and file-editor mutations still need explicit rollback/recovery boundaries before implementation.
 
 ## Gaps Before Richer Player History
@@ -166,10 +168,17 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 
 ### Banlist Manager
 
-- Slice 7a is documented in [banlist-moderation-contract.md](banlist-moderation-contract.md).
+- Slices 7a and 7b are documented in
+  [banlist-moderation-contract.md](banlist-moderation-contract.md).
 - The native Reforger server ban list accessed through typed admin RCON operations is the sole runtime source of truth. `config.json`, SAT `bans`, `players.db`, `web.db`, sidecars, and audit records must not become mirrored or shadow ban registries.
+- Slice 7b reads only one requested native page (`1..100`, at most 25 rows)
+  and exposes exact native ban ID, Player UID, and duration seconds through
+  complete/partial/unavailable DTOs. It creates no table, cache, mirror,
+  sidecar, audit/job/recovery record, or player-storage write.
 - Ban/unban targets use normalized reliable identities. Nicknames are search/display context only; kick uses a freshly re-resolved transient player ID matched to the reliable identity.
-- Runtime work is ordered: Slice 7b read-only native list and parser fixtures, Slice 7c verified/idempotent mutations and recovery, Slice 7d UI integration, and Slice 7e Serhiivka-first production acceptance.
+- Remaining runtime work is ordered: Slice 7c verified/idempotent mutations and
+  recovery, Slice 7d mutation UI integration, and Slice 7e Serhiivka-first
+  production acceptance.
 - The runtime workflow requires a dedicated `players:moderate` permission, POST-only CSRF-protected mutations, intent audit, authoritative read-before/read-after verification, bounded typed RCON commands, and explicit uncertainty/recovery without blind inverse commands.
 - IP storage, IP bans, SAT/WCS mirroring, nickname-only targeting, arbitrary RCON commands, public/Discord moderation data, and automatic moderation remain out of scope.
 

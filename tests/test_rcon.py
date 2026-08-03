@@ -5,6 +5,8 @@ from __future__ import annotations
 import zlib
 from unittest.mock import patch
 
+import pytest
+
 import armactl.rcon as rcon
 from armactl.state import PortInfo, ServerState
 
@@ -217,6 +219,26 @@ def test_send_command_uses_server_messages_when_command_packets_are_empty() -> N
     assert response == "17 Denis\n18 Vova"
 
 
+def test_send_command_marks_missing_multipart_response_incomplete() -> None:
+    with patch("armactl.rcon.socket.socket", return_value=_FakeSocket()):
+        session = rcon._RconSession("127.0.0.1", 19999, "secret", timeout=1.0)
+
+    with patch.object(
+        session,
+        "_recv_payload",
+        side_effect=[
+            bytes([rcon.BE_COMMAND, 0, 0, 2, 0])
+            + b"Bans: [BanID] ; [Player UID] ; [Duration]\n"
+            + b"1 ; 21761a7f-c9b4-4bff-8375-b4b43abb95ec ; 3600",
+            TimeoutError(),
+        ],
+    ):
+        response = session.send_command("#ban list 1")
+
+    assert "21761a7f-c9b4-4bff-8375-b4b43abb95ec" in response
+    assert session.last_response_complete is False
+
+
 def test_query_player_roster_falls_back_to_plain_players_command() -> None:
     state = ServerState(
         server_running=True,
@@ -358,3 +380,321 @@ Players on server: [Player#] ; [Player UID] ; [Player Name]
 
     assert entries == []
     assert session.commands == ["#players", "players"]
+
+
+NATIVE_BAN_HEADER = "Bans: [BanID] ; [Player UID] ; [Duration]"
+
+
+def _native_ban_row(index: int, duration: int = 3600) -> str:
+    return (
+        f"{index} ; "
+        f"21761a7f-c9b4-4bff-8375-{index:012d} ; "
+        f"{duration}"
+    )
+
+
+def test_parse_native_ban_list_accepts_authoritative_empty_page() -> None:
+    result = rcon._parse_native_ban_list_response(
+        "\n".join(
+            (
+                "Logged In! Client ID: #0",
+                "Processing Command: #ban list 1",
+                NATIVE_BAN_HEADER,
+            )
+        ),
+        requested_page=1,
+    )
+
+    assert result == rcon.NativeBanListResult(
+        requested_page=1,
+        available=True,
+        complete=True,
+        status=rcon.NATIVE_BAN_STATUS_COMPLETE,
+        entries=(),
+        has_previous=False,
+        has_next=False,
+    )
+
+
+def test_parse_native_ban_list_accepts_one_valid_permanent_row() -> None:
+    result = rcon._parse_native_ban_list_response(
+        f"{NATIVE_BAN_HEADER}\n{_native_ban_row(1, duration=0)}",
+        requested_page=1,
+    )
+
+    assert result.status == rcon.NATIVE_BAN_STATUS_COMPLETE
+    assert result.entries == (
+        rcon.NativeBanEntry(
+            native_ban_id="1",
+            player_uid="21761a7f-c9b4-4bff-8375-000000000001",
+            duration_seconds=0,
+        ),
+    )
+
+
+def test_parse_native_ban_list_accepts_multiple_positive_duration_rows() -> None:
+    result = rcon._parse_native_ban_list_response(
+        "\n".join((NATIVE_BAN_HEADER, _native_ban_row(1), _native_ban_row(2, 86400))),
+        requested_page=3,
+    )
+
+    assert result.status == rcon.NATIVE_BAN_STATUS_COMPLETE
+    assert [entry.duration_seconds for entry in result.entries] == [3600, 86400]
+    assert result.has_previous is True
+    assert result.has_next is False
+
+
+def test_native_ban_page_navigation_is_bounded_and_one_page_at_a_time() -> None:
+    page_rows = "\n".join(_native_ban_row(index) for index in range(1, 26))
+
+    middle = rcon._parse_native_ban_list_response(
+        f"{NATIVE_BAN_HEADER}\n{page_rows}",
+        requested_page=2,
+    )
+    last_bounded = rcon._parse_native_ban_list_response(
+        f"{NATIVE_BAN_HEADER}\n{page_rows}",
+        requested_page=rcon.NATIVE_BAN_MAX_PAGE,
+    )
+
+    assert len(middle.entries) == rcon.NATIVE_BAN_PAGE_SIZE
+    assert middle.has_previous is True
+    assert middle.has_next is True
+    assert last_bounded.has_previous is True
+    assert last_bounded.has_next is False
+
+
+def test_parse_native_ban_list_rejects_malformed_only_response() -> None:
+    result = rcon._parse_native_ban_list_response(
+        f"{NATIVE_BAN_HEADER}\nnot ; a valid ; duration",
+        requested_page=1,
+    )
+
+    assert result.available is False
+    assert result.complete is False
+    assert result.status == rcon.NATIVE_BAN_STATUS_UNAVAILABLE
+    assert result.entries == ()
+    assert result.error_code == rcon.NATIVE_BAN_ERROR_MALFORMED_RESPONSE
+
+
+def test_parse_native_ban_list_labels_rows_plus_truncated_content_partial() -> None:
+    result = rcon._parse_native_ban_list_response(
+        f"{NATIVE_BAN_HEADER}\n{_native_ban_row(1)}\n2 ; truncated",
+        requested_page=1,
+    )
+
+    assert result.available is True
+    assert result.complete is False
+    assert result.status == rcon.NATIVE_BAN_STATUS_PARTIAL
+    assert len(result.entries) == 1
+    assert result.error_code == rcon.NATIVE_BAN_ERROR_MALFORMED_RESPONSE
+
+
+def test_parse_native_ban_list_labels_duplicate_native_ids_partial() -> None:
+    row = _native_ban_row(1)
+    result = rcon._parse_native_ban_list_response(
+        f"{NATIVE_BAN_HEADER}\n{row}\n{row}",
+        requested_page=1,
+    )
+
+    assert result.available is True
+    assert result.complete is False
+    assert result.status == rcon.NATIVE_BAN_STATUS_PARTIAL
+    assert len(result.entries) == 1
+    assert result.error_code == rcon.NATIVE_BAN_ERROR_MALFORMED_RESPONSE
+
+
+@pytest.mark.parametrize(
+    "response,error_code",
+    (
+        ("Permission denied from 198.51.100.10 password=secret", "permission_denied"),
+        ("Unknown command #ban list token=secret", "command_unavailable"),
+        ("unexpected password=secret at 198.51.100.10:19999", "malformed_response"),
+    ),
+)
+def test_native_ban_denial_unknown_and_malformed_errors_are_sanitized(
+    response: str,
+    error_code: str,
+) -> None:
+    result = rcon._parse_native_ban_list_response(response, requested_page=1)
+
+    assert result.available is False
+    assert result.error_code == error_code
+    serialized = repr(result)
+    for forbidden in (
+        response,
+        "secret",
+        "198.51.100.10",
+        "19999",
+        "#ban list",
+        "password",
+    ):
+        assert forbidden not in serialized
+
+
+def test_native_ban_parser_caps_rows_and_rejects_page_out_of_bounds() -> None:
+    too_many_rows = "\n".join(_native_ban_row(index) for index in range(1, 28))
+    result = rcon._parse_native_ban_list_response(
+        f"{NATIVE_BAN_HEADER}\n{too_many_rows}",
+        requested_page=1,
+    )
+
+    assert result.status == rcon.NATIVE_BAN_STATUS_PARTIAL
+    assert len(result.entries) == rcon.NATIVE_BAN_PAGE_SIZE
+    for page in (0, 101):
+        with pytest.raises(ValueError, match="between 1 and 100"):
+            rcon.normalize_native_ban_page(page)
+    with pytest.raises(ValueError, match="integer"):
+        rcon.normalize_native_ban_page(True)
+
+
+def _native_ban_server_state() -> ServerState:
+    return ServerState(
+        server_installed=True,
+        server_running=True,
+        config_exists=True,
+        config_path="/srv/armactl/config.json",
+        ports=PortInfo(rcon=19999),
+    )
+
+
+def test_query_native_ban_list_sends_only_typed_requested_page_command() -> None:
+    commands: list[str] = []
+
+    class FakeSession:
+        def __init__(self, host: str, port: int, password: str, timeout: float):
+            assert (host, port, password) == ("127.0.0.1", 19999, "raw-secret")
+            assert timeout == rcon.RCON_NATIVE_BAN_TIMEOUT_SECONDS
+
+        def login(self) -> None:
+            pass
+
+        def send_command(self, command: str) -> str:
+            commands.append(command)
+            return f"{NATIVE_BAN_HEADER}\n{_native_ban_row(1)}"
+
+        def logout(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    with (
+        patch("armactl.rcon.discover", return_value=_native_ban_server_state()),
+        patch(
+            "armactl.rcon.load_config",
+            return_value={
+                "rcon": {
+                    "address": "127.0.0.1",
+                    "port": 19999,
+                    "password": "raw-secret",
+                }
+            },
+        ),
+        patch("armactl.rcon._RconSession", FakeSession),
+    ):
+        result = rcon.query_native_ban_list("default", page=2)
+
+    assert result.status == rcon.NATIVE_BAN_STATUS_COMPLETE
+    assert result.requested_page == 2
+    assert commands == ["#ban list 2"]
+
+
+def test_query_native_ban_list_labels_transport_truncation_partial() -> None:
+    class FakeSession:
+        last_response_complete = False
+
+        def __init__(self, host: str, port: int, password: str, timeout: float):
+            pass
+
+        def login(self) -> None:
+            pass
+
+        def send_command(self, command: str) -> str:
+            return f"{NATIVE_BAN_HEADER}\n{_native_ban_row(1)}"
+
+        def logout(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    with (
+        patch("armactl.rcon.discover", return_value=_native_ban_server_state()),
+        patch(
+            "armactl.rcon.load_config",
+            return_value={"rcon": {"password": "raw-secret", "port": 19999}},
+        ),
+        patch("armactl.rcon._RconSession", FakeSession),
+    ):
+        result = rcon.query_native_ban_list("default", page=1)
+
+    assert result.status == rcon.NATIVE_BAN_STATUS_PARTIAL
+    assert result.available is True
+    assert result.complete is False
+    assert len(result.entries) == 1
+
+
+@pytest.mark.parametrize(
+    ("failure", "error_code"),
+    (
+        (TimeoutError("198.51.100.10 password=raw-secret"), rcon.NATIVE_BAN_ERROR_TIMEOUT),
+        (
+            rcon.RconError(
+                "RCON login failed at 198.51.100.10:19999 password=raw-secret"
+            ),
+            rcon.NATIVE_BAN_ERROR_PERMISSION_DENIED,
+        ),
+        (
+            OSError("network failed at 198.51.100.10:19999 password=raw-secret"),
+            rcon.NATIVE_BAN_ERROR_RCON_UNAVAILABLE,
+        ),
+    ),
+)
+def test_query_native_ban_list_returns_controlled_transport_failures(
+    failure: Exception,
+    error_code: str,
+) -> None:
+    class FakeSession:
+        def __init__(self, host: str, port: int, password: str, timeout: float):
+            pass
+
+        def login(self) -> None:
+            raise failure
+
+        def logout(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    with (
+        patch("armactl.rcon.discover", return_value=_native_ban_server_state()),
+        patch(
+            "armactl.rcon.load_config",
+            return_value={"rcon": {"password": "raw-secret", "port": 19999}},
+        ),
+        patch("armactl.rcon._RconSession", FakeSession),
+    ):
+        result = rcon.query_native_ban_list("default", page=1)
+
+    assert result.available is False
+    assert result.error_code == error_code
+    serialized = repr(result)
+    for forbidden in ("raw-secret", "198.51.100.10", "19999", "password"):
+        assert forbidden not in serialized
+
+
+def test_native_ban_timeout_override_is_bounded() -> None:
+    assert (
+        rcon._bounded_native_ban_timeout(999)
+        == rcon.RCON_NATIVE_BAN_MAX_TIMEOUT_SECONDS
+    )
+    assert (
+        rcon._bounded_native_ban_timeout(0)
+        == rcon.RCON_NATIVE_BAN_MIN_TIMEOUT_SECONDS
+    )
+
+
+def test_rcon_module_exposes_no_generic_command_executor() -> None:
+    assert not hasattr(rcon, "execute_rcon_command")
+    assert not hasattr(rcon, "query_rcon_command")

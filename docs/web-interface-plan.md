@@ -141,6 +141,17 @@ Community-facing statistics must stay read-only. Public Discord/website-style ou
 
 ## Player Data And Moderation
 
+Banlist/moderation Slice 7b adds a separate typed read-only native path:
+`GET /players/bans` requires `players:moderate` and reads exactly one
+bounded `#ban list <page>` page through `rcon.py` and the per-instance
+`web.services.native_banlist` lock. The parser accepts only the documented
+native `BanID ; Player UID ; Duration` rows, caps pages to `1..100` and
+rows to 25, and distinguishes complete, partial, and unavailable results. It
+adds no ban table/cache/mirror, `players.db` or `web.db` ban fields,
+audit/job/recovery writes, mutation command, POST route, IP/name enrichment, or
+arbitrary RCON surface. Slices 7c-7e remain the separate mutation, mutation-UI,
+and staged production gates.
+
 See [player-log-event-inventory.md](player-log-event-inventory.md) for the real log-event inventory before adding player history/statistics. Combat statistics are feasible from the observed script-emitted `INFO: KILL ...` lines, but remain source/capability-dependent rather than vanilla/no-mod.
 
 See [player-data-inventory.md](player-data-inventory.md) for the current source/storage audit before expanding players, history, or banlist behavior. The current implementation separates current-player observation, safe current-roster caching, and persisted registry data: A2S is count-only and never creates roster rows, RCON roster rows can provide names and reliable IDs, observed count is tracked separately from row count, `/players` reads fresh in-process cache, then shared safe `web.db` cache, then bounded live fallback, `/dashboard` and `/public/server-status.json` use the same safe current-roster snapshot for count-only display, Discord/public stats use the safe snapshot for sanitized roster names with count-only fallback, `POST /players/refresh-current` queues a background refresh that persists reliable IDs into `players.db`, and public status stays count-only. The automatic current-roster cache updater warms only the shared safe snapshot cache; it is not session truth.
@@ -262,7 +273,7 @@ P1 next slices:
 P2 later:
 
 - Richer session UI/detail/API remains a separate later decision after completed F3-b/F3-c supervision acceptance.
-- Native banlist/moderation runtime Slices 7b-7e after the completed [Slice 7a contract](banlist-moderation-contract.md): typed read-only RCON ban-list adapter first, then verified/idempotent mutations, UI integration, and Serhiivka-first production acceptance. SAT ban mirroring, IP moderation, nickname-only actions, and arbitrary RCON remain out of scope.
+- Native banlist/moderation runtime Slices 7c-7e after the typed read-only Slice 7b adapter/page: verified/idempotent mutations, mutation UI integration, and Serhiivka-first production acceptance. SAT ban mirroring, IP moderation, nickname-only actions, and arbitrary RCON remain out of scope.
 - Broader web/TUI parity where operators prove it matters.
 - Low-noise dead-code audit tooling after an allowlist exists.
 - Rich Discord/player statistics after reliable player history/session data is stable enough.

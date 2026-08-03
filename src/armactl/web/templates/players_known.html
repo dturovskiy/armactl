@@ -17,7 +17,9 @@
     <a class="player-section-tab active" href="/players/known">{{ t("Known Players") }}</a>
     <a class="player-section-tab" href="/players/sessions">{{ t("Player Sessions") }}</a>
     <a class="player-section-tab" href="/players/history">{{ t("Player Events") }}</a>
-    <span class="player-section-tab disabled">{{ t("Ban list") }} · {{ t("Planned") }}</span>
+    {% if can_moderate_players %}
+      <a class="player-section-tab" href="/players/bans">{{ t("Ban list") }}</a>
+    {% endif %}
   </nav>
 
   <div class="section-heading-row">

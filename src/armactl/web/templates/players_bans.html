@@ -1,0 +1,100 @@
+{% extends "layout.html" %}
+{% block title %}{{ t("Ban list - armactl web") }}{% endblock %}
+{% block heading %}{{ t("Players") }}{% endblock %}
+{% block topbar_actions %}
+<a class="button-link secondary-link" href="/admins">{{ t("Admins") }}</a>
+<a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
+<form method="post" action="/logout" class="logout-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <span class="user-label">{{ current_user.username }}</span>
+  <button type="submit">{{ t("Log out") }}</button>
+</form>
+{% endblock %}
+{% block content %}
+<section class="panel full-width">
+  <nav class="player-section-tabs" aria-label="{{ t('Player sections') }}">
+    <a class="player-section-tab" href="/players">{{ t("Current Players") }}</a>
+    <a class="player-section-tab" href="/players/known">{{ t("Known Players") }}</a>
+    <a class="player-section-tab" href="/players/sessions">{{ t("Player Sessions") }}</a>
+    <a class="player-section-tab" href="/players/history">{{ t("Player Events") }}</a>
+    <a class="player-section-tab active" href="/players/bans">{{ t("Ban list") }}</a>
+  </nav>
+
+  <div class="section-heading-row">
+    <div>
+      <h2>{{ t("Native server ban list") }}</h2>
+      <p class="muted">
+        <strong>{{ t("Source") }}:</strong> {{ t("Reforger RCON") }}
+        · <strong>{{ t("Requested page") }}:</strong> {{ result.requested_page }}
+      </p>
+    </div>
+    <span class="status-pill status-pill-{% if result.status == 'complete' %}ok{% elif result.status == 'partial' %}warning{% else %}unavailable{% endif %}">
+      {% if result.status == "complete" %}
+        {{ t("Complete") }}
+      {% elif result.status == "partial" %}
+        {{ t("Partial") }}
+      {% else %}
+        {{ t("Unavailable") }}
+      {% endif %}
+    </span>
+  </div>
+
+  {% if result.status == "unavailable" %}
+    <section class="notice-panel notice-unavailable" role="status">
+      <strong>{{ t("Native ban list unavailable.") }}</strong>
+      <span>{{ t(result.error) }}</span>
+    </section>
+  {% elif result.status == "partial" %}
+    <section class="notice-panel notice-warning" role="status">
+      <strong>{{ t("Partial native ban list.") }}</strong>
+      <span>{{ t("Some native rows could not be verified; this page is not authoritative as a complete list.") }}</span>
+    </section>
+  {% endif %}
+
+  {% if entries %}
+    <div class="player-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>{{ t("Native ban ID") }}</th>
+            <th>{{ t("Reliable identity") }}</th>
+            <th>{{ t("Native duration") }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in entries %}
+            <tr>
+              <td class="wrap-value">{{ entry.native_ban_id }}</td>
+              <td class="wrap-value">{{ entry.player_uid }}</td>
+              <td>
+                {% if entry.duration_seconds == 0 %}
+                  {{ t("0 seconds (native permanent value)") }}
+                {% else %}
+                  {{ entry.duration_seconds }} {{ t("seconds") }}
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% elif result.status == "complete" %}
+    <section class="notice-panel" role="status">
+      <strong>{{ t("Native server ban list is empty on this page.") }}</strong>
+    </section>
+  {% endif %}
+
+  <nav class="pagination player-section-tabs" aria-label="{{ t('Ban-list pages') }}">
+    {% if result.has_previous %}
+      <a class="button-link secondary-link" href="/players/bans?page={{ result.requested_page - 1 }}">{{ t("Previous") }}</a>
+    {% else %}
+      <span class="player-section-tab disabled">{{ t("Previous") }}</span>
+    {% endif %}
+    {% if result.has_next %}
+      <a class="button-link secondary-link" href="/players/bans?page={{ result.requested_page + 1 }}">{{ t("Next") }}</a>
+    {% else %}
+      <span class="player-section-tab disabled">{{ t("Next") }}</span>
+    {% endif %}
+  </nav>
+</section>
+{% endblock %}

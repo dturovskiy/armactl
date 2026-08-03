@@ -224,6 +224,17 @@ def test_detail_route_auth_permission_and_normal_access(
     )
     assert allowed_response.status_code == 200
     assert "Player session detail is unavailable." in allowed_response.text
+    assert 'href="/players/bans"' not in allowed_response.text
+
+    set_web_owner_permissions({"players:view", "players:moderate"})
+    moderator = _client(create_app(data_root=tmp_path))
+    _login(moderator, "owner", "permission password")
+    moderator_response = moderator.get(
+        "/players/sessions/1",
+        follow_redirects=False,
+    )
+    assert moderator_response.status_code == 200
+    assert 'href="/players/bans"' in moderator_response.text
 
 
 def test_list_and_detail_gets_are_query_only(

@@ -112,6 +112,7 @@ def test_owner_has_every_declared_permission():
         "admins:view",
         "admins:manage",
         "players:view",
+        "players:moderate",
         "bot:view",
         "bot:manage",
         "schedule:view",

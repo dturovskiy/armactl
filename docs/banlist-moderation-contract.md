@@ -2,9 +2,10 @@
 
 ## Status
 
-Slice 7a is the audit and design gate for banlist and moderation work. It
-changes no runtime code, routes, permissions, storage, services, or production
-state. Runtime implementation remains split across Slices 7b-7e below.
+Slice 7a is the completed audit and design gate for banlist and moderation
+work. Slice 7b implements the typed read-only native adapter and authenticated
+read-only page described below. Mutation, recovery, mutation UI, and production
+acceptance remain split across Slices 7c-7e.
 
 ## Authoritative Backend Decision
 
@@ -147,6 +148,70 @@ Acceptance criteria:
 - show native source/freshness/unavailable labels and never present SAT or audit
   rows as current bans.
 
+### Slice 7b Runtime Contract
+
+`NativeBanEntry` contains exactly the fixture-proven native columns:
+
+- `native_ban_id: str`;
+- `player_uid: str`;
+- `duration_seconds: int`.
+
+It contains no raw response, nickname, IP, reason, expiry, path, command, host,
+port, or error field. `duration_seconds == 0` is rendered as the native
+permanent value; positive values are rendered as exact native seconds.
+
+`NativeBanListResult` contains:
+
+- `requested_page`, bounded to `1..100`;
+- `available` and `complete` booleans;
+- `status`, exactly `complete`, `partial`, or `unavailable`;
+- at most 25 `entries`;
+- controlled `error_code` and `error`;
+- derived `has_previous` and conservative `has_next` navigation flags.
+
+One adapter call sends only `#ban list <requested_page>` and never follows
+pages automatically. Previous is available above page 1. Next is offered only
+for a verified complete 25-row page below page 100; this is a bounded
+continuation hint, not a claimed total page count.
+
+Parser classification is fail-closed:
+
+- the documented `BanID ; Player UID ; Duration` header with no rows is a
+  complete authoritative empty page;
+- one to 25 valid three-column rows with no unknown content is complete;
+- valid bounded rows plus malformed, conflicting, excess, or truncated content
+  is partial;
+- malformed/unknown content without a valid row, an empty unproven response,
+  permission denial, timeout, login failure, stopped server, missing
+  configuration, or RCON failure is unavailable;
+- no unavailable/partial result is represented as an authoritative empty list.
+
+Controlled error codes are `not_configured`, `server_unavailable`,
+`timeout`, `permission_denied`, `malformed_response`,
+`rcon_unavailable`, `config_unavailable`, and `command_unavailable`.
+Messages are fixed and never copy an exception or native response. The DTO
+therefore cannot carry a raw password, host, port, IP, path, command, response,
+control character, or traceback.
+
+`web.services.native_banlist` validates the page and performs the typed
+adapter call under a per-instance moderation lock. The web route never accepts
+a command string. `GET /players/bans` requires authentication plus
+`players:moderate`; `players:view` alone receives 403. The player-page Ban
+list tab renders only for users with `players:moderate`.
+
+The page labels its source as `Reforger RCON`, reports the requested page and
+complete/partial/unavailable state, and renders only the three native fields.
+The response has no native observation timestamp, so the UI does not invent a
+freshness time. It has no ban, unban, kick, reason edit, POST route,
+confirmation, action button, local history, or nickname enrichment.
+
+Slice 7b adds no schema migration, ban table, persistent cache, mirror,
+sidecar, audit event, job, or recovery record. The authenticated GET performs
+the native read only; it does not create or mutate `players.db`, ban storage,
+audit output, jobs, or recovery state. Standard authenticated-page session
+liveness and CSRF bookkeeping remain active so long-lived pages keep working;
+those existing auth writes are not ban state or moderation side effects.
+
 ## Slice 7c: Ban And Unban Mutations
 
 Ban/unban is a service workflow, not route or template logic.
@@ -245,7 +310,7 @@ block the native ban-list read slice.
 
 - [x] Slice 7a: audit sources, choose native RCON truth, settle identity/IP,
   permission, recovery, UX, and architecture contracts.
-- [ ] Slice 7b: typed read-only native ban adapter, fixtures, permission, and
+- [x] Slice 7b: typed read-only native ban adapter, fixtures, permission, and
   authenticated read-only list.
 - [ ] Slice 7c: typed ban/unban service with lock, intent audit,
   read-after-write verification, idempotency, and moderation recovery record;

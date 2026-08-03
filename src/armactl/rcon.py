@@ -1,7 +1,8 @@
-"""Minimal BattlEye RCON helpers used for player roster status."""
+"""Minimal BattlEye RCON helpers used for player roster and native ban status."""
 
 from __future__ import annotations
 
+import math
 import re
 import socket
 import time
@@ -25,10 +26,32 @@ RCON_NOISE_PREFIXES = (
     "processing command:",
 )
 RCON_ROSTER_TIMEOUT_SECONDS = 1.5
+RCON_NATIVE_BAN_TIMEOUT_SECONDS = 1.5
+RCON_NATIVE_BAN_MIN_TIMEOUT_SECONDS = 0.1
+RCON_NATIVE_BAN_MAX_TIMEOUT_SECONDS = 5.0
+NATIVE_BAN_MIN_PAGE = 1
+NATIVE_BAN_MAX_PAGE = 100
+NATIVE_BAN_PAGE_SIZE = 25
+NATIVE_BAN_MAX_DURATION_SECONDS = 2_147_483_647
+
+NATIVE_BAN_STATUS_COMPLETE = "complete"
+NATIVE_BAN_STATUS_PARTIAL = "partial"
+NATIVE_BAN_STATUS_UNAVAILABLE = "unavailable"
+
+NATIVE_BAN_ERROR_NOT_CONFIGURED = "not_configured"
+NATIVE_BAN_ERROR_SERVER_UNAVAILABLE = "server_unavailable"
+NATIVE_BAN_ERROR_TIMEOUT = "timeout"
+NATIVE_BAN_ERROR_PERMISSION_DENIED = "permission_denied"
+NATIVE_BAN_ERROR_MALFORMED_RESPONSE = "malformed_response"
+NATIVE_BAN_ERROR_RCON_UNAVAILABLE = "rcon_unavailable"
+NATIVE_BAN_ERROR_CONFIG_UNAVAILABLE = "config_unavailable"
+NATIVE_BAN_ERROR_COMMAND_UNAVAILABLE = "command_unavailable"
 
 PLAYER_SLOT_SUFFIX_RE = re.compile(r"\s*\(#(?P<player_id>\d+)\)\s*$")
 GUID_LIKE_RE = re.compile(r"^[0-9a-fA-F-]{8,}$")
 HASH_PLAYER_PREFIX_RE = re.compile(r"^#(?P<player_id>\d+)\s+(?P<name>.+?)\s*$")
+NATIVE_BAN_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+NATIVE_BAN_PLAYER_UID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{2,127}$")
 
 
 class RconError(Exception):
@@ -55,6 +78,202 @@ class PlayerRoster:
     port: int | None
     entries: list[PlayerEntry] = field(default_factory=list)
     error: str = ""
+
+
+@dataclass(frozen=True)
+class NativeBanEntry:
+    """One fixture-proven native Reforger ban-list row."""
+
+    native_ban_id: str
+    player_uid: str
+    duration_seconds: int
+
+
+@dataclass(frozen=True)
+class NativeBanListResult:
+    """Controlled result for one bounded native Reforger ban-list page."""
+
+    requested_page: int
+    available: bool
+    complete: bool
+    status: str
+    entries: tuple[NativeBanEntry, ...] = ()
+    error_code: str = ""
+    error: str = ""
+    has_previous: bool = False
+    has_next: bool = False
+
+
+def normalize_native_ban_page(page: int) -> int:
+    """Validate one native list page without silently changing caller intent."""
+    if isinstance(page, bool) or not isinstance(page, int):
+        raise ValueError("Native ban-list page must be an integer.")
+    if not NATIVE_BAN_MIN_PAGE <= page <= NATIVE_BAN_MAX_PAGE:
+        raise ValueError(
+            f"Native ban-list page must be between "
+            f"{NATIVE_BAN_MIN_PAGE} and {NATIVE_BAN_MAX_PAGE}."
+        )
+    return page
+
+
+def _native_ban_result(
+    page: int,
+    *,
+    status: str,
+    entries: tuple[NativeBanEntry, ...] = (),
+    error_code: str = "",
+    error: str = "",
+) -> NativeBanListResult:
+    complete = status == NATIVE_BAN_STATUS_COMPLETE
+    return NativeBanListResult(
+        requested_page=page,
+        available=status != NATIVE_BAN_STATUS_UNAVAILABLE,
+        complete=complete,
+        status=status,
+        entries=entries,
+        error_code=error_code,
+        error=error,
+        has_previous=page > NATIVE_BAN_MIN_PAGE,
+        has_next=(
+            complete
+            and len(entries) == NATIVE_BAN_PAGE_SIZE
+            and page < NATIVE_BAN_MAX_PAGE
+        ),
+    )
+
+
+def _native_ban_unavailable(
+    page: int,
+    error_code: str,
+    error: str,
+) -> NativeBanListResult:
+    return _native_ban_result(
+        page,
+        status=NATIVE_BAN_STATUS_UNAVAILABLE,
+        error_code=error_code,
+        error=error,
+    )
+
+
+def _is_native_ban_header(line: str) -> bool:
+    normalized = re.sub(r"[\[\]\s]", "", line).casefold()
+    if normalized.startswith("bans:"):
+        normalized = normalized.removeprefix("bans:")
+    return normalized == "banid;playeruid;duration"
+
+
+def _parse_native_ban_row(line: str) -> NativeBanEntry | None:
+    parts = [part.strip() for part in line.split(";")]
+    if len(parts) != 3:
+        return None
+
+    native_ban_id = parts[0].removeprefix("#").strip()
+    player_uid = parts[1]
+    duration_text = parts[2]
+    if (
+        NATIVE_BAN_ID_RE.fullmatch(native_ban_id) is None
+        or NATIVE_BAN_PLAYER_UID_RE.fullmatch(player_uid) is None
+        or not duration_text.isascii()
+        or not duration_text.isdigit()
+    ):
+        return None
+
+    duration_seconds = int(duration_text)
+    if duration_seconds > NATIVE_BAN_MAX_DURATION_SECONDS:
+        return None
+    return NativeBanEntry(
+        native_ban_id=native_ban_id,
+        player_uid=player_uid,
+        duration_seconds=duration_seconds,
+    )
+
+
+def _parse_native_ban_list_response(
+    response: str,
+    *,
+    requested_page: int,
+) -> NativeBanListResult:
+    """Parse only the documented native three-column ban-list shape."""
+    page = normalize_native_ban_page(requested_page)
+    rows_by_id: dict[str, NativeBanEntry] = {}
+    saw_header = False
+    saw_malformed = False
+
+    for raw_line in response.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        lowered = line.casefold()
+        if lowered.startswith(RCON_NOISE_PREFIXES):
+            continue
+        if any(
+            marker in lowered
+            for marker in (
+                "permission denied",
+                "not permitted",
+                "not allowed",
+                "insufficient permission",
+                "access denied",
+            )
+        ):
+            return _native_ban_unavailable(
+                page,
+                NATIVE_BAN_ERROR_PERMISSION_DENIED,
+                "RCON permission does not allow reading the native ban list.",
+            )
+        if any(
+            marker in lowered
+            for marker in ("unknown command", "command not found", "unsupported command")
+        ):
+            return _native_ban_unavailable(
+                page,
+                NATIVE_BAN_ERROR_COMMAND_UNAVAILABLE,
+                "Native ban-list command is unavailable.",
+            )
+        if _is_native_ban_header(line):
+            saw_header = True
+            continue
+
+        entry = _parse_native_ban_row(line)
+        if entry is None:
+            saw_malformed = True
+            continue
+        previous = rows_by_id.get(entry.native_ban_id)
+        if previous is not None:
+            saw_malformed = True
+            continue
+        rows_by_id[entry.native_ban_id] = entry
+
+    entries = tuple(rows_by_id.values())
+    if len(entries) > NATIVE_BAN_PAGE_SIZE:
+        entries = entries[:NATIVE_BAN_PAGE_SIZE]
+        saw_malformed = True
+
+    if saw_malformed and entries:
+        return _native_ban_result(
+            page,
+            status=NATIVE_BAN_STATUS_PARTIAL,
+            entries=entries,
+            error_code=NATIVE_BAN_ERROR_MALFORMED_RESPONSE,
+            error="Native ban page contained unrecognized or incomplete content.",
+        )
+    if saw_malformed:
+        return _native_ban_unavailable(
+            page,
+            NATIVE_BAN_ERROR_MALFORMED_RESPONSE,
+            "Native ban page response could not be verified.",
+        )
+    if entries or saw_header:
+        return _native_ban_result(
+            page,
+            status=NATIVE_BAN_STATUS_COMPLETE,
+            entries=entries,
+        )
+    return _native_ban_unavailable(
+        page,
+        NATIVE_BAN_ERROR_MALFORMED_RESPONSE,
+        "Native ban page response could not be verified.",
+    )
 
 
 def _extract_rcon_host(config: dict[str, Any]) -> str:
@@ -202,6 +421,7 @@ class _RconSession:
         self.password = password
         self.timeout = timeout
         self.sequence = 0
+        self.last_response_complete = True
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.settimeout(timeout)
 
@@ -227,6 +447,7 @@ class _RconSession:
         self._send_payload(bytes([BE_SERVER_MESSAGE, sequence_number]))
 
     def send_command(self, command: str) -> str:
+        self.last_response_complete = True
         sequence_number = self.sequence
         self.sequence = (self.sequence + 1) % 256
         self._send_payload(
@@ -276,6 +497,8 @@ class _RconSession:
 
         if expected_parts is None:
             expected_parts = len(parts) or 1
+        if expected_parts and not all(index in parts for index in range(expected_parts)):
+            self.last_response_complete = False
 
         command_text = (
             b"".join(parts.get(index, b"") for index in range(expected_parts))
@@ -448,3 +671,114 @@ def query_player_roster(
         session.logout()
         session.close()
 
+
+def _bounded_native_ban_timeout(timeout: float) -> float:
+    try:
+        value = float(timeout)
+    except (TypeError, ValueError):
+        value = RCON_NATIVE_BAN_TIMEOUT_SECONDS
+    if not math.isfinite(value):
+        value = RCON_NATIVE_BAN_TIMEOUT_SECONDS
+    return min(
+        max(value, RCON_NATIVE_BAN_MIN_TIMEOUT_SECONDS),
+        RCON_NATIVE_BAN_MAX_TIMEOUT_SECONDS,
+    )
+
+
+def query_native_ban_list(
+    instance: str,
+    *,
+    page: int = NATIVE_BAN_MIN_PAGE,
+    timeout: float = RCON_NATIVE_BAN_TIMEOUT_SECONDS,
+) -> NativeBanListResult:
+    """Read one bounded native Reforger ban page through typed RCON."""
+    requested_page = normalize_native_ban_page(page)
+    bounded_timeout = _bounded_native_ban_timeout(timeout)
+
+    try:
+        state = discover(instance, save=False)
+    except Exception:
+        return _native_ban_unavailable(
+            requested_page,
+            NATIVE_BAN_ERROR_CONFIG_UNAVAILABLE,
+            "Server discovery is unavailable.",
+        )
+
+    host = "127.0.0.1"
+    port = state.ports.rcon or 19999
+    password = ""
+    if state.config_exists and state.config_path:
+        try:
+            config = load_config(state.config_path)
+        except (ConfigError, OSError):
+            return _native_ban_unavailable(
+                requested_page,
+                NATIVE_BAN_ERROR_CONFIG_UNAVAILABLE,
+                "RCON configuration is unavailable.",
+            )
+        host = _extract_rcon_host(config)
+        port = _extract_rcon_port(config)
+        password = _extract_rcon_password(config)
+
+    if not password:
+        return _native_ban_unavailable(
+            requested_page,
+            NATIVE_BAN_ERROR_NOT_CONFIGURED,
+            "RCON is not configured for native ban-list reads.",
+        )
+    if not state.server_running:
+        return _native_ban_unavailable(
+            requested_page,
+            NATIVE_BAN_ERROR_SERVER_UNAVAILABLE,
+            "Native ban list is unavailable while the server is stopped.",
+        )
+
+    session: _RconSession | None = None
+    try:
+        session = _RconSession(host, port, password, bounded_timeout)
+        session.login()
+        response = session.send_command(f"#ban list {requested_page}")
+        if not getattr(session, "last_response_complete", True):
+            response = f"{response}\nIncomplete multipart response."
+        return _parse_native_ban_list_response(
+            response,
+            requested_page=requested_page,
+        )
+    except TimeoutError:
+        return _native_ban_unavailable(
+            requested_page,
+            NATIVE_BAN_ERROR_TIMEOUT,
+            "Native ban-list request timed out.",
+        )
+    except RconError as error:
+        error_text = str(error).casefold()
+        if "login" in error_text:
+            return _native_ban_unavailable(
+                requested_page,
+                NATIVE_BAN_ERROR_PERMISSION_DENIED,
+                "RCON authentication failed.",
+            )
+        if "timed out" in error_text:
+            return _native_ban_unavailable(
+                requested_page,
+                NATIVE_BAN_ERROR_TIMEOUT,
+                "Native ban-list request timed out.",
+            )
+        return _native_ban_unavailable(
+            requested_page,
+            NATIVE_BAN_ERROR_RCON_UNAVAILABLE,
+            "Native ban-list request failed.",
+        )
+    except OSError:
+        return _native_ban_unavailable(
+            requested_page,
+            NATIVE_BAN_ERROR_RCON_UNAVAILABLE,
+            "RCON is unavailable.",
+        )
+    finally:
+        if session is not None:
+            session.logout()
+            try:
+                session.close()
+            except OSError:
+                pass

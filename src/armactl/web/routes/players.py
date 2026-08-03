@@ -22,9 +22,10 @@ from armactl.web.auth.dependencies import (
     permission_denied_response,
     require_permission,
 )
-from armactl.web.auth.permissions import PLAYERS_VIEW
+from armactl.web.auth.permissions import PLAYERS_MODERATE, PLAYERS_VIEW
 from armactl.web.page_models import players as players_page_model
 from armactl.web.services import (
+    native_banlist,
     player_current_refresh,
     player_live_session_scan,
     player_log_collection,
@@ -42,6 +43,12 @@ def _redirect_to_login(request: Request) -> RedirectResponse:
     clear_session_cookie(response, config)
     clear_csrf_cookie(response, config)
     return response
+
+
+def _player_tab_context(current: CurrentSession) -> dict[str, bool]:
+    return {
+        "can_moderate_players": require_permission(current, PLAYERS_MODERATE),
+    }
 
 
 def _render_current_players_page(
@@ -66,6 +73,7 @@ def _render_current_players_page(
         context={
             "current_user": current.user,
             "csrf_token": form_csrf.token,
+            **_player_tab_context(current),
             "page": page,
             "query": page.query,
             "players": page.players,
@@ -148,6 +156,7 @@ def _render_known_players_page(
         context={
             "current_user": current.user,
             "csrf_token": form_csrf.token,
+            **_player_tab_context(current),
             "page": page,
             "query": page.query,
             "players": page.players,
@@ -349,6 +358,7 @@ def _render_player_history_page(
         context={
             "current_user": current.user,
             "csrf_token": form_csrf.token,
+            **_player_tab_context(current),
             "page": page,
             "query": page.query,
             "event_type": page.event_type,
@@ -399,6 +409,7 @@ def _render_player_sessions_page(
         context={
             "current_user": current.user,
             "csrf_token": form_csrf.token,
+            **_player_tab_context(current),
             "page": page,
             "query": page.query,
             "player_id": page.reliable_id,
@@ -412,6 +423,36 @@ def _render_player_sessions_page(
             "session_job_notice": _session_job_notice_from_query(request),
         },
         status_code=status_code,
+    )
+    if form_csrf.should_set_cookie:
+        set_csrf_cookie(response, form_csrf.token, current.config)
+    return response
+
+
+def _render_native_ban_list_page(
+    request: Request,
+    current: CurrentSession,
+    *,
+    page: int,
+) -> Response:
+    if not require_permission(current, PLAYERS_MODERATE):
+        return permission_denied_response()
+
+    result = native_banlist.load_native_ban_list(
+        paths.DEFAULT_INSTANCE_NAME,
+        page=page,
+    )
+    form_csrf = get_form_csrf_token(request, current)
+    response = request.app.state.templates.TemplateResponse(
+        request=request,
+        name="players_bans.html",
+        context={
+            "current_user": current.user,
+            "csrf_token": form_csrf.token,
+            "can_moderate_players": True,
+            "result": result,
+            "entries": result.entries,
+        },
     )
     if form_csrf.should_set_cookie:
         set_csrf_cookie(response, form_csrf.token, current.config)
@@ -463,6 +504,7 @@ def _render_player_session_detail_page(
         context={
             "current_user": current.user,
             "csrf_token": form_csrf.token,
+            **_player_tab_context(current),
             "page": page,
             "detail": page.detail,
             "timeline_rows": page.timeline_rows,
@@ -481,6 +523,27 @@ def player_history_page(request: Request) -> Response:
     if current is None:
         return _redirect_to_login(request)
     return _render_player_history_page(request, current)
+
+
+@router.get("/players/bans", response_class=HTMLResponse)
+def native_ban_list_page(request: Request, page: str = "1") -> Response:
+    """Render one authenticated read-only native Reforger ban-list page."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, PLAYERS_MODERATE):
+        return permission_denied_response()
+    requested_page = native_banlist.parse_page_parameter(page)
+    if requested_page is None:
+        return PlainTextResponse(
+            "Invalid ban-list page.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    return _render_native_ban_list_page(
+        request,
+        current,
+        page=requested_page,
+    )
 
 
 @router.get("/players/sessions", response_class=HTMLResponse)
