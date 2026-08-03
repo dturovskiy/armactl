@@ -261,8 +261,10 @@ def test_native_ban_surface_has_no_mutation_controls_or_routes(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    from armactl.web.routes.players import router as players_router
+
     _patch_result(monkeypatch, _result())
-    app, client = _authed_app_client(tmp_path)
+    _app, client = _authed_app_client(tmp_path)
 
     response = client.get("/players/bans", follow_redirects=False)
 
@@ -277,9 +279,11 @@ def test_native_ban_surface_has_no_mutation_controls_or_routes(
         "Edit reason",
     ):
         assert forbidden not in response.text
+    # Inspect the owning router directly; application route inventories vary
+    # across the supported FastAPI/Starlette versions.
     matching_routes = [
         route
-        for route in app.routes
+        for route in players_router.routes
         if getattr(route, "path", "").startswith("/players/bans")
     ]
     assert [(route.path, route.methods) for route in matching_routes] == [
@@ -287,7 +291,7 @@ def test_native_ban_surface_has_no_mutation_controls_or_routes(
     ]
     assert not any(
         getattr(route, "path", "").startswith(("/rcon", "/console"))
-        for route in app.routes
+        for route in players_router.routes
     )
 
 
