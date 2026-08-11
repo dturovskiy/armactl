@@ -28,6 +28,12 @@ def test_public_server_status_json_is_public_and_safe(
     }
     assert payload["players"]["current"] == 3
     assert payload["players"]["max"] == 64
+    assert payload["performance"] == {
+        "fps_available": True,
+        "fps": 59.8,
+        "fps_text": "59.8",
+        "telemetry_age": "10s",
+    }
     assert payload["status"]["state"] == "ready"
     body = response.text.lower()
     assert "/srv/" not in body
@@ -53,6 +59,7 @@ def test_public_server_status_json_reports_stopping_lifecycle(
     assert payload["lifecycle"] == "stopping"
     assert payload["players"]["available"] is False
     assert payload["players"]["text"] == "unavailable"
+    assert payload["performance"]["fps"] is None
 
 
 def test_public_server_status_json_fails_closed(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -33,6 +34,16 @@ def _safe_int(value: Any) -> int | None:
     return None
 
 
+def _safe_number(value: Any) -> int | float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        return value
+    return None
+
+
 def _public_status_payload(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     config = _section(snapshot, "config")
     players = _section(snapshot, "players")
@@ -60,7 +71,7 @@ def _public_status_payload(snapshot: Mapping[str, Any]) -> dict[str, Any]:
         },
         "performance": {
             "fps_available": bool(fps.get("available")),
-            "fps": _safe_int(fps.get("fps")),
+            "fps": _safe_number(fps.get("fps")),
             "fps_text": _safe_text(fps.get("fps_text"), "unavailable"),
             "telemetry_age": _safe_text(fps.get("age_text"), "unknown"),
         },
