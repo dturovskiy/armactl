@@ -2,7 +2,8 @@
 
 from pathlib import Path
 from subprocess import CompletedProcess, TimeoutExpired
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import call, patch
 
 from armactl import paths
 from armactl.restart_timing import RESTART_TIMING
@@ -233,6 +234,29 @@ def test_render_safe_restart_helper_is_bounded_to_armareforger_services() -> Non
     assert "armactl-web.service" not in helper
 
 
+def test_safe_restart_helper_tolerates_automatic_restart_while_stabilizing() -> None:
+    helper = _render_safe_restart_helper_script()
+    namespace: dict[str, object] = {"__name__": "armactl_safe_restart_test"}
+    exec(compile(helper, "armactl-safe-restart", "exec"), namespace)
+    now = [0.0]
+    states = iter(
+        [
+            {"ActiveState": "active", "SubState": "running"},
+            {"ActiveState": "activating", "SubState": "auto-restart"},
+            {"ActiveState": "active", "SubState": "running"},
+            {"ActiveState": "active", "SubState": "running"},
+            {"ActiveState": "active", "SubState": "running"},
+        ]
+    )
+    namespace["state"] = lambda unit: next(states)
+    namespace["time"] = SimpleNamespace(
+        monotonic=lambda: now[0],
+        sleep=lambda seconds: now.__setitem__(0, now[0] + seconds),
+    )
+
+    assert namespace["wait_for_stable_active"]("armareforger.service", 12, 3) is True
+
+
 def test_get_privileged_channel_user_parses_sudoers_dropin(tmp_path: Path) -> None:
     sudoers_path = tmp_path / "sudoers.d" / "armactl-systemctl-helper"
     sudoers_path.parent.mkdir()
@@ -277,6 +301,8 @@ def test_render_privileged_helper_script_uses_python_and_lf_newlines() -> None:
     assert "armactl-bot.service" in rendered
     assert "armactl-discord-stats.service" in rendered
     assert "armactl-web.service" in rendered
+    assert 'action == "clean-timer-state"' in rendered
+    assert '[SYSTEMCTL_BIN, "clean", "--what=state", timer_name]' in rendered
 
 
 def test_build_systemctl_command_prefers_secure_helper_channel() -> None:
@@ -314,6 +340,30 @@ def test_build_systemctl_command_uses_noninteractive_sudo_without_tty() -> None:
         "/usr/bin/systemctl",
         "stop",
         "armareforger.service",
+    ]
+
+
+def test_build_systemctl_command_cleans_timer_state_without_helper() -> None:
+    with (
+        patch("armactl.service_manager.has_privileged_systemctl_channel", return_value=False),
+        patch("armactl.service_manager.sys.stdin.isatty", return_value=False),
+        patch(
+            "armactl.service_manager._resolve_systemctl_binary",
+            return_value="/usr/bin/systemctl",
+        ),
+    ):
+        command = _build_systemctl_command(
+            "clean-timer-state",
+            paths.TIMER_NAME,
+        )
+
+    assert command == [
+        "sudo",
+        "-n",
+        "/usr/bin/systemctl",
+        "clean",
+        "--what=state",
+        paths.TIMER_NAME,
     ]
 
 
@@ -466,30 +516,25 @@ def test_update_restart_timer_schedule_uses_secure_helper_channel() -> None:
         stdout="",
         stderr="",
     )
-    reload_completed = CompletedProcess(
-        args=["sudo", "-n", str(helper_path), "daemon-reload"],
-        returncode=0,
-        stdout="",
-        stderr="",
-    )
-    restart_completed = CompletedProcess(
-        args=["sudo", "-n", str(helper_path), "restart", paths.TIMER_NAME],
-        returncode=0,
-        stdout="",
-        stderr="",
-    )
-
     with (
         patch("armactl.service_manager.has_privileged_systemctl_channel", return_value=True),
         patch("armactl.service_manager.paths.privileged_helper_file", return_value=helper_path),
+        patch("armactl.service_manager.is_active", return_value=True),
+        patch("armactl.service_manager.subprocess.run", return_value=update_completed) as run_mock,
         patch(
-            "armactl.service_manager.subprocess.run",
-            side_effect=[update_completed, reload_completed, restart_completed],
-        ) as run_mock,
+            "armactl.service_manager._run_systemctl",
+            return_value=ServiceResult(True, "ok"),
+        ) as systemctl_mock,
     ):
         results = update_restart_timer_schedule("default", ["*-*-* 08:00:00"])
 
-    assert [result.success for result in results] == [True, True, True]
+    assert [result.success for result in results] == [True, True, True, True, True]
+    assert systemctl_mock.call_args_list == [
+        call("stop", paths.TIMER_NAME),
+        call("clean-timer-state", paths.TIMER_NAME),
+        call("daemon-reload", "", use_sudo=True),
+        call("start", paths.TIMER_NAME),
+    ]
     run_mock.assert_any_call(
         [
             "sudo",

@@ -113,6 +113,18 @@ def main(argv: list[str]) -> int:
             return fail("Denied: daemon-reload does not accept a unit argument.")
         return int(subprocess.run([SYSTEMCTL_BIN, "daemon-reload"]).returncode)
 
+    if action == "clean-timer-state":
+        if len(argv) != 3:
+            return fail("Usage: armactl-systemctl-helper clean-timer-state TIMER_NAME")
+        timer_name = argv[2]
+        if not is_allowed(timer_name, ALLOWED_TIMERS):
+            return fail(f"Denied: unsupported timer '{timer_name}'.")
+        return int(
+            subprocess.run(
+                [SYSTEMCTL_BIN, "clean", "--what=state", timer_name]
+            ).returncode
+        )
+
     if action == "update-timer":
         if len(argv) < 4:
             return fail(

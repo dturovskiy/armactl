@@ -158,6 +158,7 @@ def test_update_restart_timer_schedule_without_helper_installs_rendered_timer(
     with (
         patch("armactl.service_manager.paths.SYSTEMD_DIR", systemd_dir),
         patch("armactl.service_manager.has_privileged_systemctl_channel", return_value=False),
+        patch("armactl.service_manager.is_active", return_value=False),
         patch("armactl.service_manager.install_systemd_unit_file", side_effect=fake_install),
         patch(
             "armactl.service_manager.daemon_reload",
@@ -166,7 +167,7 @@ def test_update_restart_timer_schedule_without_helper_installs_rendered_timer(
         patch(
             "armactl.service_manager._run_systemctl",
             return_value=service_manager.ServiceResult(True, "timer restarted"),
-        ) as restart_timer_mock,
+        ) as systemctl_mock,
     ):
         results = service_manager.update_restart_timer_schedule("alpha", "06:00, 18:00")
 
@@ -174,7 +175,10 @@ def test_update_restart_timer_schedule_without_helper_installs_rendered_timer(
     assert "OnCalendar=*-*-* 06:00:00" in captured["content"]
     assert "OnCalendar=*-*-* 18:00:00" in captured["content"]
     assert [result.success for result in results] == [True, True, True]
-    restart_timer_mock.assert_called_once_with("restart", "armareforger-restart@alpha.timer")
+    systemctl_mock.assert_called_once_with(
+        "clean-timer-state",
+        "armareforger-restart@alpha.timer",
+    )
 
 
 def test_sync_generated_start_script_refreshes_stale_runtime_script(tmp_path: Path) -> None:

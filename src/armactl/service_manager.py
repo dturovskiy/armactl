@@ -90,6 +90,7 @@ def _run_systemctl(
         "enable": _("Systemctl action: enable"),
         "disable": _("Systemctl action: disable"),
         "daemon-reload": _("Systemctl action: daemon-reload"),
+        "clean-timer-state": _("Systemctl action: clear timer state"),
     }.get(action, action)
     cmd = _build_systemctl_command(action, service_name=service_name, use_sudo=use_sudo)
 
@@ -214,7 +215,11 @@ def _build_systemctl_command(
 ) -> list[str]:
     """Build the safest available systemctl invocation for the current context."""
     if not use_sudo:
-        cmd = [_resolve_systemctl_binary(), action]
+        cmd = [_resolve_systemctl_binary()]
+        if action == "clean-timer-state":
+            cmd.extend(["clean", "--what=state"])
+        else:
+            cmd.append(action)
         if service_name:
             cmd.append(service_name)
         return cmd
@@ -228,7 +233,11 @@ def _build_systemctl_command(
     cmd = ["sudo"]
     if not sys.stdin.isatty():
         cmd.append("-n")
-    cmd.extend([_resolve_systemctl_binary(), action])
+    cmd.append(_resolve_systemctl_binary())
+    if action == "clean-timer-state":
+        cmd.extend(["clean", "--what=state"])
+    else:
+        cmd.append(action)
     if service_name:
         cmd.append(service_name)
     return cmd
@@ -845,6 +854,20 @@ def update_restart_timer_schedule(
     if not schedule_entries:
         return [ServiceResult(False, _("At least one restart time is required."), 1)]
 
+    timer_was_active = is_active(timer_name)
+    if timer_was_active:
+        stop_result = _run_systemctl("stop", timer_name)
+        results.append(stop_result)
+        if not stop_result.success:
+            return results
+
+    clean_result = _run_systemctl("clean-timer-state", timer_name)
+    results.append(clean_result)
+    if not clean_result.success:
+        if timer_was_active:
+            results.append(_run_systemctl("start", timer_name))
+        return results
+
     try:
         if has_privileged_systemctl_channel():
             command = [
@@ -859,20 +882,28 @@ def update_restart_timer_schedule(
             if update_result.returncode != 0:
                 stderr = safe_subprocess_error(update_result.stderr, update_result.stdout)
                 if _looks_like_sudo_auth_error(stderr):
-                    return [
+                    results.append(
                         ServiceResult(
                             False,
                             _secure_privileged_channel_message(),
                             update_result.returncode,
                         )
-                    ]
-                return [
-                    ServiceResult(
-                        False,
-                        tr("Failed to install {name}: {error}", name=timer_name, error=stderr),
-                        update_result.returncode,
                     )
-                ]
+                else:
+                    results.append(
+                        ServiceResult(
+                            False,
+                            tr(
+                                "Failed to install {name}: {error}",
+                                name=timer_name,
+                                error=stderr,
+                            ),
+                            update_result.returncode,
+                        )
+                    )
+                if timer_was_active:
+                    results.append(_run_systemctl("start", timer_name))
+                return results
             results.append(
                 ServiceResult(
                     True,
@@ -888,7 +919,10 @@ def update_restart_timer_schedule(
                 )
                 install_result = install_systemd_unit_file(temp_timer, timer_path)
                 if not install_result.success:
-                    return [install_result]
+                    results.append(install_result)
+                    if timer_was_active:
+                        results.append(_run_systemctl("start", timer_name))
+                    return results
                 results.append(install_result)
 
         reload_result = daemon_reload()
@@ -903,11 +937,16 @@ def update_restart_timer_schedule(
                 reload_result.exit_code,
             )
         )
+        if not reload_result.success:
+            if timer_was_active:
+                results.append(_run_systemctl("start", timer_name))
+            return results
 
-        timer_restart = _run_systemctl("restart", timer_name)
-        results.append(timer_restart)
+        if timer_was_active:
+            timer_start = _run_systemctl("start", timer_name)
+            results.append(timer_start)
     except Exception as e:
-        return [
+        results.append(
             ServiceResult(
                 False,
                 tr(
@@ -916,7 +955,10 @@ def update_restart_timer_schedule(
                 ),
                 1,
             )
-        ]
+        )
+        if timer_was_active:
+            results.append(_run_systemctl("start", timer_name))
+        return results
 
     return results
 

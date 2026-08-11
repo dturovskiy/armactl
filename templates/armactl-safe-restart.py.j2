@@ -90,33 +90,41 @@ def wait_for_stop(unit: str, deadline_seconds: int) -> bool:
     return False
 
 
-def wait_for_active(unit: str, deadline_seconds: int) -> bool:
+def wait_for_stable_active(
+    unit: str,
+    deadline_seconds: float,
+    stable_seconds: int,
+) -> bool:
     deadline = time.monotonic() + deadline_seconds
+    stable_since: float | None = None
     while time.monotonic() < deadline:
+        now = time.monotonic()
         values = state(unit)
         active = values.get("ActiveState")
         sub = values.get("SubState")
         if active == "active" and sub == "running":
-            log(f"{unit} started: {state_text(values)}")
-            return True
-        if active == "failed":
-            log(f"{unit} failed while starting: {state_text(values)}")
-            return False
+            if stable_since is None:
+                stable_since = now
+                log(f"{unit} started: {state_text(values)}")
+            if now - stable_since >= stable_seconds:
+                log(f"{unit} remained active/running for {stable_seconds}s")
+                return True
+        else:
+            if active == "failed":
+                log(f"{unit} failed while starting: {state_text(values)}")
+                return False
+            if stable_since is not None:
+                log(
+                    f"{unit} lost active/running state while stabilizing; "
+                    f"waiting for recovery: {state_text(values)}"
+                )
+            stable_since = None
         time.sleep(POLL_SECONDS)
-    log(f"{unit} did not become active in time: {state_text(state(unit))}")
+    log(
+        f"{unit} did not remain active/running for {stable_seconds}s in time: "
+        f"{state_text(state(unit))}"
+    )
     return False
-
-
-def require_stable(unit: str, stable_seconds: int) -> bool:
-    deadline = time.monotonic() + stable_seconds
-    while time.monotonic() < deadline:
-        values = state(unit)
-        if values.get("ActiveState") != "active" or values.get("SubState") != "running":
-            log(f"{unit} lost active/running state: {state_text(values)}")
-            return False
-        time.sleep(POLL_SECONDS)
-    log(f"{unit} remained active/running for {stable_seconds}s")
-    return True
 
 
 def main(argv: list[str]) -> int:
@@ -143,13 +151,16 @@ def main(argv: list[str]) -> int:
     run_systemctl("reset-failed", unit)
 
     log(f"starting {unit}")
+    start_deadline = time.monotonic() + START_GRACE_SECONDS + STABLE_SECONDS
     start_result = run_systemctl("start", unit, timeout=START_GRACE_SECONDS)
     if start_result.returncode != 0:
         return fail(f"failed to start {unit}: exit={start_result.returncode}")
 
-    if not wait_for_active(unit, START_GRACE_SECONDS):
-        return fail(f"{unit} did not reach active/running after start")
-    if not require_stable(unit, STABLE_SECONDS):
+    if not wait_for_stable_active(
+        unit,
+        max(0.0, start_deadline - time.monotonic()),
+        STABLE_SECONDS,
+    ):
         return fail(f"{unit} did not stay active/running after restart")
 
     log(f"restart completed for {unit}")

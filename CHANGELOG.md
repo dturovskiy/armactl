@@ -7,6 +7,18 @@ Semantic Versioning once public releases begin.
 
 ## [Unreleased]
 
+### Fixed
+- Prevented restart schedule edits from immediately running newly added past slots on persistent systemd timers.
+- Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
+
+### Validation
+- `python3 -m pytest tests/test_service_manager.py tests/test_web_schedule.py tests/test_web_cli.py -q` in WSL.
+- `python3 -m pytest -q` in WSL (`1433 passed`).
+- `python3 -m ruff check .` in WSL.
+
+### Operational notes
+- Updating a restart schedule now preserves whether the timer was active and clears only its persistent trigger timestamp before rearming it.
+
 ## [0.5.3] - 2026-06-07
 
 ### Added

@@ -476,6 +476,7 @@
     "Systemctl action: enable": "увімкнення",
     "Systemctl action: disable": "вимкнення",
     "Systemctl action: daemon-reload": "перечитування systemd",
+    "Systemctl action: clear timer state": "очищення стану таймера",
     "{action} {service_name}: ok": "{service_name}: дія \"{action}\" виконана успішно",
     "{action} {service_name} failed: {stderr}": "{service_name}: дія \"{action}\" не вдалася: {stderr}",
     "{action} {service_name}: timed out after 30s": "{service_name}: дія \"{action}\" перевищила тайм-аут 30 с",
