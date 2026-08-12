@@ -204,7 +204,8 @@ Next player slices should remain public/free/local core scope:
 - slice 5: complete — F3-b synchronous ordered player-session oneshot/timer and F3-c Serhiivka-first, approval-gated Chervonopilya production acceptance; authenticated detail follows separately in Slice 6c, while a JSON API remains later work;
 - slice 6a: complete — audit/design for query-only session detail, alias-aware search, keyset pagination, shared session-window stats, and conflict/privacy rules in [player-session-detail-search-contract.md](player-session-detail-search-contract.md);
 - slice 6b: complete — query-only detail/search DTO foundation, alias-safe search, fail-closed time/source filters, bounded session/event keyset pagination, shared open/closed session stats, and focused regressions;
-- slice 6c: complete — thin authenticated list/detail UI, preserved filters, browser-local time controls/display, responsive EN/UK presentation, bounded timeline, nullable shared stats, and read-only/privacy regressions; Slice 6d staged VM smoke remains separate and open;
+- slice 6c: complete — thin authenticated list/detail UI, preserved filters, browser-local time controls/display, responsive EN/UK presentation, bounded timeline, nullable shared stats, and read-only/privacy regressions;
+- slice 6d: complete — Serhiivka-first authenticated VM smoke followed by approved Chervonopilya acceptance, with real list/detail/filter/current-roster requests, sanitized not-found handling, no player DB/session/job writes, no web 500/traceback, and no game restart;
 - slice 7: audited native banlist/moderation manager. Slice 7a source-of-truth, identity/IP, permission, verification, recovery, and UX design is complete in [banlist-moderation-contract.md](banlist-moderation-contract.md); runtime Slices 7b-7e remain gated and staged;
 - slice 8: Discord stats enrichment after stable authenticated web player truth exists.
 
@@ -412,4 +413,4 @@ Flows that must use the pattern before implementation:
 
 ### Recommended Next Implementation Slice
 
-Player-session Slice 6c is complete through the authenticated server-rendered list/detail UI, with no JSON API or duplicated stats/query logic. The next player slice is Slice 6d: a separate Serhiivka-first, approval-gated Chervonopilya VM smoke; no deployment or service restart is part of Slice 6c. Separately, close the public docs trim/move/sanitize slice and keep Discord/player enrichment and banlist/moderation behind their existing truth/recovery gates.
+Player-session Slices 6c and 6d are complete through the authenticated server-rendered list/detail UI and Serhiivka-first, approval-gated Chervonopilya VM smoke, with no JSON API, duplicated stats/query logic, or game restart. The next player implementation slice is typed moderation 7c, while the public docs trim/move/sanitize slice and Discord/player enrichment remain behind their existing truth/recovery gates.
