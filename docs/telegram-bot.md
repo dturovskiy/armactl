@@ -65,7 +65,7 @@ of the same `.env` file must produce the same final state that the TUI sees.
 - `ARMACTL_BOT_LANGUAGE`
 - `ARMACTL_INSTANCE`
 
-## Planned UX
+## Operator UX
 
 1. Install server via the normal install flow
 2. Open `Manage Existing Server -> Telegram Bot`

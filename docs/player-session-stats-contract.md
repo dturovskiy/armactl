@@ -292,18 +292,18 @@ The full execution, ordering, failure/recovery, cadence, status, privacy, rollou
 - [x] Keep `/players` and `/players/current.json` read-only: no ingest, scanner, sessionizer, maintenance, counter persistence, or `players.db` creation from GET.
 - [x] Expose only safe source/freshness/window terms; no raw log lines, paths, IPs, secrets, raw correlation IDs, Discord/public enrichment, daemon, or timer.
 
-### Slice F: UI Smoke And Cleanup
+### Slice F: UI Smoke And Cleanup - complete
 
-- Verify the implemented `/players` details, nullable rendering, safe unavailable wording, and browser polling behavior in an approved environment.
-- F2-b VM acceptance is complete on Serhiivka and Chervonopilya: the timer was explicitly enabled, repeated cycles stayed fresh/non-overlapping, and the separate player-session scheduler remained disabled.
-- Verify no fake zeroes and no accumulation across real new sessions; stats still require a proven open play session.
-- Chervonopilya deployment followed successful Serhiivka evidence and explicit approval.
+- [x] Verify the implemented `/players` details, nullable rendering, safe unavailable wording, and browser polling behavior in an approved environment.
+- [x] Complete F2-b VM acceptance on Serhiivka and Chervonopilya: the timer was explicitly enabled, repeated cycles stayed fresh/non-overlapping, and the separate player-session scheduler remained disabled.
+- [x] Verify no fake zeroes and no accumulation across real new sessions; stats still require a proven open play session.
+- [x] Deploy to Chervonopilya only after successful Serhiivka evidence and explicit approval.
 
-### Slice G: Discord/Public Evaluation
+### Slice G: Discord/Public Evaluation - gated
 
-- Revisit Discord player columns only after Slice F is stable.
-- Keep role blocked unless a source was added.
-- Decide whether Discord should show current session stats, last session stats, or no combat stats.
+- [ ] Decide whether Discord should show current-session stats, last-session stats, or no combat stats.
+- [ ] If enrichment is chosen, align/reuse the authenticated truth owners before adding columns and label every value by scope.
+- [ ] Keep role blocked unless a reliable source is added.
 
 ## Acceptance Checklist
 

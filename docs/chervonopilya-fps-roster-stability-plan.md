@@ -205,10 +205,15 @@ Production validation result from 2026-08-12:
 
 ## 5. Web/armactl Hardening Follow-ups
 
-- Add an operator-visible log-spam warning for very large active `console/error/script` logs.
-- Ensure player-log ingest never scans huge active logs unbounded; keep skip reasons counts-only and sanitized.
-- Consider a safe diagnostic command for current roster cache state so operators do not need direct SQLite access.
-- Document that A2S count, RCON roster rows, current-roster cache, Discord stats, and web current player table are related but not identical truth surfaces.
+- [ ] Add an operator-visible, bounded log-spam/size warning for very large active
+  `console/error/script` logs without exposing raw paths or reading the files
+  unbounded.
+- [x] Keep player-log ingest bounded for huge active logs and keep skip/backlog
+  reasons counts-only and sanitized.
+- [ ] Conditional: add a safe CLI current-roster cache status command only if the
+  existing authenticated web diagnostics are insufficient for operators.
+- [x] Document A2S count, RCON roster rows, current-roster cache, Discord stats,
+  and the web current-player table as related but distinct truth surfaces.
 
 ## 6. Immediate Recommendation
 

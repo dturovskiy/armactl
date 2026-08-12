@@ -2,6 +2,9 @@
 
 This checklist tracks public, user-facing work for the free/local `armactl` core. It is intentionally concise; detailed implementation history and review notes are not kept in public docs.
 
+The cross-document status and classification are summarized in
+[plans-register.md](plans-register.md).
+
 ## Public Merge Boundary
 
 - [ ] Complete the public/private docs boundary review before merging `feat/web-interface` to public `main`.
@@ -88,6 +91,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Harden generated scheduled restart units with an explicit root-owned bounded restart helper, service stop timeout/kill policy, SIGKILL fallback scoped to the `armareforger*.service` control group, active/running verification, and short post-start stability checking.
 - [x] Improve server update check/update UX after VM smoke feedback with stale-cache notices, clearer active queued/running check/update labels, failed check/update job links, server-running update blocks, and expired running-job diagnostics only.
 - [x] Add explicit stale-running job metadata recovery through a POST-only Mark abandoned action gated by worker lease freshness, with no fake cancel, process/thread kill, destructive repair, output deletion, or GET mutation.
+- [ ] Add a bounded operator-visible warning for anomalously large active game logs without unbounded reads or raw-path exposure.
 - [ ] Decide any future live job cancellation/worker termination model as a separate explicit worker lease/cancel slice; do not treat abandoned metadata recovery as process cancellation.
 - [ ] Expand safe config controls after field behavior is verified, using `docs/safe-config-controls-plan.md` and the existing config editor pipeline.
 - [x] Improve mod cleanup/mod mutation edge-case recovery workflows with controlled partial-change results, audit-safe diagnostics, and pending-work recovery markers.
@@ -129,6 +133,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [ ] Add low-noise dead-code tooling only after an allowlist exists; do not remove tested compatibility facades or `/players/refresh` solely from heuristic output.
 - [ ] Retire legacy web/filesystem/pending-restart facades and `/players/refresh` only after the downstream compatibility window and public-merge decision allow it.
 - [ ] Add mod-cleanup quarantine/restore only before deliberately broadening destructive cleanup; the current bounded `config/addons` cleanup must not expand without that recovery gate.
+- [ ] Add a CLI current-roster cache status command only if authenticated web diagnostics prove insufficient for operators.
 
 ## Public Documentation
 
@@ -138,5 +143,8 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Web deployment doc covers local/same-host, gateway-managed VM, reverse-proxy, and HTTPS-required cookie guidance.
 - [ ] Sanitize public web deployment/hardening docs so they contain no private hostnames, IPs, routes, or operator-only topology.
 - [ ] Split or move internal dashboard extraction/commercial planning before public `main` merge.
-- [ ] Keep screenshots current after visible UI changes.
-- [ ] Keep release notes concise and operator-focused.
+
+Recurring gates, not feature backlog:
+
+- Refresh screenshots after visible UI changes.
+- Keep release notes concise and operator-focused.

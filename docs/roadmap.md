@@ -27,6 +27,7 @@
 - Complete the public/private documentation and extraction boundary before a public `main` merge.
 - Add a bounded, redacted diagnostic report download/export flow on top of the existing report builder and preview.
 - Implement native moderation Slices 7c-7e: verified mutations, authenticated mutation UI, then staged production acceptance.
+- Add a bounded operator-visible warning for anomalously large active game logs.
 - Expand safe config controls one verified field group at a time; network, bind, port, RCON, and secret controls remain behind separate recovery contracts.
 - Consider richer Discord player columns only after each value has a reliable source and truthful scope label.
 - Keep live worker cancellation, broader mod cleanup with quarantine/restore, compatibility removal, shared audit/enqueue wrappers, and low-noise dead-code tooling as explicit conditional engineering work rather than merge blockers.

@@ -25,10 +25,10 @@ channels. Include:
 - `sudo` and systemd units
 - SteamCMD
 - runtime `.env` files for the Telegram bot
-- planned web panel credentials, session secrets, CSRF tokens, and local
+- web dashboard credentials, session secrets, CSRF tokens, and local
   account database
 - admin and RCON passwords
-- browser file upload/download paths once the web panel is implemented
+- browser file upload/download paths
 - host logs and service output
 
 When reporting or discussing bugs, redact:
@@ -47,7 +47,7 @@ The project already aims to:
 - keep runtime `.env` files out of git
 - redact obvious secrets from logs and UI output
 - separate repo code, runtime data, and system service files
-- keep the planned web panel behind HTTPS/reverse proxy by default and bind the
+- keep the web dashboard behind HTTPS/reverse proxy by default and bind the
   app locally unless an operator explicitly chooses direct exposure
 
 If you find a place where secrets leak or privileged behavior is too broad,

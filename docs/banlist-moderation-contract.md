@@ -312,13 +312,36 @@ block the native ban-list read slice.
   permission, recovery, UX, and architecture contracts.
 - [x] Slice 7b: typed read-only native ban adapter, fixtures, permission, and
   authenticated read-only list.
-- [ ] Slice 7c: typed ban/unban service with lock, intent audit,
-  read-after-write verification, idempotency, and moderation recovery record;
-  add kick only when fresh target/response fixtures are proven.
-- [ ] Slice 7d: mutation UI integration, confirmations, safe notices, and
-  browser regression coverage.
-- [ ] Slice 7e: Serhiivka-first production smoke and audited test action with a
-  designated test identity; Chervonopilya only after explicit approval.
+- [ ] Slice 7c: implement typed ban/unban mutations.
+  - [ ] Add bounded typed `#ban create` and `#ban remove` commands plus
+    fixture-proven response classification in `rcon.py`.
+  - [ ] Normalize and validate reliable identity, duration, and bounded reason.
+  - [ ] Add one per-instance moderation lock.
+  - [ ] Read and classify the complete authoritative native baseline.
+  - [ ] Write redacted intent audit before any RCON mutation.
+  - [ ] Execute only the typed native command.
+  - [ ] Re-read the authoritative list after the command.
+  - [ ] Classify changed, idempotent no-op, unchanged failure, or uncertain.
+  - [ ] Write bounded outcome audit without raw command/response data.
+  - [ ] Add a dedicated operator-visible moderation-verification record and
+    read-first retry path; do not reuse restart-pending recovery.
+  - [ ] Add kick only with a fresh reliable roster, exact identity plus current
+    player ID, immediate re-resolution, and fixture-proven response handling.
+- [ ] Slice 7d: implement the mutation UI.
+  - [ ] Keep all mutations POST-only, CSRF-protected, and gated by
+    `players:moderate`.
+  - [ ] Add separate explicit confirmations for ban, unban, and kick.
+  - [ ] Submit normalized reliable identity, bounded duration, and sanitized
+    optional reason; nickname remains search/display-only.
+  - [ ] Render controlled changed/no-op/failed/uncertain/recovery notices with no
+    IP, raw command/response, secret, path, or traceback exposure.
+  - [ ] Add focused permission, route, template, CSRF, read-only GET, and
+    sensitive-output regression coverage.
+- [ ] Slice 7e: complete staged production acceptance.
+  - [ ] Run Serhiivka-first read/mutation/retry/recovery smoke with a designated
+    test identity and audited action.
+  - [ ] Review journals, audit, authoritative state, and recovery state.
+  - [ ] Roll out to Chervonopilya only after explicit approval.
 - [ ] Future separate decision: IP moderation/privacy contract.
 
 ## Global Acceptance Gate

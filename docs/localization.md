@@ -61,7 +61,7 @@ Rules:
 - Keep the English source string readable; it becomes the translation key.
 - Any text shown to users in TUI, notifications, validation errors, and backend
   messages surfaced in TUI should go through `_()` or `tr()`.
-- Planned web templates and route messages should use the same localization
+- Web templates and route messages should use the same localization
   source strings instead of hard-coded browser-only text.
 
 ## Validation
