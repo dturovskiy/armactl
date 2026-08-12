@@ -1295,8 +1295,64 @@ button.warning {
   overflow-x: auto;
 }
 
+.player-current-diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin: 16px 0 18px;
+}
+
+.player-current-diagnostic-item {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 5px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-strong);
+}
+
+.player-current-diagnostic-item dt {
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.player-current-diagnostic-item dd {
+  display: flex;
+  min-width: 0;
+  min-height: 24px;
+  align-items: center;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.player-current-diagnostic-code {
+  max-width: 100%;
+  overflow: hidden;
+  color: inherit;
+  font-size: 0.84rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-current-diagnostic-count {
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.player-current-empty-state {
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
 .player-current-table {
-  min-width: 920px;
+  min-width: 860px;
   table-layout: fixed;
 }
 

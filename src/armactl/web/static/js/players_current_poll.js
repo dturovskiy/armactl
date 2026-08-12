@@ -91,6 +91,7 @@
     "[data-current-players-refresh-error-label]",
   );
   const errorNode = root.querySelector("[data-current-players-error]");
+  const errorItemNode = root.querySelector("[data-current-players-error-item]");
   const tableWrap = root.querySelector("[data-current-players-table]");
   const tableBody = root.querySelector("[data-current-players-tbody]");
   const emptyNode = root.querySelector("[data-current-players-empty]");
@@ -160,6 +161,41 @@
     }
   }
 
+  function statusPillTone(value) {
+    const normalized = String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+    if (
+      ["active", "available", "fresh", "hit", "ok", "persistent", "refresh", "running", "success", "updated"].includes(
+        normalized,
+      )
+    ) {
+      return "success";
+    }
+    if (
+      normalized.includes("stale") ||
+      ["disabled", "incomplete", "starting", "updating", "warning"].includes(normalized)
+    ) {
+      return "warning";
+    }
+    if (
+      normalized.includes("error") ||
+      ["danger", "failed", "failure"].includes(normalized)
+    ) {
+      return "error";
+    }
+    return "unavailable";
+  }
+
+  function setStatusPill(node, value, tone = statusPillTone(value)) {
+    if (!node) {
+      return;
+    }
+    setText(node, value);
+    node.className = `status-pill status-pill-${tone}`;
+  }
+
   function setError(message) {
     if (!errorNode) {
       return;
@@ -169,6 +205,9 @@
     errorNode.hidden = !text;
     if (refreshErrorLabelNode) {
       refreshErrorLabelNode.hidden = !text;
+    }
+    if (errorItemNode) {
+      errorItemNode.hidden = !text;
     }
   }
 
@@ -583,14 +622,19 @@
     if (!preserveRenderedRows) {
       updateCountSummary(data);
       setText(sourceNode, data.source || labels.unavailable);
-      setText(cacheStatusNode, data.cache_status || labels.unknown);
+      setStatusPill(cacheStatusNode, data.cache_status || labels.unknown);
       const cacheAge =
         data.cache_age_seconds !== undefined ? data.cache_age_seconds : data.age_seconds;
       setText(ageNode, ageText(cacheAge));
       setText(countSourceNode, countSourceText(data));
       setText(observedCountNode, observedCount(data));
     }
-    setText(statusNode, data.status || labels.unknown);
+    const status = data.status || labels.unknown;
+    setStatusPill(
+      statusNode,
+      status,
+      data.is_stale === true ? "warning" : statusPillTone(status),
+    );
     const freshness = String(
       data.freshness ||
         (data.is_stale === true
@@ -611,9 +655,11 @@
       freshnessUnavailableNode.textContent = labels.unavailable;
       freshnessUnavailableNode.hidden = freshness !== "unavailable";
     }
-    setText(
+    const rosterAvailable = data.roster_available === true;
+    setStatusPill(
       rosterAvailableNode,
-      data.roster_available === true ? labels.available : labels.unavailable,
+      rosterAvailable ? labels.available : labels.unavailable,
+      rosterAvailable ? "success" : "unavailable",
     );
     setError(data.refresh_error || data.error || "");
     setWarning(warningMessage(data, preserveRenderedRows));
@@ -623,7 +669,7 @@
   }
 
   function markUnavailable() {
-    setText(statusNode, labels.unavailable);
+    setStatusPill(statusNode, labels.unavailable, "unavailable");
     if (staleNode) {
       staleNode.textContent = labels.stale;
       staleNode.hidden = false;
@@ -634,7 +680,7 @@
     if (freshnessUnavailableNode) {
       freshnessUnavailableNode.hidden = true;
     }
-    setText(rosterAvailableNode, labels.unavailable);
+    setStatusPill(rosterAvailableNode, labels.unavailable, "unavailable");
     setWarning(labels.unavailableWarning);
   }
 

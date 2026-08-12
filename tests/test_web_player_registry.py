@@ -1604,6 +1604,10 @@ def test_players_route_defaults_to_current_player_table(tmp_path: Path, monkeypa
     assert "data-current-players-endpoint=\"/players/current.json\"" in html
     assert "data-current-players-interval-ms=\"60000\"" in html
     assert "data-current-players-search" in html
+    assert 'class="player-current-diagnostics-grid"' in html
+    assert html.count('class="player-current-diagnostic-item"') == 10
+    assert "status-pill status-pill-success" in html
+    assert "data-current-players-error-item hidden" in html
     assert 'action="/players/refresh-current"' in html
     main_rows = re.findall(r'<tr class="player-current-main-row">(.*?)</tr>', html, re.S)
     assert len(main_rows) == 2
@@ -1974,6 +1978,7 @@ def test_players_route_empty_current_roster_state_is_stable(
     assert response.status_code == 200
     assert "No current players online." in html
     assert "data-current-players-table hidden" in html
+    assert "player-current-empty-state" in html
     assert "data-current-player-toggle" not in html
     assert "data-current-player-row" not in html
     assert "Showing 0 of 0 current player(s)" in html
@@ -2336,6 +2341,10 @@ def test_current_players_polling_js_uses_no_store_and_preserves_search():
     assert "data-current-players-cache-status" in script
     assert "data-current-players-count-source" in script
     assert "data-current-players-observed-count" in script
+    assert "function statusPillTone(value)" in script
+    assert "function setStatusPill(node, value" in script
+    assert "setStatusPill(cacheStatusNode" in script
+    assert "data-current-players-error-item" in script
     assert "setWarning(warningMessage(data, preserveRenderedRows))" in script
     assert "function shouldPreserveRenderedRows(data)" in script
     assert 'tableBody.querySelector(".player-current-main-row")' in script
@@ -2389,6 +2398,15 @@ def test_current_players_polling_js_uses_no_store_and_preserves_search():
     assert "replaceChildren" not in mark_unavailable
     assert "setText(sourceNode" not in mark_unavailable
     assert "setText(ageNode" not in mark_unavailable
+
+
+def test_current_players_css_uses_responsive_diagnostics_grid():
+    css = Path("src/armactl/web/static/css/app.css").read_text()
+
+    assert ".player-current-diagnostics-grid {" in css
+    assert "repeat(auto-fit, minmax(170px, 1fr))" in css
+    assert ".player-current-diagnostic-item {" in css
+    assert ".player-current-empty-state {" in css
 
 
 def test_players_current_json_marks_source_failure_without_cache_unavailable(
