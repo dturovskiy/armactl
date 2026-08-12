@@ -76,38 +76,46 @@
       <p class="error">{{ t(page.disabled_mods_error) }}</p>
     {% endif %}
     {% if page.mods %}
-      <table>
-        <thead><tr><th>{{ t("Mod ID") }}</th><th>{{ t("Name") }}</th><th>{{ t("Version") }}</th>{% if can_manage_mods %}<th>{{ t("Actions") }}</th>{% endif %}</tr></thead>
-        <tbody>
-        {% for mod in page.mods %}
-          <tr>
-            <td class="wrap-value">{{ mod.mod_id or t("unknown") }}</td>
-            <td class="wrap-value">{{ mod.name or t("unknown") }}</td>
-            <td class="wrap-value">{{ mod.version or t("unknown") }}</td>
-            {% if can_manage_mods %}
-              <td>
-                <div class="mod-row-actions">
-                  <form method="post" action="/mods/disable" class="mod-action-form">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <input type="hidden" name="mod_id" value="{{ mod.mod_id }}">
-                    <button class="secondary" type="submit">{{ t("Disable") }}</button>
-                  </form>
-                  <form method="post" action="/mods/remove" class="mod-action-form mod-remove-form">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <input type="hidden" name="mod_id" value="{{ mod.mod_id }}">
-                    <label class="inline-confirm">
-                      <input type="checkbox" name="confirm" value="remove">
-                      {{ t("Confirm remove") }}
-                    </label>
-                    <button class="danger" type="submit">{{ t("Remove") }}</button>
-                  </form>
-                </div>
-              </td>
-            {% endif %}
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
+      <details class="mod-list-disclosure" data-mod-list-disclosure="active">
+        <summary class="mod-list-summary">
+          <span class="mod-list-summary-title">{{ t("Configured mod list") }}</span>
+          <span class="status-pill">{{ page.count }}</span>
+        </summary>
+        <div class="mod-list-disclosure-body">
+          <table>
+            <thead><tr><th>{{ t("Mod ID") }}</th><th>{{ t("Name") }}</th><th>{{ t("Version") }}</th>{% if can_manage_mods %}<th>{{ t("Actions") }}</th>{% endif %}</tr></thead>
+            <tbody>
+            {% for mod in page.mods %}
+              <tr>
+                <td class="wrap-value">{{ mod.mod_id or t("unknown") }}</td>
+                <td class="wrap-value">{{ mod.name or t("unknown") }}</td>
+                <td class="wrap-value">{{ mod.version or t("unknown") }}</td>
+                {% if can_manage_mods %}
+                  <td>
+                    <div class="mod-row-actions">
+                      <form method="post" action="/mods/disable" class="mod-action-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="mod_id" value="{{ mod.mod_id }}">
+                        <button class="secondary" type="submit">{{ t("Disable") }}</button>
+                      </form>
+                      <form method="post" action="/mods/remove" class="mod-action-form mod-remove-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="mod_id" value="{{ mod.mod_id }}">
+                        <label class="inline-confirm">
+                          <input type="checkbox" name="confirm" value="remove">
+                          {{ t("Confirm remove") }}
+                        </label>
+                        <button class="danger" type="submit">{{ t("Remove") }}</button>
+                      </form>
+                    </div>
+                  </td>
+                {% endif %}
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
     {% else %}
       <p class="muted">{{ t("No mods configured.") }}</p>
     {% endif %}
@@ -204,38 +212,46 @@
   <h2>{{ t("Disabled Mods") }}</h2>
   {% set disabled_mods = page.disabled_mods|default([]) %}
   {% if disabled_mods %}
-    <table>
-      <thead><tr><th>{{ t("Mod ID") }}</th><th>{{ t("Name") }}</th><th>{{ t("Version") }}</th>{% if can_manage_mods %}<th>{{ t("Actions") }}</th>{% endif %}</tr></thead>
-      <tbody>
-      {% for mod in disabled_mods %}
-        <tr>
-          <td class="wrap-value">{{ mod.mod_id or t("unknown") }}</td>
-          <td class="wrap-value">{{ mod.name or t("unknown") }}</td>
-          <td class="wrap-value">{{ mod.version or t("unknown") }}</td>
-          {% if can_manage_mods %}
-            <td>
-              <div class="mod-row-actions">
-                <form method="post" action="/mods/enable" class="mod-action-form">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                  <input type="hidden" name="mod_id" value="{{ mod.mod_id }}">
-                  <button class="secondary" type="submit">{{ t("Enable") }}</button>
-                </form>
-                <form method="post" action="/mods/remove" class="mod-action-form mod-remove-form">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                  <input type="hidden" name="mod_id" value="{{ mod.mod_id }}">
-                  <label class="inline-confirm">
-                    <input type="checkbox" name="confirm" value="remove">
-                    {{ t("Confirm remove") }}
-                  </label>
-                  <button class="danger" type="submit">{{ t("Remove") }}</button>
-                </form>
-              </div>
-            </td>
-          {% endif %}
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+    <details class="mod-list-disclosure" data-mod-list-disclosure="disabled">
+      <summary class="mod-list-summary">
+        <span class="mod-list-summary-title">{{ t("Disabled mod list") }}</span>
+        <span class="status-pill">{{ disabled_mods|length }}</span>
+      </summary>
+      <div class="mod-list-disclosure-body">
+        <table>
+          <thead><tr><th>{{ t("Mod ID") }}</th><th>{{ t("Name") }}</th><th>{{ t("Version") }}</th>{% if can_manage_mods %}<th>{{ t("Actions") }}</th>{% endif %}</tr></thead>
+          <tbody>
+          {% for mod in disabled_mods %}
+            <tr>
+              <td class="wrap-value">{{ mod.mod_id or t("unknown") }}</td>
+              <td class="wrap-value">{{ mod.name or t("unknown") }}</td>
+              <td class="wrap-value">{{ mod.version or t("unknown") }}</td>
+              {% if can_manage_mods %}
+                <td>
+                  <div class="mod-row-actions">
+                    <form method="post" action="/mods/enable" class="mod-action-form">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="mod_id" value="{{ mod.mod_id }}">
+                      <button class="secondary" type="submit">{{ t("Enable") }}</button>
+                    </form>
+                    <form method="post" action="/mods/remove" class="mod-action-form mod-remove-form">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="mod_id" value="{{ mod.mod_id }}">
+                      <label class="inline-confirm">
+                        <input type="checkbox" name="confirm" value="remove">
+                        {{ t("Confirm remove") }}
+                      </label>
+                      <button class="danger" type="submit">{{ t("Remove") }}</button>
+                    </form>
+                  </div>
+                </td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
   {% else %}
     <p class="muted">{{ t("No disabled mods configured.") }}</p>
   {% endif %}

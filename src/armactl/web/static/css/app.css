@@ -1812,6 +1812,64 @@ button.warning {
   margin: 0;
 }
 
+.mod-list-disclosure {
+  min-width: 0;
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.mod-list-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 800;
+}
+
+.mod-list-summary::-webkit-details-marker {
+  display: none;
+}
+
+.mod-list-summary::after {
+  content: "+";
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  line-height: 1;
+}
+
+.mod-list-disclosure[open] .mod-list-summary::after {
+  content: "-";
+}
+
+.mod-list-summary-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mod-list-disclosure-body {
+  overflow-x: auto;
+  border-top: 1px solid var(--border);
+}
+
+.mod-list-disclosure-body table {
+  min-width: 680px;
+  margin-top: 0;
+}
+
 .mod-edit-panel {
   margin-top: 18px;
 }

@@ -1616,6 +1616,26 @@ def test_mods_page_shows_cleanup_visibility(tmp_path: Path, monkeypatch):
     assert "general file deletion" in response.text
 
 
+def test_mods_page_mod_lists_are_collapsed_by_default(tmp_path: Path, monkeypatch):
+    client = _authed_client(tmp_path, monkeypatch)
+
+    response = client.get("/mods", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert (
+        '<details class="mod-list-disclosure" data-mod-list-disclosure="active">'
+        in response.text
+    )
+    assert (
+        '<details class="mod-list-disclosure" data-mod-list-disclosure="disabled">'
+        in response.text
+    )
+    assert "Configured mod list" in response.text
+    assert "Disabled mod list" in response.text
+    assert 'data-mod-list-disclosure="active" open' not in response.text
+    assert 'data-mod-list-disclosure="disabled" open' not in response.text
+
+
 def test_mods_page_shows_disabled_mod_diagnostics(tmp_path: Path, monkeypatch):
     page = _mods_page()
     page["diagnostics"] = {
