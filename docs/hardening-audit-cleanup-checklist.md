@@ -98,23 +98,12 @@ Closed result:
 - Kept web/facade.py, services/filesystem.py, and services/pending_restart.py as compatibility surfaces with explicit tests.
 - Kept /players/refresh as a compatibility alias with a regression test for current-refresh enqueue behavior.
 - Did not add a new dead-code dependency; low-noise tooling remains future work after an allowlist exists.
+- A later follow-up routed mod profile-settings cleanup through the shared mutation recovery helper, removing the remaining local primary/fallback pending-work duplicate identified by the reuse audit.
+- Remaining audit/enqueue wrapper consolidation and compatibility removal are conditional P2 work, not current correctness or production blockers.
+Historical execution checklist (completed):
 
-
-- Розібрати legacy compatibility surfaces:
-  - `src/armactl/web/facade.py`;
-  - `src/armactl/web/services/filesystem.py`;
-  - `src/armactl/web/services/pending_restart.py`.
-- Для кожної legacy surface:
-  - або додати explicit compatibility test і залишити до окремого removal milestone;
-  - або прибрати, якщо точно internal/dead і tests це підтверджують.
-- Розібрати `/players/refresh` compatibility alias:
-  - або залишити з deprecation/compatibility test;
-  - або видалити окремим cleanup slice.
-- Dead-code audit path для цього cleanup slice:
-  - існуючого vulture/custom script у repo не знайдено;
-  - нову dependency не додавати;
-  - поки використовувати ruff F-rules і targeted rg usage checks;
-  - окремий низькошумний script лишити future, коли буде allowlist.
-  - не робити це blocker для P1.
-- Перед майбутніми mutation-фічами зробити один спільний contract для recovery/rollback/pending markers.
-- Після P2 можна повертатись до safe file editor, safe config controls і TUI/Web parity.
+- [x] Classified `web/facade.py`, `services/filesystem.py`, and `services/pending_restart.py` as tested compatibility surfaces rather than unproven dead code.
+- [x] Classified `/players/refresh` as a tested compatibility alias; removal remains conditional on the downstream compatibility window.
+- [x] Used existing ruff rules and targeted usage checks without adding noisy dead-code tooling.
+- [x] Added the shared recovery/rollback/pending-marker contract before later mutation features.
+- [x] Completed the safe file editor and TUI/Web parity classification; safe config field expansion remains separately gated.

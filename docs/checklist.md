@@ -32,7 +32,8 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Canonical game-admin permission synchronization from `game.admins` into existing SAT/WCS ACLs with exact roles, backup, atomic publish, and full rollback.
 - [x] Restart schedule and autostart controls.
 - [x] File browser with bounded preview, download, and no-overwrite upload.
-- [x] Logs and diagnostic report views.
+- [x] Bounded, redacted logs and diagnostic report preview views.
+- [ ] Add an authenticated bounded, redacted diagnostic report download/export flow; keep `armactl report` as the CLI fallback and do not add a second report builder.
 - [x] Background jobs for install, repair, update checks, and updates.
 - [x] Read-only public statistics output, Discord webhook publisher service, and `/bot` webhook settings for community channels, without server-control commands.
 - [x] Player registry foundation with reliable IDs and no IP storage by default.
@@ -91,6 +92,7 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [ ] Expand safe config controls after field behavior is verified, using `docs/safe-config-controls-plan.md` and the existing config editor pipeline.
 - [x] Improve mod cleanup/mod mutation edge-case recovery workflows with controlled partial-change results, audit-safe diagnostics, and pending-work recovery markers.
 - [x] Add narrow `/mods` stale profile settings cleanup for allowlisted disabled-mod module blocks only, with backup, counts-only audit, pending restart tracking, and no addon deletion, sidecar removal, active `game.mods` change, or generic file editing.
+- [x] Route stale profile-settings cleanup through the shared mutation recovery helper instead of keeping a local primary/fallback pending-work duplicate.
 - [x] Build slice 2 read-only players page / improved players view from existing sources.
 - [x] Add the initial web-only current-player enrichment/guard slice that established nullable fields and placeholder-safe behavior before the play-session contract, without DB migration/materialized counters/jobs, K/D, Discord/public enrichment, Role truth, GET writes, public IDs, or raw log/path/IP/secret exposure.
 - [x] Player stats truth Slice E session-scoped current stats aggregation: read existing `players.db` query-only, gate on normalized reliable ID plus Slice D open play-session/server-run/lifecycle proof and Slice C fresh checkpoint coverage, count only stable exact/derived-time Kills/Deaths/TK inside the inclusive session window, keep teamkills out of Kills and deaths victim-only, preserve reconnect windows within grace, reset after grace/lifecycle, expose last-known Faction and safe freshness/window details, render `—` when unavailable and `0` only when proven, keep Role `—`, and add no K/D, GET mutation, daemon/timer, Discord/public enrichment, raw correlations, paths, lines, IPs, or secrets.
@@ -115,10 +117,18 @@ This checklist tracks public, user-facing work for the free/local `armactl` core
 - [x] Close hardening-audit P1 cleanup by removing obsolete admin/mod pending fallback dead code, routing admin restart-pending recovery through the shared mutation recovery helper, and preserving controlled post-mutation failure behavior with regression tests.
 - [x] Close hardening-audit P2 compatibility cleanup by explicitly testing retained legacy web facade, filesystem facade, pending-restart adapter, and `/players/refresh` alias, while leaving lower-noise dead-code tooling as future cleanup rather than adding a noisy dependency.
 - [x] Document local/same-host and gateway-managed VM web deployment profiles, including the internal `8765` VM bind port, external gateway ports, and HTTPS-required cookie responsibility.
-- [ ] Close remaining TUI/Web parity gaps that should be web-primary.
+- [x] Classify operator-critical TUI/Web parity gaps for install/repair/update, logs/report, bot/Discord, ports/exposure, host tests, and player/session flows; track the one confirmed web-primary report export gap separately.
 - [x] Run production SSH read-only ops smoke for current `feat/web-interface`, including normal wrapper/bootstrap checks, web service status, public health/status, recent web journals, gateway health, and nginx error logs, without game restarts.
 - [x] Run post-hardening VM web smoke for the current `feat/web-interface` baseline after web-restart diagnostics, async theme preference recovery, and stale-job abandoned recovery; web status, `/healthz`, public status, and recent web journals were healthy, and no game restart was required.
 - [x] Run authenticated browser UI smoke and architecture/security/dead-code review for the current `feat/web-interface` deployment baseline; current pass found no P0/P1 code blockers, but this does not close the public `main` merge gate until extraction/docs-boundary decisions are complete.
+
+## Deferred Or Conditional Engineering Backlog
+
+- [ ] Consolidate repeated intent/action/outcome audit boilerplate only when another multi-service mutation slice needs it; current service owners and behavior remain explicit and tested.
+- [ ] Reduce repeated background-job enqueue wrappers only after job semantics settle; the shared job store/runner remains the current source of truth.
+- [ ] Add low-noise dead-code tooling only after an allowlist exists; do not remove tested compatibility facades or `/players/refresh` solely from heuristic output.
+- [ ] Retire legacy web/filesystem/pending-restart facades and `/players/refresh` only after the downstream compatibility window and public-merge decision allow it.
+- [ ] Add mod-cleanup quarantine/restore only before deliberately broadening destructive cleanup; the current bounded `config/addons` cleanup must not expand without that recovery gate.
 
 ## Public Documentation
 

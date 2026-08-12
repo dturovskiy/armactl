@@ -15,7 +15,7 @@ from pathlib import Path
 from armactl import discovery, mods_diagnostics, paths
 from armactl.addon_cleanup import normalize_mod_id
 from armactl.mods_state import load_disabled_mods
-from armactl.web.services import pending_work
+from armactl.web.services import mutation_recovery, pending_work
 from armactl.web.services.audit import AuditLogError, append_audit_event
 from armactl.web.services.filesystem_paths import (
     has_forbidden_part,
@@ -850,9 +850,9 @@ def _mark_restart_pending(
 
     baseline_fingerprint = _fingerprint_for_published(published, use_updated=False)
     current_fingerprint = _fingerprint_for_published(published, use_updated=True)
-    try:
-        write_result = pending_work.mark_restart_pending_for_state(
-            db_path,
+    write_result = mutation_recovery.mark_restart_pending_for_mutation(
+        mutation_recovery.RestartPendingRecovery(
+            db_path=db_path,
             instance=result.instance,
             kind=pending_work.KIND_MODS,
             source_action=ACTION_PROFILE_SETTINGS_CLEANUP,
@@ -863,28 +863,7 @@ def _mark_restart_pending(
             baseline_fingerprint=baseline_fingerprint,
             current_fingerprint=current_fingerprint,
         )
-    except Exception:  # noqa: BLE001 - use fallback directly if the helper itself fails.
-        try:
-            pending_work.mark_restart_pending_fallback(
-                db_path,
-                instance=result.instance,
-                kind=pending_work.KIND_MODS,
-                source_action=ACTION_PROFILE_SETTINGS_CLEANUP,
-                source_path="/mods",
-                title="Mod changes",
-                username=username,
-                details="profile settings references",
-                baseline_fingerprint=baseline_fingerprint,
-                current_fingerprint=current_fingerprint,
-            )
-        except Exception:  # noqa: BLE001 - both pending stores failed after mutation.
-            write_result = pending_work.PendingWorkWriteResult(
-                error=pending_work.PENDING_WORK_STORAGE_FAILED_MESSAGE
-            )
-        else:
-            write_result = pending_work.PendingWorkWriteResult(
-                warning=pending_work.PENDING_WORK_FALLBACK_WARNING
-            )
+    )
 
     updated = replace(
         result,

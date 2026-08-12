@@ -12,14 +12,24 @@
 - Local browser dashboard.
 - Public release notes and operator-focused troubleshooting.
 
-## Short-Term Work
+## Completed On The Current Web Branch
 
-- Harden the local web dashboard for production use.
-- Polish server update checks and update job UX.
-- Expand safe config controls only after field behavior is verified.
-- Improve mod add-by-link, import/export, and cleanup workflows.
-- Improve player history and moderation workflows with reliable identity rules.
-- Improve schedule timezone handling and display.
+- Production dashboard hardening, bounded readiness checks, stale-job metadata recovery, and current VM smoke.
+- Server update checks and update-job UX with controlled retry/failure guidance.
+- The current safe config field set, guarded raw config editing, and narrow safe config/profile file editing.
+- Mod add/bulk/import/export/dedupe flows, bounded cleanup manifests, and shared mutation recovery for current mod/profile cleanup paths.
+- Player history, supervised log/session pipelines, current-session truth guards, session search/detail UI, and read-only native ban-list viewing.
+- Browser-local schedule timezone input/display with UTC backend normalization.
+- Operator-critical TUI/Web parity classification; full feature-for-feature parity is intentionally not a goal.
+
+## Remaining Planned Work
+
+- Complete the public/private documentation and extraction boundary before a public `main` merge.
+- Add a bounded, redacted diagnostic report download/export flow on top of the existing report builder and preview.
+- Implement native moderation Slices 7c-7e: verified mutations, authenticated mutation UI, then staged production acceptance.
+- Expand safe config controls one verified field group at a time; network, bind, port, RCON, and secret controls remain behind separate recovery contracts.
+- Consider richer Discord player columns only after each value has a reliable source and truthful scope label.
+- Keep live worker cancellation, broader mod cleanup with quarantine/restore, compatibility removal, shared audit/enqueue wrappers, and low-noise dead-code tooling as explicit conditional engineering work rather than merge blockers.
 - Keep public docs concise and user-facing.
 
 ## Contributor Priorities

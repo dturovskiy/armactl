@@ -1,6 +1,6 @@
 # Player Log Event Inventory
 
-This inventory records a read-only pass over real Arma Reforger server logs from the target game VM. It is intended to guide a future player history/statistics slice without adding code, schema, or live-server changes in this pass.
+This inventory records the historical read-only pass over real Arma Reforger server logs that guided the player history/statistics work. The inventory pass itself added no code, schema, or live-server changes. Its original next-slice recommendations are now superseded by the implemented contracts and closure status linked below.
 
 ## Scope And Method
 
@@ -258,7 +258,6 @@ Keep nullable or future-only:
 
 ## Recommended Next Slice
 
-- Start sessions/history without a gameplay mod only for connect/disconnect, last seen, names, reliable IDs, faction snapshots, mission lifecycle, and aggregate telemetry.
-- Add one more live observation pass during real player activity before finalizing disconnect-pairing confidence rules and log-retention assumptions.
-- Do not ship kill/death/KD claims as vanilla/no-mod functionality. Treat current kill/death parsing as mod-source dependent and experimental until the event source is explicitly chosen.
-- Keep the next implementation docs/code slice focused on a journal/log/RCON registry join with no player network-address storage by default.
+- Completed after this inventory: bounded parser/storage, automatic incremental log ingest, supervised sessionization/live-scan/maintenance, retention, authenticated current/history/session/search/detail views, and staged production acceptance on both target VMs. See [player-session-stats-contract.md](player-session-stats-contract.md), [player-session-supervised-pipeline-contract.md](player-session-supervised-pipeline-contract.md), and [player-session-detail-search-contract.md](player-session-detail-search-contract.md).
+- The remaining player implementation work is native moderation Slices 7c-7e. Richer Discord columns remain truth-gated and separate.
+- Do not ship kill/death/KD claims as generic vanilla/no-mod truth. Current combat evidence remains source/capability-dependent, and player network-address storage remains out of scope without a separate explicit decision.

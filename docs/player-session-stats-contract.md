@@ -326,6 +326,6 @@ The full execution, ordering, failure/recovery, cadence, status, privacy, rollou
 - [x] No raw log lines, raw paths, raw RCON rows, IPs, secrets, public player IDs, or Discord enrichment are introduced.
 - [x] Serhiivka VM smoke passed before Chervonopilya deployment and observation.
 
-## Immediate Next Recommended Slice
+## Follow-Up Status
 
-F2 automatic log freshness and F3 supervised player-session execution are accepted on both target VMs. Slice 6a now defines the separate query-only session detail/search/conflict contract in [player-session-detail-search-contract.md](player-session-detail-search-contract.md). Slice 6b is next: add the reusable query/DTO foundation before any route/template work. Discord/public enrichment remains later work and still requires an explicit truth/scope decision. Fake zeroes, hidden threads, raw sensitive evidence, and historical oversized-log backfill remain forbidden or separate decisions.
+F2 automatic log freshness and F3 supervised player-session execution are accepted on both target VMs. Session Slices 6a-6d are complete through the reusable query/DTO foundation, authenticated search/detail UI, and staged production acceptance documented in [player-session-detail-search-contract.md](player-session-detail-search-contract.md). The next player implementation work is native moderation Slice 7c; Discord/public enrichment remains later and requires an explicit truth/scope decision. Fake zeroes, hidden threads, raw sensitive evidence, and historical oversized-log backfill remain forbidden or separate decisions.

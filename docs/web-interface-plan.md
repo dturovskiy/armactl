@@ -30,7 +30,7 @@ The current `feat/web-interface` branch is a web-dashboard baseline, not an auto
 - File browser with bounded preview, single-file download, no-overwrite upload,
   and narrow allowlisted config/profile editing through the shared replacement
   workflow.
-- Logs and diagnostic report views.
+- Bounded, redacted logs and diagnostic report preview views.
 - Background jobs for install, repair, update checks, and updates.
 - Safe generated runtime FPS profile selector for service start/restart, with one dashboard control backed by an armactl-only instance settings sidecar rather than `config.json`; allowed values are 60/120, running servers require restart to apply, and there is no arbitrary launch-args editor.
 - Player registry foundation with reliable IDs and no IP storage by default.
@@ -50,7 +50,7 @@ The current `feat/web-interface` branch is a web-dashboard baseline, not an auto
 - Phase 4e-a explicit live session scanner foundation, with `scan_live_player_sessions_once(...)` and `players:scan-live-sessions` converting reliable current-roster IDs into medium-confidence session observations through `observe_player_session(...)`, ignoring unreliable/count-only evidence, keeping stale-close/retention separate, and avoiding automatic daemon/poller, GET mutation, session UI/API, IP/raw source storage, or current-session claims.
 - Phase 4e-b live session conflict-window foundation, with a safe `players.db` scan-window ledger and explicit one-shot scanner closes only after repeated successful reliable RCON roster absence through `close_player_session(...)` using low-confidence `stale_absence`; source failure, roster unavailable, A2S count-only, and unreliable/name-only or mixed-unreliable rows do not advance absence windows, while automatic daemon/poller, GET mutation, session UI/API, IP/raw source storage, and current-session claims remain out of scope.
 - Read-only player sessions web surface at `/players/sessions`, with bounded reliable-ID/name/status/end-reason/source/limit filters over existing stored `player_sessions`, truth-safe observed/last observed/inferred close labels, no GET mutations, no scanner/current-cache side effects, and no IP/raw path/raw line/secret/public player ID/K/D/role/faction/playtime/Discord/ban/kick display.
-- Slice 6b query/DTO foundation for future session detail and search: explicit existing-database `mode=ro`/query-only single-session lookup, alias-aware identity-safe search, fail-closed UTC/source filters, bounded session and proven-window event keyset pagination without `OFFSET`, one shared open/closed session-window stats evaluator used by current enrichment, and sanitized typed detail/search/timeline DTOs. It adds no route, template, CSS, browser JavaScript, JSON API, job, migration, or GET mutation.
+- Slice 6b completed query/DTO foundation for the later session detail and search UI: explicit existing-database `mode=ro`/query-only single-session lookup, alias-aware identity-safe search, fail-closed UTC/source filters, bounded session and proven-window event keyset pagination without `OFFSET`, one shared open/closed session-window stats evaluator used by current enrichment, and sanitized typed detail/search/timeline DTOs. It added no route, template, CSS, browser JavaScript, JSON API, job, migration, or GET mutation.
 - Slice 6c authenticated session UI at `/players/sessions` and `/players/sessions/{session_id}`: thin server-rendered integration of the Slice 6b services, alias/exact-ID/status/end-reason/source/UTC-range filters, deterministic older-page navigation, preserved list state, shared nullable Kills/Deaths/TK evaluation, bounded sanitized timeline, browser-local time, responsive EN/UK presentation, a primary stored-session list with collapsed manual recovery tools and advanced filters, and no JSON API, SQL duplication, job, migration, or GET mutation.
 - Manual player-session operator controls on `/players/sessions`, with POST-only CSRF-protected `players:view` buttons for `players:scan-live-sessions`, `players:sessionize-log-events`, and `players:session-maintenance`, `/jobs` notices, service/job-layer active dedupe, counts-only audit intent/outcome, and no automatic scheduler/poller or GET mutation.
 - Session freshness/operator UX polish on `/players/sessions`, with compact read-only stored-session counts and safe queued/running session-job links to `/jobs`; this is not new tracking truth and does not add a scheduler, poller, raw output, or GET mutation.
@@ -201,12 +201,12 @@ Next player slices should remain public/free/local core scope:
 - slice 2: read-only players page / improved players view from existing sources and stored event/session history;
 - slice 3: initial web-only current-player enrichment from existing player_log_events / player_sessions, with read-only aggregation, labels, placeholders, no schema migration, no K/D, Role still placeholder, and no Discord/public enrichment; this is not final session-stat truth until [player-session-stats-contract.md](player-session-stats-contract.md) is implemented;
 - slice 4: complete — F2-a/F2-b/F2-c supervised ingest deployment/observation proves automatic fresh bounded log coverage on both target VMs, and F3-a now documents the enqueue-only session scheduler gap plus one supervised correction;
-- slice 5: complete — F3-b synchronous ordered player-session oneshot/timer and F3-c Serhiivka-first, approval-gated Chervonopilya production acceptance; authenticated detail follows separately in Slice 6c, while a JSON API remains later work;
+- slice 5: complete — F3-b synchronous ordered player-session oneshot/timer and F3-c Serhiivka-first, approval-gated Chervonopilya production acceptance; authenticated detail/search is also complete through Slices 6c-6d, while a JSON API remains conditional later work;
 - slice 6a: complete — audit/design for query-only session detail, alias-aware search, keyset pagination, shared session-window stats, and conflict/privacy rules in [player-session-detail-search-contract.md](player-session-detail-search-contract.md);
 - slice 6b: complete — query-only detail/search DTO foundation, alias-safe search, fail-closed time/source filters, bounded session/event keyset pagination, shared open/closed session stats, and focused regressions;
 - slice 6c: complete — thin authenticated list/detail UI, preserved filters, browser-local time controls/display, responsive EN/UK presentation, bounded timeline, nullable shared stats, and read-only/privacy regressions;
 - slice 6d: complete — Serhiivka-first authenticated VM smoke followed by approved Chervonopilya acceptance, with real list/detail/filter/current-roster requests, sanitized not-found handling, no player DB/session/job writes, no web 500/traceback, and no game restart;
-- slice 7: audited native banlist/moderation manager. Slice 7a source-of-truth, identity/IP, permission, verification, recovery, and UX design is complete in [banlist-moderation-contract.md](banlist-moderation-contract.md); runtime Slices 7b-7e remain gated and staged;
+- slice 7: audited native banlist/moderation manager. Slice 7a design and Slice 7b typed read-only native ban-list adapter/page are complete; mutation Slices 7c-7e remain gated and staged in [banlist-moderation-contract.md](banlist-moderation-contract.md);
 - slice 8: Discord stats enrichment after stable authenticated web player truth exists.
 
 Do not add ban/kick mutations, materialized aggregate counters, IP tracking, live journal readers, browser/GET/app-start/JS/hidden-thread session triggers, a public session surface/JSON API, or Discord enrichment until later slices explicitly choose those sources and truth labels. Manual operator-triggered log collection remains the allowlisted background job; F2 supervised ingest remains the explicit synchronous service/timer; current-roster registry refresh remains `players:refresh-current`; and automatic current-roster cache refresh remains the safe snapshot-only `players current-cache run`. F3-b automates only those existing session services through the documented synchronous ordered oneshot/timer; legacy scheduler rows remain compatibility diagnostics rather than execution truth. F3-c production enablement and staged acceptance are complete on both target VMs.
@@ -217,34 +217,40 @@ See [web-deployment.md](web-deployment.md) for setup, service commands, health c
 
 ## Public Roadmap
 
-Near-term dashboard work focuses on:
+Production hardening, update-flow polish, current safe config/file controls,
+current mod cleanup recovery, player session/history UI, schedule timezone UX,
+and TUI/Web parity classification are complete on the current branch.
 
-- production hardening;
-- server update flow polish;
-- safer config controls after behavior is verified, using the safe config controls plan;
-- mod cleanup edge-case recovery improvements;
-- player history/moderation improvements with reliable identity rules;
-- read-only community statistics smoke and operational polish for Discord/Telegram publishing automation;
-- schedule timezone edge-case smoke after browser/timezone changes;
-- clearer logs and report download/export flows.
+Remaining dashboard work is:
+
+- the public/private documentation and extraction boundary;
+- a bounded, redacted authenticated diagnostic report download/export flow;
+- native moderation Slices 7c-7e;
+- safe config field expansion only after field behavior and rollback are verified;
+- richer Discord player columns only after each field has a reliable source and truthful scope label;
+- conditional P2 cleanup tracked in [checklist.md](checklist.md), not as current production blockers.
 
 ## Before Public Main Merge
 
-Before treating the web dashboard as the primary free/local operator UI or merging web-dashboard work into public `main`, run one final review pass. This deployment review is necessary but not sufficient for public merge; the extraction/docs-boundary gate above must also be closed.
+The final deployment review is complete for the current branch baseline. Repeat
+it after future code/deployment changes. It is necessary but not sufficient for
+public merge; the extraction/docs-boundary gate above remains open.
 
-The review covers:
+Review status:
 
-- VM smoke for login, dashboard, config, mods, admins, files, logs, jobs, updates, and service controls;
-- TUI/Web parity decisions for install, repair, update, config, mods, cleanup, logs, bot, and host-test workflows;
-- config-focused editor scope, including safe fields, advanced/raw JSON boundaries, backups, audit, pending restart, and recovery;
-- schedule timezone UX with browser-local display/input and UTC backend normalization;
-- player history, moderation, and banlist scope with reliable identity rules;
-- lightweight file-editing scope, if any, separated from broad destructive file management;
-- architecture, security, dead-code, source-of-truth, and public-docs drift checks.
+- [x] VM smoke for login, dashboard, config, mods, admins, files, logs, jobs, updates, and service controls.
+- [x] TUI/Web parity decisions for install, repair, update, config, mods, cleanup, logs/report, bot, ports, and host-test workflows.
+- [x] Config and file-editor scope, including safe fields, raw JSON boundaries, backups, audit, pending restart, and recovery.
+- [x] Schedule timezone UX with browser-local display/input and UTC backend normalization.
+- [x] Player history/session/moderation/banlist scope with reliable identity rules.
+- [x] Architecture, security, compatibility/dead-code, and source-of-truth review.
+- [ ] Public/private extraction and documentation boundary cleanup.
 
 ## Post Phase 4 Hardening Audit Plan
 
-This audit snapshot follows the Phase 4 player/session foundation. Keep the next implementation slices narrow: prefer VM smoke, operator feedback, and small hardening fixes over new feature surface.
+This historical audit snapshot followed the Phase 4 player/session foundation.
+Its P1/P2 closure and remaining conditional work are now recorded explicitly
+below and in [reuse-solid-duplication-audit.md](reuse-solid-duplication-audit.md).
 
 P1/P2 cleanup pass status: closed for this audit pass. P1 removed obsolete admin/mod pending fallback dead code and routed admin restart-pending recovery through the shared mutation recovery helper. P2 kept the legacy web facade, filesystem facade, pending-restart adapter, and `/players/refresh` alias as explicit compatibility surfaces with regression tests. The final architecture/security/dead-code/docs review for the current deployment found no P0/P1 code blockers; lower-noise dead-code tooling remains future work after an allowlist exists.
 
@@ -261,10 +267,10 @@ P0 before public merge:
 - Re-smoke update check/update behavior on every production host from private ops notes before treating `/updates` as primary.
 - Keep future user-affecting mutation flows behind the transaction/recovery pattern below; do not add moderation, banlist, broad config, or file editing unless the flow explicitly adopts that pattern.
 
-P1 next slices:
+P1 status and remaining gated work:
 
-- Server update UX after VM feedback: latest slice covers clearer retry/failure states, stale-cache notices, active queued/running job labels, diagnostics-only expired-lease guidance, and the Jobs page stale-running Mark abandoned recovery action. Any future live cancellation must still be a real worker lease/cancel design.
-- Production readiness polish for health/readiness checks and startup/runtime warnings without widening dashboard exposure.
+- Server update UX after VM feedback is complete for the current baseline: clearer retry/failure states, stale-cache notices, active queued/running job labels, diagnostics-only expired-lease guidance, and the Jobs page stale-running Mark abandoned recovery action. Any future live cancellation must still be a real worker lease/cancel design.
+- Production readiness polish for health/readiness checks and startup/runtime warnings is complete for the current baseline without widening dashboard exposure; repeat smoke after future deploys.
 - Safe config control expansion only for fields with proven validation, backup/restart behavior, and recovery.
 - Remaining mod cleanup recovery beyond the current manifests and controlled partial-failure messaging: restore/quarantine design before more deletion behavior.
 - Project-wide reuse/SOLID duplication audit is complete; keep [reuse-solid-duplication-audit.md](reuse-solid-duplication-audit.md) as the source for reuse owners, P1/P2 findings, and compatibility classifications.
@@ -273,9 +279,9 @@ P1 next slices:
 
 P2 later:
 
-- Richer session UI/detail/API remains a separate later decision after completed F3-b/F3-c supervision acceptance.
+- Authenticated richer session list/detail/search UI is complete; a separate JSON API or bulk export remains conditional on operator need.
 - Native banlist/moderation runtime Slices 7c-7e after the typed read-only Slice 7b adapter/page: verified/idempotent mutations, mutation UI integration, and Serhiivka-first production acceptance. SAT ban mirroring, IP moderation, nickname-only actions, and arbitrary RCON remain out of scope.
-- Broader web/TUI parity where operators prove it matters.
+- TUI/Web parity classification is complete; only the separately tracked web report export gap remains web-primary.
 - Low-noise dead-code audit tooling after an allowlist exists.
 - Rich Discord/player statistics after reliable player history/session data is stable enough.
 
@@ -302,7 +308,7 @@ Out of scope:
 
 - Current state: `/updates` shows installed/latest build state, cached check reuse and stale-cache notices, failure reason, safe retry labels, failed update/check job guidance, active queued/running update/check job links, stale/expired active-job diagnostics, and a server-running block before update. Update checks and updates run as deduped background jobs with redacted output. Job cancellation exists in store/maintenance code, but not as a normal operator-facing update workflow.
 - Risk: after a failed or interrupted update, operators may not know whether to retry, wait, inspect `/jobs`, stop the game server, or fall back to CLI/TUI. SteamCMD/network behavior is host-specific.
-- Remaining slice: continue VM smoke and operator feedback. Stale running metadata recovery now exists only as the Jobs page POST-only Mark abandoned action; it does not fake-cancel running jobs, kill processes/threads, destructively repair metadata, or mutate state from `/updates` GET.
+- Closure status: current VM smoke and operator-feedback fixes are complete. Stale running metadata recovery exists only as the Jobs page POST-only Mark abandoned action; it does not fake-cancel running jobs, kill processes/threads, destructively repair metadata, or mutate state from `/updates` GET. Repeat update smoke after future deploys.
 - Files/modules likely touched: `src/armactl/web/routes/updates.py`, `src/armactl/web/views/updates.py`, `src/armactl/web/templates/updates.html`, `src/armactl/web/routes/jobs.py`, `src/armactl/web/templates/jobs.html`, `src/armactl/web/services/server_job_actions.py`, `src/armactl/web/jobs/server.py`.
 - Validation/smoke needed: fresh update check, cached check reuse, failed check, update available while server running, update queued while stopped, active job links, failed job details, retry behavior. On production hosts from private notes, smoke the default instance unless private notes name another instance.
 - Stop condition: an operator can see the active job, understand why update is blocked or failed, retry safely, and know when to use CLI/TUI fallback. Do not add live SteamCMD cancellation unless it can be proven safe.
@@ -333,7 +339,7 @@ Out of scope:
 - Contract/status: [safe-file-editing-contract.md](safe-file-editing-contract.md) defines the current file-browser/upload/replacement/editor audit, editable targets, must-not-edit boundaries, runtime save/UI contract, and focused editor test coverage.
 - Closed slice: broad file editing stays out of scope. The runtime editor adds only a narrow `/files/config` text editor for existing editable candidates from the contract, reusing the replacement validation, backup, audit, atomic publish, and mutation recovery pattern. Do not add recursive delete/move, arbitrary path editing, server-root overwrites, generic backup/log mutation, or a general file manager.
 - Files/modules touched by the replacement/editor foundation: src/armactl/web/services/file_replacements.py, src/armactl/web/services/filesystem_listing.py, src/armactl/web/routes/files.py, src/armactl/web/templates/files.html, src/armactl/web/templates/file_edit.html, src/armactl/locales/en.json, src/armactl/locales/uk.json, tests/test_web_files.py.
-- Validation/smoke status: focused tests cover replacement plus editor link visibility, GET edit read-only rendering, size/UTF-8/secret rejection before render, stale baseline rejection before mutation work, JSON/config validation, backup creation, same-directory temp staging, atomic publish, audit/pending fallback, controlled recovery, no raw path/secret/traceback in UI or errors, and absence of delete/rename/move/copy/bulk controls. Manual browser smoke should still verify the operator flow before deploy.
+- Validation/smoke status: focused tests cover replacement plus editor link visibility, GET edit read-only rendering, size/UTF-8/secret rejection before render, stale baseline rejection before mutation work, JSON/config validation, backup creation, same-directory temp staging, atomic publish, audit/pending fallback, controlled recovery, no raw path/secret/traceback in UI or errors, and absence of delete/rename/move/copy/bulk controls. The current authenticated browser smoke gate is complete; repeat it after future editor changes.
 - Stop condition: operators can replace or edit only explicitly allowed small existing config/profile text targets through backup, validation, atomic publish, audit, pending restart, and controlled recovery. Broad editing and delete remain out of scope.
 
 #### 6. Project-Wide Reuse And SOLID Duplication Audit
@@ -349,17 +355,29 @@ Out of scope:
 
 - Current state: TUI covers install, repair, structured/raw config, mods, schedule, logs, cleanup, bot settings/service, host tests, and some port workflows. Web covers authenticated dashboard, config, mods, admins, schedule, files, logs/report, jobs, updates, public status, bot, and player/session surfaces.
 - Risk: chasing full parity can bloat the merge and duplicate workflows that should remain CLI/TUI fallback. Some web-primary features, especially player/session views, should not be pulled into TUI without operator demand.
-- Proposed slice: decide only operator-critical gaps before merge: install/repair/update status clarity, logs/report access, bot/Discord operational controls, ports/exposure visibility, and host-test guidance. Keep players/session UI web-primary for now.
-- Files/modules likely touched: `docs/web-interface-plan.md`, `docs/checklist.md`, `src/armactl/tui/screens.py`, `src/armactl/web/routes/*.py`, `src/armactl/web/templates/*.html`.
-- Validation/smoke needed: operator walkthrough comparing CLI/TUI/web for install, repair, update, config, mods, logs, bot, and host-test workflows.
-- Stop condition: each gap is marked web-needed, TUI-needed, CLI-only fallback, or deferred. No parity work is done only because another adapter has a feature.
+- Classification status: complete. Full feature-for-feature parity is intentionally not a goal.
+
+| Workflow | Decision | Current result | Remaining work |
+| --- | --- | --- | --- |
+| Install and repair | TUI and web needed | TUI has direct install/repair screens; web queues authenticated install/repair jobs and reports bounded job state. | None. |
+| Update check/update | Web-primary | Web has cached checks, safe update jobs, running-server blocks, job links, and recovery guidance. TUI repair remains a recovery workflow, not an equivalent update UI; there is no dedicated armactl CLI/TUI update command. | Keep web-primary unless operator demand justifies another adapter. Live worker cancellation remains a separate conditional design, not parity work. |
+| Config and mods | TUI and web needed | Both reuse shared config/mod backends; web adds guarded raw config, backups, pending work, and narrow file editing. | Safe-field expansion is separate field-by-field work. |
+| Logs | TUI and web needed | TUI has live journal output; web has authenticated bounded/redacted allowlisted sources. | None. |
+| Diagnostic report | Web-primary preview, CLI export fallback | Web preview and `armactl report` use the existing report builder. | Add a bounded/redacted authenticated web download/export response; do not add another report builder or require a TUI report screen. |
+| Telegram bot | TUI/CLI management, web status | TUI owns token/admin-chat/service configuration; web shows secret-safe Telegram status. | No web mutation parity unless an operator need and a separate secret/recovery contract are approved. |
+| Discord publisher | Web-primary | Web owns secret-safe settings, publish-now, and service actions. | Rich player columns remain separately truth-gated. |
+| Ports/exposure | Web visibility, TUI/CLI mutation | Dashboard exposes read-only port health; config metadata intentionally excludes normal web bind/public/RCON port controls. | Firewall/exposure mutation stays CLI/TUI-only until a dedicated reachability/rollback contract exists. |
+| Host tests | CLI/TUI-only fallback | `./scripts/run-host-tests` and the TUI host-test screen produce the operator diagnostics. | Do not add a web execution route; docs remain the web/operator guidance. |
+| Player/session views | Web-primary | Authenticated current/history/session/search/detail and read-only ban-list surfaces are implemented. | Do not duplicate them in TUI without operator demand. |
+
+- Stop condition: met for classification. The confirmed web-primary report export gap is tracked separately in [checklist.md](checklist.md); other differences are deliberate adapter boundaries or separately gated features.
 
 #### 8. Final VM Smoke And Merge Review
 
 - Current state: deployment, architecture, checklist, and hardening runbook docs exist. Public docs intentionally do not store production hostnames, IP addresses, or provider/router details.
 - Current smoke status: the latest VM web-service smoke after web-restart diagnostics, async theme preference recovery, and stale-job abandoned recovery passed normal wrapper/bootstrap checks, web service status, local `/healthz`, public status, and recent web-journal review on the current deployment baseline. One composite nested SSH smoke command hit an outer timeout while the service and health checks were already healthy and the same checks passed when split into shorter commands; classify that as a P2 smoke-command/ops note, not an `armactl-web.service` blocker.
 - Risk: a code-complete dashboard can still fail on real service state, proxy state, SteamCMD behavior, cookie settings, or logs/report redaction. Merge gates can drift unless exact commands and pages are named.
-- Proposed slice: run final smoke on each production host/instance from private operator notes. Use private notes for hostnames and IPs; keep this repo generic. Keep unauthenticated public checks separate from authenticated browser smoke; do not create sessions directly in the DB to fake UI coverage.
+- Closure status: final current-baseline production and authenticated browser smoke is complete. Repeat it on changed hosts after future deploys using private operator notes. Keep unauthenticated public checks separate from authenticated browser smoke; do not create sessions directly in the DB to fake UI coverage.
 - Files/modules likely touched: mostly docs and any small fixes found during smoke. If failures appear, touch only the owning route/service/template/test module.
 - Validation/smoke needed:
 
@@ -396,10 +414,10 @@ updated units.
 #### 9. Rollback And Transaction Boundaries For Future Mutation Flows
 
 - Current state: config saves and guarded raw-config saves use intent audit, backup, apply, outcome audit, and shared restart-pending recovery marker handling with fallback sidecar. Allowlisted file replacement stages bytes, validates content, audits intent before publish, creates backup, atomically publishes, records restart-pending recovery through the same helper, and returns controlled post-mutation failures if outcome audit or restart tracking fails. Admin and mod mutation actions also route restart-pending recovery through the shared helper, while destructive mod cleanup/remove paths leave safe manifests or controlled recovery handles. Server job enqueue audits intent before queueing and cancels a newly created job if outcome audit fails. Service/schedule/player-session actions audit intent before mutation and outcome after mutation, but not every flow needs or uses restart-pending recovery markers. Player registry writes use SQLite transactions and idempotent helpers, but job outcome audit happens after DB mutation.
-- Risk: a backend mutation can still happen before an exception returns to the route or job runner. The shared mutation_recovery.RestartPendingRecovery helper now covers restart-pending marker fallback for config/raw-config, file replacement, admin actions, and mod actions, including controlled error text when both primary and fallback marker writes fail. Future moderation, banlist, broader config, and file-editor flows still need to adopt the pattern explicitly before adding new mutation surface.
+- Risk: a backend mutation can still happen before an exception returns to the route or job runner. The shared mutation_recovery.RestartPendingRecovery helper now covers restart-pending marker fallback for config/raw-config, file replacement/editor, admin actions, mod actions, and mod profile-settings cleanup, including controlled error text when both primary and fallback marker writes fail. Future moderation, banlist, broader config, and broader file-mutation flows still need to adopt the pattern explicitly before adding new mutation surface.
 - Foundation added: use the mutation recovery checklist for future user-affecting mutations. Required pattern: validate request/permissions/CSRF/allowlist/size; write intent audit; create backup/snapshot/stage/manifest; apply through one narrow service-layer API; verify from disk/DB/service; mark pending work when restart/review/retry/recovery is required; write outcome audit with recovery identifiers; rollback when safe or leave a visible recovery marker with a controlled message.
 - Files/modules touched by the foundation and cleanup pass: src/armactl/web/services/mutation_recovery.py, src/armactl/web/services/config_edit.py, src/armactl/web/services/file_replacements.py, src/armactl/web/services/admin_actions.py, src/armactl/web/services/mod_actions.py, tests/test_web_config_edit.py, tests/test_web_mutation_recovery.py, tests/test_web_admin_actions.py, and tests/test_web_mod_actions.py.
-- Flows connected now: config save, raw config save, allowlisted file replacement post-publish restart tracking, admin actions, and mod actions. Service/schedule/job actions remain future candidates only where a restart/review marker actually applies.
+- Flows connected now: config save, raw config save, allowlisted file replacement/editor post-publish restart tracking, admin actions, mod actions, and mod profile-settings cleanup. Service/schedule/job actions remain future candidates only where a restart/review marker actually applies.
 - Validation/smoke needed: keep tests for intent-audit failure before mutation, backup/stage creation, apply failure rollback or recovery marker, verify failure, pending-work fallback, outcome-audit failure after mutation, redacted details, and operator-visible recovery messages as each future flow adopts the pattern.
 - Stop condition: no future user-affecting mutation can return an ambiguous failure after a partial backend change; it either rolls back or leaves a documented recovery handle visible to the operator.
 
@@ -407,7 +425,7 @@ Flows that must use the pattern before implementation:
 
 - Banlist and moderation actions, including ban, unban, kick, reason editing, and source-of-truth sync.
 - Any config expansion beyond the current safe field set and guarded raw editor.
-- Any file edit, overwrite, rename, delete, or bulk upload flow.
+- Any file mutation beyond the current allowlisted replacement/editor contract, including rename, delete, or bulk upload.
 - Any future player identity merge/split or moderation state attached to player records.
 - Any mod cleanup behavior that moves beyond current confirmed cleanup or starts deleting outside the instance `config/addons` scope.
 

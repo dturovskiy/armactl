@@ -57,7 +57,7 @@ See [player-log-event-inventory.md](player-log-event-inventory.md) for the read-
 
 ### Phase 4a Session Tracking Design
 
-This section is a design contract for runtime behavior. Phase 4b adds a `player_sessions` schema/vocabulary foundation in `players.db`, Phase 4c adds explicit service-layer open/close writers, Phase 4d-a adds explicit stored-log open/update sessionization over already persisted `player_log_events`, Phase 4d-b adds stored-log close/lifecycle handling for unambiguous correlation and server-boundary evidence, Phase 4d-c adds explicit stale-close/retention maintenance, Phase 4e-a adds an explicit one-shot live roster scanner, Phase 4e-b adds conservative live conflict-window absence closes for that same explicit scanner, and `/players/sessions` exposes a sanitized read-only stored-session list. The current code still has no automatic session/log poller, no daemon/scheduler, no full session UI/detail/API beyond that read-only list, and no hidden registry/session writes from player GET routes.
+This section began as the Phase 4a design contract. Phases 4b-4e implemented the `player_sessions` schema/vocabulary, explicit open/close writers, stored-log sessionization, lifecycle/disconnect closes, stale-close/retention maintenance, reliable one-shot live scanning, and conservative repeated-absence handling. F2/F3 later added the explicit supervised automatic ingest/session timers, and Slices 6b-6d added and accepted the authenticated session search/detail UI. Player GET routes still perform no hidden registry/session mutation; there is no browser/JS/app-start session trigger, public session API, or bulk export.
 
 #### Session Boundary Events
 
@@ -145,26 +145,24 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 - RCON code reads the configured password transiently for roster queries and
   the typed one-page native ban-list read. It persists neither the password nor
   native response and implements no ban/unban/kick command.
-- The earlier admin/mod post-mutation pending-work gap is closed for current admin/mod/config/file-replacement flows through shared or covered recovery paths. Future moderation, banlist, broader config, and file-editor mutations still need explicit rollback/recovery boundaries before implementation.
+- The earlier admin/mod post-mutation pending-work gap is closed for current admin/mod/config/file-replacement/editor/profile-cleanup flows through shared or covered recovery paths. Future moderation, banlist, broader config, and broader file mutations still need explicit rollback/recovery boundaries before implementation.
 
-## Gaps Before Richer Player History
+## Current Player History Status And Remaining Gaps
 
 ### Sessions / History
 
-- Read-only stored event history is implemented for `player_log_events`, Phase 4b adds the `player_sessions` schema foundation, Phase 4c adds explicit service writer helpers, Phase 4d-a adds explicit stored-log open/update sessionization, Phase 4d-b adds safe stored-log close/lifecycle handling, Phase 4d-c adds explicit stale-close/retention maintenance, Phase 4e-a adds an explicit one-shot live roster scanner, Phase 4e-b adds conservative repeated reliable absence close windows, and `/players/sessions` adds a sanitized read-only session list; richer session/history semantics still need automatic scheduling, full session detail/API beyond the list, broader conflict policies, and truth labels before complete live online/offline/session truth is produced.
-- Phase 4a now distinguishes reliable connect/session signals from heuristic disconnect pairing, roster deltas, A2S count hints, and mod-dependent combat events; Phase 4e-a accepts only reliable roster IDs as medium-confidence live presence evidence, and Phase 4e-b treats only repeated successful reliable RCON absence as low-confidence `stale_absence`, while automatic pollers, session UI/API, and richer current-session semantics remain future work.
-- Manual explicit log-file CLI import exists for bounded text files, manual web collection exists only for allowlisted current-instance config console logs, and manual web session controls only queue the explicit stored-log sessionization, live-scan, and maintenance jobs. `/players/sessions` summary counts and active job indicators are operator UX over existing stored rows and web jobs, not new session truth. Phase 4e/4f policy prep records the automatic job allowlist, minimum intervals, backoff, cache separation, close conditions, count-only/sanitized fields, and forbidden data/features, and the explicit `--once` runner can enqueue due allowed jobs through existing dedupe, but the current code still has no enabled automatic session recorder, scheduler service, daemon, timer, app-start hook, GET trigger, JS trigger, or poller.
-- Extend the remaining Phase 4a freshness/conflict rules for A2S count, broader live scanner checkpoints, stale closes, disconnect/lifecycle boundaries, and automated scheduling. A2S cannot identify players; RCON can identify some players but can be unavailable.
-- Implement bounded retention and cleanup before storing long-lived session data.
+- Stored event history, the session schema/writers, stored-log sessionization, lifecycle/disconnect closes, stale-close/retention maintenance, reliable live scans, repeated reliable-absence handling, and bounded retention are implemented.
+- The supervised player-log ingest and synchronous ordered player-session pipeline are installed, explicitly enabled, and accepted on both target VMs. They remain independent of browser GET/JS/app-start triggers and do not treat legacy queued web scheduler metadata as execution truth.
+- `/players`, `/players/history`, `/players/sessions`, and `/players/sessions/{session_id}` provide authenticated current/history/list/search/detail views with truth-labelled nullable stats, alias/exact-ID filters, bounded keyset pagination, and sanitized evidence. No separate JSON session API or bulk export is planned without an operator need.
+- A2S remains count-only and cannot identify players. RCON may identify reliable players but can be unavailable; stale/current roster cache state is observation truth, not stored session truth.
+- Remaining player work is native moderation Slices 7c-7e and separately truth-gated Discord enrichment, not another session scheduler or replacement player-data store.
 - Keep IP storage out unless there is a separate explicit product/security decision and migration.
 
 ### Search By Nickname / ID
 
-- Existing `list_known_players` already supports basic `LIKE` search across reliable ID, current name, and historical names.
-- Existing `list_player_log_events` supports bounded event-type, reliable-ID, and text/name filters across stored event fields.
-- Add normalized/case-stable search helpers and indexes if the registry grows.
-- `/players/sessions` supports bounded reliable-ID/name/status/end-reason/source/limit filters over stored sessions; richer range/detail/API filters can be added after the session truth model is hardened.
-- Add detail views or APIs that expose bounded name history without leaking raw logs or secrets.
+- Known-player and stored-event views support bounded reliable-ID/current-name/historical-name/text/event filters.
+- Session list/detail views support alias/exact-ID, status, end-reason, source, UTC range, and deterministic bounded pagination without exposing raw logs, absolute paths, IPs, or secrets.
+- Add indexes or broader APIs only if measured registry growth or an operator workflow requires them; they are not current parity blockers.
 
 ### Banlist Manager
 
@@ -200,8 +198,7 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 
 ## Recommended Next Slices
 
-- Slice 2: read-only players page / improved players view from the existing live roster, registry, and stored event history, without new schema or moderation mutations.
-- Slice 3: automatic live scanner/sessionization scheduling, full session UI/detail/API beyond the read-only list, remaining conflict policies, and retention scheduling on top of the parser/import/storage/session-schema/session-writer/live-scan foundation, with no IP storage by default.
-- Slice 4: richer search/filter across reliable IDs, known names, and session metadata after the read-only filters need expansion.
-- Slice 7: implement the audited native banlist/moderation contract in ordered Slices 7b-7e; Slice 7a design is complete, while runtime list, mutation, UI, and staged production gates remain open.
-- Slice 6: Discord stats enrichment after stable player history exists; do not guess K/D, playtime, faction, role, or moderation state from the current roster alone.
+- Completed: read-only/current/history/session/search/detail work, supervised automatic ingest/session execution, retention, and Slice 7b native read-only ban-list viewing.
+- Next: Slice 7c verified/idempotent native moderation mutations and recovery, Slice 7d authenticated mutation UI, then Slice 7e Serhiivka-first production acceptance before any explicitly approved Chervonopilya rollout.
+- Later: Discord stats enrichment only for fields with a verified source and truthful scope label; do not guess K/D, playtime, faction, role, or moderation state from the current roster alone.
+- Conditional only: broader APIs/indexes after measured need, and IP storage only after a separate explicit product/security decision and migration.

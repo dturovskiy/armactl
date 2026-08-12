@@ -1,5 +1,9 @@
 # Player Data Truth Read-Only Audit
 
+Status: historical read-only baseline. Its timestamp-truth recommendation was
+implemented by the later remediation plan; production acceptance and subsequent
+session/history work are recorded in the current player contracts and checklist.
+
 Date: 2026-07-05
 Branch audited: feat/web-interface
 Mode: read-only code/schema/UI audit
@@ -213,21 +217,18 @@ No raw log lines, raw absolute paths, IP/address columns, role/loadout truth, ba
 
 ## Production Snapshot
 
-Skipped. This slice explicitly prohibited production/SSH/deploy/restart risk. A meaningful production read-only snapshot would require opening the production players.db or production logs, and that should be handled as a separately approved read-only operation with explicit commands and no job execution. No production commands were run.
+Skipped during this audit because the slice explicitly prohibited production/SSH/deploy/restart risk. Later approval-gated production read-only and acceptance passes were completed and are recorded in [player-data-truth-remediation-plan.md](player-data-truth-remediation-plan.md) and [player-session-supervised-pipeline-contract.md](player-session-supervised-pipeline-contract.md).
 
-## Recommended Next Implementation Slice
+## Recommendation Closure
 
-Slice 1 should be a narrow timestamp-truth fix before broader UI or session changes:
-
-1. Add explicit event occurrence timestamp fields/provenance for player_log_events, for example event_occurred_at, event_time_source, event_time_confidence, and optional bounded raw_log_time.
-2. Update the collector to parse log line time-of-day and derive an absolute time from safe file/run context without storing raw paths or raw lines.
-3. Preserve created_at as pure ingest/bookkeeping time and stop using it as event time in UI/sessionization unless explicitly labelled as fallback.
-4. Update players and player_names log-event observations to use only trustworthy occurrence/observation time, or record that the value is ingest-only.
-5. Update stored-log sessionization to use trusted event occurrence/observation time only. If missing, either skip sessionization for those events or mark sessions as ingest-time-derived and visibly low confidence.
-6. Update /players/history, /players/known, and /players/sessions labels to distinguish event time, observation time, collection time, and stored-session state.
-7. Add focused tests proving that pressing Update events from logs no longer makes old events display as the click/job time when a safe log timestamp can be derived, and that no raw paths/raw lines/IPs are stored.
-
-Legacy repair should be a separate slice after Slice 1. It should be DB-safe and optional, only attempting reconstruction from still-present allowlisted logs, with dry-run output first.
+The recommended timestamp-truth slice is complete: player log events now keep
+occurrence, observation, and collection times with source/confidence labels;
+collectors derive safe event times without storing raw paths or raw lines;
+sessionization uses trusted ordering; UI labels distinguish evidence semantics;
+and focused tests cover delayed collection and legacy/ambiguous rows. Legacy
+rows remain truthfully labelled rather than being rewritten from unavailable
+evidence. The current remaining player work is moderation Slices 7c-7e and
+separately truth-gated Discord enrichment.
 
 ## Explicit Out Of Scope
 
