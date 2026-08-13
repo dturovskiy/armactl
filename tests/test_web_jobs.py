@@ -661,6 +661,7 @@ def test_failed_and_cancelled_jobs_are_controlled_terminal_states(tmp_path: Path
 
     assert failed.status == JOB_STATUS_FAILED
     assert failed.error_class == "RuntimeError"
+    assert failed.current_step == "Failed"
     assert "hunter2" not in failed.error_message
     assert "password=***" in failed.error_message
     assert failed.finished_at is not None

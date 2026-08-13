@@ -239,6 +239,8 @@ def test_compatibility_canary_rejects_fatal_compile_output(tmp_path: Path, monke
             [
                 'SCRIPT : E : Can\'t compile "Game" script module\n',
                 "SCRIPT : E : Missing required API symbol\n",
+                "ENGINE : E : Addon loading failed {0123456789ABCDEF,"
+                "FEDCBA9876543210}\n",
             ]
         )
 
@@ -250,7 +252,7 @@ def test_compatibility_canary_rejects_fatal_compile_output(tmp_path: Path, monke
     with pytest.raises(
         safe_update.CanaryRejectedError,
         match="Missing required API symbol",
-    ):
+    ) as exc_info:
         safe_update.run_compatibility_canary(
             update_paths,
             timeout_seconds=1.0,
@@ -265,9 +267,12 @@ def test_compatibility_canary_rejects_fatal_compile_output(tmp_path: Path, monke
             ),
             sleep=time.sleep,
         )
+    assert "addon list omitted; see diagnostic" in str(exc_info.value)
+    assert "0123456789ABCDEF" not in str(exc_info.value)
     diagnostic = update_paths.update_root / safe_update.LAST_CANARY_FAILURE_NAME
     assert diagnostic.is_file()
     assert "Missing required API symbol" in diagnostic.read_text(encoding="utf-8")
+    assert "0123456789ABCDEF" in diagnostic.read_text(encoding="utf-8")
 
 
 def test_vanilla_profile_preserves_host_settings_without_mutating_source(

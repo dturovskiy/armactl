@@ -88,6 +88,8 @@ MIN_FREE_SPACE_BUFFER_BYTES = 2 * 1024**3
 FREE_SPACE_FACTOR = 1.10
 MAX_CANARY_TAIL_LINES = 80
 FATAL_CANARY_DIAGNOSTIC_GRACE_SECONDS = 0.25
+MAX_CANARY_ERROR_LINES = 8
+MAX_CANARY_ERROR_LINE_LENGTH = 500
 
 FATAL_CANARY_MARKERS = (
     'Can\'t compile "Game" script module',
@@ -97,6 +99,26 @@ FATAL_CANARY_MARKERS = (
 )
 
 _BUILD_ID_RE = re.compile(r'"buildid"\s+"(?P<build>\d+)"', re.IGNORECASE)
+
+
+def _summarize_canary_failure(lines: Iterable[str]) -> str:
+    """Keep the operator error useful without embedding an unbounded addon list."""
+    summarized: list[str] = []
+    addon_marker = "Addon loading failed"
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+        marker_at = line.casefold().find(addon_marker.casefold())
+        if marker_at >= 0:
+            marker_end = marker_at + len(addon_marker)
+            line = line[:marker_end] + " (addon list omitted; see diagnostic)"
+        line = line[:MAX_CANARY_ERROR_LINE_LENGTH]
+        if line not in summarized:
+            summarized.append(line)
+        if len(summarized) >= MAX_CANARY_ERROR_LINES:
+            break
+    return " | ".join(summarized)
 
 
 class SafeUpdateError(RuntimeError):
@@ -633,7 +655,7 @@ def run_compatibility_canary(
                     update_paths,
                     output_tail,
                 )
-                tail = " | ".join(fatal_context[:8])
+                tail = _summarize_canary_failure(fatal_context)
                 raise CanaryRejectedError(
                     "Candidate rejected by scenario/mod compilation: "
                     + (tail or fatal_line)

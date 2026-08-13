@@ -1008,6 +1008,7 @@ def mark_job_failed(
                 """
                 UPDATE web_jobs
                 SET status = ?,
+                    current_step = ?,
                     result_message = ?,
                     error_message = ?,
                     error_class = ?,
@@ -1018,6 +1019,7 @@ def mark_job_failed(
                 """,
                 (
                     JOB_STATUS_FAILED,
+                    "Failed",
                     normalized_result,
                     normalized_error,
                     normalized_error_class,
