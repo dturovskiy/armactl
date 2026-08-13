@@ -95,7 +95,7 @@
                 <td class="wrap-value">{{ mod.name or t("unknown") }}</td>
                 <td class="wrap-value">{{ mod.version or t("unknown") }}</td>
                 <td class="wrap-value">
-                  <span class="status-pill status-pill-{{ mod.compatibility_css_class }}">{{ t(mod.compatibility_label) }}</span>
+                  <span class="status-pill status-pill-{{ mod.compatibility_css_class|default('unavailable') }}">{{ t(mod.compatibility_label|default("Not tested for current build")) }}</span>
                   {% if mod.compatibility_tested_at %}<div class="muted">{{ t("Build") }} {{ mod.compatibility_build }} · {{ mod.compatibility_profile }} · {{ format_web_timestamp(mod.compatibility_tested_at) }}</div>{% endif %}
                   {% if mod.compatibility_reason %}<details><summary>{{ t("Evidence") }}</summary><span class="muted">{{ mod.compatibility_reason }}</span></details>{% endif %}
                 </td>
@@ -156,7 +156,7 @@
               <td class="wrap-value">{{ mod.name or t("unknown") }}</td>
               <td class="wrap-value">{{ mod.version or t("unknown") }}</td>
               <td class="wrap-value">
-                <span class="status-pill status-pill-{{ mod.compatibility_css_class }}">{{ t(mod.compatibility_label) }}</span>
+                <span class="status-pill status-pill-{{ mod.compatibility_css_class|default('unavailable') }}">{{ t(mod.compatibility_label|default("Not tested for current build")) }}</span>
                 {% if mod.compatibility_tested_at %}<div class="muted">{{ t("Build") }} {{ mod.compatibility_build }} · {{ mod.compatibility_profile }} · {{ format_web_timestamp(mod.compatibility_tested_at) }}</div>{% endif %}
                 {% if mod.compatibility_reason %}<details><summary>{{ t("Evidence") }}</summary><span class="muted">{{ mod.compatibility_reason }}</span></details>{% endif %}
               </td>
@@ -272,7 +272,7 @@
               <td class="wrap-value">{{ mod.name or t("unknown") }}</td>
               <td class="wrap-value">{{ mod.version or t("unknown") }}</td>
               <td class="wrap-value">
-                <span class="status-pill status-pill-{{ mod.compatibility_css_class }}">{{ t(mod.compatibility_label) }}</span>
+                <span class="status-pill status-pill-{{ mod.compatibility_css_class|default('unavailable') }}">{{ t(mod.compatibility_label|default("Not tested for current build")) }}</span>
                 {% if mod.compatibility_tested_at %}<div class="muted">{{ t("Build") }} {{ mod.compatibility_build }} · {{ mod.compatibility_profile }} · {{ format_web_timestamp(mod.compatibility_tested_at) }}</div>{% endif %}
                 {% if mod.compatibility_reason %}<details><summary>{{ t("Evidence") }}</summary><span class="muted">{{ mod.compatibility_reason }}</span></details>{% endif %}
               </td>

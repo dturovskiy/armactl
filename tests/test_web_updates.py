@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 from pathlib import Path
 
@@ -235,10 +236,17 @@ def test_updates_page_renders_build_states(
     assert message in response.text
     assert state_label in response.text
     assert "action=\"/updates/check\"" in response.text
+    check_form_match = re.search(
+        r'<form method="post" action="/updates/check".*?</form>',
+        response.text,
+        re.DOTALL,
+    )
+    assert check_form_match is not None
+    check_form = check_form_match.group(0)
     if check_disabled:
-        assert "disabled aria-disabled=\"true\"" in response.text
+        assert "disabled aria-disabled=\"true\"" in check_form
     else:
-        assert "disabled aria-disabled=\"true\"" not in response.text
+        assert "disabled aria-disabled=\"true\"" not in check_form
     if shows_update:
         assert "action=\"/updates/update\"" in response.text
         assert "Update server" in response.text
