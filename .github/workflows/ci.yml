@@ -42,6 +42,11 @@ jobs:
             tail -n 120 pytest-ci.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          failure_tail="$(tail -n 120 pytest-ci.log)"
+          failure_tail="${failure_tail//'%'/'%25'}"
+          failure_tail="${failure_tail//$'\r'/'%0D'}"
+          failure_tail="${failure_tail//$'\n'/'%0A'}"
+          echo "::error title=Pytest failure tail::$failure_tail"
 
       - name: Build
         run: python -m build
