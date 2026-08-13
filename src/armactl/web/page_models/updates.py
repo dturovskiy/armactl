@@ -139,6 +139,13 @@ def load_updates_page(
                     config_path,
                 ).to_dict(),
             }
+            parked_profile = safe_update.get_parked_modded_profile(
+                install_dir,
+                config_path,
+            )
+            compatibility["parked_profile_name"] = (
+                parked_profile.name if parked_profile is not None else ""
+            )
             profiles = [
                 item.to_dict()
                 for item in safe_update.get_named_profiles(install_dir, config_path)

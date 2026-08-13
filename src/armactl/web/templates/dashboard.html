@@ -73,7 +73,7 @@
           {% endif %}
           {% if profile_control.compatibility.parked_modded_available %}
             {% set quick_profile.option_count = quick_profile.option_count + 1 %}
-            <option value="retry-modded">{{ t("Parked modded profile") }}</option>
+            <option value="retry-modded">{{ profile_control.compatibility.parked_profile_name or t("Parked modded profile") }} · {{ t("Parked") }}</option>
           {% endif %}
           {% if not profile_control.compatibility.parked_modded_available %}
             {% for profile in profile_control.profiles %}

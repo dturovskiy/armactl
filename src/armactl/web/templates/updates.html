@@ -146,7 +146,7 @@
     <form method="post" action="/updates/retry-modded" class="action-form action-tile">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit"{% if not page.profile_actions_enabled or not page.compatibility.parked_modded_available %} disabled aria-disabled="true"{% endif %}>{{ t("Test and restore modded") }}</button>
-      <span class="muted">{{ t("Restores only after the parked modded config passes its canary.") }}</span>
+      <span class="muted">{% if page.compatibility.parked_profile_name %}{{ page.compatibility.parked_profile_name }} · {{ t("Parked") }}. {% endif %}{{ t("Restores only after the parked modded config passes its canary.") }}</span>
     </form>
   </div>
 
