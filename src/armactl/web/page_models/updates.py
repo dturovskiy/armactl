@@ -5,8 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from armactl import paths
+from armactl import paths, safe_update
 from armactl.platform.service_adapter import get_service_adapter
+from armactl.redaction import redact_sensitive_text
 from armactl.state import ServerState, load_state
 from armactl.web.jobs import SERVER_UPDATE_CHECK_JOB_KIND, SERVER_UPDATE_JOB_KIND
 from armactl.web.jobs import store as job_store
@@ -122,9 +123,39 @@ def load_updates_page(
     if failed_update_job is not None:
         version["failed_update_job"] = failed_update_job
 
+    compatibility: dict[str, Any] = {"available": False}
+    profiles: list[dict[str, Any]] = []
+    policy: dict[str, Any] = {
+        "automatic_vanilla_fallback": True,
+    }
+    if state.server_installed and state.config_exists:
+        try:
+            install_dir = Path(state.install_dir)
+            config_path = Path(state.config_path)
+            compatibility = {
+                "available": True,
+                **safe_update.get_compatibility_status(
+                    install_dir,
+                    config_path,
+                ).to_dict(),
+            }
+            profiles = [
+                item.to_dict()
+                for item in safe_update.get_named_profiles(install_dir, config_path)
+            ]
+            policy = safe_update.get_update_policy(install_dir, config_path).to_dict()
+        except Exception as error:  # noqa: BLE001 - page remains read-only and available.
+            compatibility = {
+                "available": False,
+                "error": redact_sensitive_text(error) or error.__class__.__name__,
+            }
+
     return dict(
         instance=normalized_instance,
         server_installed=bool(state.server_installed),
         server_running=bool(version_state.server_running),
         version=version,
+        compatibility=compatibility,
+        profiles=profiles,
+        policy=policy,
     )

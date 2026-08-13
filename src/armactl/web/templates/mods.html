@@ -71,9 +71,13 @@
       <dt>{{ t("Active mod count") }}</dt><dd>{{ page.count }}</dd>
       <dt>{{ t("Disabled mod count") }}</dt><dd>{{ page.disabled_count|default(0) }}</dd>
       <dt>{{ t("Disabled mods state") }}</dt><dd class="wrap-value">{{ t(page.disabled_mods_state_display|default("unavailable")) }}</dd>
+      <dt>{{ t("Compatibility evidence") }}</dt><dd class="wrap-value">{{ t("Build") }} {{ page.compatibility_build or t("unknown") }} · {{ t("Profile") }} {{ page.compatibility_profile or t("unknown") }}</dd>
     </dl>
     {% if page.disabled_mods_error|default("") %}
       <p class="error">{{ t(page.disabled_mods_error) }}</p>
+    {% endif %}
+    {% if page.compatibility_error|default("") %}
+      <p class="error">{{ t(page.compatibility_error) }}</p>
     {% endif %}
     {% if page.mods %}
       <details class="mod-list-disclosure" data-mod-list-disclosure="active">
@@ -83,13 +87,18 @@
         </summary>
         <div class="mod-list-disclosure-body">
           <table>
-            <thead><tr><th>{{ t("Mod ID") }}</th><th>{{ t("Name") }}</th><th>{{ t("Version") }}</th>{% if can_manage_mods %}<th>{{ t("Actions") }}</th>{% endif %}</tr></thead>
+            <thead><tr><th>{{ t("Mod ID") }}</th><th>{{ t("Name") }}</th><th>{{ t("Version") }}</th><th>{{ t("Compatibility") }}</th>{% if can_manage_mods %}<th>{{ t("Actions") }}</th>{% endif %}</tr></thead>
             <tbody>
             {% for mod in page.mods %}
               <tr>
                 <td class="wrap-value">{{ mod.mod_id or t("unknown") }}</td>
                 <td class="wrap-value">{{ mod.name or t("unknown") }}</td>
                 <td class="wrap-value">{{ mod.version or t("unknown") }}</td>
+                <td class="wrap-value">
+                  <span class="status-pill status-pill-{{ mod.compatibility_css_class }}">{{ t(mod.compatibility_label) }}</span>
+                  {% if mod.compatibility_tested_at %}<div class="muted">{{ t("Build") }} {{ mod.compatibility_build }} · {{ mod.compatibility_profile }} · {{ format_web_timestamp(mod.compatibility_tested_at) }}</div>{% endif %}
+                  {% if mod.compatibility_reason %}<details><summary>{{ t("Evidence") }}</summary><span class="muted">{{ mod.compatibility_reason }}</span></details>{% endif %}
+                </td>
                 {% if can_manage_mods %}
                   <td>
                     <div class="mod-row-actions">
@@ -124,6 +133,42 @@
     <p class="error">{{ t(page.error) }}</p>
   {% endif %}
 </section>
+
+{% set inactive_profile_groups = page.inactive_profile_groups|default([]) %}
+{% if page.available and inactive_profile_groups %}
+<section class="panel full-width">
+  <h2>{{ t("Inactive profile mods") }}</h2>
+  <p class="muted">{{ t("These Workshop files remain in the shared config/addons pool but are ignored because their profile is not active. Compatibility is exact to the shown build and profile canary.") }}</p>
+  {% for profile in inactive_profile_groups %}
+    <details class="mod-list-disclosure">
+      <summary class="mod-list-summary">
+        <span class="mod-list-summary-title">{{ profile.name }} · {{ t(profile.mode|capitalize) }}</span>
+        <span class="status-pill">{{ profile.mod_count }}</span>
+      </summary>
+      <div class="mod-list-disclosure-body">
+        <p class="muted wrap-value">{{ t("Scenario") }}: <code>{{ profile.scenario_id or t("unknown") }}</code></p>
+        <table>
+          <thead><tr><th>{{ t("Mod ID") }}</th><th>{{ t("Name") }}</th><th>{{ t("Version") }}</th><th>{{ t("Compatibility") }}</th></tr></thead>
+          <tbody>
+          {% for mod in profile.mods %}
+            <tr>
+              <td class="wrap-value">{{ mod.mod_id or t("unknown") }}</td>
+              <td class="wrap-value">{{ mod.name or t("unknown") }}</td>
+              <td class="wrap-value">{{ mod.version or t("unknown") }}</td>
+              <td class="wrap-value">
+                <span class="status-pill status-pill-{{ mod.compatibility_css_class }}">{{ t(mod.compatibility_label) }}</span>
+                {% if mod.compatibility_tested_at %}<div class="muted">{{ t("Build") }} {{ mod.compatibility_build }} · {{ mod.compatibility_profile }} · {{ format_web_timestamp(mod.compatibility_tested_at) }}</div>{% endif %}
+                {% if mod.compatibility_reason %}<details><summary>{{ t("Evidence") }}</summary><span class="muted">{{ mod.compatibility_reason }}</span></details>{% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  {% endfor %}
+</section>
+{% endif %}
 
 {% if page.available %}
 <section class="panel full-width">
@@ -219,13 +264,18 @@
       </summary>
       <div class="mod-list-disclosure-body">
         <table>
-          <thead><tr><th>{{ t("Mod ID") }}</th><th>{{ t("Name") }}</th><th>{{ t("Version") }}</th>{% if can_manage_mods %}<th>{{ t("Actions") }}</th>{% endif %}</tr></thead>
+          <thead><tr><th>{{ t("Mod ID") }}</th><th>{{ t("Name") }}</th><th>{{ t("Version") }}</th><th>{{ t("Compatibility") }}</th>{% if can_manage_mods %}<th>{{ t("Actions") }}</th>{% endif %}</tr></thead>
           <tbody>
           {% for mod in disabled_mods %}
             <tr>
               <td class="wrap-value">{{ mod.mod_id or t("unknown") }}</td>
               <td class="wrap-value">{{ mod.name or t("unknown") }}</td>
               <td class="wrap-value">{{ mod.version or t("unknown") }}</td>
+              <td class="wrap-value">
+                <span class="status-pill status-pill-{{ mod.compatibility_css_class }}">{{ t(mod.compatibility_label) }}</span>
+                {% if mod.compatibility_tested_at %}<div class="muted">{{ t("Build") }} {{ mod.compatibility_build }} · {{ mod.compatibility_profile }} · {{ format_web_timestamp(mod.compatibility_tested_at) }}</div>{% endif %}
+                {% if mod.compatibility_reason %}<details><summary>{{ t("Evidence") }}</summary><span class="muted">{{ mod.compatibility_reason }}</span></details>{% endif %}
+              </td>
               {% if can_manage_mods %}
                 <td>
                   <div class="mod-row-actions">

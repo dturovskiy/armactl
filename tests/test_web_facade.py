@@ -734,6 +734,14 @@ def test_management_page_snapshots_are_safe_read_only(monkeypatch):
         "mod_id": "mod-a",
         "name": "Mod A",
         "version": "1.0",
+        "compatibility_status": "not_tested",
+        "compatibility_label": "Not tested for current build",
+        "compatibility_css_class": "unavailable",
+        "compatibility_build": "",
+        "compatibility_profile": "",
+        "compatibility_tested_at": "",
+        "compatibility_evidence": "",
+        "compatibility_reason": "",
     }
     assert mods_page["diagnostics"]["active_config_count"] == 2
     assert mods_page["diagnostics"]["disabled_sidecar_count"] == 0

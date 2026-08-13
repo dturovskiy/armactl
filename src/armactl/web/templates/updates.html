@@ -56,6 +56,7 @@
 
 <section class="panel full-width">
   <h2>{{ t("Update actions") }}</h2>
+  <p class="muted">{{ t("Safe update tests the complete modded stack first. If it is incompatible, armactl preserves it and starts the new build with an official vanilla scenario; a failed vanilla test leaves the current generation unchanged.") }}</p>
   {% if page.action_notice %}
     <p class="notice-inline">{{ t(page.action_notice) }}</p>
   {% endif %}
@@ -86,5 +87,126 @@
       </form>
     {% endif %}
   </div>
+</section>
+
+<section class="panel full-width">
+  <div class="section-heading-row">
+    <h2>{{ t("Compatibility profiles") }}</h2>
+    {% if page.compatibility.available %}
+      <span class="status-pill status-pill-{% if page.compatibility.active_mode == 'vanilla' %}warning{% else %}ok{% endif %}">{{ t(page.compatibility.active_mode|capitalize) }}</span>
+    {% endif %}
+  </div>
+  <p class="muted">{{ t("Profiles change only config and the active mod list. All profiles share config/addons; switching never copies, moves, or deletes Workshop files. Mods absent from the active list are ignored after restart.") }}</p>
+  {% if page.compatibility.available %}
+    <dl class="key-value-list">
+      <dt>{{ t("Active build") }}</dt>
+      <dd>{{ page.compatibility.active_build or t("unknown") }}</dd>
+      <dt>{{ t("Update phase") }}</dt>
+      <dd>{{ page.compatibility.phase or t("unknown") }}</dd>
+      <dt>{{ t("Inactive configured mods") }}</dt>
+      <dd>{{ page.compatibility.disabled_mod_count }}</dd>
+      <dt>{{ t("Rollback available") }}</dt>
+      <dd>{{ t("Yes") if page.compatibility.rollback_available else t("No") }}</dd>
+    </dl>
+    {% if page.compatibility.last_modded_failure %}
+      <p class="notice-inline notice-warning"><strong>{{ t("Last modded failure") }}:</strong> {{ page.compatibility.last_modded_failure }}</p>
+    {% endif %}
+  {% elif page.compatibility.error %}
+    <p class="notice-inline notice-error">{{ page.compatibility.error }}</p>
+  {% else %}
+    <p class="notice-inline notice-unavailable">{{ t("Compatibility state is unavailable until the server and config are installed.") }}</p>
+  {% endif %}
+
+  <div class="section-heading-row">
+    <h3>{{ t("Automatic vanilla fallback") }}</h3>
+    <span class="status-pill status-pill-{% if page.policy.automatic_vanilla_fallback %}ok{% else %}warning{% endif %}">{{ t("Enabled") if page.policy.automatic_vanilla_fallback else t("Disabled") }}</span>
+  </div>
+  <p class="muted">{{ t("When enabled, a failed modded canary may activate the official vanilla profile. When disabled, a failed canary leaves the current generation unchanged.") }}</p>
+  {% if page.can_update_server %}
+    <form method="post" action="/updates/auto-fallback" class="action-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="setting" value="{% if page.policy.automatic_vanilla_fallback %}off{% else %}on{% endif %}">
+      <button type="submit">{{ t("Disable automatic fallback") if page.policy.automatic_vanilla_fallback else t("Enable automatic fallback") }}</button>
+    </form>
+  {% endif %}
+</section>
+
+<section class="panel full-width">
+  <h2>{{ t("Manual profile control") }}</h2>
+  <p class="muted">{{ t("The selected config is canary-tested against the installed server build and shared addon pool before the production service starts.") }}</p>
+  {% if page.profile_actions_disabled_reason %}
+    <p class="notice-inline notice-warning">{{ t(page.profile_actions_disabled_reason) }}</p>
+  {% endif %}
+  <div class="action-grid">
+    <form method="post" action="/updates/vanilla" class="action-form action-tile">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit"{% if not page.profile_actions_enabled or page.compatibility.active_mode == 'vanilla' %} disabled aria-disabled="true"{% endif %}>{{ t("Activate official vanilla") }}</button>
+      <span class="muted">{{ t("Uses official Conflict Everon with an empty mod list.") }}</span>
+    </form>
+    <form method="post" action="/updates/retry-modded" class="action-form action-tile">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit"{% if not page.profile_actions_enabled or not page.compatibility.parked_modded_available %} disabled aria-disabled="true"{% endif %}>{{ t("Test and restore modded") }}</button>
+      <span class="muted">{{ t("Restores only after the parked modded config passes its canary.") }}</span>
+    </form>
+  </div>
+
+  {% if page.profiles %}
+    <div class="player-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>{{ t("Profile") }}</th>
+            <th>{{ t("Mode") }}</th>
+            <th>{{ t("Scenario") }}</th>
+            <th>{{ t("Mods") }}</th>
+            <th>{{ t("Action") }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for profile in page.profiles %}
+            <tr>
+              <td>{{ profile.name }}{% if profile.active %} <span class="status-pill status-pill-ok">{{ t("Active") }}</span>{% endif %}</td>
+              <td>{{ t(profile.mode|capitalize) }}</td>
+              <td class="wrap-value"><code>{{ profile.scenario_id or t("unknown") }}</code></td>
+              <td>{{ profile.mod_count }}</td>
+              <td>
+                {% if not profile.active %}
+                  <form method="post" action="/updates/profile/switch" class="action-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="profile_name" value="{{ profile.name }}">
+                    <button type="submit"{% if not page.profile_actions_enabled %} disabled aria-disabled="true"{% endif %}>{{ t("Switch") }}</button>
+                  </form>
+                {% else %}
+                  <span class="muted">{{ t("Currently active") }}</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  {% if page.can_update_server %}
+    <form method="post" action="/updates/profile/create" class="config-edit-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-grid">
+        <label>
+          <span>{{ t("New profile name") }}</span>
+          <input type="text" name="profile_name" pattern="[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?" maxlength="64" required autocomplete="off">
+        </label>
+        <label>
+          <span>{{ t("Profile source") }}</span>
+          <select name="profile_type">
+            <option value="vanilla">{{ t("Official vanilla config") }}</option>
+            <option value="current">{{ t("Current config selection") }}</option>
+          </select>
+        </label>
+      </div>
+      <div class="form-actions">
+        <button type="submit"{% if not page.profile_actions_enabled %} disabled aria-disabled="true"{% endif %}>{{ t("Create profile") }}</button>
+      </div>
+    </form>
+  {% endif %}
 </section>
 {% endblock %}

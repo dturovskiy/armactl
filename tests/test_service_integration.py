@@ -217,6 +217,10 @@ exec "${SERVER_DIR}/ArmaReforgerServer" \
         patch("armactl.service_manager.paths.config_dir", return_value=config_dir),
         patch("armactl.service_manager.paths.config_file", return_value=config_file),
         patch("armactl.service_manager.paths.start_script", return_value=start_script_path),
+        patch(
+            "armactl.service_manager.paths.backups_dir",
+            return_value=instance_root / "backups",
+        ),
         patch("armactl.service_manager.paths._containing_git_marker", return_value=None),
     ):
         result = service_manager.sync_generated_start_script(instance)

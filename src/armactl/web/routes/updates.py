@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, Request, status
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
-from armactl import paths
+from armactl import paths, safe_update
 from armactl.web.auth.cookies import set_csrf_cookie
 from armactl.web.auth.csrf import validate_csrf_token
 from armactl.web.auth.dependencies import (
@@ -19,6 +19,7 @@ from armactl.web.auth.permissions import DASHBOARD_VIEW, SERVER_UPDATE
 from armactl.web.page_models import updates as updates_page_model
 from armactl.web.routes._common import redirect_to_login
 from armactl.web.services import server_job_actions, server_versions
+from armactl.web.services.audit import AuditLogError, append_audit_event
 from armactl.web.views.updates import build_updates_view
 
 router = APIRouter()
@@ -30,6 +31,9 @@ _UPDATE_NOTICE_MESSAGES = {
     "up-to-date": server_versions.SERVER_VERSION_MESSAGE_UP_TO_DATE,
     "server-running": server_job_actions.STOP_RUNNING_SERVER_UPDATE_MESSAGE,
     "update-unavailable": "Run a build check before updating.",
+    "profile-queued": "Profile operation queued.",
+    "policy-enabled": "Automatic vanilla fallback enabled.",
+    "policy-disabled": "Automatic vanilla fallback disabled.",
 }
 
 
@@ -154,3 +158,137 @@ def update_server(
     if result.status == server_job_actions.SERVER_UPDATE_ACTION_BLOCKED:
         return _updates_redirect("server-running")
     return _updates_redirect("update-unavailable")
+
+
+def _profile_job_response(
+    current: CurrentSession,
+    *,
+    action: str,
+    name: str = "",
+) -> Response:
+    try:
+        server_job_actions.request_server_profile_action_and_start(
+            current.config.db_path,
+            action=action,
+            name=name,
+            audit_log_path=current.config.audit_log_path,
+            username=current.user.username,
+            user_id=current.user.id,
+        )
+    except server_job_actions.ServerJobActionError as exc:
+        return PlainTextResponse(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+    except server_job_actions.ServerJobAuditError as exc:
+        return PlainTextResponse(str(exc), status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return _updates_redirect("profile-queued")
+
+
+@router.post("/updates/vanilla")
+def activate_vanilla_profile(
+    request: Request,
+    csrf_token: str = Form(default=""),
+) -> Response:
+    current = _require_update_action(request, csrf_token)
+    if isinstance(current, Response):
+        return current
+    return _profile_job_response(current, action="vanilla")
+
+
+@router.post("/updates/retry-modded")
+def retry_modded_profile(
+    request: Request,
+    csrf_token: str = Form(default=""),
+) -> Response:
+    current = _require_update_action(request, csrf_token)
+    if isinstance(current, Response):
+        return current
+    return _profile_job_response(current, action="retry-modded")
+
+
+@router.post("/updates/profile/switch")
+def switch_named_profile(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    profile_name: str = Form(default=""),
+) -> Response:
+    current = _require_update_action(request, csrf_token)
+    if isinstance(current, Response):
+        return current
+    return _profile_job_response(current, action="switch", name=profile_name)
+
+
+@router.post("/updates/profile/create")
+def create_named_profile(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    profile_name: str = Form(default=""),
+    profile_type: str = Form(default="vanilla"),
+) -> Response:
+    current = _require_update_action(request, csrf_token)
+    if isinstance(current, Response):
+        return current
+    action = "create-vanilla" if profile_type == "vanilla" else "create"
+    if profile_type not in {"vanilla", "current"}:
+        return PlainTextResponse(
+            "Profile type is invalid.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    return _profile_job_response(current, action=action, name=profile_name)
+
+
+@router.post("/updates/auto-fallback")
+def set_auto_fallback(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    setting: str = Form(default=""),
+) -> Response:
+    current = _require_update_action(request, csrf_token)
+    if isinstance(current, Response):
+        return current
+    if setting not in {"on", "off"}:
+        return PlainTextResponse(
+            "Automatic fallback setting is invalid.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    enabled = setting == "on"
+    install_dir = paths.server_dir(
+        paths.DEFAULT_INSTANCE_NAME,
+        current.config.data_root,
+    )
+    config_path = paths.config_file(
+        paths.DEFAULT_INSTANCE_NAME,
+        current.config.data_root,
+    )
+    try:
+        append_audit_event(
+            current.config.audit_log_path,
+            username=current.user.username,
+            action="server-update.auto-fallback.set",
+            instance=paths.DEFAULT_INSTANCE_NAME,
+            target="automatic-vanilla-fallback",
+            success=True,
+            message="Automatic vanilla fallback policy change requested.",
+            exit_code=0,
+            details={"phase": "intent", "enabled": str(enabled).lower()},
+        )
+        safe_update.set_automatic_vanilla_fallback(
+            install_dir,
+            config_path,
+            enabled=enabled,
+        )
+        append_audit_event(
+            current.config.audit_log_path,
+            username=current.user.username,
+            action="server-update.auto-fallback.set",
+            instance=paths.DEFAULT_INSTANCE_NAME,
+            target="automatic-vanilla-fallback",
+            success=True,
+            message="Automatic vanilla fallback policy updated.",
+            exit_code=0,
+            details={"phase": "outcome", "enabled": str(enabled).lower()},
+        )
+    except (AuditLogError, safe_update.SafeUpdateError) as exc:
+        return PlainTextResponse(
+            str(exc),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    return _updates_redirect("policy-enabled" if enabled else "policy-disabled")

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from armactl import paths
+from armactl import paths, safe_update
 from armactl.platform.service_adapter import get_service_adapter
 from armactl.web.jobs import server as server_jobs
 from armactl.web.jobs.models import JobRecord
@@ -282,6 +282,77 @@ def request_server_update_check_and_start(
         user_id=user_id,
         instance=instance,
     )
+
+
+def request_server_profile_action_and_start(
+    db_path: Path,
+    *,
+    action: str,
+    name: str = "",
+    audit_log_path: Path,
+    username: str,
+    user_id: int | None,
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> JobRecord:
+    """Audit, enqueue, and start one validated profile operation."""
+    try:
+        job_kind = server_jobs.server_profile_job_kind(action, name)
+    except (ValueError, safe_update.UpdateProfileError) as exc:
+        raise ServerJobActionError(str(exc)) from exc
+    try:
+        append_audit_event(
+            audit_log_path,
+            username=username,
+            action="job.server-profile.enqueue",
+            instance=instance,
+            target=job_kind,
+            success=True,
+            message="Server profile operation requested.",
+            exit_code=0,
+            details={"phase": "intent", "job_kind": job_kind},
+        )
+    except AuditLogError as exc:
+        raise ServerJobAuditError(JOB_INTENT_AUDIT_FAILED_MESSAGE) from exc
+
+    job, created = server_jobs.ensure_server_profile_job(
+        db_path,
+        action=action,
+        name=name,
+        requested_by_username=username,
+        requested_by_user_id=user_id,
+        instance=instance,
+    )
+    try:
+        append_audit_event(
+            audit_log_path,
+            username=username,
+            action="job.server-profile.enqueue",
+            instance=instance,
+            target=job.kind,
+            success=True,
+            message="Server profile operation queued.",
+            exit_code=0,
+            details={
+                "phase": "outcome",
+                "job_id": str(job.id),
+                "job_kind": job.kind,
+                "created": str(created).lower(),
+            },
+        )
+    except AuditLogError as exc:
+        if created:
+            try:
+                cancel_job(
+                    db_path,
+                    job.id,
+                    result_message="Cancelled because audit logging failed.",
+                )
+            except Exception:
+                pass
+        raise ServerJobAuditError(JOB_OUTCOME_AUDIT_FAILED_MESSAGE) from exc
+    if created:
+        server_jobs.start_server_job_worker(db_path, job.id)
+    return job
 
 
 def request_server_update_and_start(

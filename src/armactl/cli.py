@@ -321,6 +321,370 @@ def restart(ctx: click.Context) -> None:
     sys.exit(0 if result.success else 1)
 
 
+@main.group("update")
+def update_group() -> None:
+    """Update with mod preservation, vanilla fallback, and rollback."""
+
+
+@update_group.command("status")
+@click.pass_context
+def update_status(ctx: click.Context) -> None:
+    """Show active compatibility mode and preserved-profile locations."""
+    from armactl import safe_update
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    if not state.server_installed:
+        click.echo(f"[{instance}] No server found.", err=True)
+        raise click.exceptions.Exit(1)
+    install_dir = Path(state.install_dir or paths.server_dir(instance))
+    config_path = Path(state.config_path or paths.config_file(instance))
+    try:
+        compatibility = safe_update.get_compatibility_status(install_dir, config_path)
+    except safe_update.SafeUpdateError as exc:
+        click.echo(f"[{instance}] ✗ {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+    payload = compatibility.to_dict()
+    policy = safe_update.get_update_policy(install_dir, config_path)
+    payload["automatic_vanilla_fallback"] = policy.automatic_vanilla_fallback
+    payload["active_profile"] = next(
+        (
+            item.name
+            for item in safe_update.get_named_profiles(install_dir, config_path)
+            if item.active
+        ),
+        "modded",
+    )
+    if ctx.obj["json"]:
+        click.echo(json.dumps(payload, indent=2))
+        return
+    click.echo(f"[{instance}] Compatibility mode: {compatibility.active_mode}")
+    click.echo(f"  Active build: {compatibility.active_build or 'unknown'}")
+    click.echo(f"  Update phase: {compatibility.phase}")
+    click.echo(f"  Active profile: {payload['active_profile']}")
+    click.echo(
+        "  Automatic vanilla fallback: "
+        + ("enabled" if policy.automatic_vanilla_fallback else "disabled")
+    )
+    click.echo(
+        "  Parked modded profile: "
+        + (
+            compatibility.parked_modded_profile
+            if compatibility.parked_modded_available
+            else "none"
+        )
+    )
+    click.echo(f"  Temporarily disabled mods: {compatibility.disabled_mod_count}")
+    click.echo(f"  Rollback available: {'yes' if compatibility.rollback_available else 'no'}")
+    if compatibility.baseline_path:
+        click.echo(f"  Last config baseline: {compatibility.baseline_path}")
+    if compatibility.last_modded_failure:
+        click.echo(f"  Last modded failure: {compatibility.last_modded_failure}")
+
+
+@update_group.command("auto-fallback")
+@click.argument(
+    "setting",
+    required=False,
+    default="status",
+    type=click.Choice(["on", "off", "status"]),
+)
+@click.pass_context
+def update_auto_fallback(ctx: click.Context, setting: str) -> None:
+    """Show, enable, or disable automatic vanilla fallback."""
+    from armactl import safe_update
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    if not state.server_installed:
+        click.echo(f"[{instance}] No server found.", err=True)
+        raise click.exceptions.Exit(1)
+    install_dir = Path(state.install_dir or paths.server_dir(instance))
+    config_path = Path(state.config_path or paths.config_file(instance))
+    try:
+        if setting == "status":
+            policy = safe_update.get_update_policy(install_dir, config_path)
+        else:
+            policy = safe_update.set_automatic_vanilla_fallback(
+                install_dir,
+                config_path,
+                enabled=setting == "on",
+            )
+    except safe_update.SafeUpdateError as exc:
+        click.echo(f"[{instance}] ✗ {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+    if ctx.obj["json"]:
+        click.echo(json.dumps(policy.to_dict(), indent=2))
+    else:
+        label = "enabled" if policy.automatic_vanilla_fallback else "disabled"
+        click.echo(f"[{instance}] Automatic vanilla fallback: {label}")
+
+
+@update_group.group("profile")
+def update_profile_group() -> None:
+    """Create, list, and safely switch named server profiles."""
+
+
+@update_profile_group.command("list")
+@click.pass_context
+def update_profile_list(ctx: click.Context) -> None:
+    """List the active and inactive named profiles."""
+    from armactl import safe_update
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    if not state.server_installed:
+        click.echo(f"[{instance}] No server found.", err=True)
+        raise click.exceptions.Exit(1)
+    install_dir = Path(state.install_dir or paths.server_dir(instance))
+    config_path = Path(state.config_path or paths.config_file(instance))
+    try:
+        profiles = safe_update.get_named_profiles(install_dir, config_path)
+    except (safe_update.SafeUpdateError, safe_update.UpdateProfileError) as exc:
+        click.echo(f"[{instance}] ✗ {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+    if ctx.obj["json"]:
+        click.echo(json.dumps({"profiles": [item.to_dict() for item in profiles]}, indent=2))
+        return
+    for item in profiles:
+        marker = "*" if item.active else " "
+        click.echo(
+            f"{marker} {item.name}: {item.mode}, mods={item.mod_count}, "
+            f"scenario={item.scenario_id or 'unknown'}"
+        )
+
+
+@update_profile_group.command("create")
+@click.argument("name")
+@click.option(
+    "--vanilla",
+    is_flag=True,
+    default=False,
+    help="Create an official addon-free Conflict Everon profile.",
+)
+@click.pass_context
+def update_profile_create(ctx: click.Context, name: str, vanilla: bool) -> None:
+    """Create an inactive profile from current settings or safe vanilla."""
+    from armactl import safe_update
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    if not state.server_installed:
+        click.echo(f"[{instance}] No server found.", err=True)
+        raise click.exceptions.Exit(1)
+    if state.server_running:
+        click.echo(f"[{instance}] Stop the game server before creating a profile.", err=True)
+        raise click.exceptions.Exit(1)
+    install_dir = Path(state.install_dir or paths.server_dir(instance))
+    config_path = Path(state.config_path or paths.config_file(instance))
+    try:
+        created = safe_update.create_named_profile(
+            install_dir,
+            config_path,
+            name=name,
+            vanilla=vanilla,
+        )
+    except safe_update.SafeUpdateError as exc:
+        click.echo(f"[{instance}] ✗ {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+    if ctx.obj["json"]:
+        click.echo(json.dumps(created.to_dict(), indent=2))
+    else:
+        click.echo(f"[{instance}] Created inactive profile {created.name} at {created.path}.")
+
+
+@update_profile_group.command("rename-active")
+@click.argument("name")
+@click.pass_context
+def update_profile_rename_active(ctx: click.Context, name: str) -> None:
+    """Name the active profile without copying or restarting it."""
+    from armactl import safe_update
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    if not state.server_installed:
+        click.echo(f"[{instance}] No server found.", err=True)
+        raise click.exceptions.Exit(1)
+    install_dir = Path(state.install_dir or paths.server_dir(instance))
+    config_path = Path(state.config_path or paths.config_file(instance))
+    try:
+        renamed = safe_update.rename_active_profile(
+            install_dir,
+            config_path,
+            name=name,
+        )
+    except safe_update.SafeUpdateError as exc:
+        click.echo(f"[{instance}] ✗ {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+    if ctx.obj["json"]:
+        click.echo(json.dumps(renamed.to_dict(), indent=2))
+    else:
+        click.echo(f"[{instance}] Active profile name: {renamed.name}")
+
+
+@update_profile_group.command("switch")
+@click.argument("name")
+@click.pass_context
+def update_profile_switch(ctx: click.Context, name: str) -> None:
+    """Canary and activate a stored profile without deleting the current one."""
+    from armactl import discovery, safe_update
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    if not state.server_installed:
+        click.echo(f"[{instance}] No server found.", err=True)
+        raise click.exceptions.Exit(1)
+    if state.server_running:
+        click.echo(f"[{instance}] Stop the game server before switching profiles.", err=True)
+        raise click.exceptions.Exit(1)
+    install_dir = Path(state.install_dir or paths.server_dir(instance))
+    config_path = Path(state.config_path or paths.config_file(instance))
+    output: list[str] = []
+    try:
+        for line in safe_update.switch_named_profile(
+            install_dir,
+            config_path,
+            state.service_name,
+            name=name,
+        ):
+            output.append(line)
+            if not ctx.obj["json"]:
+                click.echo(f"[{instance}] {line}")
+    except safe_update.SafeUpdateError as exc:
+        if ctx.obj["json"]:
+            click.echo(json.dumps({"status": "failed", "error": str(exc)}))
+        else:
+            click.echo(f"[{instance}] ✗ {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+    discovery.discover(instance=instance, save=True)
+    if ctx.obj["json"]:
+        click.echo(json.dumps({"status": "succeeded", "steps": output}, indent=2))
+
+
+@update_group.command("server")
+@click.pass_context
+def update_server(ctx: click.Context) -> None:
+    """Update; fall back to official vanilla if the mod stack is incompatible."""
+    from armactl import discovery, safe_update
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    if not state.server_installed:
+        click.echo(f"[{instance}] No server found.", err=True)
+        raise click.exceptions.Exit(1)
+    if state.server_running:
+        click.echo(f"[{instance}] Stop the game server before updating.", err=True)
+        raise click.exceptions.Exit(1)
+
+    install_dir = Path(state.install_dir or paths.server_dir(instance))
+    config_path = Path(state.config_path or paths.config_file(instance))
+    output: list[str] = []
+    try:
+        update_steps = safe_update.stream_safe_server_update(
+            install_dir,
+            config_path,
+            state.service_name,
+            instance=instance,
+        )
+        for line in update_steps:
+            output.append(line)
+            if not ctx.obj["json"]:
+                click.echo(f"[{instance}] {line}")
+    except safe_update.SafeUpdateError as exc:
+        if ctx.obj["json"]:
+            click.echo(json.dumps({"status": "failed", "error": str(exc)}))
+        else:
+            click.echo(f"[{instance}] ✗ {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+
+    discovery.discover(instance=instance, save=True)
+    if ctx.obj["json"]:
+        click.echo(json.dumps({"status": "succeeded", "steps": output}, indent=2))
+
+
+def _run_profile_switch(ctx: click.Context, *, retry_modded: bool) -> None:
+    from armactl import discovery, safe_update
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    if not state.server_installed:
+        click.echo(f"[{instance}] No server found.", err=True)
+        raise click.exceptions.Exit(1)
+    if state.server_running:
+        click.echo(f"[{instance}] Stop the game server before switching profiles.", err=True)
+        raise click.exceptions.Exit(1)
+
+    install_dir = Path(state.install_dir or paths.server_dir(instance))
+    config_path = Path(state.config_path or paths.config_file(instance))
+    operation = safe_update.retry_modded if retry_modded else safe_update.activate_vanilla
+    output: list[str] = []
+    try:
+        for line in operation(install_dir, config_path, state.service_name):
+            output.append(line)
+            if not ctx.obj["json"]:
+                click.echo(f"[{instance}] {line}")
+    except safe_update.SafeUpdateError as exc:
+        if ctx.obj["json"]:
+            click.echo(json.dumps({"status": "failed", "error": str(exc)}))
+        else:
+            click.echo(f"[{instance}] ✗ {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+    discovery.discover(instance=instance, save=True)
+    if ctx.obj["json"]:
+        click.echo(json.dumps({"status": "succeeded", "steps": output}, indent=2))
+
+
+@update_group.command("vanilla")
+@click.pass_context
+def update_vanilla(ctx: click.Context) -> None:
+    """Canary and activate official vanilla while preserving the modded profile."""
+    _run_profile_switch(ctx, retry_modded=False)
+
+
+@update_group.command("retry-modded")
+@click.pass_context
+def update_retry_modded(ctx: click.Context) -> None:
+    """Canary the parked mod stack and reactivate it only when stable."""
+    _run_profile_switch(ctx, retry_modded=True)
+
+
+@update_group.command("rollback")
+@click.pass_context
+def update_rollback(ctx: click.Context) -> None:
+    """Restore and start the one retained pre-update generation."""
+    from armactl import discovery, safe_update
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    if not state.server_installed:
+        click.echo(f"[{instance}] No server found.", err=True)
+        raise click.exceptions.Exit(1)
+
+    install_dir = Path(state.install_dir or paths.server_dir(instance))
+    config_path = Path(state.config_path or paths.config_file(instance))
+    output: list[str] = []
+    try:
+        rollback_steps = safe_update.rollback_last_update(
+            install_dir,
+            config_path,
+            state.service_name,
+        )
+        for line in rollback_steps:
+            output.append(line)
+            if not ctx.obj["json"]:
+                click.echo(f"[{instance}] {line}")
+    except safe_update.SafeUpdateError as exc:
+        if ctx.obj["json"]:
+            click.echo(json.dumps({"status": "failed", "error": str(exc)}))
+        else:
+            click.echo(f"[{instance}] ✗ {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+
+    discovery.discover(instance=instance, save=True)
+    if ctx.obj["json"]:
+        click.echo(json.dumps({"status": "succeeded", "steps": output}, indent=2))
+
+
 @main.command()
 @click.option("-n", "--lines", default=50, help="Number of log lines to show.")
 @click.option("-f", "--follow", is_flag=True, default=False, help="Follow logs in real-time.")

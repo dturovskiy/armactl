@@ -1631,6 +1631,8 @@ def test_mods_page_mod_lists_are_collapsed_by_default(tmp_path: Path, monkeypatc
         in response.text
     )
     assert "Configured mod list" in response.text
+    assert "Compatibility" in response.text
+    assert "Not tested for current build" in response.text
     assert "Disabled mod list" in response.text
     assert 'data-mod-list-disclosure="active" open' not in response.text
     assert 'data-mod-list-disclosure="disabled" open' not in response.text

@@ -958,7 +958,7 @@ def test_server_enqueue_reuses_active_update_job(tmp_path: Path):
     assert [job.kind for job in jobs] == [SERVER_UPDATE_JOB_KIND]
 
 
-def test_server_update_handler_streams_update_without_repair_flow(
+def test_server_update_handler_streams_transactional_update_without_repair_flow(
     tmp_path: Path,
     monkeypatch,
 ):
@@ -970,22 +970,39 @@ def test_server_update_handler_streams_update_without_repair_flow(
     install_dir = tmp_path / "default" / "server"
     install_dir.mkdir(parents=True)
     (install_dir / "ArmaReforgerServer").write_text("binary", encoding="utf-8")
-    update_calls: list[tuple[str, str]] = []
+    update_calls: list[tuple[str, str, str, str]] = []
     discover_calls: list[tuple[str, bool]] = []
+    config_path = install_dir.parent / "config" / "config.json"
+    config_path.parent.mkdir()
+    config_path.write_text("{}", encoding="utf-8")
 
     def fake_discover(instance: str, save: bool = False):
         discover_calls.append((instance, save))
         return SimpleNamespace(
             install_dir=str(install_dir),
+            config_path=str(config_path),
+            service_name="armareforger.service",
             server_running=False,
         )
 
-    def fake_update(update_install_dir, *, instance: str):
-        update_calls.append((str(update_install_dir), instance))
-        yield "update step"
+    def fake_update(update_install_dir, update_config_path, service_name, *, instance: str):
+        update_calls.append(
+            (
+                str(update_install_dir),
+                str(update_config_path),
+                service_name,
+                instance,
+            )
+        )
+        yield "safe update step"
 
     monkeypatch.setattr(server_jobs.discovery, "discover", fake_discover)
-    monkeypatch.setattr(server_jobs.installer, "stream_server_update", fake_update)
+    monkeypatch.setattr(
+        server_jobs.paths,
+        "validate_server_install_dir",
+        lambda value, *, instance: Path(value),
+    )
+    monkeypatch.setattr(server_jobs.safe_update, "stream_safe_server_update", fake_update)
     monkeypatch.setattr(
         server_jobs.repair,
         "run_repair",
@@ -997,13 +1014,19 @@ def test_server_update_handler_streams_update_without_repair_flow(
 
     result = dispatch_server_job(db_path, job.id)
 
-    assert update_calls == [(str(install_dir), "default")]
+    assert update_calls == [
+        (
+            str(install_dir),
+            str(config_path),
+            "armareforger.service",
+            "default",
+        )
+    ]
     assert discover_calls == [("default", False), ("default", True)]
     assert result.job.kind == SERVER_UPDATE_JOB_KIND
     assert result.job.status == JOB_STATUS_SUCCEEDED
-    assert result.job.result_message == "Server update completed."
-    assert "update step" in result.job.stdout_tail
-    assert (install_dir / ".armactl-package-manifest.json").is_file()
+    assert result.job.result_message == "Server update verified and started."
+    assert "safe update step" in result.job.stdout_tail
 
 
 def test_server_update_handler_refuses_running_server_before_streaming_update(
@@ -1028,17 +1051,10 @@ def test_server_update_handler_refuses_running_server_before_streaming_update(
 
     monkeypatch.setattr(server_jobs.discovery, "discover", fake_discover)
     monkeypatch.setattr(
-        server_jobs.installer,
-        "stream_server_update",
+        server_jobs.safe_update,
+        "stream_safe_server_update",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("running-server update must not call SteamCMD")
-        ),
-    )
-    monkeypatch.setattr(
-        server_jobs.integrity,
-        "mark_install_started",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("running-server update must not mark install started")
         ),
     )
     job = enqueue_server_update(db_path, requested_by_username="owner")
@@ -1051,6 +1067,100 @@ def test_server_update_handler_refuses_running_server_before_streaming_update(
     assert result.job.error_class == "RuntimeError"
     assert result.job.error_message == "Stop the game server before updating."
     assert "Stop the game server before updating." in result.job.stdout_tail
+
+
+def test_server_profile_switch_job_streams_verified_operation(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from armactl.web.jobs import server as server_jobs
+
+    db_path = _db_path(tmp_path)
+    install_dir = tmp_path / "default" / "server"
+    config_path = install_dir.parent / "config" / "config.json"
+    install_dir.mkdir(parents=True)
+    config_path.parent.mkdir()
+    (install_dir / "ArmaReforgerServer").write_text("binary", encoding="utf-8")
+    config_path.write_text("{}", encoding="utf-8")
+    calls: list[tuple[str, str, str, str]] = []
+
+    monkeypatch.setattr(
+        server_jobs.discovery,
+        "discover",
+        lambda instance, save=False: SimpleNamespace(
+            install_dir=str(install_dir),
+            config_path=str(config_path),
+            service_name="armareforger.service",
+            server_running=False,
+        ),
+    )
+    monkeypatch.setattr(
+        server_jobs.paths,
+        "validate_server_install_dir",
+        lambda value, *, instance: Path(value),
+    )
+
+    def fake_switch(install, config, service, *, name):
+        calls.append((str(install), str(config), service, name))
+        yield "profile canary passed"
+
+    monkeypatch.setattr(server_jobs.safe_update, "switch_named_profile", fake_switch)
+    job, created = server_jobs.ensure_server_profile_job(
+        db_path,
+        action="switch",
+        name="vanilla-everon",
+        requested_by_username="owner",
+    )
+
+    assert created is True
+    result = dispatch_server_job(db_path, job.id)
+
+    assert calls == [
+        (
+            str(install_dir),
+            str(config_path),
+            "armareforger.service",
+            "vanilla-everon",
+        )
+    ]
+    assert result.job.status == JOB_STATUS_SUCCEEDED
+    assert result.job.result_message == "Server profile verified and activated."
+    assert "profile canary passed" in result.job.stdout_tail
+
+
+def test_server_profile_job_refuses_running_server_before_profile_mutation(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from armactl.web.jobs import server as server_jobs
+
+    db_path = _db_path(tmp_path)
+    monkeypatch.setattr(
+        server_jobs.discovery,
+        "discover",
+        lambda instance, save=False: SimpleNamespace(server_running=True),
+    )
+    monkeypatch.setattr(
+        server_jobs.safe_update,
+        "activate_vanilla",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("running-server profile action must not mutate config")
+        ),
+    )
+    job, _created = server_jobs.ensure_server_profile_job(
+        db_path,
+        action="vanilla",
+        requested_by_username="owner",
+    )
+
+    result = dispatch_server_job(db_path, job.id)
+
+    assert result.job.status == JOB_STATUS_FAILED
+    assert result.job.error_message == server_jobs.STOP_RUNNING_SERVER_PROFILE_MESSAGE
 
 
 def test_server_update_check_handler_caches_success_without_update_backend(

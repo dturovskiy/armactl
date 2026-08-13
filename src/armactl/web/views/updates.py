@@ -400,6 +400,27 @@ def build_updates_view(
     failed_check_job = None
     if check_state == server_versions.SERVER_VERSION_CHECK_FAILED and check_job_id:
         failed_check_job = _job_link(check_job_id, "Failed update check job")
+    compatibility = dict(_mapping(page.get("compatibility")))
+    raw_profiles = page.get("profiles")
+    profiles = [
+        dict(item)
+        for item in raw_profiles
+        if isinstance(item, Mapping)
+    ] if isinstance(raw_profiles, list) else []
+    policy = dict(_mapping(page.get("policy")))
+    profile_actions_enabled = can_update_server and not server_running and not checking_or_updating
+    if not can_update_server:
+        profile_actions_disabled_reason = "Server update permission is required."
+    elif server_running:
+        profile_actions_disabled_reason = (
+            "Stop the game server before switching or testing profiles."
+        )
+    elif checking_or_updating:
+        profile_actions_disabled_reason = (
+            "Wait for the active update operation before changing profiles."
+        )
+    else:
+        profile_actions_disabled_reason = ""
 
     return dict(
         instance=_text(page.get("instance"), "default"),
@@ -463,4 +484,9 @@ def build_updates_view(
         ),
         action_notice=_text(action_notice, ""),
         active_job=active_job,
+        compatibility=compatibility,
+        profiles=profiles,
+        policy=policy,
+        profile_actions_enabled=profile_actions_enabled,
+        profile_actions_disabled_reason=profile_actions_disabled_reason,
     )
