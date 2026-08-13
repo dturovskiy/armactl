@@ -73,6 +73,7 @@ PARKED_MODDED_PROFILE_NAME = "parked-modded-profile"
 PROFILES_DIR_NAME = "profiles"
 UPDATE_POLICY_NAME = "policy.json"
 MOD_COMPATIBILITY_NAME = "mod-compatibility.json"
+LAST_CANARY_FAILURE_NAME = "last-canary-failure.log"
 
 CANARY_TIMEOUT_SECONDS = 600.0
 CANARY_STABILITY_SECONDS = 20.0
@@ -502,6 +503,22 @@ def _candidate_player_status(config_path: Path) -> a2s.PlayerStatus:
     )
 
 
+def _write_canary_failure_diagnostic(
+    update_paths: UpdatePaths,
+    lines: Iterable[str],
+) -> Path:
+    """Persist one bounded redacted console tail outside disposable canary paths."""
+    diagnostic = update_paths.update_root / LAST_CANARY_FAILURE_NAME
+    update_paths.update_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    safe_lines = [redact_sensitive_text(line)[:4000] for line in lines if line]
+    text = "\n".join(safe_lines[-MAX_CANARY_TAIL_LINES:])[-64 * 1024 :]
+    temporary = diagnostic.with_suffix(".log.tmp")
+    temporary.write_text(text + ("\n" if text else ""), encoding="utf-8")
+    os.chmod(temporary, 0o600)
+    temporary.replace(diagnostic)
+    return diagnostic
+
+
 def run_compatibility_canary(
     update_paths: UpdatePaths,
     *,
@@ -549,6 +566,7 @@ def run_compatibility_canary(
     last_status: a2s.PlayerStatus | None = None
     fatal_line = ""
     fatal_seen_at: float | None = None
+    fatal_context: list[str] = []
 
     try:
         while monotonic() - started_at < timeout_seconds:
@@ -559,12 +577,15 @@ def run_compatibility_canary(
                     break
                 if line:
                     output_tail.append(line)
+                    if fatal_line:
+                        fatal_context.append(line)
                 if not fatal_line and any(
                     marker.casefold() in line.casefold()
                     for marker in FATAL_CANARY_MARKERS
                 ):
                     fatal_line = line
                     fatal_seen_at = monotonic()
+                    fatal_context = [line]
 
             return_code = process.poll()
             if fatal_line and (
@@ -575,16 +596,26 @@ def run_compatibility_canary(
                     >= FATAL_CANARY_DIAGNOSTIC_GRACE_SECONDS
                 )
             ):
-                tail = " | ".join(list(output_tail)[-8:])
+                diagnostic = _write_canary_failure_diagnostic(
+                    update_paths,
+                    output_tail,
+                )
+                tail = " | ".join(fatal_context[:8])
                 raise CanaryRejectedError(
                     "Candidate rejected by scenario/mod compilation: "
                     + (tail or fatal_line)
+                    + f"; redacted diagnostic: {diagnostic}"
                 )
             if return_code is not None:
                 tail = " | ".join(list(output_tail)[-5:])
+                diagnostic = _write_canary_failure_diagnostic(
+                    update_paths,
+                    output_tail,
+                )
                 detail = f"; last output: {tail}" if tail else ""
                 raise CanaryRejectedError(
-                    f"Candidate server exited before readiness (code {return_code}){detail}"
+                    f"Candidate server exited before readiness (code {return_code}){detail}; "
+                    f"redacted diagnostic: {diagnostic}"
                 )
 
             if fatal_line:
@@ -607,9 +638,11 @@ def run_compatibility_canary(
             sleep(poll_interval_seconds)
 
         error = last_status.error if last_status is not None else "A2S never became ready"
+        diagnostic = _write_canary_failure_diagnostic(update_paths, output_tail)
         raise CanaryRejectedError(
             "Candidate did not reach stable A2S readiness before timeout: "
             + redact_sensitive_text(error)
+            + f"; redacted diagnostic: {diagnostic}"
         )
     finally:
         _terminate_process(process)

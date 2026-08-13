@@ -262,6 +262,9 @@ def test_compatibility_canary_rejects_fatal_compile_output(tmp_path: Path, monke
             ),
             sleep=time.sleep,
         )
+    diagnostic = update_paths.update_root / safe_update.LAST_CANARY_FAILURE_NAME
+    assert diagnostic.is_file()
+    assert "Missing required API symbol" in diagnostic.read_text(encoding="utf-8")
 
 
 def test_vanilla_profile_preserves_host_settings_without_mutating_source(
