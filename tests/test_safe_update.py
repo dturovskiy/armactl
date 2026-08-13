@@ -97,6 +97,8 @@ def test_safe_update_promotes_verified_server_and_profile(tmp_path: Path, monkey
             (update_paths.candidate_profile / "config.json").read_text(encoding="utf-8")
         )
         assert candidate_config["game"]["password"] != "production-secret"
+        assert len(candidate_config["game"]["password"]) <= 32
+        assert " " not in candidate_config["game"]["password"]
         assert candidate_config["game"]["name"].endswith("[armactl update canary]")
         assert not (update_paths.candidate_profile / "addons").exists()
         assert (update_paths.profile / "addons" / "WCS" / "mod.pak").read_text(

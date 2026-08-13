@@ -352,7 +352,8 @@ def _prepare_canary_config(config_path: Path) -> None:
     game = config.get("game")
     if not isinstance(game, dict):
         raise SafeUpdateError("Candidate config is missing the game object.")
-    game["password"] = secrets.token_urlsafe(32)
+    # Reforger's server schema permits at most 32 non-space characters.
+    game["password"] = secrets.token_urlsafe(24)
     name = str(game.get("name") or "Arma Reforger")
     game["name"] = f"{name} [armactl update canary]"[:128]
     tmp_path = config_path.with_suffix(".json.tmp")
