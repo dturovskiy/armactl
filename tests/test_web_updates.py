@@ -487,7 +487,7 @@ def test_failed_update_renders_retry_only_when_stopped_without_active_job(
     assert "use the CLI fallback" in response.text
 
 
-def test_failed_update_does_not_render_retry_when_server_running(
+def test_failed_update_renders_safe_retry_when_server_running(
     tmp_path: Path,
     monkeypatch,
 ):
@@ -513,9 +513,9 @@ def test_failed_update_does_not_render_retry_when_server_running(
 
     assert response.status_code == 200
     assert "Last failed update job" in response.text
-    assert "Stop the game server before retrying" in response.text
-    assert "Retry update" not in response.text
-    assert 'action="/updates/update"' not in response.text
+    assert "safe workflow will stop the running game server" in response.text
+    assert "Retry update" in response.text
+    assert 'action="/updates/update"' in response.text
 
 
 def test_active_update_check_renders_running_status_without_duplicate_actions(

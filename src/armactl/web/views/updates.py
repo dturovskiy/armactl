@@ -245,6 +245,13 @@ def _failed_update_guidance(
     if failed_update_job is None:
         return ""
     if backend_allows_update:
+        if server_running:
+            return (
+                "The last update job failed. Retry update is available; the safe "
+                "workflow will stop the running game server, verify the candidate, "
+                "and restore a working server automatically. Open Jobs for details; "
+                "use the CLI fallback if the web retry fails."
+            )
         return (
             "The last update job failed. Retry update is available because the game "
             "server appears stopped and no update job is active. Open Jobs for details; "
