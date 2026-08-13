@@ -241,6 +241,8 @@ def test_compatibility_canary_rejects_fatal_compile_output(tmp_path: Path, monke
                 "SCRIPT : E : Missing required API symbol\n",
                 "ENGINE : E : Addon loading failed {0123456789ABCDEF,"
                 "FEDCBA9876543210}\n",
+                "ENGINE : gproj: '/private/addons/Extra/addon.gproj' "
+                "guid: 'AAAAAAAAAAAAAAAA'\n",
             ]
         )
 
@@ -269,10 +271,15 @@ def test_compatibility_canary_rejects_fatal_compile_output(tmp_path: Path, monke
         )
     assert "addon list omitted; see diagnostic" in str(exc_info.value)
     assert "0123456789ABCDEF" not in str(exc_info.value)
+    assert "AAAAAAAAAAAAAAAA" not in str(exc_info.value)
+    assert "/private/addons" not in str(exc_info.value)
+    assert "full redacted diagnostic saved on server" in str(exc_info.value)
     diagnostic = update_paths.update_root / safe_update.LAST_CANARY_FAILURE_NAME
     assert diagnostic.is_file()
+    assert str(diagnostic) not in str(exc_info.value)
     assert "Missing required API symbol" in diagnostic.read_text(encoding="utf-8")
     assert "0123456789ABCDEF" in diagnostic.read_text(encoding="utf-8")
+    assert "AAAAAAAAAAAAAAAA" in diagnostic.read_text(encoding="utf-8")
 
 
 def test_vanilla_profile_preserves_host_settings_without_mutating_source(

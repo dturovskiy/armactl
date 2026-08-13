@@ -110,13 +110,14 @@ def _summarize_canary_failure(lines: Iterable[str]) -> str:
         if not line:
             continue
         marker_at = line.casefold().find(addon_marker.casefold())
+        stop_after_line = marker_at >= 0
         if marker_at >= 0:
             marker_end = marker_at + len(addon_marker)
             line = line[:marker_end] + " (addon list omitted; see diagnostic)"
         line = line[:MAX_CANARY_ERROR_LINE_LENGTH]
         if line not in summarized:
             summarized.append(line)
-        if len(summarized) >= MAX_CANARY_ERROR_LINES:
+        if stop_after_line or len(summarized) >= MAX_CANARY_ERROR_LINES:
             break
     return " | ".join(summarized)
 
@@ -651,7 +652,7 @@ def run_compatibility_canary(
                     >= FATAL_CANARY_DIAGNOSTIC_GRACE_SECONDS
                 )
             ):
-                diagnostic = _write_canary_failure_diagnostic(
+                _write_canary_failure_diagnostic(
                     update_paths,
                     output_tail,
                 )
@@ -659,18 +660,18 @@ def run_compatibility_canary(
                 raise CanaryRejectedError(
                     "Candidate rejected by scenario/mod compilation: "
                     + (tail or fatal_line)
-                    + f"; redacted diagnostic: {diagnostic}"
+                    + "; full redacted diagnostic saved on server."
                 )
             if return_code is not None:
-                tail = " | ".join(list(output_tail)[-5:])
-                diagnostic = _write_canary_failure_diagnostic(
+                tail = _summarize_canary_failure(list(output_tail)[-5:])
+                _write_canary_failure_diagnostic(
                     update_paths,
                     output_tail,
                 )
                 detail = f"; last output: {tail}" if tail else ""
                 raise CanaryRejectedError(
                     f"Candidate server exited before readiness (code {return_code}){detail}; "
-                    f"redacted diagnostic: {diagnostic}"
+                    "full redacted diagnostic saved on server."
                 )
 
             if fatal_line:
@@ -693,11 +694,11 @@ def run_compatibility_canary(
             sleep(poll_interval_seconds)
 
         error = last_status.error if last_status is not None else "A2S never became ready"
-        diagnostic = _write_canary_failure_diagnostic(update_paths, output_tail)
+        _write_canary_failure_diagnostic(update_paths, output_tail)
         raise CanaryRejectedError(
             "Candidate did not reach stable A2S readiness before timeout: "
             + redact_sensitive_text(error)
-            + f"; redacted diagnostic: {diagnostic}"
+            + "; full redacted diagnostic saved on server."
         )
     finally:
         _terminate_process(process)
