@@ -28,7 +28,20 @@ jobs:
         run: ruff check src tests
 
       - name: Pytest
-        run: pytest
+        id: pytest
+        run: |
+          set -o pipefail
+          pytest --tb=short -ra 2>&1 | tee pytest-ci.log
+
+      - name: Publish pytest failure summary
+        if: failure() && steps.pytest.outcome == 'failure'
+        run: |
+          {
+            echo '## Pytest failure tail'
+            echo '```text'
+            tail -n 120 pytest-ci.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build
         run: python -m build
