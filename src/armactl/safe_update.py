@@ -23,6 +23,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,8 +57,10 @@ from armactl.update_profiles import (
     list_profiles,
     profile_path,
     read_policy,
+    read_profile_selection,
     validate_profile_name,
     write_policy,
+    write_profile_selection,
 )
 
 UPDATE_DIR_NAME = "server-update"
@@ -298,51 +301,68 @@ def ensure_staging_capacity(update_paths: UpdatePaths) -> tuple[int, int]:
     return required, free
 
 
-def _bundle_mods_state_path(update_paths: UpdatePaths, bundle: Path) -> Path:
-    return (
-        update_paths.instance_root / "mods-state.json"
-        if bundle == update_paths.profile
-        else bundle / "mods-state.json"
-    )
-
-
 def _copy_profile_bundle(
     update_paths: UpdatePaths,
     source: Path,
     destination: Path,
 ) -> None:
-    """Copy only switchable config metadata; Workshop files stay shared in place."""
+    """Store only scenario/mod selection; runtime settings remain canonical."""
+    del update_paths
     if destination.exists() or destination.is_symlink():
         raise SafeUpdateError(f"Refusing to overwrite profile bundle: {destination}")
-    config_source = source / "config.json"
-    if not config_source.is_file() or config_source.is_symlink():
-        raise SafeUpdateError(f"Profile bundle config is missing or unsafe: {config_source}")
+    try:
+        selection = read_profile_selection(source)
+        write_profile_selection(destination, selection)
+    except UpdateProfileError as exc:
+        raise SafeUpdateError(str(exc)) from exc
+
+
+def _render_profile_candidate(
+    update_paths: UpdatePaths,
+    source: Path,
+    destination: Path,
+) -> None:
+    """Build a full candidate config from current settings plus target selection."""
+    if destination.exists() or destination.is_symlink():
+        raise SafeUpdateError(f"Refusing to overwrite profile candidate: {destination}")
+    try:
+        active = load_config(update_paths.config_file)
+        selection = read_profile_selection(source)
+    except (ConfigError, UpdateProfileError) as exc:
+        raise SafeUpdateError(f"Could not prepare profile candidate: {exc}") from exc
+    active_game = active.get("game")
+    if not isinstance(active_game, dict):
+        raise SafeUpdateError("Active config is missing the game object.")
+    active_game["scenarioId"] = selection["game"]["scenarioId"]
+    active_game["mods"] = deepcopy(selection["game"]["mods"])
     destination.mkdir(parents=True, mode=0o700)
-    shutil.copy2(config_source, destination / "config.json")
-    mods_state = _bundle_mods_state_path(update_paths, source)
-    if mods_state.is_file() and not mods_state.is_symlink():
-        shutil.copy2(mods_state, destination / "mods-state.json")
+    candidate = destination / "config.json"
+    candidate.write_text(
+        json.dumps(active, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    os.chmod(candidate, 0o600)
 
 
 def _activate_profile_bundle(update_paths: UpdatePaths, source: Path) -> None:
-    """Atomically apply config/sidecar while leaving config/addons untouched."""
-    source_config = source / "config.json"
-    if not source_config.is_file() or source_config.is_symlink():
-        raise SafeUpdateError("Profile bundle config is missing or unsafe.")
+    """Atomically apply only scenario/mods and preserve all other active settings."""
+    try:
+        active = load_config(update_paths.config_file)
+        selection = read_profile_selection(source)
+    except (ConfigError, UpdateProfileError) as exc:
+        raise SafeUpdateError(f"Profile bundle is invalid: {exc}") from exc
+    game = active.get("game")
+    if not isinstance(game, dict):
+        raise SafeUpdateError("Active config is missing the game object.")
+    game["scenarioId"] = selection["game"]["scenarioId"]
+    game["mods"] = deepcopy(selection["game"]["mods"])
     temporary = update_paths.config_file.with_suffix(".json.profile-switch.tmp")
-    shutil.copy2(source_config, temporary)
+    temporary.write_text(
+        json.dumps(active, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
     os.chmod(temporary, 0o600)
     temporary.replace(update_paths.config_file)
-
-    active_state = update_paths.instance_root / "mods-state.json"
-    source_state = _bundle_mods_state_path(update_paths, source)
-    if source_state.is_file() and not source_state.is_symlink():
-        state_tmp = active_state.with_suffix(".json.profile-switch.tmp")
-        shutil.copy2(source_state, state_tmp)
-        os.chmod(state_tmp, 0o600)
-        state_tmp.replace(active_state)
-    else:
-        active_state.unlink(missing_ok=True)
 
 
 def _prepare_canary_config(config_path: Path) -> None:
@@ -377,7 +397,11 @@ def prepare_candidate(update_paths: UpdatePaths, *, source_profile: Path | None 
     ):
         _remove_managed_path(update_paths, target)
 
-    _copy_profile_bundle(update_paths, source_profile, update_paths.candidate_profile)
+    _render_profile_candidate(
+        update_paths,
+        source_profile,
+        update_paths.candidate_profile,
+    )
     update_paths.candidate_server.mkdir(mode=0o700)
     update_paths.candidate_logs.mkdir(mode=0o700)
     _prepare_canary_config(update_paths.candidate_profile / "config.json")
@@ -411,14 +435,17 @@ def prepare_vanilla_candidate(
         _remove_managed_path(update_paths, target)
     update_paths.candidate_logs.mkdir(parents=True, mode=0o700)
     try:
-        disabled_count = make_vanilla_profile(
-            source_profile,
+        source_disabled_count = len(
+            read_profile_selection(source_profile)["game"]["mods"]
+        )
+        active_disabled_count = make_vanilla_profile(
+            update_paths.profile,
             update_paths.candidate_profile,
         )
-    except CompatibilityConfigError as exc:
+    except (CompatibilityConfigError, UpdateProfileError) as exc:
         raise SafeUpdateError(str(exc)) from exc
     _prepare_canary_config(update_paths.candidate_profile / "config.json")
-    return disabled_count
+    return max(source_disabled_count, active_disabled_count)
 
 
 def reset_candidate_profile_after_canary(
@@ -439,7 +466,11 @@ def reset_candidate_profile_after_canary(
     if mode != MODDED_MODE:
         raise SafeUpdateError(f"Unknown candidate profile mode: {mode}")
     _remove_managed_path(update_paths, update_paths.candidate_profile)
-    _copy_profile_bundle(update_paths, source_profile, update_paths.candidate_profile)
+    _render_profile_candidate(
+        update_paths,
+        source_profile,
+        update_paths.candidate_profile,
+    )
 
 
 def _candidate_command(

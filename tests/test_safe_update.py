@@ -291,8 +291,9 @@ def test_vanilla_profile_preserves_host_settings_without_mutating_source(
     assert vanilla["game"]["maxPlayers"] == 128
     assert vanilla["game"]["mods"] == []
     assert vanilla["game"]["scenarioId"] == safe_update.DEFAULT_VANILLA_SCENARIO
-    assert vanilla["game"]["gameProperties"]["persistence"] is False
+    assert vanilla["game"]["gameProperties"]["persistence"] is True
     assert vanilla["game"]["gameProperties"]["battlEye"] is True
+    assert vanilla["game"]["name"] == "Production"
     assert list((destination / "addons").iterdir()) == []
     assert json.loads(config_path.read_text(encoding="utf-8")) == source
 
@@ -311,7 +312,7 @@ def test_vanilla_profile_preserves_new_persistence_object_schema(tmp_path: Path)
 
     vanilla = json.loads((destination / "config.json").read_text(encoding="utf-8"))
     assert vanilla["game"]["gameProperties"]["persistence"] == {
-        "loadSessionSave": False,
+        "loadSessionSave": True,
         "saveInterval": 120,
     }
 
@@ -375,6 +376,8 @@ def test_modded_rejection_promotes_vanilla_and_parks_complete_profile(
     assert active["game"]["password"] == "production-secret"
     assert parked["game"]["scenarioId"] == "{CUSTOM}Missions/Custom.conf"
     assert parked["game"]["mods"][0]["name"] == "WCS"
+    assert set(parked) == {"game"}
+    assert set(parked["game"]) == {"scenarioId", "mods"}
     assert not (update_paths.parked_modded_profile / "addons").exists()
     assert (config_path.parent / "addons" / "WCS" / "mod.pak").is_file()
     parked_details = safe_update.get_parked_modded_profile(server, config_path)
@@ -413,6 +416,13 @@ def test_activate_vanilla_then_retry_complete_modded_profile(
     assert json.loads(config_path.read_text(encoding="utf-8"))["game"]["mods"] == []
     assert any("Vanilla mode is active" in line for line in vanilla_output)
 
+    current = json.loads(config_path.read_text(encoding="utf-8"))
+    current["game"]["admins"] = ["admin-added-while-vanilla"]
+    current["game"]["password"] = "new-production-secret"
+    current["game"]["maxPlayers"] = 96
+    current["rcon"]["password"] = "new-rcon-secret"
+    config_path.write_text(json.dumps(current), encoding="utf-8")
+
     retry_output = list(
         safe_update.retry_modded(
             server,
@@ -428,6 +438,10 @@ def test_activate_vanilla_then_retry_complete_modded_profile(
     restored = json.loads(config_path.read_text(encoding="utf-8"))
     assert restored["game"]["scenarioId"] == "{CUSTOM}Missions/Custom.conf"
     assert restored["game"]["mods"][0]["name"] == "WCS"
+    assert restored["game"]["admins"] == ["admin-added-while-vanilla"]
+    assert restored["game"]["password"] == "new-production-secret"
+    assert restored["game"]["maxPlayers"] == 96
+    assert restored["rcon"]["password"] == "new-rcon-secret"
     assert (config_path.parent / "addons" / "WCS" / "mod.pak").is_file()
     assert not update_paths.parked_modded_profile.exists()
     assert safe_update.get_compatibility_status(server, config_path).active_mode == "modded"
@@ -513,6 +527,8 @@ def test_automatic_vanilla_fallback_can_be_disabled(tmp_path: Path, monkeypatch)
 def test_named_profiles_can_be_created_and_switched_both_ways(tmp_path: Path):
     server, config_path = _layout(tmp_path)
     adapter = FakeServiceAdapter()
+    mods_state = config_path.parent.parent / "mods-state.json"
+    mods_state.write_text('{"disabled": ["kept"]}\n', encoding="utf-8")
     renamed = safe_update.rename_active_profile(
         server,
         config_path,
@@ -527,6 +543,18 @@ def test_named_profiles_can_be_created_and_switched_both_ways(tmp_path: Path):
     )
     assert created.mode == "vanilla"
     assert created.mod_count == 0
+    stored_vanilla = json.loads(
+        (Path(created.path) / "config.json").read_text(encoding="utf-8")
+    )
+    assert set(stored_vanilla) == {"game"}
+    assert set(stored_vanilla["game"]) == {"scenarioId", "mods"}
+
+    current = json.loads(config_path.read_text(encoding="utf-8"))
+    current["game"]["admins"] = ["current-admin"]
+    current["game"]["password"] = "current-password"
+    current["game"]["maxPlayers"] = 64
+    current["rcon"]["password"] = "current-rcon"
+    config_path.write_text(json.dumps(current), encoding="utf-8")
 
     before = safe_update.get_named_profiles(server, config_path)
     assert [(item.name, item.active) for item in before] == [
@@ -548,7 +576,13 @@ def test_named_profiles_can_be_created_and_switched_both_ways(tmp_path: Path):
         )
     )
     update_paths = safe_update.resolve_update_paths(server, config_path)
-    assert json.loads(config_path.read_text(encoding="utf-8"))["game"]["mods"] == []
+    active_vanilla = json.loads(config_path.read_text(encoding="utf-8"))
+    assert active_vanilla["game"]["mods"] == []
+    assert active_vanilla["game"]["admins"] == ["current-admin"]
+    assert active_vanilla["game"]["password"] == "current-password"
+    assert active_vanilla["game"]["maxPlayers"] == 64
+    assert active_vanilla["rcon"]["password"] == "current-rcon"
+    assert mods_state.read_text(encoding="utf-8") == '{"disabled": ["kept"]}\n'
     assert not (update_paths.profiles_root / "zakarpattia" / "addons").exists()
     assert (config_path.parent / "addons" / "WCS" / "mod.pak").is_file()
     assert not (update_paths.profiles_root / "vanilla-everon").exists()
@@ -574,7 +608,19 @@ def test_named_profiles_can_be_created_and_switched_both_ways(tmp_path: Path):
     )
     restored = json.loads(config_path.read_text(encoding="utf-8"))
     assert restored["game"]["mods"][0]["name"] == "WCS"
+    assert restored["game"]["admins"] == ["current-admin"]
+    assert restored["game"]["password"] == "current-password"
+    assert restored["game"]["maxPlayers"] == 64
+    assert restored["rcon"]["password"] == "current-rcon"
+    assert mods_state.read_text(encoding="utf-8") == '{"disabled": ["kept"]}\n'
     assert (update_paths.profiles_root / "vanilla-everon" / "config.json").is_file()
+    stored_selection = json.loads(
+        (update_paths.profiles_root / "vanilla-everon" / "config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert set(stored_selection) == {"game"}
+    assert set(stored_selection["game"]) == {"scenarioId", "mods"}
     assert not (update_paths.profiles_root / "zakarpattia").exists()
 
 

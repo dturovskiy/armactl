@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,6 @@ from armactl.update_compatibility import (
     DEFAULT_VANILLA_SCENARIO,
     MODDED_MODE,
     VANILLA_MODE,
-    make_vanilla_profile,
 )
 
 DEFAULT_ACTIVE_PROFILE = "modded"
@@ -103,28 +103,64 @@ def write_policy(policy_path: Path, *, automatic_vanilla_fallback: bool) -> Upda
 
 
 def inspect_profile(name: str, profile: Path, *, active: bool) -> NamedProfile:
-    try:
-        config = load_config(profile / "config.json")
-    except ConfigError as exc:
-        raise UpdateProfileError(f"Profile {name} has an invalid config: {exc}") from exc
-    game = config.get("game")
-    if not isinstance(game, dict):
-        raise UpdateProfileError(f"Profile {name} is missing the game object.")
-    mods = game.get("mods", [])
-    mod_count = len(mods) if isinstance(mods, list) else 0
-    scenario_id = str(game.get("scenarioId") or "")
+    config = read_profile_selection(profile)
+    game = config["game"]
+    mods = game["mods"]
+    scenario_id = game["scenarioId"]
     return NamedProfile(
         name=name,
         active=active,
         mode=(
             MODDED_MODE
-            if mod_count or scenario_id != DEFAULT_VANILLA_SCENARIO
+            if mods or scenario_id != DEFAULT_VANILLA_SCENARIO
             else VANILLA_MODE
         ),
         scenario_id=scenario_id,
-        mod_count=mod_count,
+        mod_count=len(mods),
         path=str(profile),
     )
+
+
+def _normalize_profile_selection(config: dict[str, Any]) -> dict[str, Any]:
+    game = config.get("game")
+    if not isinstance(game, dict):
+        raise UpdateProfileError("Profile is missing the game object.")
+    mods = game.get("mods", [])
+    if not isinstance(mods, list):
+        raise UpdateProfileError("Profile game.mods must be a list.")
+    scenario_id = game.get("scenarioId")
+    if not isinstance(scenario_id, str) or not scenario_id.strip():
+        raise UpdateProfileError("Profile game.scenarioId must be a non-empty string.")
+    return {
+        "game": {
+            "scenarioId": scenario_id,
+            "mods": deepcopy(mods),
+        }
+    }
+
+
+def read_profile_selection(profile: Path) -> dict[str, Any]:
+    """Read the only settings owned by a named compatibility profile."""
+    config_path = profile / "config.json"
+    if not config_path.is_file() or config_path.is_symlink():
+        raise UpdateProfileError("Profile config is missing or unsafe.")
+    try:
+        config = load_config(config_path)
+    except ConfigError as exc:
+        raise UpdateProfileError(f"Profile has an invalid config: {exc}") from exc
+    return _normalize_profile_selection(config)
+
+
+def write_profile_selection(destination: Path, selection: dict[str, Any]) -> None:
+    """Persist a selection-only profile without copying runtime configuration."""
+    normalized = _normalize_profile_selection(selection)
+    destination.mkdir(parents=True, mode=0o700)
+    target = destination / "config.json"
+    target.write_text(
+        json.dumps(normalized, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    os.chmod(target, 0o600)
 
 
 def list_profiles(
@@ -161,23 +197,15 @@ def create_profile(
     profiles_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
         if vanilla:
-            make_vanilla_profile(active_profile, destination)
-            addons = destination / "addons"
-            if addons.is_dir():
-                addons.rmdir()
+            active_selection = read_profile_selection(active_profile)
+            active_selection["game"]["scenarioId"] = DEFAULT_VANILLA_SCENARIO
+            active_selection["game"]["mods"] = []
+            write_profile_selection(destination, active_selection)
         else:
-            config = active_profile / "config.json"
-            if not config.is_file() or config.is_symlink():
-                raise UpdateProfileError("Active profile config is missing or unsafe.")
-            destination.mkdir(mode=0o700)
-            destination_config = destination / "config.json"
-            destination_config.write_bytes(config.read_bytes())
-            os.chmod(destination_config, 0o600)
-            active_mods_state = active_profile.parent / "mods-state.json"
-            if active_mods_state.is_file() and not active_mods_state.is_symlink():
-                destination_state = destination / "mods-state.json"
-                destination_state.write_bytes(active_mods_state.read_bytes())
-                os.chmod(destination_state, 0o600)
+            write_profile_selection(
+                destination,
+                read_profile_selection(active_profile),
+            )
     except Exception:
         if destination.is_dir():
             for child in destination.iterdir():

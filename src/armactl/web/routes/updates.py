@@ -37,8 +37,8 @@ _UPDATE_NOTICE_MESSAGES = {
 }
 
 
-def _updates_redirect(notice: str = "") -> RedirectResponse:
-    target = "/updates"
+def _updates_redirect(notice: str = "", *, return_to: str = "") -> RedirectResponse:
+    target = "/dashboard" if return_to == "dashboard" else "/updates"
     if notice in _UPDATE_NOTICE_MESSAGES:
         target = f"{target}?notice={notice}"
     return RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
@@ -165,6 +165,7 @@ def _profile_job_response(
     *,
     action: str,
     name: str = "",
+    return_to: str = "",
 ) -> Response:
     try:
         server_job_actions.request_server_profile_action_and_start(
@@ -179,29 +180,31 @@ def _profile_job_response(
         return PlainTextResponse(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
     except server_job_actions.ServerJobAuditError as exc:
         return PlainTextResponse(str(exc), status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    return _updates_redirect("profile-queued")
+    return _updates_redirect("profile-queued", return_to=return_to)
 
 
 @router.post("/updates/vanilla")
 def activate_vanilla_profile(
     request: Request,
     csrf_token: str = Form(default=""),
+    return_to: str = Form(default=""),
 ) -> Response:
     current = _require_update_action(request, csrf_token)
     if isinstance(current, Response):
         return current
-    return _profile_job_response(current, action="vanilla")
+    return _profile_job_response(current, action="vanilla", return_to=return_to)
 
 
 @router.post("/updates/retry-modded")
 def retry_modded_profile(
     request: Request,
     csrf_token: str = Form(default=""),
+    return_to: str = Form(default=""),
 ) -> Response:
     current = _require_update_action(request, csrf_token)
     if isinstance(current, Response):
         return current
-    return _profile_job_response(current, action="retry-modded")
+    return _profile_job_response(current, action="retry-modded", return_to=return_to)
 
 
 @router.post("/updates/profile/switch")
@@ -209,11 +212,17 @@ def switch_named_profile(
     request: Request,
     csrf_token: str = Form(default=""),
     profile_name: str = Form(default=""),
+    return_to: str = Form(default=""),
 ) -> Response:
     current = _require_update_action(request, csrf_token)
     if isinstance(current, Response):
         return current
-    return _profile_job_response(current, action="switch", name=profile_name)
+    return _profile_job_response(
+        current,
+        action="switch",
+        name=profile_name,
+        return_to=return_to,
+    )
 
 
 @router.post("/updates/profile/create")
@@ -240,6 +249,7 @@ def set_auto_fallback(
     request: Request,
     csrf_token: str = Form(default=""),
     setting: str = Form(default=""),
+    return_to: str = Form(default=""),
 ) -> Response:
     current = _require_update_action(request, csrf_token)
     if isinstance(current, Response):
@@ -291,4 +301,7 @@ def set_auto_fallback(
             str(exc),
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
-    return _updates_redirect("policy-enabled" if enabled else "policy-disabled")
+    return _updates_redirect(
+        "policy-enabled" if enabled else "policy-disabled",
+        return_to=return_to,
+    )

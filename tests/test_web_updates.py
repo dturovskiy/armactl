@@ -109,6 +109,49 @@ def _updates_csrf_token(client) -> str:
     return _form_token(response.text)
 
 
+def test_dashboard_profile_switch_redirects_back_to_dashboard(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services import server_job_actions
+
+    password = "owner updates password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_updates_page(
+        monkeypatch,
+        _updates_page(server_versions.SERVER_VERSION_CHECK_UPTODATE),
+    )
+    requested: dict[str, str] = {}
+
+    def request_profile(*args, action: str, name: str, **kwargs):
+        del args, kwargs
+        requested.update(action=action, name=name)
+
+    monkeypatch.setattr(
+        server_job_actions,
+        "request_server_profile_action_and_start",
+        request_profile,
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _updates_csrf_token(client)
+
+    response = client.post(
+        "/updates/profile/switch",
+        data={
+            "csrf_token": csrf_token,
+            "profile_name": "serhiivka-modded",
+            "return_to": "dashboard",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/dashboard?notice=profile-queued"
+    assert requested == {"action": "switch", "name": "serhiivka-modded"}
+
+
 @pytest.mark.parametrize(
     ("check_state", "message", "state_label", "check_disabled", "shows_update"),
     [

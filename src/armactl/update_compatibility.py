@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import shutil
 from copy import deepcopy
 from dataclasses import dataclass
@@ -22,7 +21,6 @@ VALID_MODES = frozenset({MODDED_MODE, VANILLA_MODE})
 # Official Conflict (Everon). This is deliberately an official, addon-free
 # scenario so a server can remain playable while Workshop authors catch up.
 DEFAULT_VANILLA_SCENARIO = "{ECC61978EDCC2B5A}Missions/23_Campaign.conf"
-VANILLA_NAME_SUFFIX = " [vanilla compatibility]"
 MAX_SERVER_NAME_LENGTH = 100
 
 _BACKUP_METADATA_SUFFIXES = frozenset(
@@ -109,7 +107,7 @@ def make_vanilla_profile(
     *,
     scenario_id: str = DEFAULT_VANILLA_SCENARIO,
 ) -> int:
-    """Create a fresh addon-free profile while preserving safe host settings."""
+    """Create an addon-free config changing only scenario and active mods."""
     if destination.exists() or destination.is_symlink():
         raise CompatibilityConfigError(
             f"Refusing to overwrite an existing vanilla profile: {destination}"
@@ -127,22 +125,6 @@ def make_vanilla_profile(
     vanilla_game = vanilla["game"]
     vanilla_game["scenarioId"] = scenario_id
     vanilla_game["mods"] = []
-
-    name = str(vanilla_game.get("name") or "Arma Reforger")
-    name = re.sub(r"(?: \[vanilla compatibility\])+\Z", "", name)
-    vanilla_game["name"] = f"{name}{VANILLA_NAME_SUFFIX}"[:MAX_SERVER_NAME_LENGTH]
-
-    properties = vanilla_game.get("gameProperties")
-    if not isinstance(properties, dict):
-        properties = {}
-        vanilla_game["gameProperties"] = properties
-    # A modded persistent save can reference entities absent from vanilla. Newer
-    # Reforger schemas use an object here; older schemas accepted a boolean.
-    persistence = properties.get("persistence")
-    if isinstance(persistence, dict):
-        persistence["loadSessionSave"] = False
-    else:
-        properties["persistence"] = False
 
     destination.mkdir(parents=True, mode=0o700)
     (destination / "addons").mkdir(mode=0o700)

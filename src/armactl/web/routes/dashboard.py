@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
+from armactl import paths
 from armactl.web.auth.cookies import clear_csrf_cookie, clear_session_cookie, set_csrf_cookie
 from armactl.web.auth.dependencies import (
     CurrentSession,
@@ -31,13 +32,21 @@ from armactl.web.auth.permissions import (
 from armactl.web.i18n import resolve_language, translation_helpers
 from armactl.web.jobs.store import list_active_jobs
 from armactl.web.page_models import dashboard as dashboard_page_model
+from armactl.web.page_models import updates as updates_page_model
 from armactl.web.services.pending_work import list_pending_work_with_fallback
 from armactl.web.views.dashboard import (
     build_dashboard_status_payload,
     build_dashboard_view,
 )
+from armactl.web.views.updates import build_updates_view
 
 router = APIRouter()
+
+_PROFILE_NOTICES = {
+    "profile-queued": "Profile operation queued.",
+    "policy-enabled": "Automatic vanilla fallback enabled.",
+    "policy-disabled": "Automatic vanilla fallback disabled.",
+}
 
 
 def _redirect_to_login(request: Request) -> RedirectResponse:
@@ -95,6 +104,24 @@ def _render_dashboard(request: Request, current: CurrentSession) -> Response:
         current.config.db_path, instance="default", limit=3
     )
     pending_work_detail_href = "/jobs" if can_view_jobs else ""
+    profile_control = None
+    config_path = paths.config_file("default", current.config.data_root)
+    if permissions["can_update_server"] and config_path.is_file():
+        try:
+            raw_updates = updates_page_model.load_updates_page(
+                "default",
+                web_config=current.config,
+            )
+            profile_control = build_updates_view(
+                raw_updates,
+                can_update_server=True,
+                action_notice=_PROFILE_NOTICES.get(
+                    str(request.query_params.get("notice") or ""),
+                    "",
+                ),
+            )
+        except Exception:  # noqa: BLE001 - the main dashboard must remain available.
+            profile_control = None
     response = templates.TemplateResponse(
         request=request,
         name="dashboard.html",
@@ -106,6 +133,7 @@ def _render_dashboard(request: Request, current: CurrentSession) -> Response:
             "recent_jobs": recent_jobs,
             "pending_work_items": pending_work_items,
             "pending_work_detail_href": pending_work_detail_href,
+            "profile_control": profile_control,
         },
     )
     if form_csrf.should_set_cookie:

@@ -735,6 +735,73 @@ def test_dashboard_stopped_server_shows_start_fps_actions(tmp_path: Path, monkey
     assert 'href="/config"' in response.text
 
 
+def test_dashboard_shows_manual_selection_only_profile_switcher(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.page_models import updates as updates_page_model
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch, lifecycle="stopped")
+    config_path = tmp_path / "default" / "config" / "config.json"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        updates_page_model,
+        "load_updates_page",
+        lambda *args, **kwargs: {
+            "instance": "default",
+            "server_installed": True,
+            "server_running": False,
+            "version": {
+                "check_state": "up_to_date",
+                "installed": "200",
+                "latest": "200",
+            },
+            "compatibility": {
+                "available": True,
+                "active_mode": "vanilla",
+                "parked_modded_available": True,
+            },
+            "profiles": [
+                {
+                    "name": "vanilla",
+                    "active": True,
+                    "mode": "vanilla",
+                    "scenario_id": "Everon.conf",
+                    "mod_count": 0,
+                },
+                {
+                    "name": "serhiivka-modded",
+                    "active": False,
+                    "mode": "modded",
+                    "scenario_id": "Serhiivka.conf",
+                    "mod_count": 35,
+                },
+            ],
+            "policy": {"automatic_vanilla_fallback": True},
+        },
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert 'id="compatibility-profiles"' in response.text
+    assert "Manual profile control" in response.text
+    assert "game.scenarioId and game.mods" in response.text
+    assert "Admins, passwords, player limit, ports, RCON" in response.text
+    assert "serhiivka-modded" in response.text
+    assert 'action="/updates/profile/switch"' in response.text
+    assert 'name="profile_name" value="serhiivka-modded"' in response.text
+    assert response.text.count('name="return_to" value="dashboard"') >= 4
+    assert 'action="/updates/auto-fallback"' in response.text
+    assert "Disable automatic fallback" in response.text
+
+
 def test_dashboard_starting_server_hides_service_actions(tmp_path: Path, monkeypatch):
     from armactl.web.app import create_app
 

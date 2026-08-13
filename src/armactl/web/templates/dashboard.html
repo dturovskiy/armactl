@@ -57,6 +57,80 @@
   </div>
 </section>
 
+{% if profile_control %}
+<section class="dashboard-section" id="compatibility-profiles">
+  <div class="section-heading-row">
+    <h2>{{ t("Manual profile control") }}</h2>
+    {% if profile_control.compatibility.available %}
+      <span class="status-pill status-pill-{% if profile_control.compatibility.active_mode == 'vanilla' %}warning{% else %}ok{% endif %}">{{ t(profile_control.compatibility.active_mode|capitalize) }}</span>
+    {% endif %}
+  </div>
+  <p class="muted">{{ t("Profiles change only game.scenarioId and game.mods. Admins, passwords, player limit, ports, RCON, persistence, server name, and every other current setting stay unchanged. All profiles share config/addons; inactive Workshop files remain in place and are ignored after restart.") }}</p>
+  {% if profile_control.action_notice %}
+    <p class="notice-inline notice-success">{{ t(profile_control.action_notice) }}</p>
+  {% endif %}
+  {% if profile_control.profile_actions_disabled_reason %}
+    <p class="notice-inline notice-warning">{{ t(profile_control.profile_actions_disabled_reason) }}</p>
+  {% endif %}
+
+  <div class="action-grid">
+    <form method="post" action="/updates/vanilla" class="action-form action-tile">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="return_to" value="dashboard">
+      <button type="submit"{% if not profile_control.profile_actions_enabled or profile_control.compatibility.active_mode == 'vanilla' %} disabled aria-disabled="true"{% endif %}>{{ t("Activate official vanilla") }}</button>
+      <span class="muted">{{ t("Uses official Conflict Everon with an empty mod list.") }}</span>
+    </form>
+    <form method="post" action="/updates/retry-modded" class="action-form action-tile">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="return_to" value="dashboard">
+      <button type="submit"{% if not profile_control.profile_actions_enabled or not profile_control.compatibility.parked_modded_available %} disabled aria-disabled="true"{% endif %}>{{ t("Test and restore modded") }}</button>
+      <span class="muted">{{ t("Restores only after the parked modded config passes its canary.") }}</span>
+    </form>
+  </div>
+
+  {% if profile_control.profiles %}
+    <div class="player-table-wrap">
+      <table>
+        <thead><tr><th>{{ t("Profile") }}</th><th>{{ t("Scenario") }}</th><th>{{ t("Mods") }}</th><th>{{ t("Action") }}</th></tr></thead>
+        <tbody>
+          {% for profile in profile_control.profiles %}
+            <tr>
+              <td>{{ profile.name }}{% if profile.active %} <span class="status-pill status-pill-ok">{{ t("Active") }}</span>{% endif %}</td>
+              <td class="wrap-value"><code>{{ profile.scenario_id or t("unknown") }}</code></td>
+              <td>{{ profile.mod_count }}</td>
+              <td>
+                {% if profile.active %}
+                  <span class="muted">{{ t("Currently active") }}</span>
+                {% else %}
+                  <form method="post" action="/updates/profile/switch" class="action-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="return_to" value="dashboard">
+                    <input type="hidden" name="profile_name" value="{{ profile.name }}">
+                    <button type="submit"{% if not profile_control.profile_actions_enabled %} disabled aria-disabled="true"{% endif %}>{{ t("Switch") }}</button>
+                  </form>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  <div class="section-heading-row">
+    <h3>{{ t("Automatic vanilla fallback") }}</h3>
+    <span class="status-pill status-pill-{% if profile_control.policy.automatic_vanilla_fallback %}ok{% else %}warning{% endif %}">{{ t("Enabled") if profile_control.policy.automatic_vanilla_fallback else t("Disabled") }}</span>
+  </div>
+  <form method="post" action="/updates/auto-fallback" class="action-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="return_to" value="dashboard">
+    <input type="hidden" name="setting" value="{% if profile_control.policy.automatic_vanilla_fallback %}off{% else %}on{% endif %}">
+    <button type="submit">{{ t("Disable automatic fallback") if profile_control.policy.automatic_vanilla_fallback else t("Enable automatic fallback") }}</button>
+    <a class="button-link secondary-link" href="/updates#compatibility-profiles">{{ t("Updates") }}</a>
+  </form>
+</section>
+{% endif %}
+
 <section class="dashboard-section">
   <h2>{{ t("Quick actions") }}</h2>
   {% if dashboard.actions %}

@@ -13,13 +13,13 @@ addons to make a server boot.
    and mod stack against the shared Workshop addon pool.
 4. If the modded canary passes, promote the candidate in modded mode.
 5. If it fails, canary-test the same build with official Conflict Everon,
-   `game.mods: []`, and persistence disabled.
+   `game.mods: []`. Every other active server setting remains unchanged.
 6. If vanilla passes, atomically park the modded config bundle at
    `<instance>/server-update/parked-modded-profile/` and activate the new build
    with the generated vanilla profile.
 7. If vanilla also fails, leave the active package and profile unchanged.
 
-The parked bundle contains the original `config.json` and its mod/scenario
+The parked bundle contains only the original `game.scenarioId` and `game.mods`
 selection. Workshop payload stays in the canonical `<instance>/config/addons/`
 pool. Profile switching never clones, moves, or deletes those files. A vanilla
 profile has `game.mods: []`, so after restart the server simply ignores every
@@ -58,13 +58,15 @@ Canary logs are disposable and stay under `<instance>/server-update/canary-logs/
 
 ## Named profiles and automatic policy
 
-Profiles are operator-owned config bundles. The active `config.json` occupies
-`<instance>/config/`; inactive profiles live under
+Profiles are operator-owned scenario/mod selections. The full active
+`config.json` occupies `<instance>/config/`; inactive selections live under
 `<instance>/server-update/profiles/<name>/`. All profiles share the one canonical
-`<instance>/config/addons/` pool. A successful switch changes only the active
-config and optional armactl mod-state sidecar; it does not touch addon payload.
-The selected profile is always canary-tested against the current server build
-and shared addon pool before the service starts it.
+`<instance>/config/addons/` pool. A successful switch changes only
+`game.scenarioId` and `game.mods`. Admins, passwords, player limits, ports,
+RCON, persistence, server name, other config fields, and `mods-state.json`
+remain exactly as they are in the active instance. The selected profile is
+always canary-tested against the current server build and shared addon pool
+before the service starts it.
 
 ```text
 armactl update profile list

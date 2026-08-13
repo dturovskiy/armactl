@@ -10,7 +10,7 @@
 </form>
 {% endblock %}
 {% block content %}
-<section class="panel full-width">
+<section class="panel full-width" id="compatibility-profiles">
   <div class="section-heading-row">
     <h2>{{ t("Build status") }}</h2>
     <span class="status-pill status-pill-{{ page.status.css_class }}">{{ t(page.status.check_state_label) }}</span>
@@ -96,7 +96,7 @@
       <span class="status-pill status-pill-{% if page.compatibility.active_mode == 'vanilla' %}warning{% else %}ok{% endif %}">{{ t(page.compatibility.active_mode|capitalize) }}</span>
     {% endif %}
   </div>
-  <p class="muted">{{ t("Profiles change only config and the active mod list. All profiles share config/addons; switching never copies, moves, or deletes Workshop files. Mods absent from the active list are ignored after restart.") }}</p>
+  <p class="muted">{{ t("Profiles change only game.scenarioId and game.mods. Admins, passwords, player limit, ports, RCON, persistence, server name, and every other current setting stay unchanged. All profiles share config/addons; inactive Workshop files remain in place and are ignored after restart.") }}</p>
   {% if page.compatibility.available %}
     <dl class="key-value-list">
       <dt>{{ t("Active build") }}</dt>
