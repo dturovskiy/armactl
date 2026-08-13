@@ -698,3 +698,229 @@ def test_native_ban_timeout_override_is_bounded() -> None:
 def test_rcon_module_exposes_no_generic_command_executor() -> None:
     assert not hasattr(rcon, "execute_rcon_command")
     assert not hasattr(rcon, "query_rcon_command")
+
+
+NATIVE_MODERATION_TARGET = "21761a7f-c9b4-4bff-8375-b4b43abb95ec"
+
+
+@pytest.mark.parametrize(
+    "target",
+    ("", "nickname only", "id\n#shutdown", "198.51.100.10"),
+)
+def test_native_moderation_target_rejects_untyped_or_unsafe_values(
+    target: str,
+) -> None:
+    with pytest.raises(ValueError, match="identity is invalid"):
+        rcon.normalize_native_ban_target(target)
+
+
+@pytest.mark.parametrize(
+    "duration",
+    (-1, rcon.NATIVE_BAN_MAX_DURATION_SECONDS + 1, True, "3600"),
+)
+def test_native_ban_duration_is_strictly_bounded(duration: object) -> None:
+    with pytest.raises(ValueError, match="duration"):
+        rcon.normalize_native_ban_duration(duration)
+
+
+@pytest.mark.parametrize(
+    "reason",
+    ("bad\nreason", "teamkilling\rretry", "reason-" + chr(0x451), "x" * 161),
+)
+def test_native_ban_reason_rejects_controls_non_ascii_and_oversize(
+    reason: str,
+) -> None:
+    with pytest.raises(ValueError, match="reason"):
+        rcon.normalize_native_ban_reason(reason)
+
+
+@pytest.mark.parametrize(
+    ("response", "status", "error_code"),
+    (
+        (
+            "Permission denied password=raw-secret 198.51.100.10:19999",
+            rcon.NATIVE_MODERATION_STATUS_REJECTED,
+            rcon.NATIVE_BAN_ERROR_PERMISSION_DENIED,
+        ),
+        (
+            "Unknown command #ban create token=raw-secret",
+            rcon.NATIVE_MODERATION_STATUS_REJECTED,
+            rcon.NATIVE_BAN_ERROR_COMMAND_UNAVAILABLE,
+        ),
+        (
+            "Processing Command: #ban create sanitized fixture",
+            rcon.NATIVE_MODERATION_STATUS_DISPATCHED,
+            "",
+        ),
+        ("", rcon.NATIVE_MODERATION_STATUS_DISPATCHED, ""),
+    ),
+)
+def test_native_moderation_response_classification_is_controlled(
+    response: str,
+    status: str,
+    error_code: str,
+) -> None:
+    result = rcon._parse_native_moderation_command_response(
+        response,
+        action=rcon.NATIVE_MODERATION_ACTION_BAN,
+        target_identity=NATIVE_MODERATION_TARGET,
+    )
+
+    assert result.status == status
+    assert result.dispatched is True
+    assert result.error_code == error_code
+    serialized = repr(result)
+    for forbidden in (
+        "raw-secret",
+        "198.51.100.10",
+        "19999",
+        "#ban create",
+        "password",
+        "token",
+    ):
+        assert forbidden not in serialized
+
+
+def test_typed_native_ban_and_unban_send_only_bounded_commands() -> None:
+    commands: list[str] = []
+
+    class FakeSession:
+        last_response_complete = True
+
+        def __init__(self, host: str, port: int, password: str, timeout: float):
+            assert (host, port, password) == ("127.0.0.1", 19999, "raw-secret")
+            assert timeout == rcon.RCON_NATIVE_BAN_TIMEOUT_SECONDS
+
+        def login(self) -> None:
+            pass
+
+        def send_command(self, command: str) -> str:
+            commands.append(command)
+            return ""
+
+        def logout(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    with (
+        patch("armactl.rcon.discover", return_value=_native_ban_server_state()),
+        patch(
+            "armactl.rcon.load_config",
+            return_value={"rcon": {"password": "raw-secret", "port": 19999}},
+        ),
+        patch("armactl.rcon._RconSession", FakeSession),
+    ):
+        created = rcon.create_native_ban(
+            "default",
+            target_identity=NATIVE_MODERATION_TARGET,
+            duration_seconds=3600,
+            reason="teamkilling",
+        )
+        removed = rcon.remove_native_ban(
+            "default",
+            target_identity=NATIVE_MODERATION_TARGET,
+        )
+
+    assert created.status == rcon.NATIVE_MODERATION_STATUS_DISPATCHED
+    assert created.dispatched is True
+    assert removed.status == rcon.NATIVE_MODERATION_STATUS_DISPATCHED
+    assert removed.dispatched is True
+    assert commands == [
+        f"#ban create {NATIVE_MODERATION_TARGET} 3600 teamkilling",
+        f"#ban remove {NATIVE_MODERATION_TARGET}",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_status"),
+    (
+        (
+            rcon.RconError("RCON command timed out password=raw-secret"),
+            rcon.NATIVE_MODERATION_STATUS_UNCERTAIN,
+        ),
+        (
+            OSError("network lost 198.51.100.10:19999"),
+            rcon.NATIVE_MODERATION_STATUS_UNCERTAIN,
+        ),
+    ),
+)
+def test_native_moderation_transport_failure_after_send_is_uncertain(
+    failure: Exception,
+    expected_status: str,
+) -> None:
+    class FakeSession:
+        last_response_complete = True
+
+        def __init__(self, host: str, port: int, password: str, timeout: float):
+            pass
+
+        def login(self) -> None:
+            pass
+
+        def send_command(self, command: str) -> str:
+            raise failure
+
+        def logout(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    with (
+        patch("armactl.rcon.discover", return_value=_native_ban_server_state()),
+        patch(
+            "armactl.rcon.load_config",
+            return_value={"rcon": {"password": "raw-secret", "port": 19999}},
+        ),
+        patch("armactl.rcon._RconSession", FakeSession),
+    ):
+        result = rcon.remove_native_ban(
+            "default",
+            target_identity=NATIVE_MODERATION_TARGET,
+        )
+
+    assert result.status == expected_status
+    assert result.dispatched is True
+    for forbidden in ("raw-secret", "198.51.100.10", "19999", "password"):
+        assert forbidden not in repr(result)
+
+
+def test_native_moderation_incomplete_response_is_uncertain() -> None:
+    class FakeSession:
+        last_response_complete = False
+
+        def __init__(self, host: str, port: int, password: str, timeout: float):
+            pass
+
+        def login(self) -> None:
+            pass
+
+        def send_command(self, command: str) -> str:
+            return "unverified raw response password=raw-secret"
+
+        def logout(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    with (
+        patch("armactl.rcon.discover", return_value=_native_ban_server_state()),
+        patch(
+            "armactl.rcon.load_config",
+            return_value={"rcon": {"password": "raw-secret", "port": 19999}},
+        ),
+        patch("armactl.rcon._RconSession", FakeSession),
+    ):
+        result = rcon.create_native_ban(
+            "default",
+            target_identity=NATIVE_MODERATION_TARGET,
+            duration_seconds=0,
+        )
+
+    assert result.status == rcon.NATIVE_MODERATION_STATUS_UNCERTAIN
+    assert result.dispatched is True
+    assert result.error_code == rcon.NATIVE_BAN_ERROR_MALFORMED_RESPONSE
+    assert "raw-secret" not in repr(result)

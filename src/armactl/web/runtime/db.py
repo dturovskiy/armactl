@@ -7,7 +7,7 @@ import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 
-WEB_SCHEMA_VERSION = "15"
+WEB_SCHEMA_VERSION = "16"
 PRIVATE_FILE_MODE = 0o600
 _LEGACY_DEFAULT_TIMESTAMP = "1970-01-01T00:00:00+00:00"
 
@@ -821,6 +821,44 @@ def _ensure_web_player_session_scheduler_schema(
     )
 
 
+def _ensure_web_moderation_verifications_schema(
+    connection: sqlite3.Connection,
+) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS web_moderation_verifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            instance TEXT NOT NULL CHECK(length(trim(instance)) > 0),
+            action TEXT NOT NULL CHECK(action IN ('ban', 'unban')),
+            reliable_identity TEXT NOT NULL
+                CHECK(length(trim(reliable_identity)) > 0),
+            reason_class TEXT NOT NULL
+                CHECK(reason_class IN ('none', 'provided')),
+            verification_state TEXT NOT NULL CHECK(verification_state IN (
+                'pending_verification',
+                'pending_outcome_audit',
+                'resolved_changed',
+                'resolved_noop',
+                'resolved_failed'
+            )),
+            created_at TEXT NOT NULL CHECK(length(created_at) > 0),
+            updated_at TEXT NOT NULL CHECK(length(updated_at) > 0)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_web_moderation_verifications_pending
+        ON web_moderation_verifications(
+            instance,
+            verification_state,
+            updated_at,
+            id
+        )
+        """
+    )
+
+
 def _backfill_pending_work_from_restarts(connection: sqlite3.Connection) -> None:
     if not (
         _table_exists(connection, "web_pending_restarts")
@@ -884,6 +922,7 @@ def _ensure_current_web_schema(connection: sqlite3.Connection) -> None:
     _ensure_web_pending_restarts_schema(connection)
     _ensure_web_pending_work_schema(connection)
     _ensure_web_player_session_scheduler_schema(connection)
+    _ensure_web_moderation_verifications_schema(connection)
     _backfill_pending_work_from_restarts(connection)
 
 
@@ -967,6 +1006,10 @@ def _migration_15_web_job_abandoned_status(connection: sqlite3.Connection) -> No
     _rebuild_web_jobs_with_current_status_check(connection)
 
 
+def _migration_16_moderation_verifications(connection: sqlite3.Connection) -> None:
+    _ensure_web_moderation_verifications_schema(connection)
+
+
 _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (1, _migration_1_auth_schema),
     (2, _migration_2_jobs_schema),
@@ -983,6 +1026,7 @@ _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (13, _migration_13_player_session_scheduler_state),
     (14, _migration_14_web_job_worker_lease),
     (15, _migration_15_web_job_abandoned_status),
+    (16, _migration_16_moderation_verifications),
 )
 
 def _read_schema_version(connection: sqlite3.Connection) -> int:

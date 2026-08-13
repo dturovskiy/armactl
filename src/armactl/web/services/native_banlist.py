@@ -2,17 +2,8 @@
 
 from __future__ import annotations
 
-import threading
-
 from armactl import rcon
-
-_LOCKS_GUARD = threading.Lock()
-_INSTANCE_LOCKS: dict[str, threading.Lock] = {}
-
-
-def _instance_lock(instance: str) -> threading.Lock:
-    with _LOCKS_GUARD:
-        return _INSTANCE_LOCKS.setdefault(instance, threading.Lock())
+from armactl.web.services.native_moderation import moderation_lock
 
 
 def parse_page_parameter(value: str) -> int | None:
@@ -39,5 +30,5 @@ def load_native_ban_list(
 ) -> rcon.NativeBanListResult:
     """Read one native page under the moderation operation lock."""
     requested_page = rcon.normalize_native_ban_page(page)
-    with _instance_lock(instance):
+    with moderation_lock(instance):
         return rcon.query_native_ban_list(instance, page=requested_page)

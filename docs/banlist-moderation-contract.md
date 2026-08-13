@@ -2,10 +2,11 @@
 
 ## Status
 
-Slice 7a is the completed audit and design gate for banlist and moderation
-work. Slice 7b implements the typed read-only native adapter and authenticated
-read-only page described below. Mutation, recovery, mutation UI, and production
-acceptance remain split across Slices 7c-7e.
+Slices 7a-7c are complete for design, the typed read-only native adapter/page,
+and the backend-only verified ban/unban service. Slice 7c adds no mutation route,
+template, browser control, or production deployment. Mutation UI and staged
+production acceptance remain split across Slices 7d-7e. Kick remains deferred
+until fresh-roster target resolution and native response fixtures are proven.
 
 ## Authoritative Backend Decision
 
@@ -253,6 +254,14 @@ Rollback/recovery rules:
   mutation;
 - restart is not required for a confirmed native RCON ban/unban.
 
+Slice 7c implements the recovery record in `web.db` schema version 16. The
+record stores only instance, action, normalized reliable identity, reason class,
+verification state, and timestamps. It is not a ban cache or a shadow source of
+truth. Because duration and reason content are deliberately not persisted, a
+ban retry must receive an explicit validated duration and optional replacement
+reason from the operator-facing caller. No blind default can turn an uncertain
+temporary ban into a permanent retry.
+
 ## Kick Contract
 
 Kick is a separate transient action and must not be implemented as a side effect
@@ -268,17 +277,17 @@ of viewing a player or creating a local record.
   truth.
 - Kick may share audit/recovery DTOs with ban/unban, but not target resolution.
 
-Kick may be implemented after ban/unban in Slice 7c or in a narrower follow-up
-if production RCON response fixtures are insufficient. Its absence must not
-block the native ban-list read slice.
+Kick is deferred to a narrower follow-up because the required fresh-roster
+target-resolution and native response fixtures are not yet proven. It is not
+part of the completed Slice 7c ban/unban backend.
 
 ## UI Contract
 
 - The disabled `Ban list - Planned` tab remains disabled through Slice 7a.
 - Slice 7b may enable a read-only list with source/freshness/availability.
 - Mutating controls appear only after Slice 7c service acceptance.
-- Ban/unban requires explicit confirmation; kick requires separate explicit
-  confirmation.
+- Ban/unban requires explicit confirmation through the Slice 7d UI; kick
+  requires separate confirmation and remains absent until the deferred follow-up.
 - Search may use reliable ID or known/current nickname, but the confirmation
   screen displays and submits the normalized reliable identity.
 - Duration uses bounded predefined choices plus a validated exact value only if
@@ -312,25 +321,26 @@ block the native ban-list read slice.
   permission, recovery, UX, and architecture contracts.
 - [x] Slice 7b: typed read-only native ban adapter, fixtures, permission, and
   authenticated read-only list.
-- [ ] Slice 7c: implement typed ban/unban mutations.
-  - [ ] Add bounded typed `#ban create` and `#ban remove` commands plus
+- [x] Slice 7c: implement typed ban/unban mutations.
+  - [x] Add bounded typed `#ban create` and `#ban remove` commands plus
     fixture-proven response classification in `rcon.py`.
-  - [ ] Normalize and validate reliable identity, duration, and bounded reason.
-  - [ ] Add one per-instance moderation lock.
-  - [ ] Read and classify the complete authoritative native baseline.
-  - [ ] Write redacted intent audit before any RCON mutation.
-  - [ ] Execute only the typed native command.
-  - [ ] Re-read the authoritative list after the command.
-  - [ ] Classify changed, idempotent no-op, unchanged failure, or uncertain.
-  - [ ] Write bounded outcome audit without raw command/response data.
-  - [ ] Add a dedicated operator-visible moderation-verification record and
+  - [x] Normalize and validate reliable identity, duration, and bounded reason.
+  - [x] Add one per-instance moderation lock.
+  - [x] Read and classify the complete authoritative native baseline.
+  - [x] Write redacted intent audit before any RCON mutation.
+  - [x] Execute only the typed native command.
+  - [x] Re-read the authoritative list after the command.
+  - [x] Classify changed, idempotent no-op, unchanged failure, or uncertain.
+  - [x] Write bounded outcome audit without raw command/response data.
+  - [x] Add a dedicated operator-visible moderation-verification record and
     read-first retry path; do not reuse restart-pending recovery.
-  - [ ] Add kick only with a fresh reliable roster, exact identity plus current
-    player ID, immediate re-resolution, and fixture-proven response handling.
+  - [ ] Deferred follow-up: add kick only with a fresh reliable roster, exact
+    identity plus current player ID, immediate re-resolution, and
+    fixture-proven response handling.
 - [ ] Slice 7d: implement the mutation UI.
   - [ ] Keep all mutations POST-only, CSRF-protected, and gated by
     `players:moderate`.
-  - [ ] Add separate explicit confirmations for ban, unban, and kick.
+  - [ ] Add separate explicit confirmations for supported ban and unban actions.
   - [ ] Submit normalized reliable identity, bounded duration, and sanitized
     optional reason; nickname remains search/display-only.
   - [ ] Render controlled changed/no-op/failed/uncertain/recovery notices with no

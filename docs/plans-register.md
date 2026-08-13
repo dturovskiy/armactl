@@ -17,7 +17,7 @@ Status meanings:
 
 ## Concrete Open Work
 
-### P1. Native moderation Slices 7c-7e
+### P1. Native moderation Slices 7d-7e
 
 Status: **Open**.
 
@@ -29,34 +29,29 @@ Completed foundation:
   defined identity, privacy, permission, recovery, and architecture rules.
 - Slice 7b added typed bounded `#ban list` parsing/querying and the authenticated
   read-only page gated by `players:moderate`.
+- Slice 7c added typed bounded create/remove commands plus a verified service with
+  idempotent classification, redacted intent/outcome audit, and read-first recovery.
+- `web.db` schema v16 stores only non-authoritative recovery metadata, not reason text or
+  duration.
 - No shadow ban table, SAT/WCS mirror, IP storage, arbitrary RCON endpoint, or
   GET-side mutation was added.
 
 Still open:
 
-- Slice 7c typed `#ban create` and `#ban remove` commands and fixture-proven
-  response classification.
-- Validation of reliable identity, duration, and bounded optional reason.
-- One per-instance moderation lock.
-- Complete authoritative read-before, redacted intent audit, typed mutation,
-  authoritative read-after, and changed/no-op/failure/uncertain classification.
-- Bounded outcome audit.
-- A dedicated moderation-verification recovery record and read-first retry path.
-  Restart-pending recovery is not valid for native RCON uncertainty.
-- Kick only after fresh reliable roster resolution, exact identity/current-player
+- Deferred kick follow-up only after fresh reliable roster resolution, exact
   matching, immediate re-resolution, and proven response fixtures.
-- Slice 7d POST-only CSRF-protected mutation routes, confirmations, notices, and
+- Slice 7d POST-only CSRF-protected ban/unban routes, confirmations, notices, and
   browser/security regressions.
 - Slice 7e Serhiivka-first audited acceptance, followed by Chervonopilya only
   after explicit approval.
 
 Code verification:
 
-- `src/armactl/rcon.py` sends only `#ban list <page>`.
-- Tests explicitly assert that `#ban create`, `#ban remove`, and `#kick`
-  are absent from the read-only web response.
-- There is no mutation service, moderation-verification record, or ban/unban/kick
-  POST route.
+- `rcon.py` exposes bounded typed list/create/remove operations only; no arbitrary executor.
+- `native_moderation.py` owns validation, the shared lock, verified baseline/outcome,
+  idempotency, redacted audit orchestration, and read-first recovery.
+- Schema v16 stores recovery metadata only; no ban truth, reason text, or duration.
+- There is still no ban/unban/kick POST route, mutation UI, or kick command.
 
 ### P2. Diagnostic report download/export
 
@@ -158,7 +153,7 @@ These are procedures, not unfinished features:
   model, current-session stats, search/detail UI, and staged VM acceptance.
 - FPS fractional display, roster stale/unavailable clarity, and current
   Chervonopilya infrastructure validation.
-- Native moderation Slice 7a design and Slice 7b read-only list only.
+- Native moderation Slices 7a-7c: design, read-only list, and verified ban/unban backend.
 
 Representative evidence commits include `3d27b18` (scheduled restart hardening),
 `42ecb77`/`4f50c93` (read-only native bans), `38d071e` through `0b3168c`
@@ -173,7 +168,7 @@ profile-cleanup recovery and planning correction).
 | `docs/checklist.md` | Concise active/conditional public checklist; points here for cross-document status. |
 | `docs/roadmap.md` | Current high-level completed/open summary. |
 | `docs/web-interface-plan.md` | Implemented web baseline, parity decisions, historical audit closure, and remaining gates. |
-| `docs/banlist-moderation-contract.md` | Active authoritative contract: 7a-7b complete; 7c-7e open; IP moderation separate. |
+| `docs/banlist-moderation-contract.md` | Active authoritative contract: 7a-7c complete; 7d-7e open; kick and IP moderation separately gated. |
 | `docs/chervonopilya-fps-roster-stability-plan.md` | Infrastructure investigation complete; log warning open; CLI cache status conditional; mod remediation out of scope unless recurrence. |
 | `docs/safe-config-controls-plan.md` | Current safe set complete; future field groups gated. |
 | `docs/safe-file-editing-contract.md` | Implemented contract; broad file management remains out of scope. |

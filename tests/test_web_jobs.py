@@ -48,6 +48,7 @@ from armactl.web.jobs import (
 )
 from armactl.web.jobs.store import MAX_JOB_OUTPUT_CHARS, TRUNCATED_JOB_OUTPUT_PREFIX
 from armactl.web.runtime import ensure_web_db
+from armactl.web.runtime.db import WEB_SCHEMA_VERSION
 from armactl.web.runtime.job_store_maintenance import (
     JOB_STORE_DUPLICATE_ACTIVE_REPAIR_AT_META_KEY,
     JOB_STORE_DUPLICATE_ACTIVE_REPAIR_COUNT_META_KEY,
@@ -180,7 +181,7 @@ def test_ensure_web_db_creates_jobs_table(tmp_path: Path):
         "worker_lease_expires_at",
     }.issubset(_sqlite_columns(db_path, "web_jobs"))
     ensure_web_db(db_path)
-    assert _schema_meta(db_path)["schema_version"] == "15"
+    assert _schema_meta(db_path)["schema_version"] == WEB_SCHEMA_VERSION
 
 
 def test_enqueue_repairs_duplicate_queued_jobs_idempotently(tmp_path: Path):

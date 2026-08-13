@@ -532,3 +532,41 @@ def test_web_runtime_package_import_does_not_import_tui_or_textual(
         "armactl.web.runtime",
         FORBIDDEN_IMPORT_PREFIXES,
     )
+
+
+def test_ensure_web_db_migrates_v15_moderation_verification_schema(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "web" / "web.db"
+    db_path.parent.mkdir(parents=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE web_schema_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO web_schema_meta(key, value)
+            VALUES ('schema_version', '15')
+            """
+        )
+
+    ensure_web_db(db_path)
+
+    assert _schema_version(db_path) == WEB_SCHEMA_VERSION
+    assert "web_moderation_verifications" in _sqlite_tables(db_path)
+    assert {
+        "id",
+        "instance",
+        "action",
+        "reliable_identity",
+        "reason_class",
+        "verification_state",
+        "created_at",
+        "updated_at",
+    } <= _sqlite_columns(db_path, "web_moderation_verifications")
+    assert "idx_web_moderation_verifications_pending" in _sqlite_indexes(db_path)

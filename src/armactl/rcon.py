@@ -33,6 +33,14 @@ NATIVE_BAN_MIN_PAGE = 1
 NATIVE_BAN_MAX_PAGE = 100
 NATIVE_BAN_PAGE_SIZE = 25
 NATIVE_BAN_MAX_DURATION_SECONDS = 2_147_483_647
+NATIVE_BAN_MAX_REASON_LENGTH = 160
+
+NATIVE_MODERATION_ACTION_BAN = "ban"
+NATIVE_MODERATION_ACTION_UNBAN = "unban"
+NATIVE_MODERATION_STATUS_DISPATCHED = "dispatched"
+NATIVE_MODERATION_STATUS_REJECTED = "rejected"
+NATIVE_MODERATION_STATUS_UNCERTAIN = "uncertain"
+
 
 NATIVE_BAN_STATUS_COMPLETE = "complete"
 NATIVE_BAN_STATUS_PARTIAL = "partial"
@@ -104,6 +112,18 @@ class NativeBanListResult:
     has_next: bool = False
 
 
+@dataclass(frozen=True)
+class NativeModerationCommandResult:
+    """Controlled transport result for one typed native moderation command."""
+
+    action: str
+    target_identity: str
+    dispatched: bool
+    status: str
+    error_code: str = ""
+    error: str = ""
+
+
 def normalize_native_ban_page(page: int) -> int:
     """Validate one native list page without silently changing caller intent."""
     if isinstance(page, bool) or not isinstance(page, int):
@@ -114,6 +134,33 @@ def normalize_native_ban_page(page: int) -> int:
             f"{NATIVE_BAN_MIN_PAGE} and {NATIVE_BAN_MAX_PAGE}."
         )
     return page
+
+
+def normalize_native_ban_target(value: object) -> str:
+    """Validate one typed native player or identity target."""
+    target = str(value or "").strip()
+    if NATIVE_BAN_PLAYER_UID_RE.fullmatch(target) is None:
+        raise ValueError("Native moderation identity is invalid.")
+    return target
+
+
+def normalize_native_ban_duration(value: object) -> int:
+    """Validate the documented native ban duration range."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("Native ban duration must be an integer.")
+    if not 0 <= value <= NATIVE_BAN_MAX_DURATION_SECONDS:
+        raise ValueError("Native ban duration is out of range.")
+    return value
+
+
+def normalize_native_ban_reason(value: object) -> str:
+    """Validate one bounded optional ASCII RCON reason."""
+    reason = str(value or "").strip()
+    if len(reason) > NATIVE_BAN_MAX_REASON_LENGTH:
+        raise ValueError("Native ban reason is too long.")
+    if any(ord(character) < 32 or ord(character) > 126 for character in reason):
+        raise ValueError("Native ban reason contains unsupported characters.")
+    return reason
 
 
 def _native_ban_result(
@@ -782,3 +829,267 @@ def query_native_ban_list(
                 session.close()
             except OSError:
                 pass
+
+
+def _native_moderation_command_result(
+    *,
+    action: str,
+    target_identity: str,
+    status: str,
+    dispatched: bool = False,
+    error_code: str = "",
+    error: str = "",
+) -> NativeModerationCommandResult:
+    return NativeModerationCommandResult(
+        action=action,
+        target_identity=target_identity,
+        dispatched=dispatched,
+        status=status,
+        error_code=error_code,
+        error=error,
+    )
+
+
+def _parse_native_moderation_command_response(
+    response: str,
+    *,
+    action: str,
+    target_identity: str,
+) -> NativeModerationCommandResult:
+    """Classify only explicit denial; authoritative state is verified separately."""
+    for raw_line in response.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        lowered = line.casefold()
+        if lowered.startswith(RCON_NOISE_PREFIXES):
+            continue
+        if any(
+            marker in lowered
+            for marker in (
+                "permission denied",
+                "not permitted",
+                "not allowed",
+                "insufficient permission",
+                "access denied",
+            )
+        ):
+            return _native_moderation_command_result(
+                action=action,
+                target_identity=target_identity,
+                status=NATIVE_MODERATION_STATUS_REJECTED,
+                dispatched=True,
+                error_code=NATIVE_BAN_ERROR_PERMISSION_DENIED,
+                error="RCON permission does not allow native moderation.",
+            )
+        if any(
+            marker in lowered
+            for marker in (
+                "unknown command",
+                "command not found",
+                "unsupported command",
+            )
+        ):
+            return _native_moderation_command_result(
+                action=action,
+                target_identity=target_identity,
+                status=NATIVE_MODERATION_STATUS_REJECTED,
+                dispatched=True,
+                error_code=NATIVE_BAN_ERROR_COMMAND_UNAVAILABLE,
+                error="Native moderation command is unavailable.",
+            )
+
+    return _native_moderation_command_result(
+        action=action,
+        target_identity=target_identity,
+        status=NATIVE_MODERATION_STATUS_DISPATCHED,
+        dispatched=True,
+    )
+
+
+def _run_native_moderation_command(
+    instance: str,
+    *,
+    action: str,
+    target_identity: str,
+    command: str,
+    timeout: float,
+) -> NativeModerationCommandResult:
+    bounded_timeout = _bounded_native_ban_timeout(timeout)
+    try:
+        state = discover(instance, save=False)
+    except Exception:
+        return _native_moderation_command_result(
+            action=action,
+            target_identity=target_identity,
+            status=NATIVE_MODERATION_STATUS_REJECTED,
+            error_code=NATIVE_BAN_ERROR_CONFIG_UNAVAILABLE,
+            error="Server discovery is unavailable.",
+        )
+
+    host = "127.0.0.1"
+    port = state.ports.rcon or 19999
+    password = ""
+    if state.config_exists and state.config_path:
+        try:
+            config = load_config(state.config_path)
+        except (ConfigError, OSError):
+            return _native_moderation_command_result(
+                action=action,
+                target_identity=target_identity,
+                status=NATIVE_MODERATION_STATUS_REJECTED,
+                error_code=NATIVE_BAN_ERROR_CONFIG_UNAVAILABLE,
+                error="RCON configuration is unavailable.",
+            )
+        host = _extract_rcon_host(config)
+        port = _extract_rcon_port(config)
+        password = _extract_rcon_password(config)
+
+    if not password:
+        return _native_moderation_command_result(
+            action=action,
+            target_identity=target_identity,
+            status=NATIVE_MODERATION_STATUS_REJECTED,
+            error_code=NATIVE_BAN_ERROR_NOT_CONFIGURED,
+            error="RCON is not configured for native moderation.",
+        )
+    if not state.server_running:
+        return _native_moderation_command_result(
+            action=action,
+            target_identity=target_identity,
+            status=NATIVE_MODERATION_STATUS_REJECTED,
+            error_code=NATIVE_BAN_ERROR_SERVER_UNAVAILABLE,
+            error="Native moderation is unavailable while the server is stopped.",
+        )
+
+    session: _RconSession | None = None
+    command_sent = False
+    try:
+        session = _RconSession(host, port, password, bounded_timeout)
+        session.login()
+        command_sent = True
+        response = session.send_command(command)
+        if not getattr(session, "last_response_complete", True):
+            return _native_moderation_command_result(
+                action=action,
+                target_identity=target_identity,
+                status=NATIVE_MODERATION_STATUS_UNCERTAIN,
+                dispatched=True,
+                error_code=NATIVE_BAN_ERROR_MALFORMED_RESPONSE,
+                error="Native moderation response was incomplete.",
+            )
+        return _parse_native_moderation_command_response(
+            response,
+            action=action,
+            target_identity=target_identity,
+        )
+    except TimeoutError:
+        return _native_moderation_command_result(
+            action=action,
+            target_identity=target_identity,
+            status=(
+                NATIVE_MODERATION_STATUS_UNCERTAIN
+                if command_sent
+                else NATIVE_MODERATION_STATUS_REJECTED
+            ),
+            dispatched=command_sent,
+            error_code=NATIVE_BAN_ERROR_TIMEOUT,
+            error=(
+                "Native moderation outcome is uncertain after a timeout."
+                if command_sent
+                else "Native moderation connection timed out."
+            ),
+        )
+    except RconError as error:
+        error_text = str(error).casefold()
+        if command_sent:
+            return _native_moderation_command_result(
+                action=action,
+                target_identity=target_identity,
+                status=NATIVE_MODERATION_STATUS_UNCERTAIN,
+                dispatched=True,
+                error_code=(
+                    NATIVE_BAN_ERROR_TIMEOUT
+                    if "timed out" in error_text
+                    else NATIVE_BAN_ERROR_RCON_UNAVAILABLE
+                ),
+                error="Native moderation command outcome is uncertain.",
+            )
+        return _native_moderation_command_result(
+            action=action,
+            target_identity=target_identity,
+            status=NATIVE_MODERATION_STATUS_REJECTED,
+            error_code=(
+                NATIVE_BAN_ERROR_PERMISSION_DENIED
+                if "login" in error_text
+                else NATIVE_BAN_ERROR_RCON_UNAVAILABLE
+            ),
+            error=(
+                "RCON authentication failed." if "login" in error_text else "RCON is unavailable."
+            ),
+        )
+    except OSError:
+        return _native_moderation_command_result(
+            action=action,
+            target_identity=target_identity,
+            status=(
+                NATIVE_MODERATION_STATUS_UNCERTAIN
+                if command_sent
+                else NATIVE_MODERATION_STATUS_REJECTED
+            ),
+            dispatched=command_sent,
+            error_code=NATIVE_BAN_ERROR_RCON_UNAVAILABLE,
+            error=(
+                "Native moderation command outcome is uncertain."
+                if command_sent
+                else "RCON is unavailable."
+            ),
+        )
+    finally:
+        if session is not None:
+            session.logout()
+            try:
+                session.close()
+            except OSError:
+                pass
+
+
+def create_native_ban(
+    instance: str,
+    *,
+    target_identity: str,
+    duration_seconds: int,
+    reason: str = "",
+    timeout: float = RCON_NATIVE_BAN_TIMEOUT_SECONDS,
+) -> NativeModerationCommandResult:
+    """Send only the typed native ban-create command."""
+    target = normalize_native_ban_target(target_identity)
+    duration = normalize_native_ban_duration(duration_seconds)
+    safe_reason = normalize_native_ban_reason(reason)
+    command = f"#ban create {target} {duration}"
+    if safe_reason:
+        command = f"{command} {safe_reason}"
+    return _run_native_moderation_command(
+        instance,
+        action=NATIVE_MODERATION_ACTION_BAN,
+        target_identity=target,
+        command=command,
+        timeout=timeout,
+    )
+
+
+def remove_native_ban(
+    instance: str,
+    *,
+    target_identity: str,
+    timeout: float = RCON_NATIVE_BAN_TIMEOUT_SECONDS,
+) -> NativeModerationCommandResult:
+    """Send only the typed native ban-remove command."""
+    target = normalize_native_ban_target(target_identity)
+    return _run_native_moderation_command(
+        instance,
+        action=NATIVE_MODERATION_ACTION_UNBAN,
+        target_identity=target,
+        command=f"#ban remove {target}",
+        timeout=timeout,
+    )
