@@ -23,6 +23,7 @@ VALID_MODES = frozenset({MODDED_MODE, VANILLA_MODE})
 # scenario so a server can remain playable while Workshop authors catch up.
 DEFAULT_VANILLA_SCENARIO = "{ECC61978EDCC2B5A}Missions/23_Campaign.conf"
 VANILLA_NAME_SUFFIX = " [vanilla compatibility]"
+MAX_SERVER_NAME_LENGTH = 100
 
 _BACKUP_METADATA_SUFFIXES = frozenset(
     {".conf", ".gproj", ".json", ".md", ".txt", ".xml", ".yaml", ".yml"}
@@ -129,7 +130,7 @@ def make_vanilla_profile(
 
     name = str(vanilla_game.get("name") or "Arma Reforger")
     name = re.sub(r"(?: \[vanilla compatibility\])+\Z", "", name)
-    vanilla_game["name"] = f"{name}{VANILLA_NAME_SUFFIX}"[:128]
+    vanilla_game["name"] = f"{name}{VANILLA_NAME_SUFFIX}"[:MAX_SERVER_NAME_LENGTH]
 
     properties = vanilla_game.get("gameProperties")
     if not isinstance(properties, dict):

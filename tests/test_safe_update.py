@@ -100,6 +100,7 @@ def test_safe_update_promotes_verified_server_and_profile(tmp_path: Path, monkey
         assert len(candidate_config["game"]["password"]) <= 32
         assert " " not in candidate_config["game"]["password"]
         assert candidate_config["game"]["name"].endswith("[armactl update canary]")
+        assert len(candidate_config["game"]["name"]) <= 100
         assert not (update_paths.candidate_profile / "addons").exists()
         assert (update_paths.profile / "addons" / "WCS" / "mod.pak").read_text(
             encoding="utf-8"
@@ -313,6 +314,19 @@ def test_vanilla_profile_preserves_new_persistence_object_schema(tmp_path: Path)
         "loadSessionSave": False,
         "saveInterval": 120,
     }
+
+
+def test_vanilla_profile_constrains_long_server_name_to_current_schema(tmp_path: Path):
+    _server, config_path = _layout(tmp_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["game"]["name"] = "S" * 100
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    destination = config_path.parent.parent / "vanilla"
+
+    safe_update.make_vanilla_profile(config_path.parent, destination)
+
+    vanilla = json.loads((destination / "config.json").read_text(encoding="utf-8"))
+    assert len(vanilla["game"]["name"]) == 100
 
 
 def test_modded_rejection_promotes_vanilla_and_parks_complete_profile(

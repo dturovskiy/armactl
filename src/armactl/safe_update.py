@@ -35,6 +35,7 @@ from armactl.redaction import redact_sensitive_text
 from armactl.state import PortInfo, ServerState
 from armactl.update_compatibility import (
     DEFAULT_VANILLA_SCENARIO,
+    MAX_SERVER_NAME_LENGTH,
     MODDED_MODE,
     VANILLA_MODE,
     CompatibilityConfigError,
@@ -355,7 +356,7 @@ def _prepare_canary_config(config_path: Path) -> None:
     # Reforger's server schema permits at most 32 non-space characters.
     game["password"] = secrets.token_urlsafe(24)
     name = str(game.get("name") or "Arma Reforger")
-    game["name"] = f"{name} [armactl update canary]"[:128]
+    game["name"] = f"{name} [armactl update canary]"[:MAX_SERVER_NAME_LENGTH]
     tmp_path = config_path.with_suffix(".json.tmp")
     tmp_path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     os.chmod(tmp_path, 0o600)
