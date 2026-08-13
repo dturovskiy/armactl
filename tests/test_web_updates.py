@@ -1256,7 +1256,7 @@ def test_updates_template_renders_profile_compatibility_and_test_action(tmp_path
             "client": ("testclient", 50000),
             "server": ("testserver", 80),
             "app": app,
-            "router": app.router,
+            "router": getattr(app, "router"),
         }
     )
     context = {
