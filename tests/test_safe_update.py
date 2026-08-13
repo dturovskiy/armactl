@@ -296,6 +296,25 @@ def test_vanilla_profile_preserves_host_settings_without_mutating_source(
     assert json.loads(config_path.read_text(encoding="utf-8")) == source
 
 
+def test_vanilla_profile_preserves_new_persistence_object_schema(tmp_path: Path):
+    _server, config_path = _layout(tmp_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["game"]["gameProperties"]["persistence"] = {
+        "loadSessionSave": True,
+        "saveInterval": 120,
+    }
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    destination = config_path.parent.parent / "vanilla"
+
+    safe_update.make_vanilla_profile(config_path.parent, destination)
+
+    vanilla = json.loads((destination / "config.json").read_text(encoding="utf-8"))
+    assert vanilla["game"]["gameProperties"]["persistence"] == {
+        "loadSessionSave": False,
+        "saveInterval": 120,
+    }
+
+
 def test_modded_rejection_promotes_vanilla_and_parks_complete_profile(
     tmp_path: Path,
     monkeypatch,

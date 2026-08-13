@@ -135,8 +135,13 @@ def make_vanilla_profile(
     if not isinstance(properties, dict):
         properties = {}
         vanilla_game["gameProperties"] = properties
-    # A modded persistent save can reference entities absent from vanilla.
-    properties["persistence"] = False
+    # A modded persistent save can reference entities absent from vanilla. Newer
+    # Reforger schemas use an object here; older schemas accepted a boolean.
+    persistence = properties.get("persistence")
+    if isinstance(persistence, dict):
+        persistence["loadSessionSave"] = False
+    else:
+        properties["persistence"] = False
 
     destination.mkdir(parents=True, mode=0o700)
     (destination / "addons").mkdir(mode=0o700)
