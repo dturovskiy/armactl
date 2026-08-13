@@ -452,8 +452,7 @@ def test_stale_cached_check_result_renders_check_again_notice(
     assert response.status_code == 200
     assert "Cached check result is stale" in response.text
     assert "Check again" in response.text
-    assert "Update server" in response.text
-    assert "action=\"/updates/update\"" in response.text
+    assert "action=\"/updates/update\"" not in response.text
 
 
 def test_failed_update_renders_retry_only_when_stopped_without_active_job(
@@ -720,7 +719,7 @@ def test_expired_active_update_worker_lease_renders_diagnostics_only(
     assert [job.id for job in list_recent_jobs(db_path)] == [running.id]
 
 
-def test_updates_page_blocks_update_action_when_server_running(
+def test_updates_page_offers_safe_update_action_when_server_running(
     tmp_path: Path,
     monkeypatch,
 ):
@@ -739,9 +738,9 @@ def test_updates_page_blocks_update_action_when_server_running(
 
     assert response.status_code == 200
     assert "Update available" in response.text
-    assert "Stop the game server before updating." in response.text
+    assert "Safe update will stop the running game server" in response.text
     assert "action=\"/updates/check\"" in response.text
-    assert "action=\"/updates/update\"" not in response.text
+    assert "action=\"/updates/update\"" in response.text
     assert "name=\"confirm\" value=\"running-update\"" not in response.text
 
 
@@ -1021,7 +1020,7 @@ def test_updates_update_queues_existing_background_job(
     assert scheduled == [jobs[0].id]
 
 
-def test_updates_update_blocks_running_server_without_job(
+def test_updates_update_queues_safe_workflow_for_running_server(
     tmp_path: Path,
     monkeypatch,
 ):
@@ -1041,9 +1040,7 @@ def test_updates_update_blocks_running_server_without_job(
     monkeypatch.setattr(
         server_jobs,
         "start_server_job_worker",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("running update must not start worker")
-        ),
+        lambda db_path, job_id: None,
     )
     password = "owner updates password"
     setup_owner_user(tmp_path, "owner", password)
@@ -1067,8 +1064,8 @@ def test_updates_update_blocks_running_server_without_job(
     ]
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/updates?notice=server-running"
-    assert jobs == []
+    assert response.headers["location"] == "/updates?notice=update-queued"
+    assert len(jobs) == 1
 
 
 def test_updates_update_redirects_up_to_date_without_job(
@@ -1275,3 +1272,17 @@ def test_updates_template_renders_profile_compatibility_and_test_action(tmp_path
     assert "Ready for current build" in html
     assert 'action="/updates/retry-modded"' in html
     assert "disabled aria-disabled=\"true\"" in html
+
+
+def test_running_server_keeps_profile_tests_available_with_maintenance_notice():
+    from armactl.web.views.updates import build_updates_view
+
+    page = build_updates_view(
+        _updates_page(server_versions.SERVER_VERSION_CHECK_UPTODATE, running=True),
+        can_update_server=True,
+    )
+
+    assert page["server_running"] is True
+    assert page["profile_actions_enabled"] is True
+    assert page["profile_actions_disabled_reason"] == ""
+    assert "briefly stop the running game server" in page["profile_actions_notice"]

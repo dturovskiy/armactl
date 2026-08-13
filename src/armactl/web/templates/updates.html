@@ -137,6 +137,9 @@
   {% if page.profile_actions_disabled_reason %}
     <p class="notice-inline notice-warning">{{ t(page.profile_actions_disabled_reason) }}</p>
   {% endif %}
+  {% if page.profile_actions_notice %}
+    <p class="notice-inline notice-warning">{{ t(page.profile_actions_notice) }}</p>
+  {% endif %}
   {% if page.profile_job %}
     <p class="notice-inline notice-warning">
       <strong>{{ t("Profile test in progress") if page.profile_job.action in ('test', 'test-parked') else t("Profile operation in progress") }}</strong>

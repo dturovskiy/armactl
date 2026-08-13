@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 
 from armactl import discovery, installer, paths, repair, safe_update
+from armactl.platform.service_adapter import get_service_adapter
 from armactl.web.jobs.models import JobRecord
 from armactl.web.jobs.runner import (
     JobContext,
@@ -39,6 +40,49 @@ SERVER_JOB_KINDS = frozenset(
 )
 STOP_RUNNING_SERVER_UPDATE_MESSAGE = "Stop the game server before updating."
 STOP_RUNNING_SERVER_PROFILE_MESSAGE = "Stop the game server before testing or changing profiles."
+
+
+def _service_status_is_active(status: dict[str, object]) -> bool:
+    active_state = str(status.get("active_state") or status.get("ActiveState") or "")
+    sub_state = str(status.get("sub_state") or status.get("SubState") or "")
+    return active_state.strip().lower() in {"active", "activating"} or (
+        sub_state.strip().lower() in {"running", "start", "auto-restart"}
+    )
+
+
+def _stop_running_service_for_job(context: JobContext, state, service_name: str):
+    adapter = get_service_adapter()
+    if not bool(state.server_running):
+        return adapter, False
+    context.append_output(
+        stdout="Stopping the running game server for the maintenance operation."
+    )
+    result = adapter.stop_service(service_name)
+    if not result.success:
+        raise RuntimeError(f"Could not stop the game server: {result.message}")
+    return adapter, True
+
+
+def _restore_previously_running_service(
+    context: JobContext,
+    adapter,
+    service_name: str,
+    *,
+    was_running: bool,
+) -> None:
+    if not was_running:
+        return
+    try:
+        if _service_status_is_active(adapter.get_service_status(service_name)):
+            return
+    except Exception:  # noqa: BLE001 - an idempotent start is the safe fallback.
+        pass
+    context.append_output(
+        stdout="Restoring the game service after the maintenance operation."
+    )
+    result = adapter.start_service(service_name)
+    if not result.success:
+        raise RuntimeError(f"Could not restore the game server: {result.message}")
 
 
 def server_profile_job_kind(action: str, name: str = "") -> str:
@@ -323,24 +367,34 @@ def handle_server_update(context: JobContext) -> JobHandlerResult:
     instance = context.job.instance or paths.DEFAULT_INSTANCE_NAME
     context.append_output(stdout=f"Starting update for {instance}.")
     state = discovery.discover(instance=instance, save=False)
-    if state.server_running:
-        context.append_output(stdout=STOP_RUNNING_SERVER_UPDATE_MESSAGE)
-        raise RuntimeError(STOP_RUNNING_SERVER_UPDATE_MESSAGE)
     install_dir = Path(state.install_dir or paths.server_dir(instance))
     install_dir = paths.validate_server_install_dir(install_dir, instance=instance)
     if not install_dir.exists():
         raise RuntimeError("Server install directory is missing.")
     config_path = Path(state.config_path or paths.config_file(instance))
     service_name = state.service_name or paths.SERVICE_NAME
-    _append_generator_output(
+    adapter, was_running = _stop_running_service_for_job(
         context,
-        safe_update.stream_safe_server_update(
-            install_dir,
-            config_path,
-            service_name,
-            instance=instance,
-        ),
+        state,
+        service_name,
     )
+    try:
+        _append_generator_output(
+            context,
+            safe_update.stream_safe_server_update(
+                install_dir,
+                config_path,
+                service_name,
+                instance=instance,
+            ),
+        )
+    finally:
+        _restore_previously_running_service(
+            context,
+            adapter,
+            service_name,
+            was_running=was_running,
+        )
     discovery.discover(instance=instance, save=True)
     return JobHandlerResult(
         result_message="Server update verified and started.",
@@ -358,9 +412,6 @@ def handle_server_profile_action(context: JobContext) -> JobHandlerResult:
     action, name = parsed
     instance = context.job.instance or paths.DEFAULT_INSTANCE_NAME
     state = discovery.discover(instance=instance, save=False)
-    if state.server_running:
-        context.append_output(stdout=STOP_RUNNING_SERVER_PROFILE_MESSAGE)
-        raise RuntimeError(STOP_RUNNING_SERVER_PROFILE_MESSAGE)
     install_dir = Path(state.install_dir or paths.server_dir(instance))
     install_dir = paths.validate_server_install_dir(install_dir, instance=instance)
     config_path = Path(state.config_path or paths.config_file(instance))
@@ -375,44 +426,57 @@ def handle_server_profile_action(context: JobContext) -> JobHandlerResult:
         )
         context.append_output(stdout=f"Created profile {created.name} at {created.path}.")
         message = f"Profile {created.name} created."
-    elif action == "test":
-        _append_generator_output(
-            context,
-            safe_update.verify_named_profile(
-                install_dir,
-                config_path,
-                name=name,
-            ),
-        )
-        message = f"Profile {name} is compatible with the current build."
-    elif action == "test-parked":
-        _append_generator_output(
-            context,
-            safe_update.verify_parked_modded_profile(
-                install_dir,
-                config_path,
-            ),
-        )
-        message = "Parked profile is compatible with the current build."
     else:
-        operation = {
-            "vanilla": safe_update.activate_vanilla,
-            "retry-modded": safe_update.retry_modded,
-        }.get(action)
-        if action == "switch":
-            lines = safe_update.switch_named_profile(
-                install_dir,
-                config_path,
+        adapter, was_running = _stop_running_service_for_job(
+            context,
+            state,
+            service_name,
+        )
+        try:
+            if action == "test":
+                lines = safe_update.verify_named_profile(
+                    install_dir,
+                    config_path,
+                    name=name,
+                )
+                message = f"Profile {name} is compatible with the current build."
+            elif action == "test-parked":
+                lines = safe_update.verify_parked_modded_profile(
+                    install_dir,
+                    config_path,
+                )
+                message = "Parked profile is compatible with the current build."
+            elif action == "switch":
+                lines = safe_update.switch_named_profile(
+                    install_dir,
+                    config_path,
+                    service_name,
+                    name=name,
+                )
+                message = "Server profile verified and activated."
+            else:
+                operation = {
+                    "vanilla": safe_update.activate_vanilla,
+                    "retry-modded": safe_update.retry_modded,
+                }.get(action)
+                if operation is None:
+                    raise RuntimeError("Unknown profile operation.")
+                lines = operation(
+                    install_dir,
+                    config_path,
+                    service_name,
+                )
+                message = "Server profile verified and activated."
+            _append_generator_output(context, lines)
+            if action not in {"test", "test-parked"}:
+                discovery.discover(instance=instance, save=True)
+        finally:
+            _restore_previously_running_service(
+                context,
+                adapter,
                 service_name,
-                name=name,
+                was_running=was_running,
             )
-        elif operation is not None:
-            lines = operation(install_dir, config_path, service_name)
-        else:
-            raise RuntimeError("Unknown profile operation.")
-        _append_generator_output(context, lines)
-        discovery.discover(instance=instance, save=True)
-        message = "Server profile verified and activated."
     return JobHandlerResult(
         result_message=message,
         current_step="Profile operation complete",

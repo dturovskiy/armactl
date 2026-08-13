@@ -114,6 +114,22 @@ def test_server_version_state_update_available(tmp_path: Path):
     assert version_state.server_running is True
 
 
+def test_server_version_state_does_not_offer_downgrade_when_installed_is_newer(
+    tmp_path: Path,
+):
+    state = _state(tmp_path, running=True)
+
+    version_state = server_versions.load_server_version_state(
+        state=state,
+        adapter=FakeVersionAdapter(installed="24501482", latest="23728491"),
+    )
+
+    assert version_state.check_state == server_versions.SERVER_VERSION_CHECK_UPTODATE
+    assert version_state.message == "Installed build is newer than reported latest"
+    assert version_state.up_to_date is True
+    assert version_state.can_update is False
+
+
 def test_server_version_state_installed_only_without_cache_is_unknown(tmp_path: Path):
     state = _state(tmp_path)
     install_dir = Path(state.install_dir or "")
@@ -288,6 +304,31 @@ def test_cached_check_freshness(tmp_path: Path):
     assert server_versions.cached_check_has_fresh_result(fresh)
     assert not server_versions.cached_check_has_fresh_result(stale)
     assert not server_versions.cached_check_has_fresh_result(failed)
+
+
+def test_stale_cached_check_is_explicitly_expired_and_cannot_update(tmp_path: Path):
+    from datetime import datetime, timedelta, timezone
+
+    state = _state(tmp_path)
+    install_dir = Path(state.install_dir or "")
+    _write_appmanifest(install_dir, "100")
+    db_path = tmp_path / "web" / "web.db"
+    server_versions.save_server_version_check(
+        db_path,
+        installed="100",
+        latest="101",
+        check_state=server_versions.SERVER_VERSION_CHECK_AVAILABLE,
+        checked_at=(datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat(),
+    )
+
+    version_state = server_versions.load_server_version_state(
+        state=state,
+        db_path=db_path,
+    )
+
+    assert version_state.check_state == server_versions.SERVER_VERSION_CHECK_STALE
+    assert version_state.message == "Build check expired"
+    assert version_state.can_update is False
 
 def test_server_version_state_reports_active_update_job(tmp_path: Path):
     db_path = tmp_path / "web" / "web.db"

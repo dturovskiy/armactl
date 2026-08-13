@@ -1657,7 +1657,7 @@ def test_post_update_available_creates_queued_job_without_running_backend(
     assert audit_events[-1]["details"]["created"] == "true"
 
 
-def test_post_update_running_server_blocks_update_and_creates_no_job(
+def test_post_update_running_server_queues_safe_update_job(
     tmp_path: Path,
     monkeypatch,
 ):
@@ -1683,12 +1683,11 @@ def test_post_update_running_server_blocks_update_and_creates_no_job(
             running=kwargs["server_running"],
         ),
     )
+    scheduled: list[int] = []
     monkeypatch.setattr(
         server_jobs,
         "start_server_job_worker",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("running-server update must not start a worker")
-        ),
+        lambda db_path, job_id: scheduled.append(job_id),
     )
     password = "owner jobs password"
     setup_owner_user(tmp_path, "owner", password)
@@ -1708,14 +1707,11 @@ def test_post_update_running_server_blocks_update_and_creates_no_job(
     ]
     audit_events = _audit_events(tmp_path)
 
-    assert response.status_code == 400
-    assert response.text == "Stop the game server before updating."
-    assert jobs == []
-    assert audit_events[-1]["action"] == "job.server-update.check"
-    assert audit_events[-1]["success"] is False
-    assert audit_events[-1]["message"] == "Stop the game server before updating."
-    assert audit_events[-1]["details"]["check_state"] == "available"
-    assert audit_events[-1]["details"]["server_running"] == "true"
+    assert response.status_code == 303
+    assert len(jobs) == 1
+    assert scheduled == [jobs[0].id]
+    assert audit_events[-1]["action"] == "job.server-update.enqueue"
+    assert audit_events[-1]["success"] is True
 
 
 def test_update_job_intent_audit_failure_does_not_create_job(

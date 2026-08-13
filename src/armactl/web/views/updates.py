@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from armactl.web.services import server_job_actions, server_versions
+from armactl.web.services import server_versions
 
 STALE_ACTIVE_JOB_SECONDS = 6 * 60 * 60
 
@@ -196,7 +196,10 @@ def _check_action_label(
 ) -> str:
     if not can_request_check:
         return "Check for updates"
-    if check_state == server_versions.SERVER_VERSION_CHECK_FAILED:
+    if check_state in {
+        server_versions.SERVER_VERSION_CHECK_FAILED,
+        server_versions.SERVER_VERSION_CHECK_STALE,
+    }:
         return "Check again"
     if _cache_result_is_stale(
         check_state=check_state,
@@ -207,7 +210,7 @@ def _check_action_label(
 
 
 def _cache_notice(*, check_state: str, last_checked: str) -> str:
-    if not _cache_result_is_stale(
+    if check_state != server_versions.SERVER_VERSION_CHECK_STALE and not _cache_result_is_stale(
         check_state=check_state,
         last_checked=last_checked,
     ):
@@ -296,6 +299,8 @@ def _check_state_label(check_state: str) -> str:
         return "checking"
     if check_state == server_versions.SERVER_VERSION_CHECK_UPDATING:
         return "updating"
+    if check_state == server_versions.SERVER_VERSION_CHECK_STALE:
+        return "check expired"
     return check_state or "latest build unknown"
 
 
@@ -309,6 +314,7 @@ def _status_class(check_state: str) -> str:
     if check_state in {
         server_versions.SERVER_VERSION_CHECK_CHECKING,
         server_versions.SERVER_VERSION_CHECK_UPDATING,
+        server_versions.SERVER_VERSION_CHECK_STALE,
     }:
         return "warning"
     return "unavailable"
@@ -327,8 +333,13 @@ def _update_note(
         return "An update check job is already active."
     if check_state == server_versions.SERVER_VERSION_CHECK_UPDATING:
         return "A server update job is already active."
+    if check_state == server_versions.SERVER_VERSION_CHECK_STALE:
+        return "Check again before updating."
     if update_available and server_running:
-        return server_job_actions.STOP_RUNNING_SERVER_UPDATE_MESSAGE
+        return (
+            "Safe update will stop the running game server, test the new build, "
+            "and start a verified profile automatically."
+        )
     if check_state == server_versions.SERVER_VERSION_CHECK_UPTODATE:
         return server_versions.SERVER_VERSION_MESSAGE_UP_TO_DATE
     if check_state in {
@@ -357,6 +368,8 @@ def build_updates_view(
         version.get("check_state") or version.get("checkState"),
         server_versions.SERVER_VERSION_CHECK_UNKNOWN,
     )
+    if _cache_result_is_stale(check_state=check_state, last_checked=last_checked):
+        check_state = server_versions.SERVER_VERSION_CHECK_STALE
     server_running = _bool(
         page.get("server_running")
         or version.get("server_running")
@@ -366,7 +379,7 @@ def build_updates_view(
         check_state == server_versions.SERVER_VERSION_CHECK_AVAILABLE
         and _bool(version.get("can_update") or version.get("canUpdate"))
     )
-    backend_allows_update = can_update_server and update_available and not server_running
+    backend_allows_update = can_update_server and update_available
     checking_or_updating = check_state in {
         server_versions.SERVER_VERSION_CHECK_CHECKING,
         server_versions.SERVER_VERSION_CHECK_UPDATING,
@@ -426,16 +439,11 @@ def build_updates_view(
     profile_operation_active = bool(profile_job)
     profile_actions_enabled = (
         can_update_server
-        and not server_running
         and not checking_or_updating
         and not profile_operation_active
     )
     if not can_update_server:
         profile_actions_disabled_reason = "Server update permission is required."
-    elif server_running:
-        profile_actions_disabled_reason = (
-            "Stop the game server before switching or testing profiles."
-        )
     elif checking_or_updating:
         profile_actions_disabled_reason = (
             "Wait for the active update operation before changing profiles."
@@ -446,6 +454,12 @@ def build_updates_view(
         )
     else:
         profile_actions_disabled_reason = ""
+    profile_actions_notice = (
+        "Testing or switching a profile will briefly stop the running game server "
+        "and start a verified profile automatically."
+        if server_running and profile_actions_enabled
+        else ""
+    )
 
     return dict(
         instance=_text(page.get("instance"), "default"),
@@ -515,4 +529,5 @@ def build_updates_view(
         profile_job=profile_job,
         profile_actions_enabled=profile_actions_enabled,
         profile_actions_disabled_reason=profile_actions_disabled_reason,
+        profile_actions_notice=profile_actions_notice,
     )

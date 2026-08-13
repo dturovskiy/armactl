@@ -62,7 +62,7 @@
     {% endfor %}
     <div class="profile-quick-control" id="compatibility-profiles">
       <span class="profile-quick-label">{{ t("Profile") }}</span>
-      <form method="post" action="/updates/profile/select" class="profile-quick-form" title="{{ t(profile_control.profile_actions_disabled_reason) if profile_control.profile_actions_disabled_reason else '' }}">
+      <form method="post" action="/updates/profile/select" class="profile-quick-form" title="{% if profile_control.profile_actions_disabled_reason %}{{ t(profile_control.profile_actions_disabled_reason) }}{% elif profile_control.profile_actions_notice %}{{ t(profile_control.profile_actions_notice) }}{% endif %}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="return_to" value="dashboard">
         <select name="profile_selection" required aria-label="{{ t('Profile') }}">

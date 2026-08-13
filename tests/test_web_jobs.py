@@ -1029,7 +1029,7 @@ def test_server_update_handler_streams_transactional_update_without_repair_flow(
     assert "safe update step" in result.job.stdout_tail
 
 
-def test_server_update_handler_refuses_running_server_before_streaming_update(
+def test_server_update_handler_stops_running_server_and_restores_it(
     tmp_path: Path,
     monkeypatch,
 ):
@@ -1040,33 +1040,64 @@ def test_server_update_handler_refuses_running_server_before_streaming_update(
     db_path = _db_path(tmp_path)
     install_dir = tmp_path / "default" / "server"
     install_dir.mkdir(parents=True)
+    config_path = install_dir.parent / "config" / "config.json"
+    config_path.parent.mkdir()
+    config_path.write_text("{}", encoding="utf-8")
     discover_calls: list[tuple[str, bool]] = []
+    service_calls: list[str] = []
 
     def fake_discover(instance: str, save: bool = False):
         discover_calls.append((instance, save))
         return SimpleNamespace(
             install_dir=str(install_dir),
+            config_path=str(config_path),
+            service_name="armareforger.service",
             server_running=True,
         )
 
+    class FakeServiceAdapter:
+        def stop_service(self, service_name):
+            from armactl.service_manager import ServiceResult
+
+            service_calls.append(f"stop:{service_name}")
+            return ServiceResult(True, "stopped")
+
+        def start_service(self, service_name):
+            from armactl.service_manager import ServiceResult
+
+            service_calls.append(f"start:{service_name}")
+            return ServiceResult(True, "started")
+
+        def get_service_status(self, service_name):
+            service_calls.append(f"status:{service_name}")
+            return {"active_state": "inactive", "sub_state": "dead"}
+
     monkeypatch.setattr(server_jobs.discovery, "discover", fake_discover)
+    monkeypatch.setattr(server_jobs, "get_service_adapter", FakeServiceAdapter)
+    monkeypatch.setattr(
+        server_jobs.paths,
+        "validate_server_install_dir",
+        lambda value, *, instance: Path(value),
+    )
     monkeypatch.setattr(
         server_jobs.safe_update,
         "stream_safe_server_update",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("running-server update must not call SteamCMD")
-        ),
+        lambda *args, **kwargs: iter(["safe update step"]),
     )
     job = enqueue_server_update(db_path, requested_by_username="owner")
 
     result = dispatch_server_job(db_path, job.id)
 
-    assert discover_calls == [("default", False)]
+    assert discover_calls == [("default", False), ("default", True)]
     assert result.job.kind == SERVER_UPDATE_JOB_KIND
-    assert result.job.status == JOB_STATUS_FAILED
-    assert result.job.error_class == "RuntimeError"
-    assert result.job.error_message == "Stop the game server before updating."
-    assert "Stop the game server before updating." in result.job.stdout_tail
+    assert result.job.status == JOB_STATUS_SUCCEEDED
+    assert service_calls == [
+        "stop:armareforger.service",
+        "status:armareforger.service",
+        "start:armareforger.service",
+    ]
+    assert "Stopping the running game server" in result.job.stdout_tail
+    assert "Restoring the game service" in result.job.stdout_tail
 
 
 def test_server_profile_switch_job_streams_verified_operation(
@@ -1191,7 +1222,7 @@ def test_server_profile_test_job_runs_canary_without_switch_operation(
     assert "it was not activated" in result.job.stdout_tail
 
 
-def test_server_profile_job_refuses_running_server_before_profile_mutation(
+def test_server_profile_job_stops_running_server_and_restores_after_test(
     tmp_path: Path,
     monkeypatch,
 ):
@@ -1200,28 +1231,67 @@ def test_server_profile_job_refuses_running_server_before_profile_mutation(
     from armactl.web.jobs import server as server_jobs
 
     db_path = _db_path(tmp_path)
+    install_dir = tmp_path / "default" / "server"
+    config_path = install_dir.parent / "config" / "config.json"
+    install_dir.mkdir(parents=True)
+    config_path.parent.mkdir()
+    config_path.write_text("{}", encoding="utf-8")
+    service_calls: list[str] = []
+
     monkeypatch.setattr(
         server_jobs.discovery,
         "discover",
-        lambda instance, save=False: SimpleNamespace(server_running=True),
+        lambda instance, save=False: SimpleNamespace(
+            install_dir=str(install_dir),
+            config_path=str(config_path),
+            service_name="armareforger.service",
+            server_running=True,
+        ),
     )
     monkeypatch.setattr(
+        server_jobs.paths,
+        "validate_server_install_dir",
+        lambda value, *, instance: Path(value),
+    )
+
+    class FakeServiceAdapter:
+        def stop_service(self, service_name):
+            from armactl.service_manager import ServiceResult
+
+            service_calls.append(f"stop:{service_name}")
+            return ServiceResult(True, "stopped")
+
+        def start_service(self, service_name):
+            from armactl.service_manager import ServiceResult
+
+            service_calls.append(f"start:{service_name}")
+            return ServiceResult(True, "started")
+
+        def get_service_status(self, service_name):
+            service_calls.append(f"status:{service_name}")
+            return {"active_state": "inactive", "sub_state": "dead"}
+
+    monkeypatch.setattr(server_jobs, "get_service_adapter", FakeServiceAdapter)
+    monkeypatch.setattr(
         server_jobs.safe_update,
-        "activate_vanilla",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("running-server profile action must not mutate config")
-        ),
+        "verify_named_profile",
+        lambda *args, **kwargs: iter(["profile test passed"]),
     )
     job, _created = server_jobs.ensure_server_profile_job(
         db_path,
-        action="vanilla",
+        action="test",
+        name="serhiivka-modded",
         requested_by_username="owner",
     )
 
     result = dispatch_server_job(db_path, job.id)
 
-    assert result.job.status == JOB_STATUS_FAILED
-    assert result.job.error_message == server_jobs.STOP_RUNNING_SERVER_PROFILE_MESSAGE
+    assert result.job.status == JOB_STATUS_SUCCEEDED
+    assert service_calls == [
+        "stop:armareforger.service",
+        "status:armareforger.service",
+        "start:armareforger.service",
+    ]
 
 
 def test_server_update_check_handler_caches_success_without_update_backend(

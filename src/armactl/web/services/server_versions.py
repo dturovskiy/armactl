@@ -23,6 +23,7 @@ SERVER_VERSION_CHECK_UNKNOWN = "unknown"
 SERVER_VERSION_CHECK_CHECKING = "checking"
 SERVER_VERSION_CHECK_FAILED = "failed"
 SERVER_VERSION_CHECK_UPDATING = "updating"
+SERVER_VERSION_CHECK_STALE = "stale"
 
 SERVER_VERSION_STATUS_UP_TO_DATE = "up to date"
 SERVER_VERSION_STATUS_AVAILABLE = "update available"
@@ -30,12 +31,15 @@ SERVER_VERSION_STATUS_UNKNOWN = "unknown"
 SERVER_VERSION_STATUS_CHECKING = "checking"
 SERVER_VERSION_STATUS_FAILED = "check failed"
 SERVER_VERSION_STATUS_UPDATING = "updating"
+SERVER_VERSION_STATUS_STALE = "check expired"
 
 SERVER_VERSION_MESSAGE_UP_TO_DATE = "Server is already up to date"
 SERVER_VERSION_MESSAGE_AVAILABLE = "Update available"
 SERVER_VERSION_MESSAGE_UNKNOWN = "Latest build unknown"
 SERVER_VERSION_MESSAGE_CHECKING = "Checking for updates"
 SERVER_VERSION_MESSAGE_FAILED = "Build check failed"
+SERVER_VERSION_MESSAGE_STALE = "Build check expired"
+SERVER_VERSION_MESSAGE_INSTALLED_AHEAD = "Installed build is newer than reported latest"
 SERVER_VERSION_MESSAGE_CHECK_QUEUED = "Update check queued."
 SERVER_VERSION_MESSAGE_CHECK_COMPLETED = "Update check completed."
 SERVER_VERSION_MESSAGE_UPDATING = "Update job running"
@@ -586,7 +590,13 @@ def _version_state_from_values(
             server_running=server_running,
             source=source,
         )
-    if installed_text == latest_text:
+    installed_is_current = installed_text == latest_text
+    installed_is_ahead = (
+        installed_text.isdecimal()
+        and latest_text.isdecimal()
+        and int(installed_text) > int(latest_text)
+    )
+    if installed_is_current or installed_is_ahead:
         return _state(
             installed=installed_text,
             latest=latest_text,
@@ -594,7 +604,11 @@ def _version_state_from_values(
             last_checked=last_checked,
             check_state=SERVER_VERSION_CHECK_UPTODATE,
             status=SERVER_VERSION_STATUS_UP_TO_DATE,
-            message=SERVER_VERSION_MESSAGE_UP_TO_DATE,
+            message=(
+                SERVER_VERSION_MESSAGE_INSTALLED_AHEAD
+                if installed_is_ahead
+                else SERVER_VERSION_MESSAGE_UP_TO_DATE
+            ),
             up_to_date=True,
             server_running=server_running,
             source=source,
@@ -745,6 +759,18 @@ def load_server_version_state(
             last_checked=last_checked or cached.checked_at,
             server_running=server_running,
             check_job_id=cached.job_id,
+            source=cached.source,
+        )
+    if not cached_check_has_fresh_result(cached):
+        return _state(
+            installed=installed,
+            latest=cached.latest,
+            branch=cached.branch,
+            last_checked=last_checked or cached.checked_at,
+            check_state=SERVER_VERSION_CHECK_STALE,
+            status=SERVER_VERSION_STATUS_STALE,
+            message=SERVER_VERSION_MESSAGE_STALE,
+            server_running=server_running,
             source=cached.source,
         )
     return _version_state_from_values(

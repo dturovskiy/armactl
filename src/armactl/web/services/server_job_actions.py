@@ -407,21 +407,6 @@ def request_server_update_and_start(
         )
 
     if version_state.check_state == server_versions.SERVER_VERSION_CHECK_AVAILABLE:
-        if version_state.server_running:
-            _audit_update_check_or_raise(
-                audit_log_path,
-                version_state=version_state,
-                username=username,
-                instance=instance,
-                success=False,
-                message=STOP_RUNNING_SERVER_UPDATE_MESSAGE,
-            )
-            return ServerUpdateActionResult(
-                status=SERVER_UPDATE_ACTION_BLOCKED,
-                message=STOP_RUNNING_SERVER_UPDATE_MESSAGE,
-                version_state=version_state,
-            )
-
         job = enqueue_server_job_and_start(
             db_path,
             action="update",
