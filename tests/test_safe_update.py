@@ -448,6 +448,51 @@ def test_activate_vanilla_then_retry_complete_modded_profile(
     assert any("active and stable again" in line for line in retry_output)
 
 
+def test_parked_profile_can_be_verified_without_restore(tmp_path: Path):
+    server, config_path = _layout(tmp_path)
+    adapter = FakeServiceAdapter()
+    safe_update.rename_active_profile(server, config_path, name="serhiivka-modded")
+    list(
+        safe_update.activate_vanilla(
+            server,
+            config_path,
+            "armareforger.service",
+            current_canary_runner=lambda paths: safe_update.CanaryResult(
+                1.0, 128, "Everon"
+            ),
+            adapter=adapter,
+            readiness_checker=_ready,
+        )
+    )
+    update_paths = safe_update.resolve_update_paths(server, config_path)
+    config_before = config_path.read_bytes()
+    service_calls_before = list(adapter.calls)
+
+    output = list(
+        safe_update.verify_parked_modded_profile(
+            server,
+            config_path,
+            current_canary_runner=lambda paths: safe_update.CanaryResult(
+                1.0, 128, "Serhiivka"
+            ),
+        )
+    )
+
+    assert config_path.read_bytes() == config_before
+    assert adapter.calls == service_calls_before
+    assert update_paths.parked_modded_profile.is_dir()
+    assert safe_update.get_compatibility_status(server, config_path).active_mode == "vanilla"
+    evidence = safe_update.mod_compatibility.profile_compatibility(
+        update_paths.mod_compatibility,
+        update_paths.parked_modded_profile,
+        build_id="100",
+        profile_name="serhiivka-modded",
+        addons_path=update_paths.profile / "addons",
+    )
+    assert evidence.status == safe_update.mod_compatibility.COMPATIBLE
+    assert any("it was not activated" in line for line in output)
+
+
 def test_retry_rejection_keeps_vanilla_and_parked_modded_profile(tmp_path: Path):
     server, config_path = _layout(tmp_path)
     adapter = FakeServiceAdapter()
@@ -622,6 +667,84 @@ def test_named_profiles_can_be_created_and_switched_both_ways(tmp_path: Path):
     assert set(stored_selection) == {"game"}
     assert set(stored_selection["game"]) == {"scenarioId", "mods"}
     assert not (update_paths.profiles_root / "zakarpattia").exists()
+
+
+def test_named_profile_can_be_tested_without_activation_or_config_mutation(tmp_path: Path):
+    server, config_path = _layout(tmp_path)
+    safe_update.rename_active_profile(server, config_path, name="zakarpattia")
+    created = safe_update.create_named_profile(
+        server,
+        config_path,
+        name="vanilla-everon",
+        vanilla=True,
+    )
+    update_paths = safe_update.resolve_update_paths(server, config_path)
+    config_before = config_path.read_bytes()
+    addon_before = (config_path.parent / "addons" / "WCS" / "mod.pak").read_bytes()
+
+    output = list(
+        safe_update.verify_named_profile(
+            server,
+            config_path,
+            name="vanilla-everon",
+            current_canary_runner=lambda paths: safe_update.CanaryResult(
+                1.5, 128, "Everon"
+            ),
+        )
+    )
+
+    assert config_path.read_bytes() == config_before
+    assert (config_path.parent / "addons" / "WCS" / "mod.pak").read_bytes() == addon_before
+    assert Path(created.path).is_dir()
+    assert safe_update.get_named_profiles(server, config_path)[0].name == "zakarpattia"
+    assert not update_paths.candidate_profile.exists()
+    evidence = safe_update.mod_compatibility.profile_compatibility(
+        update_paths.mod_compatibility,
+        Path(created.path),
+        build_id="100",
+        profile_name="vanilla-everon",
+    )
+    assert evidence.status == safe_update.mod_compatibility.COMPATIBLE
+    assert any("it was not activated" in line for line in output)
+
+
+def test_rejected_named_profile_test_records_failure_without_activation(tmp_path: Path):
+    server, config_path = _layout(tmp_path)
+    safe_update.rename_active_profile(server, config_path, name="zakarpattia")
+    created = safe_update.create_named_profile(
+        server,
+        config_path,
+        name="current-copy",
+        vanilla=False,
+    )
+    update_paths = safe_update.resolve_update_paths(server, config_path)
+    config_before = config_path.read_bytes()
+
+    def reject(paths: safe_update.UpdatePaths) -> safe_update.CanaryResult:
+        del paths
+        raise safe_update.CanaryRejectedError('WCS: Can\'t compile "Game" script module')
+
+    with pytest.raises(safe_update.SafeUpdateError, match="active profile was not changed"):
+        list(
+            safe_update.verify_named_profile(
+                server,
+                config_path,
+                name="current-copy",
+                current_canary_runner=reject,
+            )
+        )
+
+    assert config_path.read_bytes() == config_before
+    assert Path(created.path).is_dir()
+    assert not update_paths.candidate_profile.exists()
+    evidence = safe_update.mod_compatibility.profile_compatibility(
+        update_paths.mod_compatibility,
+        Path(created.path),
+        build_id="100",
+        profile_name="current-copy",
+        addons_path=update_paths.profile / "addons",
+    )
+    assert evidence.status == safe_update.mod_compatibility.INCOMPATIBLE
 
 
 def test_manual_rollback_from_vanilla_update_restores_original_modded_generation(

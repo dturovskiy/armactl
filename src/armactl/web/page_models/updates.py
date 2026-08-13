@@ -5,14 +5,44 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from armactl import paths, safe_update
+from armactl import mod_compatibility, paths, safe_update
 from armactl.platform.service_adapter import get_service_adapter
 from armactl.redaction import redact_sensitive_text
 from armactl.state import ServerState, load_state
 from armactl.web.jobs import SERVER_UPDATE_CHECK_JOB_KIND, SERVER_UPDATE_JOB_KIND
+from armactl.web.jobs import server as server_jobs
 from armactl.web.jobs import store as job_store
 from armactl.web.jobs.models import JOB_STATUS_FAILED, JobRecord
 from armactl.web.services import server_versions
+
+_PROFILE_COMPATIBILITY_PRESENTATION = {
+    mod_compatibility.COMPATIBLE: ("Ready for current build", "success"),
+    mod_compatibility.INCOMPATIBLE: ("Incompatible with current build", "error"),
+    mod_compatibility.OUTDATED: ("Retest required", "warning"),
+    mod_compatibility.NOT_TESTED: ("Not tested for current build", "unavailable"),
+}
+
+
+def _profile_compatibility_view(
+    state_path: Path,
+    profile: safe_update.NamedProfile,
+    *,
+    build_id: str,
+    addons_path: Path,
+) -> dict[str, str]:
+    evidence = mod_compatibility.profile_compatibility(
+        state_path,
+        Path(profile.path),
+        build_id=build_id,
+        profile_name=profile.name,
+        addons_path=addons_path,
+    )
+    label, css_class = _PROFILE_COMPATIBILITY_PRESENTATION[evidence.status]
+    return {
+        **evidence.to_dict(),
+        "label": label,
+        "css_class": css_class,
+    }
 
 
 def _state_from_disk(instance: str, data_root: object) -> ServerState:
@@ -83,6 +113,30 @@ def _latest_failed_update_job_summary(
     return None
 
 
+def _active_profile_job_summary(
+    db_path: Path,
+    *,
+    instance: str,
+) -> dict[str, object] | None:
+    try:
+        jobs = job_store.list_active_jobs(db_path, limit=25)
+    except Exception:
+        return None
+    for job in jobs:
+        if job.instance != instance:
+            continue
+        parsed = server_jobs.parse_server_profile_job_kind(job.kind)
+        if parsed is None:
+            continue
+        action, name = parsed
+        return {
+            **_job_summary(job),
+            "action": action,
+            "profile_name": name,
+        }
+    return None
+
+
 def load_updates_page(
     instance: str,
     *,
@@ -122,6 +176,10 @@ def load_updates_page(
     )
     if failed_update_job is not None:
         version["failed_update_job"] = failed_update_job
+    profile_job = _active_profile_job_summary(
+        web_config.db_path,
+        instance=normalized_instance,
+    )
 
     compatibility: dict[str, Any] = {"available": False}
     profiles: list[dict[str, Any]] = []
@@ -139,6 +197,8 @@ def load_updates_page(
                     config_path,
                 ).to_dict(),
             }
+            update_paths = safe_update.resolve_update_paths(install_dir, config_path)
+            active_build = safe_update.read_build_id(install_dir)
             parked_profile = safe_update.get_parked_modded_profile(
                 install_dir,
                 config_path,
@@ -146,10 +206,29 @@ def load_updates_page(
             compatibility["parked_profile_name"] = (
                 parked_profile.name if parked_profile is not None else ""
             )
-            profiles = [
-                item.to_dict()
-                for item in safe_update.get_named_profiles(install_dir, config_path)
-            ]
+            compatibility["parked_profile_compatibility"] = (
+                _profile_compatibility_view(
+                    update_paths.mod_compatibility,
+                    parked_profile,
+                    build_id=active_build,
+                    addons_path=update_paths.profile / "addons",
+                )
+                if parked_profile is not None
+                else {}
+            )
+            profiles = []
+            for item in safe_update.get_named_profiles(install_dir, config_path):
+                profiles.append(
+                    {
+                        **item.to_dict(),
+                        "compatibility": _profile_compatibility_view(
+                            update_paths.mod_compatibility,
+                            item,
+                            build_id=active_build,
+                            addons_path=update_paths.profile / "addons",
+                        ),
+                    }
+                )
             policy = safe_update.get_update_policy(install_dir, config_path).to_dict()
         except Exception as error:  # noqa: BLE001 - page remains read-only and available.
             compatibility = {
@@ -165,4 +244,5 @@ def load_updates_page(
         compatibility=compatibility,
         profiles=profiles,
         policy=policy,
+        profile_job=profile_job,
     )

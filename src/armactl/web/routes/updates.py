@@ -32,6 +32,7 @@ _UPDATE_NOTICE_MESSAGES = {
     "server-running": server_job_actions.STOP_RUNNING_SERVER_UPDATE_MESSAGE,
     "update-unavailable": "Run a build check before updating.",
     "profile-queued": "Profile operation queued.",
+    "profile-test-queued": "Profile compatibility test queued.",
     "policy-enabled": "Automatic vanilla fallback enabled.",
     "policy-disabled": "Automatic vanilla fallback disabled.",
 }
@@ -180,7 +181,12 @@ def _profile_job_response(
         return PlainTextResponse(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
     except server_job_actions.ServerJobAuditError as exc:
         return PlainTextResponse(str(exc), status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    return _updates_redirect("profile-queued", return_to=return_to)
+    notice = (
+        "profile-test-queued"
+        if action in {"test", "test-parked"}
+        else "profile-queued"
+    )
+    return _updates_redirect(notice, return_to=return_to)
 
 
 @router.post("/updates/vanilla")
@@ -223,6 +229,26 @@ def switch_named_profile(
         name=profile_name,
         return_to=return_to,
     )
+
+
+@router.post("/updates/profile/test")
+def test_profile(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    profile_name: str = Form(default=""),
+    profile_source: str = Form(default="named"),
+) -> Response:
+    current = _require_update_action(request, csrf_token)
+    if isinstance(current, Response):
+        return current
+    if profile_source == "parked":
+        return _profile_job_response(current, action="test-parked")
+    if profile_source != "named":
+        return PlainTextResponse(
+            "Profile test source is invalid.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    return _profile_job_response(current, action="test", name=profile_name)
 
 
 @router.post("/updates/profile/select")

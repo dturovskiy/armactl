@@ -72,14 +72,15 @@
             <option value="vanilla">{{ t("Official vanilla config") }}</option>
           {% endif %}
           {% if profile_control.compatibility.parked_modded_available %}
-            {% set quick_profile.option_count = quick_profile.option_count + 1 %}
-            <option value="retry-modded">{{ profile_control.compatibility.parked_profile_name or t("Parked modded profile") }} · {{ t("Parked") }}</option>
+            {% set parked_evidence = profile_control.compatibility.parked_profile_compatibility|default({}) %}
+            {% if parked_evidence.status == 'compatible' %}{% set quick_profile.option_count = quick_profile.option_count + 1 %}{% endif %}
+            <option value="retry-modded"{% if parked_evidence.status != 'compatible' %} disabled{% endif %}>{{ profile_control.compatibility.parked_profile_name or t("Parked modded profile") }} · {{ t(parked_evidence.label|default("Not tested for current build")) }}</option>
           {% endif %}
           {% if not profile_control.compatibility.parked_modded_available %}
             {% for profile in profile_control.profiles %}
               {% if not profile.active %}
-                {% set quick_profile.option_count = quick_profile.option_count + 1 %}
-                <option value="profile:{{ profile.name }}">{{ profile.name }} · {{ t(profile.mode|capitalize) }}</option>
+                {% if profile.compatibility.status == 'compatible' %}{% set quick_profile.option_count = quick_profile.option_count + 1 %}{% endif %}
+                <option value="profile:{{ profile.name }}"{% if profile.compatibility.status != 'compatible' %} disabled{% endif %}>{{ profile.name }} · {{ t(profile.compatibility.label|default("Not tested for current build")) }}</option>
               {% endif %}
             {% endfor %}
           {% endif %}

@@ -137,17 +137,41 @@
   {% if page.profile_actions_disabled_reason %}
     <p class="notice-inline notice-warning">{{ t(page.profile_actions_disabled_reason) }}</p>
   {% endif %}
+  {% if page.profile_job %}
+    <p class="notice-inline notice-warning">
+      <strong>{{ t("Profile test in progress") if page.profile_job.action in ('test', 'test-parked') else t("Profile operation in progress") }}</strong>
+      · #{{ page.profile_job.id }} · {{ t(page.profile_job.status|capitalize) }}
+      {% if page.profile_job.profile_name %} · {{ page.profile_job.profile_name }}{% endif %}
+      · <a href="/jobs#background-jobs">{{ t("Open background jobs") }}</a>
+    </p>
+  {% endif %}
   <div class="action-grid">
     <form method="post" action="/updates/vanilla" class="action-form action-tile">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit"{% if not page.profile_actions_enabled or page.compatibility.active_mode == 'vanilla' %} disabled aria-disabled="true"{% endif %}>{{ t("Activate official vanilla") }}</button>
       <span class="muted">{{ t("Uses official Conflict Everon with an empty mod list.") }}</span>
     </form>
-    <form method="post" action="/updates/retry-modded" class="action-form action-tile">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button type="submit"{% if not page.profile_actions_enabled or not page.compatibility.parked_modded_available %} disabled aria-disabled="true"{% endif %}>{{ t("Test and restore modded") }}</button>
-      <span class="muted">{% if page.compatibility.parked_profile_name %}{{ page.compatibility.parked_profile_name }} · {{ t("Parked") }}. {% endif %}{{ t("Restores only after the parked modded config passes its canary.") }}</span>
-    </form>
+    <div class="action-tile action-form">
+      <strong>{% if page.compatibility.parked_profile_name %}{{ page.compatibility.parked_profile_name }}{% else %}{{ t("Parked modded profile") }}{% endif %}</strong>
+      {% set parked_evidence = page.compatibility.parked_profile_compatibility|default({}) %}
+      {% set parked_testing = page.profile_job.action == 'test-parked' %}
+      <span>
+        <span class="status-pill status-pill-{{ 'warning' if parked_testing else parked_evidence.css_class|default('unavailable') }}">{{ t("Testing current build") if parked_testing else t(parked_evidence.label|default("Not tested for current build")) }}</span>
+        {% if parked_evidence.tested_at %}<span class="muted">{{ t("Build") }} {{ parked_evidence.tested_build_id or t("unknown") }} · {{ format_web_timestamp(parked_evidence.tested_at) }}</span>{% endif %}
+      </span>
+      <div class="form-actions">
+        <form method="post" action="/updates/profile/test" class="action-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="profile_source" value="parked">
+          <button type="submit"{% if not page.profile_actions_enabled or not page.compatibility.parked_modded_available %} disabled aria-disabled="true"{% endif %}>{{ t("Test") }}</button>
+        </form>
+        <form method="post" action="/updates/retry-modded" class="action-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit"{% if not page.profile_actions_enabled or not page.compatibility.parked_modded_available or parked_evidence.status != 'compatible' %} disabled aria-disabled="true"{% endif %}>{{ t("Restore") }}</button>
+        </form>
+      </div>
+      <span class="muted">{{ t("Testing does not activate the profile. Restore is enabled only after a successful test for the current build.") }}</span>
+    </div>
   </div>
 
   {% if page.profiles %}
@@ -159,27 +183,40 @@
             <th>{{ t("Mode") }}</th>
             <th>{{ t("Scenario") }}</th>
             <th>{{ t("Mods") }}</th>
-            <th>{{ t("Action") }}</th>
+            <th>{{ t("Compatibility") }}</th>
+            <th>{{ t("Actions") }}</th>
           </tr>
         </thead>
         <tbody>
           {% for profile in page.profiles %}
+            {% set profile_testing = page.profile_job.action == 'test' and page.profile_job.profile_name == profile.name %}
             <tr>
               <td>{{ profile.name }}{% if profile.active %} <span class="status-pill status-pill-ok">{{ t("Active") }}</span>{% endif %}</td>
               <td>{{ t(profile.mode|capitalize) }}</td>
               <td class="wrap-value"><code>{{ profile.scenario_id or t("unknown") }}</code></td>
               <td>{{ profile.mod_count }}</td>
-              <td>
+              <td class="wrap-value">
+                <span class="status-pill status-pill-{{ 'warning' if profile_testing else profile.compatibility.css_class|default('unavailable') }}">{{ t("Testing current build") if profile_testing else t(profile.compatibility.label|default("Not tested for current build")) }}</span>
+                {% if profile.compatibility.tested_at %}<div class="muted">{{ t("Build") }} {{ profile.compatibility.tested_build_id or t("unknown") }} · {{ format_web_timestamp(profile.compatibility.tested_at) }}</div>{% endif %}
+                {% if profile.compatibility.reason %}<details><summary>{{ t("Evidence") }}</summary><span class="muted">{{ profile.compatibility.reason }}</span></details>{% endif %}
+              </td>
+              <td><div class="form-actions">
+                <form method="post" action="/updates/profile/test" class="action-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="profile_source" value="named">
+                  <input type="hidden" name="profile_name" value="{{ profile.name }}">
+                  <button type="submit"{% if not page.profile_actions_enabled %} disabled aria-disabled="true"{% endif %}>{{ t("Test") }}</button>
+                </form>
                 {% if not profile.active %}
                   <form method="post" action="/updates/profile/switch" class="action-form">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="profile_name" value="{{ profile.name }}">
-                    <button type="submit"{% if not page.profile_actions_enabled %} disabled aria-disabled="true"{% endif %}>{{ t("Switch") }}</button>
+                    <button type="submit"{% if not page.profile_actions_enabled or profile.compatibility.status != 'compatible' %} disabled aria-disabled="true"{% endif %}>{{ t("Switch") }}</button>
                   </form>
                 {% else %}
                   <span class="muted">{{ t("Currently active") }}</span>
                 {% endif %}
-              </td>
+              </div></td>
             </tr>
           {% endfor %}
         </tbody>

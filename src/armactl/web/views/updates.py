@@ -401,14 +401,35 @@ def build_updates_view(
     if check_state == server_versions.SERVER_VERSION_CHECK_FAILED and check_job_id:
         failed_check_job = _job_link(check_job_id, "Failed update check job")
     compatibility = dict(_mapping(page.get("compatibility")))
+    compatibility.setdefault("parked_profile_compatibility", {})
     raw_profiles = page.get("profiles")
-    profiles = [
-        dict(item)
-        for item in raw_profiles
-        if isinstance(item, Mapping)
-    ] if isinstance(raw_profiles, list) else []
+    profiles = []
+    if isinstance(raw_profiles, list):
+        for item in raw_profiles:
+            if not isinstance(item, Mapping):
+                continue
+            profile = dict(item)
+            profile.setdefault(
+                "compatibility",
+                {
+                    "status": "not_tested",
+                    "label": "Not tested for current build",
+                    "css_class": "unavailable",
+                    "tested_at": "",
+                    "tested_build_id": "",
+                    "reason": "",
+                },
+            )
+            profiles.append(profile)
     policy = dict(_mapping(page.get("policy")))
-    profile_actions_enabled = can_update_server and not server_running and not checking_or_updating
+    profile_job = dict(_mapping(page.get("profile_job")))
+    profile_operation_active = bool(profile_job)
+    profile_actions_enabled = (
+        can_update_server
+        and not server_running
+        and not checking_or_updating
+        and not profile_operation_active
+    )
     if not can_update_server:
         profile_actions_disabled_reason = "Server update permission is required."
     elif server_running:
@@ -418,6 +439,10 @@ def build_updates_view(
     elif checking_or_updating:
         profile_actions_disabled_reason = (
             "Wait for the active update operation before changing profiles."
+        )
+    elif profile_operation_active:
+        profile_actions_disabled_reason = (
+            "Wait for the active profile operation to finish."
         )
     else:
         profile_actions_disabled_reason = ""
@@ -487,6 +512,7 @@ def build_updates_view(
         compatibility=compatibility,
         profiles=profiles,
         policy=policy,
+        profile_job=profile_job,
         profile_actions_enabled=profile_actions_enabled,
         profile_actions_disabled_reason=profile_actions_disabled_reason,
     )

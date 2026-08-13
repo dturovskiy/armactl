@@ -1130,6 +1130,67 @@ def test_server_profile_switch_job_streams_verified_operation(
     assert "profile canary passed" in result.job.stdout_tail
 
 
+def test_server_profile_test_job_runs_canary_without_switch_operation(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from armactl.web.jobs import server as server_jobs
+
+    db_path = _db_path(tmp_path)
+    install_dir = tmp_path / "default" / "server"
+    config_path = install_dir.parent / "config" / "config.json"
+    install_dir.mkdir(parents=True)
+    config_path.parent.mkdir()
+    (install_dir / "ArmaReforgerServer").write_text("binary", encoding="utf-8")
+    config_path.write_text("{}", encoding="utf-8")
+    calls: list[tuple[str, str, str]] = []
+
+    monkeypatch.setattr(
+        server_jobs.discovery,
+        "discover",
+        lambda instance, save=False: SimpleNamespace(
+            install_dir=str(install_dir),
+            config_path=str(config_path),
+            service_name="armareforger.service",
+            server_running=False,
+        ),
+    )
+    monkeypatch.setattr(
+        server_jobs.paths,
+        "validate_server_install_dir",
+        lambda value, *, instance: Path(value),
+    )
+
+    def fake_verify(install, config, *, name):
+        calls.append((str(install), str(config), name))
+        yield "profile is compatible; it was not activated"
+
+    monkeypatch.setattr(server_jobs.safe_update, "verify_named_profile", fake_verify)
+    job, created = server_jobs.ensure_server_profile_job(
+        db_path,
+        action="test",
+        name="serhiivka-modded",
+        requested_by_username="owner",
+    )
+
+    assert created is True
+    assert job.kind == "server:pt:serhiivka-modded"
+    assert server_jobs.parse_server_profile_job_kind(job.kind) == (
+        "test",
+        "serhiivka-modded",
+    )
+    result = dispatch_server_job(db_path, job.id)
+
+    assert calls == [(str(install_dir), str(config_path), "serhiivka-modded")]
+    assert result.job.status == JOB_STATUS_SUCCEEDED
+    assert result.job.result_message == (
+        "Profile serhiivka-modded is compatible with the current build."
+    )
+    assert "it was not activated" in result.job.stdout_tail
+
+
 def test_server_profile_job_refuses_running_server_before_profile_mutation(
     tmp_path: Path,
     monkeypatch,

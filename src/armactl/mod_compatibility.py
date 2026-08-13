@@ -18,6 +18,7 @@ INCOMPATIBLE = "incompatible"
 STACK_UNKNOWN = "stack_unknown"
 BLOCKED_DEPENDENCY = "blocked_dependency"
 NOT_TESTED = "not_tested"
+OUTDATED = "outdated"
 VALID_STATUSES = frozenset(
     {COMPATIBLE, INCOMPATIBLE, STACK_UNKNOWN, BLOCKED_DEPENDENCY, NOT_TESTED}
 )
@@ -41,6 +42,28 @@ class ModCompatibility:
             "profile": self.profile,
             "tested_at": self.tested_at,
             "evidence": self.evidence,
+            "reason": self.reason,
+        }
+
+
+@dataclass(frozen=True)
+class ProfileCompatibility:
+    """Latest whole-profile canary result and whether it still applies."""
+
+    status: str
+    build_id: str
+    tested_build_id: str
+    profile: str
+    tested_at: str
+    reason: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "status": self.status,
+            "build_id": self.build_id,
+            "tested_build_id": self.tested_build_id,
+            "profile": self.profile,
+            "tested_at": self.tested_at,
             "reason": self.reason,
         }
 
@@ -127,6 +150,29 @@ def _profile_dependencies(addons_path: Path) -> dict[str, set[str]]:
     return result
 
 
+def _addon_signatures(addons_path: Path) -> dict[str, str]:
+    """Return cheap change detectors for installed Workshop package metadata."""
+    if not addons_path.is_dir() or addons_path.is_symlink():
+        return {}
+    result: dict[str, str] = {}
+    for addon_dir in addons_path.iterdir():
+        if not addon_dir.is_dir() or addon_dir.is_symlink():
+            continue
+        match = re.search(r"_([0-9A-Fa-f]{16})\Z", addon_dir.name)
+        if match is None:
+            continue
+        metadata = addon_dir / "addon.gproj"
+        target = metadata if metadata.is_file() and not metadata.is_symlink() else addon_dir
+        try:
+            stat = target.stat()
+        except OSError:
+            continue
+        result[match.group(1).upper()] = (
+            f"{addon_dir.name}:{stat.st_size}:{stat.st_mtime_ns}"
+        )
+    return result
+
+
 def _blocked_mods(
     configured_ids: set[str],
     dependencies: dict[str, set[str]],
@@ -156,8 +202,6 @@ def record_profile_canary(
 ) -> None:
     """Record current-build evidence without claiming more than the canary proved."""
     mods = configured_mods(profile_path)
-    if not mods:
-        return
     safe_reason = redact_sensitive_text(reason)[:MAX_REASON_LENGTH]
     matched = set() if compatible else _failure_matches(mods, safe_reason)
     configured_ids = {_mod_key(mod.get("modId")) for mod in mods}
@@ -170,6 +214,7 @@ def record_profile_canary(
             matched,
         )
     )
+    addon_signatures = _addon_signatures(addons_path or profile_path / "addons")
     records: list[dict[str, str]] = []
     for mod in mods:
         mod_id = _mod_key(mod.get("modId"))
@@ -190,6 +235,7 @@ def record_profile_canary(
                 "mod_id": mod_id,
                 "name": str(mod.get("name") or ""),
                 "version": str(mod.get("version") or ""),
+                "addon_signature": addon_signatures.get(mod_id, ""),
                 "status": status,
                 "evidence": evidence,
             }
@@ -220,12 +266,96 @@ def record_profile_canary(
     _write(state_path, payload)
 
 
+def profile_compatibility(
+    state_path: Path,
+    profile_path: Path,
+    *,
+    build_id: str,
+    profile_name: str,
+    addons_path: Path | None = None,
+) -> ProfileCompatibility:
+    """Return whole-profile evidence only while build and selection still match."""
+    profile_name = str(profile_name)
+    build_id = str(build_id)
+    try:
+        config = json.loads((profile_path / "config.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        config = {}
+    game = config.get("game") if isinstance(config.get("game"), dict) else {}
+    scenario_id = str(game.get("scenarioId") or "")
+    mods = configured_mods(profile_path)
+    addon_signatures = _addon_signatures(addons_path or profile_path / "addons")
+    current_stack = [
+        (
+            _mod_key(mod.get("modId")),
+            str(mod.get("version") or ""),
+            addon_signatures.get(_mod_key(mod.get("modId")), ""),
+        )
+        for mod in mods
+    ]
+
+    records: list[dict[str, Any]] = []
+    for item in reversed(_load(state_path)["results"]):
+        if isinstance(item, dict) and str(item.get("profile") or "") == profile_name:
+            records.append(item)
+    if not records:
+        return ProfileCompatibility(
+            status=NOT_TESTED,
+            build_id=build_id,
+            tested_build_id="",
+            profile=profile_name,
+            tested_at="",
+            reason="",
+        )
+
+    matching: dict[str, Any] | None = None
+    for item in records:
+        raw_records = item.get("mods", [])
+        tested_stack = (
+            [
+                (
+                    _mod_key(mod.get("mod_id")),
+                    str(mod.get("version") or ""),
+                    str(mod.get("addon_signature") or ""),
+                )
+                for mod in raw_records
+                if isinstance(mod, dict)
+            ]
+            if isinstance(raw_records, list)
+            else []
+        )
+        if (
+            bool(build_id)
+            and str(item.get("build_id") or "") == build_id
+            and str(item.get("scenario_id") or "") == scenario_id
+            and tested_stack == current_stack
+        ):
+            matching = item
+            break
+
+    evidence = matching or records[0]
+    tested_build = str(evidence.get("build_id") or "")
+    raw_status = str(evidence.get("stack_status") or INCOMPATIBLE)
+    status = raw_status if matching is not None else OUTDATED
+    if status not in {COMPATIBLE, INCOMPATIBLE, OUTDATED}:
+        status = INCOMPATIBLE if matching is not None else OUTDATED
+    return ProfileCompatibility(
+        status=status,
+        build_id=build_id,
+        tested_build_id=tested_build,
+        profile=profile_name,
+        tested_at=str(evidence.get("tested_at") or ""),
+        reason=str(evidence.get("reason") or "")[:MAX_REASON_LENGTH],
+    )
+
+
 def compatibility_for_mods(
     state_path: Path,
     mods: list[dict[str, Any]],
     *,
     build_id: str,
     profile_name: str,
+    addons_path: Path | None = None,
 ) -> dict[str, ModCompatibility]:
     """Return latest exact build/profile evidence for requested mod IDs."""
     payload = _load(state_path)
@@ -233,10 +363,9 @@ def compatibility_for_mods(
     for item in reversed(payload["results"]):
         if not isinstance(item, dict):
             continue
-        if (
-            str(item.get("build_id") or "") == str(build_id)
-            and str(item.get("profile") or "") == str(profile_name)
-        ):
+        if str(item.get("build_id") or "") == str(build_id) and str(
+            item.get("profile") or ""
+        ) == str(profile_name):
             result_record = item
             break
     evidence_by_id: dict[str, dict[str, Any]] = {}
@@ -248,6 +377,7 @@ def compatibility_for_mods(
                 for item in raw_records
                 if isinstance(item, dict) and _mod_key(item.get("mod_id"))
             }
+    addon_signatures = _addon_signatures(addons_path) if addons_path else {}
 
     output: dict[str, ModCompatibility] = {}
     for mod in mods:
@@ -255,9 +385,13 @@ def compatibility_for_mods(
         record = evidence_by_id.get(mod_id)
         current_version = str(mod.get("version") or "")
         recorded_version = str(record.get("version") or "") if record else ""
+        recorded_signature = str(record.get("addon_signature") or "") if record else ""
+        signature_changed = bool(addons_path) and (
+            addon_signatures.get(mod_id, "") != recorded_signature
+        )
         if record is None or (
             current_version and recorded_version and current_version != recorded_version
-        ):
+        ) or signature_changed:
             output[mod_id] = ModCompatibility(
                 status=NOT_TESTED,
                 build_id=str(build_id),

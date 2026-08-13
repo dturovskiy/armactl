@@ -765,6 +765,11 @@ def test_dashboard_shows_compact_profile_selector_and_links_to_full_controls(
                 "active_mode": "vanilla",
                 "parked_modded_available": True,
                 "parked_profile_name": "serhiivka-modded",
+                "parked_profile_compatibility": {
+                    "status": "compatible",
+                    "label": "Ready for current build",
+                    "css_class": "success",
+                },
             },
             "profiles": [
                 {
@@ -797,7 +802,7 @@ def test_dashboard_shows_compact_profile_selector_and_links_to_full_controls(
     assert 'name="profile_selection"' in response.text
     assert '<option value="" selected disabled>vanilla · Active</option>' in response.text
     assert (
-        '<option value="retry-modded">serhiivka-modded · Parked</option>'
+        '<option value="retry-modded">serhiivka-modded · Ready for current build</option>'
         in response.text
     )
     assert "Parked modded profile" not in response.text

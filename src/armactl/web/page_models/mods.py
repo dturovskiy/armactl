@@ -78,6 +78,7 @@ def _inactive_profile_group(
     *,
     state_path: Path,
     build_id: str,
+    addons_path: Path,
 ) -> dict[str, Any]:
     raw_mods = safe_update.configured_mods(Path(profile.path))
     mods = [_mod_entry(raw) for raw in raw_mods]
@@ -86,6 +87,7 @@ def _inactive_profile_group(
         raw_mods,
         build_id=build_id,
         profile_name=profile.name,
+        addons_path=addons_path,
     )
     _enrich_compatibility(mods, evidence)
     return {
@@ -153,6 +155,7 @@ def load_mods_page(instance: str) -> dict[str, Any]:
             all_raw_mods,
             build_id=compatibility_build,
             profile_name=compatibility_profile,
+            addons_path=update_paths.profile / "addons",
         )
         _enrich_compatibility(mods, evidence)
         _enrich_compatibility(disabled_mods, evidence)
@@ -175,6 +178,7 @@ def load_mods_page(instance: str) -> dict[str, Any]:
                     profile,
                     state_path=update_paths.mod_compatibility,
                     build_id=compatibility_build,
+                    addons_path=update_paths.profile / "addons",
                 )
             )
     except Exception as error:

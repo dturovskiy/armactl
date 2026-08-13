@@ -154,6 +154,60 @@ def test_dashboard_profile_switch_redirects_back_to_dashboard(
 
 
 @pytest.mark.parametrize(
+    ("source", "name", "expected_action", "expected_name"),
+    [
+        ("named", "serhiivka-modded", "test", "serhiivka-modded"),
+        ("parked", "", "test-parked", ""),
+    ],
+)
+def test_profile_test_route_queues_test_only_job(
+    tmp_path: Path,
+    monkeypatch,
+    source: str,
+    name: str,
+    expected_action: str,
+    expected_name: str,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services import server_job_actions
+
+    password = "owner profile test password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_updates_page(
+        monkeypatch,
+        _updates_page(server_versions.SERVER_VERSION_CHECK_UPTODATE),
+    )
+    requested: dict[str, str] = {}
+
+    def request_profile(*args, action: str, name: str, **kwargs):
+        del args, kwargs
+        requested.update(action=action, name=name)
+
+    monkeypatch.setattr(
+        server_job_actions,
+        "request_server_profile_action_and_start",
+        request_profile,
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+    csrf_token = _updates_csrf_token(client)
+
+    response = client.post(
+        "/updates/profile/test",
+        data={
+            "csrf_token": csrf_token,
+            "profile_source": source,
+            "profile_name": name,
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/updates?notice=profile-test-queued"
+    assert requested == {"action": expected_action, "name": expected_name}
+
+
+@pytest.mark.parametrize(
     ("selection", "expected_action", "expected_name"),
     [
         ("vanilla", "vanilla", ""),
@@ -1094,3 +1148,130 @@ def test_load_updates_page_uses_live_service_status_when_state_is_stale(
 
     assert page["server_running"] is True
     assert page["version"]["check_state"] == server_versions.SERVER_VERSION_CHECK_UNKNOWN
+
+
+def test_updates_page_model_exposes_active_profile_test_job(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from armactl.web.jobs import server as server_jobs
+    from armactl.web.page_models import updates as updates_page_model
+    from armactl.web.runtime import ensure_web_db
+    from armactl.web.views.updates import build_updates_view
+
+    db_path = tmp_path / "web" / "web.db"
+    ensure_web_db(db_path)
+    job, created = server_jobs.ensure_server_profile_job(
+        db_path,
+        action="test",
+        name="serhiivka-modded",
+        requested_by_username="owner",
+    )
+    assert created is True
+
+    class FakeServiceAdapter:
+        def get_service_status(self, service_name):
+            del service_name
+            return {"active_state": "inactive", "sub_state": "dead"}
+
+    monkeypatch.setattr(
+        updates_page_model,
+        "get_service_adapter",
+        lambda: FakeServiceAdapter(),
+    )
+
+    page = updates_page_model.load_updates_page(
+        "default",
+        web_config=SimpleNamespace(data_root=tmp_path, db_path=db_path),
+    )
+    view = build_updates_view(page, can_update_server=True)
+
+    assert page["profile_job"]["id"] == job.id
+    assert page["profile_job"]["action"] == "test"
+    assert page["profile_job"]["profile_name"] == "serhiivka-modded"
+    assert view["profile_actions_enabled"] is False
+    assert view["profile_actions_disabled_reason"] == (
+        "Wait for the active profile operation to finish."
+    )
+
+
+def test_updates_template_renders_profile_compatibility_and_test_action(tmp_path: Path):
+    from types import SimpleNamespace
+
+    from starlette.requests import Request
+
+    from armactl.web.app import create_app
+    from armactl.web.i18n import web_template_context
+    from armactl.web.views.updates import build_updates_view
+
+    raw = _updates_page(server_versions.SERVER_VERSION_CHECK_UPTODATE)
+    raw.update(
+        compatibility={
+            "available": True,
+            "active_mode": "vanilla",
+            "parked_modded_available": True,
+            "parked_profile_name": "serhiivka-modded",
+            "parked_profile_compatibility": {
+                "status": "outdated",
+                "label": "Retest required",
+                "css_class": "warning",
+                "tested_at": "2026-08-13T10:00:00+00:00",
+                "tested_build_id": "99",
+            },
+        },
+        profiles=[
+            {
+                "name": "vanilla",
+                "active": True,
+                "mode": "vanilla",
+                "scenario_id": "Everon.conf",
+                "mod_count": 0,
+                "compatibility": {
+                    "status": "compatible",
+                    "label": "Ready for current build",
+                    "css_class": "success",
+                    "tested_at": "2026-08-13T11:00:00+00:00",
+                    "tested_build_id": "100",
+                    "reason": "",
+                },
+            }
+        ],
+        policy={"automatic_vanilla_fallback": True},
+    )
+    page = build_updates_view(raw, can_update_server=True)
+    app = create_app(data_root=tmp_path)
+    request = Request(
+        {
+            "type": "http",
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/updates",
+            "raw_path": b"/updates",
+            "query_string": b"",
+            "root_path": "",
+            "headers": [],
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+            "app": app,
+            "router": app.router,
+        }
+    )
+    context = {
+        "request": request,
+        "current_user": SimpleNamespace(username="owner"),
+        "csrf_token": "token",
+        "page": page,
+        **web_template_context(request),
+    }
+
+    html = app.state.templates.get_template("updates.html").render(context)
+
+    assert 'action="/updates/profile/test"' in html
+    assert "serhiivka-modded" in html
+    assert "Retest required" in html
+    assert "Ready for current build" in html
+    assert 'action="/updates/retry-modded"' in html
+    assert "disabled aria-disabled=\"true\"" in html

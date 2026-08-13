@@ -1302,13 +1302,36 @@ def _stream_safe_server_update(
                 "Starting addon-free official Conflict Everon canary for "
                 f"build {new_build}."
             )
-            canary = canary_runner(update_paths)
+            try:
+                canary = canary_runner(update_paths)
+            except CanaryRejectedError as vanilla_exc:
+                record_warning = _record_mod_canary(
+                    update_paths,
+                    update_paths.candidate_profile,
+                    build_id=new_build,
+                    profile_name=DEFAULT_VANILLA_PROFILE,
+                    compatible=False,
+                    reason=redact_sensitive_text(vanilla_exc),
+                )
+                if record_warning:
+                    yield record_warning
+                raise
         if target_mode == MODDED_MODE:
             record_warning = _record_mod_canary(
                 update_paths,
                 update_paths.candidate_profile,
                 build_id=new_build,
                 profile_name=modded_profile_name,
+                compatible=True,
+            )
+            if record_warning:
+                yield record_warning
+        else:
+            record_warning = _record_mod_canary(
+                update_paths,
+                update_paths.candidate_profile,
+                build_id=new_build,
+                profile_name=DEFAULT_VANILLA_PROFILE,
                 compatible=True,
             )
             if record_warning:
@@ -1470,6 +1493,132 @@ def _run_current_build_canary(update_paths: UpdatePaths) -> CanaryResult:
     return run_compatibility_canary(update_paths, server_dir=update_paths.server)
 
 
+def _verify_profile_source(
+    update_paths: UpdatePaths,
+    *,
+    source_profile: Path,
+    profile_name: str,
+    current_canary_runner: Callable[[UpdatePaths], CanaryResult],
+) -> Iterator[str]:
+    """Run a current-build canary without activating or parking any profile."""
+    cleanup_candidate_artifacts(update_paths)
+    active_build = read_build_id(update_paths.server)
+    try:
+        prepare_candidate(update_paths, source_profile=source_profile)
+    except Exception as exc:
+        cleanup_candidate_artifacts(update_paths)
+        raise SafeUpdateError(
+            f"Could not prepare profile {profile_name} for testing: {exc}"
+        ) from exc
+    yield (
+        f"Testing profile {profile_name} against active build "
+        f"{active_build or 'unknown'} without activating it."
+    )
+    try:
+        canary = current_canary_runner(update_paths)
+    except CanaryRejectedError as exc:
+        reason = redact_sensitive_text(exc)
+        record_warning = _record_mod_canary(
+            update_paths,
+            update_paths.candidate_profile,
+            build_id=active_build,
+            profile_name=profile_name,
+            compatible=False,
+            reason=reason,
+        )
+        if record_warning:
+            yield record_warning
+        raise SafeUpdateError(
+            f"Profile {profile_name} is incompatible with active build "
+            f"{active_build or 'unknown'} ({reason}). The active profile was not changed."
+        ) from exc
+    finally:
+        cleanup_candidate_artifacts(update_paths)
+
+    record_warning = _record_mod_canary(
+        update_paths,
+        source_profile,
+        build_id=active_build,
+        profile_name=profile_name,
+        compatible=True,
+    )
+    if record_warning:
+        yield record_warning
+    yield (
+        f"Profile {profile_name} is compatible with active build "
+        f"{active_build or 'unknown'}; it was not activated."
+    )
+    yield f"Canary was stable after {canary.ready_seconds:.1f} seconds."
+
+
+def verify_named_profile(
+    install_dir: Path,
+    config_path: Path,
+    *,
+    name: str,
+    current_canary_runner: Callable[
+        [UpdatePaths], CanaryResult
+    ] = _run_current_build_canary,
+) -> Iterator[str]:
+    """Serialize a test-only canary for one active or stored named profile."""
+    update_paths = resolve_update_paths(install_dir, config_path)
+    lock_descriptor = _acquire_update_lock(update_paths.instance_root)
+    try:
+        try:
+            profile_name = validate_profile_name(name)
+        except UpdateProfileError as exc:
+            raise SafeUpdateError(str(exc)) from exc
+        active_name = _active_profile_name(update_paths)
+        source_profile = (
+            update_paths.profile
+            if profile_name == active_name
+            else profile_path(update_paths.profiles_root, profile_name)
+        )
+        if not source_profile.is_dir() or source_profile.is_symlink():
+            raise SafeUpdateError(f"Stored profile does not exist: {profile_name}")
+        try:
+            inspect_profile(
+                profile_name,
+                source_profile,
+                active=profile_name == active_name,
+            )
+        except UpdateProfileError as exc:
+            raise SafeUpdateError(str(exc)) from exc
+        yield from _verify_profile_source(
+            update_paths,
+            source_profile=source_profile,
+            profile_name=profile_name,
+            current_canary_runner=current_canary_runner,
+        )
+    finally:
+        _release_update_lock(lock_descriptor)
+
+
+def verify_parked_modded_profile(
+    install_dir: Path,
+    config_path: Path,
+    *,
+    current_canary_runner: Callable[
+        [UpdatePaths], CanaryResult
+    ] = _run_current_build_canary,
+) -> Iterator[str]:
+    """Serialize a test-only canary for the fallback-parked modded profile."""
+    update_paths = resolve_update_paths(install_dir, config_path)
+    lock_descriptor = _acquire_update_lock(update_paths.instance_root)
+    try:
+        parked = get_parked_modded_profile(install_dir, config_path)
+        if parked is None:
+            raise SafeUpdateError("No parked modded profile is available for testing.")
+        yield from _verify_profile_source(
+            update_paths,
+            source_profile=update_paths.parked_modded_profile,
+            profile_name=parked.name,
+            current_canary_runner=current_canary_runner,
+        )
+    finally:
+        _release_update_lock(lock_descriptor)
+
+
 def _promote_profile_candidate(
     update_paths: UpdatePaths,
     *,
@@ -1593,6 +1742,15 @@ def _activate_vanilla(
     try:
         canary = current_canary_runner(update_paths)
         yield f"Vanilla canary was stable after {canary.ready_seconds:.1f} seconds."
+        record_warning = _record_mod_canary(
+            update_paths,
+            update_paths.candidate_profile,
+            build_id=active_build,
+            profile_name=DEFAULT_VANILLA_PROFILE,
+            compatible=True,
+        )
+        if record_warning:
+            yield record_warning
         reset_candidate_profile_after_canary(
             update_paths,
             source_profile=update_paths.profile,
@@ -1652,6 +1810,16 @@ def _activate_vanilla(
             "untouched in config/addons."
         )
     except CanaryRejectedError as exc:
+        record_warning = _record_mod_canary(
+            update_paths,
+            update_paths.candidate_profile,
+            build_id=active_build,
+            profile_name=DEFAULT_VANILLA_PROFILE,
+            compatible=False,
+            reason=redact_sensitive_text(exc),
+        )
+        if record_warning:
+            yield record_warning
         cleanup_candidate_artifacts(update_paths)
         _write_metadata(
             update_paths,

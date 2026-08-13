@@ -44,6 +44,7 @@ router = APIRouter()
 
 _PROFILE_NOTICES = {
     "profile-queued": "Profile operation queued.",
+    "profile-test-queued": "Profile compatibility test queued.",
     "policy-enabled": "Automatic vanilla fallback enabled.",
     "policy-disabled": "Automatic vanilla fallback disabled.",
 }

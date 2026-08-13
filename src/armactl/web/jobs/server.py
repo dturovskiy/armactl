@@ -21,7 +21,9 @@ SERVER_UPDATE_JOB_KIND = "server:update"
 SERVER_UPDATE_CHECK_JOB_KIND = "server:update-check"
 SERVER_VANILLA_JOB_KIND = "server:vanilla"
 SERVER_RETRY_MODDED_JOB_KIND = "server:retry-modded"
+SERVER_PARKED_PROFILE_TEST_JOB_KIND = "server:test-parked"
 SERVER_PROFILE_SWITCH_JOB_PREFIX = "server:ps:"
+SERVER_PROFILE_TEST_JOB_PREFIX = "server:pt:"
 SERVER_PROFILE_CREATE_JOB_PREFIX = "server:pc:"
 SERVER_VANILLA_PROFILE_CREATE_JOB_PREFIX = "server:pv:"
 SERVER_JOB_KINDS = frozenset(
@@ -32,10 +34,11 @@ SERVER_JOB_KINDS = frozenset(
         SERVER_UPDATE_CHECK_JOB_KIND,
         SERVER_VANILLA_JOB_KIND,
         SERVER_RETRY_MODDED_JOB_KIND,
+        SERVER_PARKED_PROFILE_TEST_JOB_KIND,
     }
 )
 STOP_RUNNING_SERVER_UPDATE_MESSAGE = "Stop the game server before updating."
-STOP_RUNNING_SERVER_PROFILE_MESSAGE = "Stop the game server before changing profiles."
+STOP_RUNNING_SERVER_PROFILE_MESSAGE = "Stop the game server before testing or changing profiles."
 
 
 def server_profile_job_kind(action: str, name: str = "") -> str:
@@ -44,9 +47,12 @@ def server_profile_job_kind(action: str, name: str = "") -> str:
         return SERVER_VANILLA_JOB_KIND
     if action == "retry-modded":
         return SERVER_RETRY_MODDED_JOB_KIND
+    if action == "test-parked":
+        return SERVER_PARKED_PROFILE_TEST_JOB_KIND
     safe_name = safe_update.validate_profile_name(name)
     prefixes = {
         "switch": SERVER_PROFILE_SWITCH_JOB_PREFIX,
+        "test": SERVER_PROFILE_TEST_JOB_PREFIX,
         "create": SERVER_PROFILE_CREATE_JOB_PREFIX,
         "create-vanilla": SERVER_VANILLA_PROFILE_CREATE_JOB_PREFIX,
     }
@@ -62,8 +68,11 @@ def _profile_job_action(kind: str) -> tuple[str, str] | None:
         return "vanilla", ""
     if kind == SERVER_RETRY_MODDED_JOB_KIND:
         return "retry-modded", ""
+    if kind == SERVER_PARKED_PROFILE_TEST_JOB_KIND:
+        return "test-parked", ""
     for prefix, action in (
         (SERVER_PROFILE_SWITCH_JOB_PREFIX, "switch"),
+        (SERVER_PROFILE_TEST_JOB_PREFIX, "test"),
         (SERVER_PROFILE_CREATE_JOB_PREFIX, "create"),
         (SERVER_VANILLA_PROFILE_CREATE_JOB_PREFIX, "create-vanilla"),
     ):
@@ -73,6 +82,11 @@ def _profile_job_action(kind: str) -> tuple[str, str] | None:
             except safe_update.UpdateProfileError:
                 return None
     return None
+
+
+def parse_server_profile_job_kind(kind: str) -> tuple[str, str] | None:
+    """Return the validated profile action/target encoded in a job kind."""
+    return _profile_job_action(kind)
 
 
 def ensure_server_install_job(
@@ -361,6 +375,25 @@ def handle_server_profile_action(context: JobContext) -> JobHandlerResult:
         )
         context.append_output(stdout=f"Created profile {created.name} at {created.path}.")
         message = f"Profile {created.name} created."
+    elif action == "test":
+        _append_generator_output(
+            context,
+            safe_update.verify_named_profile(
+                install_dir,
+                config_path,
+                name=name,
+            ),
+        )
+        message = f"Profile {name} is compatible with the current build."
+    elif action == "test-parked":
+        _append_generator_output(
+            context,
+            safe_update.verify_parked_modded_profile(
+                install_dir,
+                config_path,
+            ),
+        )
+        message = "Parked profile is compatible with the current build."
     else:
         operation = {
             "vanilla": safe_update.activate_vanilla,
