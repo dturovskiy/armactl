@@ -225,6 +225,47 @@ def switch_named_profile(
     )
 
 
+@router.post("/updates/profile/select")
+def select_profile(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    profile_selection: str = Form(default=""),
+    return_to: str = Form(default=""),
+) -> Response:
+    """Dispatch the compact dashboard selector to an explicit profile action."""
+    current = _require_update_action(request, csrf_token)
+    if isinstance(current, Response):
+        return current
+
+    selection = profile_selection.strip()
+    if selection == "vanilla":
+        return _profile_job_response(current, action="vanilla", return_to=return_to)
+    if selection == "retry-modded":
+        return _profile_job_response(
+            current,
+            action="retry-modded",
+            return_to=return_to,
+        )
+    if selection.startswith("profile:"):
+        try:
+            profile_name = safe_update.validate_profile_name(
+                selection.removeprefix("profile:")
+            )
+        except safe_update.UpdateProfileError:
+            profile_name = ""
+        if profile_name:
+            return _profile_job_response(
+                current,
+                action="switch",
+                name=profile_name,
+                return_to=return_to,
+            )
+    return PlainTextResponse(
+        "Profile selection is invalid.",
+        status_code=status.HTTP_400_BAD_REQUEST,
+    )
+
+
 @router.post("/updates/profile/create")
 def create_named_profile(
     request: Request,

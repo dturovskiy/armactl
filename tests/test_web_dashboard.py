@@ -735,7 +735,7 @@ def test_dashboard_stopped_server_shows_start_fps_actions(tmp_path: Path, monkey
     assert 'href="/config"' in response.text
 
 
-def test_dashboard_shows_manual_selection_only_profile_switcher(
+def test_dashboard_shows_compact_profile_selector_and_links_to_full_controls(
     tmp_path: Path,
     monkeypatch,
 ):
@@ -791,15 +791,20 @@ def test_dashboard_shows_manual_selection_only_profile_switcher(
 
     assert response.status_code == 200
     assert 'id="compatibility-profiles"' in response.text
-    assert "Manual profile control" in response.text
-    assert "game.scenarioId and game.mods" in response.text
-    assert "Admins, passwords, player limit, ports, RCON" in response.text
-    assert "serhiivka-modded" in response.text
-    assert 'action="/updates/profile/switch"' in response.text
-    assert 'name="profile_name" value="serhiivka-modded"' in response.text
-    assert response.text.count('name="return_to" value="dashboard"') >= 4
-    assert 'action="/updates/auto-fallback"' in response.text
-    assert "Disable automatic fallback" in response.text
+    assert response.text.count('class="profile-quick-control"') == 1
+    assert 'action="/updates/profile/select"' in response.text
+    assert 'name="profile_selection"' in response.text
+    assert '<option value="" selected disabled>vanilla · Active</option>' in response.text
+    assert '<option value="retry-modded">Parked modded profile</option>' in response.text
+    assert 'name="return_to" value="dashboard"' in response.text
+    assert 'href="/updates#compatibility-profiles"' in response.text
+    assert "Manual profile control" not in response.text
+    assert "game.scenarioId and game.mods" not in response.text
+    assert 'action="/updates/auto-fallback"' not in response.text
+    assert "Disable automatic fallback" not in response.text
+    assert "<table>" not in response.text.split('id="compatibility-profiles"', 1)[1].split(
+        "</section>", 1
+    )[0]
 
 
 def test_dashboard_starting_server_hides_service_actions(tmp_path: Path, monkeypatch):

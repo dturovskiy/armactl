@@ -744,6 +744,69 @@ ul {
   outline-offset: 2px;
 }
 
+.profile-quick-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.profile-quick-label {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.profile-quick-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.profile-quick-form select {
+  box-sizing: border-box;
+  width: min(280px, 50vw);
+  min-height: 36px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.profile-quick-form button,
+.profile-quick-form .button-link {
+  min-height: 36px;
+  padding: 7px 10px;
+}
+
+.profile-quick-notice {
+  color: var(--success);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  .profile-quick-control,
+  .profile-quick-form {
+    align-items: stretch;
+  }
+
+  .profile-quick-form {
+    width: 100%;
+  }
+
+  .profile-quick-form select {
+    width: 100%;
+  }
+}
+
 
 .action-grid {
   display: grid;
