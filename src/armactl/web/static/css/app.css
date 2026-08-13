@@ -2620,6 +2620,7 @@ button.warning {
   display: grid;
   gap: 14px;
   margin-top: 14px;
+  min-width: 0;
 }
 
 .pending-work-summary-note,
@@ -2774,6 +2775,7 @@ button.warning {
   border-left-width: 4px;
   border-radius: 8px;
   background: var(--surface);
+  min-width: 0;
 }
 
 .job-card-succeeded,
@@ -2881,10 +2883,13 @@ button.warning {
 }
 
 .job-row-message {
+  min-width: 0;
+  max-width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg);
+  overflow-wrap: anywhere;
 }
 
 .job-row-message-error {

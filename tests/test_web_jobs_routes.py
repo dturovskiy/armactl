@@ -210,6 +210,29 @@ def test_jobs_js_static_asset_is_served(tmp_path: Path):
     assert "restoreOpenJobDetails" in response.text
     assert "data-job-details-id" in response.text
 
+
+def test_jobs_css_contains_long_error_overflow_guards() -> None:
+    css = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "armactl"
+        / "web"
+        / "static"
+        / "css"
+        / "app.css"
+    ).read_text(encoding="utf-8")
+
+    job_list_rule = css.split(".job-list {", 1)[1].split("}", 1)[0]
+    job_card_rule = css.split(".job-card {", 1)[1].split("}", 1)[0]
+    message_rule = css.split(".job-row-message {", 1)[1].split("}", 1)[0]
+
+    assert "min-width: 0;" in job_list_rule
+    assert "min-width: 0;" in job_card_rule
+    assert "min-width: 0;" in message_rule
+    assert "max-width: 100%;" in message_rule
+    assert "overflow-wrap: anywhere;" in message_rule
+
+
 def test_jobs_permission_denied_returns_controlled_403(
     tmp_path: Path,
     monkeypatch,
