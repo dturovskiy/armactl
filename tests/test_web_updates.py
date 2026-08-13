@@ -452,7 +452,8 @@ def test_stale_cached_check_result_renders_check_again_notice(
     assert response.status_code == 200
     assert "Cached check result is stale" in response.text
     assert "Check again" in response.text
-    assert "action=\"/updates/update\"" not in response.text
+    assert "Update server" in response.text
+    assert "action=\"/updates/update\"" in response.text
 
 
 def test_failed_update_renders_retry_only_when_stopped_without_active_job(

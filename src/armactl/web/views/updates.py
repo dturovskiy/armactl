@@ -368,8 +368,6 @@ def build_updates_view(
         version.get("check_state") or version.get("checkState"),
         server_versions.SERVER_VERSION_CHECK_UNKNOWN,
     )
-    if _cache_result_is_stale(check_state=check_state, last_checked=last_checked):
-        check_state = server_versions.SERVER_VERSION_CHECK_STALE
     server_running = _bool(
         page.get("server_running")
         or version.get("server_running")
