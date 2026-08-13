@@ -736,7 +736,10 @@ def test_rejected_named_profile_test_records_failure_without_activation(tmp_path
         del paths
         raise safe_update.CanaryRejectedError('WCS: Can\'t compile "Game" script module')
 
-    with pytest.raises(safe_update.SafeUpdateError, match="active profile was not changed"):
+    with pytest.raises(
+        safe_update.ProfileIncompatibleError,
+        match="active profile was not changed",
+    ):
         list(
             safe_update.verify_named_profile(
                 server,

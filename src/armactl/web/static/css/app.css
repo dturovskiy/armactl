@@ -2790,6 +2790,12 @@ button.warning {
   color: var(--error);
 }
 
+.job-card-warning,
+.job-status-warning {
+  border-left-color: var(--warning);
+  color: var(--warning);
+}
+
 .job-card-running {
   border-left-color: var(--accent);
 }

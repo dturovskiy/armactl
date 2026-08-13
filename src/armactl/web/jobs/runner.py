@@ -9,7 +9,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from armactl.redaction import redact_sensitive_text
-from armactl.web.jobs.models import JOB_STATUS_QUEUED, JobRecord
+from armactl.web.jobs.models import (
+    JOB_STATUS_QUEUED,
+    JOB_STATUS_SUCCEEDED,
+    JOB_STATUS_WARNING,
+    JobRecord,
+)
 from armactl.web.jobs.store import (
     DEFAULT_WORKER_LEASE_SECONDS,
     JobTransitionError,
@@ -19,6 +24,7 @@ from armactl.web.jobs.store import (
     mark_job_failed,
     mark_job_running,
     mark_job_succeeded,
+    mark_job_warning,
     refresh_job_heartbeat,
 )
 
@@ -73,6 +79,7 @@ class JobHandlerResult:
     current_step: str = "Done"
     progress_current: int | None = None
     progress_total: int | None = None
+    status: str = JOB_STATUS_SUCCEEDED
 
 
 @dataclass(frozen=True)
@@ -147,10 +154,14 @@ def _normalize_handler_kind(kind: str) -> str:
 
 def _result_from_handler(value: JobHandlerResult | str | None) -> JobHandlerResult:
     if isinstance(value, JobHandlerResult):
-        return value
-    if isinstance(value, str):
-        return JobHandlerResult(result_message=value)
-    return JobHandlerResult()
+        result = value
+    elif isinstance(value, str):
+        result = JobHandlerResult(result_message=value)
+    else:
+        result = JobHandlerResult()
+    if result.status not in {JOB_STATUS_SUCCEEDED, JOB_STATUS_WARNING}:
+        raise JobRunnerError("Job handler returned an invalid terminal status.")
+    return result
 
 
 def create_default_dispatcher() -> JobDispatcher:
@@ -253,7 +264,12 @@ def dispatch_job(
             )
             return JobDispatchResult(job=failed, ran=True, message="Job failed.")
 
-        succeeded = mark_job_succeeded(
+        finish = (
+            mark_job_warning
+            if handler_result.status == JOB_STATUS_WARNING
+            else mark_job_succeeded
+        )
+        finished = finish(
             db_path,
             running.id,
             result_message=handler_result.result_message,
@@ -261,7 +277,12 @@ def dispatch_job(
             progress_current=handler_result.progress_current,
             progress_total=handler_result.progress_total,
         )
-        return JobDispatchResult(job=succeeded, ran=True, message="Job succeeded.")
+        message = (
+            "Job completed with warning."
+            if handler_result.status == JOB_STATUS_WARNING
+            else "Job succeeded."
+        )
+        return JobDispatchResult(job=finished, ran=True, message=message)
     finally:
         stop_event.set()
         heartbeat_thread.join(timeout=1.0)

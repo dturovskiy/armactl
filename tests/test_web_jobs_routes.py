@@ -231,6 +231,9 @@ def test_jobs_css_contains_long_error_overflow_guards() -> None:
     assert "min-width: 0;" in message_rule
     assert "max-width: 100%;" in message_rule
     assert "overflow-wrap: anywhere;" in message_rule
+    assert ".job-card-warning," in css
+    assert ".job-status-warning {" in css
+    assert "border-left-color: var(--warning);" in css
 
 
 def test_jobs_permission_denied_returns_controlled_403(

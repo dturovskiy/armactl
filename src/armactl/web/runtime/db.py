@@ -7,7 +7,7 @@ import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 
-WEB_SCHEMA_VERSION = "16"
+WEB_SCHEMA_VERSION = "17"
 PRIVATE_FILE_MODE = 0o600
 _LEGACY_DEFAULT_TIMESTAMP = "1970-01-01T00:00:00+00:00"
 
@@ -230,6 +230,7 @@ def _ensure_web_jobs_schema(connection: sqlite3.Connection) -> None:
                 'queued',
                 'running',
                 'succeeded',
+                'warning',
                 'failed',
                 'cancelled',
                 'abandoned'
@@ -351,6 +352,22 @@ def _web_jobs_status_check_allows_abandoned(connection: sqlite3.Connection) -> b
     return 'abandoned' in str(row[0] or "")
 
 
+def _web_jobs_status_check_allows_warning(connection: sqlite3.Connection) -> bool:
+    row = connection.execute(
+        """
+        SELECT sql
+        FROM sqlite_master
+        WHERE type = ?
+          AND name = ?
+        """,
+        ("table", "web_jobs"),
+    ).fetchone()
+    if row is None:
+        return True
+    sql = str(row[0] or "")
+    return "'warning'" in sql or '"warning"' in sql
+
+
 def _rebuild_web_jobs_with_current_status_check(connection: sqlite3.Connection) -> None:
     columns = ", ".join(_quote_identifier(column) for column in _WEB_JOBS_COPY_COLUMNS)
     foreign_keys_enabled = bool(connection.execute("PRAGMA foreign_keys").fetchone()[0])
@@ -367,6 +384,7 @@ def _rebuild_web_jobs_with_current_status_check(connection: sqlite3.Connection) 
                     'queued',
                     'running',
                     'succeeded',
+                    'warning',
                     'failed',
                     'cancelled',
                     'abandoned'
@@ -1010,6 +1028,13 @@ def _migration_16_moderation_verifications(connection: sqlite3.Connection) -> No
     _ensure_web_moderation_verifications_schema(connection)
 
 
+def _migration_17_web_job_warning_status(connection: sqlite3.Connection) -> None:
+    _ensure_web_jobs_schema(connection)
+    if _web_jobs_status_check_allows_warning(connection):
+        return
+    _rebuild_web_jobs_with_current_status_check(connection)
+
+
 _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (1, _migration_1_auth_schema),
     (2, _migration_2_jobs_schema),
@@ -1027,6 +1052,7 @@ _WEB_SCHEMA_MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (14, _migration_14_web_job_worker_lease),
     (15, _migration_15_web_job_abandoned_status),
     (16, _migration_16_moderation_verifications),
+    (17, _migration_17_web_job_warning_status),
 )
 
 def _read_schema_version(connection: sqlite3.Connection) -> int:

@@ -17,6 +17,7 @@ from armactl.web.jobs import (
     JOB_STATUS_QUEUED,
     JOB_STATUS_RUNNING,
     JOB_STATUS_SUCCEEDED,
+    JOB_STATUS_WARNING,
     SERVER_INSTALL_JOB_KIND,
     SERVER_REPAIR_JOB_KIND,
     SERVER_UPDATE_CHECK_JOB_KIND,
@@ -43,6 +44,7 @@ from armactl.web.jobs import (
     mark_job_failed,
     mark_job_running,
     mark_job_succeeded,
+    mark_job_warning,
     mark_stale_running_job_abandoned,
     refresh_job_heartbeat,
 )
@@ -391,6 +393,31 @@ def test_valid_job_status_transitions_set_timestamps(tmp_path: Path):
     assert succeeded.current_step == "Done"
     assert succeeded.progress_current == 4
     assert succeeded.progress_total == 4
+
+
+def test_warning_job_is_a_successful_terminal_outcome(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+    job = create_job(db_path, kind="profile:test", requested_by_username="owner")
+    mark_job_running(db_path, job.id)
+
+    warning = mark_job_warning(
+        db_path,
+        job.id,
+        result_message="Profile is incompatible with the current build.",
+        current_step="Profile incompatible",
+        progress_current=1,
+        progress_total=1,
+    )
+
+    assert warning.status == JOB_STATUS_WARNING
+    assert warning.is_terminal is True
+    assert warning.result_message == "Profile is incompatible with the current build."
+    assert warning.error_message == ""
+    assert warning.error_class == ""
+    assert warning.current_step == "Profile incompatible"
+    assert warning.progress_current == 1
+    assert warning.progress_total == 1
+    assert warning.finished_at is not None
 
 
 def test_dispatch_job_writes_worker_lease_and_clears_active_lease_on_terminal(
@@ -755,6 +782,37 @@ def test_registered_handler_moves_job_to_succeeded(tmp_path: Path):
     assert result.job.finished_at is not None
     assert result.job.stdout_tail == "step complete"
     assert calls == [JOB_STATUS_RUNNING]
+
+
+def test_registered_handler_can_complete_with_warning(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+
+    def handler(context):
+        context.append_output(stdout="canary completed")
+        return JobHandlerResult(
+            result_message="Profile is incompatible with the current build.",
+            current_step="Profile incompatible",
+            progress_current=1,
+            progress_total=1,
+            status=JOB_STATUS_WARNING,
+        )
+
+    job = enqueue_job(db_path, kind="safe:warning", requested_by_username="owner")
+    result = dispatch_job(
+        db_path,
+        job.id,
+        JobDispatcher({"safe:warning": handler}),
+    )
+
+    assert result.ran is True
+    assert result.message == "Job completed with warning."
+    assert result.job.status == JOB_STATUS_WARNING
+    assert result.job.result_message == (
+        "Profile is incompatible with the current build."
+    )
+    assert result.job.error_message == ""
+    assert result.job.current_step == "Profile incompatible"
+    assert result.job.stdout_tail == "canary completed"
 
 
 def test_handler_exception_marks_job_failed_with_redacted_error(tmp_path: Path):
@@ -1221,6 +1279,68 @@ def test_server_profile_test_job_runs_canary_without_switch_operation(
         "Profile serhiivka-modded is compatible with the current build."
     )
     assert "it was not activated" in result.job.stdout_tail
+
+
+def test_server_profile_incompatibility_completes_with_warning(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from armactl.web.jobs import server as server_jobs
+
+    db_path = _db_path(tmp_path)
+    install_dir = tmp_path / "default" / "server"
+    config_path = install_dir.parent / "config" / "config.json"
+    install_dir.mkdir(parents=True)
+    config_path.parent.mkdir()
+    (install_dir / "ArmaReforgerServer").write_text("binary", encoding="utf-8")
+    config_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        server_jobs.discovery,
+        "discover",
+        lambda instance, save=False: SimpleNamespace(
+            install_dir=str(install_dir),
+            config_path=str(config_path),
+            service_name="armareforger.service",
+            server_running=False,
+        ),
+    )
+    monkeypatch.setattr(
+        server_jobs.paths,
+        "validate_server_install_dir",
+        lambda value, *, instance: Path(value),
+    )
+
+    def reject_profile(*args, **kwargs):
+        del args, kwargs
+        yield "Testing profile without activating it."
+        raise server_jobs.safe_update.ProfileIncompatibleError(
+            "Profile serhiivka-modded is incompatible with active build 24501482. "
+            "The active profile was not changed."
+        )
+
+    monkeypatch.setattr(
+        server_jobs.safe_update,
+        "verify_parked_modded_profile",
+        reject_profile,
+    )
+    job, _created = server_jobs.ensure_server_profile_job(
+        db_path,
+        action="test-parked",
+        requested_by_username="owner",
+    )
+
+    result = dispatch_server_job(db_path, job.id)
+
+    assert result.job.status == JOB_STATUS_WARNING
+    assert "incompatible with active build 24501482" in result.job.result_message
+    assert result.job.error_message == ""
+    assert result.job.error_class == ""
+    assert result.job.current_step == "Profile incompatible"
+    assert result.job.progress_current == 1
+    assert result.job.progress_total == 1
+    assert "Testing profile without activating it." in result.job.stdout_tail
 
 
 def test_server_profile_job_stops_running_server_and_restores_after_test(

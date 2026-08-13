@@ -9,6 +9,7 @@ from armactl.web.jobs.models import (
     JOB_STATUS_QUEUED,
     JOB_STATUS_RUNNING,
     JOB_STATUS_SUCCEEDED,
+    JOB_STATUS_WARNING,
     JobRecord,
 )
 from armactl.web.jobs.player_current import (
@@ -91,6 +92,7 @@ from armactl.web.jobs.store import (
     mark_job_failed,
     mark_job_running,
     mark_job_succeeded,
+    mark_job_warning,
     mark_stale_running_job_abandoned,
     refresh_job_heartbeat,
 )
@@ -148,6 +150,7 @@ __all__ = [
     "JOB_STATUS_QUEUED",
     "JOB_STATUS_RUNNING",
     "JOB_STATUS_SUCCEEDED",
+    "JOB_STATUS_WARNING",
     "JobContext",
     "JobDispatchResult",
     "JobDispatcher",
@@ -173,5 +176,6 @@ __all__ = [
     "mark_job_running",
     "mark_stale_running_job_abandoned",
     "mark_job_succeeded",
+    "mark_job_warning",
     "refresh_job_heartbeat",
 ]

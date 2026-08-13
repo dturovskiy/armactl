@@ -17,6 +17,7 @@ from armactl.web.jobs.models import (
     JOB_STATUS_QUEUED,
     JOB_STATUS_RUNNING,
     JOB_STATUS_SUCCEEDED,
+    JOB_STATUS_WARNING,
     JOB_STATUSES,
     JOB_WORKER_LEASE_FRESH,
     TERMINAL_JOB_STATUSES,
@@ -331,6 +332,7 @@ def _ensure_transition(current_status: str, new_status: str) -> None:
         return
     if current_status == JOB_STATUS_RUNNING and new_status in {
         JOB_STATUS_SUCCEEDED,
+        JOB_STATUS_WARNING,
         JOB_STATUS_FAILED,
         JOB_STATUS_ABANDONED,
     }:
@@ -976,6 +978,70 @@ def mark_job_succeeded(
             return _fetch_job(connection, normalized_job_id)
     except sqlite3.Error as exc:
         raise JobStoreError("Failed to finish web job.") from exc
+
+
+def mark_job_warning(
+    db_path: Path,
+    job_id: int,
+    *,
+    result_message: str,
+    current_step: str = "Warning",
+    progress_current: int | None = None,
+    progress_total: int | None = None,
+) -> JobRecord:
+    """Mark a running job as completed with a non-technical warning outcome."""
+    normalized_job_id = _normalize_job_id(job_id)
+    normalized_message = _normalize_non_empty_text(
+        result_message,
+        "result_message",
+        max_length=MAX_JOB_MESSAGE_LENGTH,
+    )
+    normalized_step = _normalize_optional_text(current_step, max_length=MAX_JOB_STEP_LENGTH)
+    now = _utc_now()
+
+    try:
+        with _connect(db_path) as connection:
+            job = _fetch_job(connection, normalized_job_id)
+            _ensure_transition(job.status, JOB_STATUS_WARNING)
+            normalized_progress_current = (
+                job.progress_current
+                if progress_current is None
+                else _normalize_non_negative_int(progress_current, "progress_current")
+            )
+            normalized_progress_total = (
+                job.progress_total
+                if progress_total is None
+                else _normalize_non_negative_int(progress_total, "progress_total")
+            )
+            connection.execute(
+                """
+                UPDATE web_jobs
+                SET status = ?,
+                    current_step = ?,
+                    progress_current = ?,
+                    progress_total = ?,
+                    result_message = ?,
+                    error_message = '',
+                    error_class = '',
+                    updated_at = ?,
+                    finished_at = ?,
+                    worker_lease_expires_at = NULL
+                WHERE id = ?
+                """,
+                (
+                    JOB_STATUS_WARNING,
+                    normalized_step,
+                    normalized_progress_current,
+                    normalized_progress_total,
+                    normalized_message,
+                    now,
+                    now,
+                    normalized_job_id,
+                ),
+            )
+            return _fetch_job(connection, normalized_job_id)
+    except sqlite3.Error as exc:
+        raise JobStoreError("Failed to finish web job with warning.") from exc
 
 
 def mark_job_failed(

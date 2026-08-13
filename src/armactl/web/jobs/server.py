@@ -7,7 +7,7 @@ from pathlib import Path
 
 from armactl import discovery, installer, paths, repair, safe_update
 from armactl.platform.service_adapter import get_service_adapter
-from armactl.web.jobs.models import JobRecord
+from armactl.web.jobs.models import JOB_STATUS_WARNING, JobRecord
 from armactl.web.jobs.runner import (
     JobContext,
     JobDispatcher,
@@ -434,17 +434,37 @@ def handle_server_profile_action(context: JobContext) -> JobHandlerResult:
         )
         try:
             if action == "test":
-                lines = safe_update.verify_named_profile(
-                    install_dir,
-                    config_path,
-                    name=name,
-                )
+                try:
+                    lines = safe_update.verify_named_profile(
+                        install_dir,
+                        config_path,
+                        name=name,
+                    )
+                    _append_generator_output(context, lines)
+                except safe_update.ProfileIncompatibleError as exc:
+                    return JobHandlerResult(
+                        result_message=str(exc),
+                        current_step="Profile incompatible",
+                        progress_current=1,
+                        progress_total=1,
+                        status=JOB_STATUS_WARNING,
+                    )
                 message = f"Profile {name} is compatible with the current build."
             elif action == "test-parked":
-                lines = safe_update.verify_parked_modded_profile(
-                    install_dir,
-                    config_path,
-                )
+                try:
+                    lines = safe_update.verify_parked_modded_profile(
+                        install_dir,
+                        config_path,
+                    )
+                    _append_generator_output(context, lines)
+                except safe_update.ProfileIncompatibleError as exc:
+                    return JobHandlerResult(
+                        result_message=str(exc),
+                        current_step="Profile incompatible",
+                        progress_current=1,
+                        progress_total=1,
+                        status=JOB_STATUS_WARNING,
+                    )
                 message = "Parked profile is compatible with the current build."
             elif action == "switch":
                 lines = safe_update.switch_named_profile(
@@ -467,7 +487,8 @@ def handle_server_profile_action(context: JobContext) -> JobHandlerResult:
                     service_name,
                 )
                 message = "Server profile verified and activated."
-            _append_generator_output(context, lines)
+            if action not in {"test", "test-parked"}:
+                _append_generator_output(context, lines)
             if action not in {"test", "test-parked"}:
                 discovery.discover(instance=instance, save=True)
         finally:

@@ -342,6 +342,7 @@
     "queued": "queued",
     "cancelled": "cancelled",
     "abandoned": "abandoned",
+    "warning": "completed with warning",
     "Job completed.": "Job completed.",
     "Job failed.": "Job failed.",
     "Done": "Done",

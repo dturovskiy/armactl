@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 JOB_STATUS_QUEUED = "queued"
 JOB_STATUS_RUNNING = "running"
 JOB_STATUS_SUCCEEDED = "succeeded"
+JOB_STATUS_WARNING = "warning"
 JOB_STATUS_FAILED = "failed"
 JOB_STATUS_CANCELLED = "cancelled"
 JOB_STATUS_ABANDONED = "abandoned"
@@ -17,6 +18,7 @@ JOB_STATUSES = frozenset(
         JOB_STATUS_QUEUED,
         JOB_STATUS_RUNNING,
         JOB_STATUS_SUCCEEDED,
+        JOB_STATUS_WARNING,
         JOB_STATUS_FAILED,
         JOB_STATUS_CANCELLED,
         JOB_STATUS_ABANDONED,
@@ -25,6 +27,7 @@ JOB_STATUSES = frozenset(
 TERMINAL_JOB_STATUSES = frozenset(
     {
         JOB_STATUS_SUCCEEDED,
+        JOB_STATUS_WARNING,
         JOB_STATUS_FAILED,
         JOB_STATUS_CANCELLED,
         JOB_STATUS_ABANDONED,

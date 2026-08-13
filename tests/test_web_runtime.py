@@ -303,8 +303,23 @@ def test_ensure_web_db_migrates_v7_minimal_jobs_before_maintenance(tmp_path: Pat
     assert _schema_meta(db_path) == first_meta
 
 
-def test_ensure_web_db_migrates_v14_jobs_status_check_for_abandoned(
+@pytest.mark.parametrize(
+    ("schema_version", "legacy_status_values"),
+    (
+        (
+            "14",
+            '"queued", "running", "succeeded", "failed", "cancelled"',
+        ),
+        (
+            "16",
+            '"queued", "running", "succeeded", "failed", "cancelled", "abandoned"',
+        ),
+    ),
+)
+def test_ensure_web_db_migrates_legacy_job_status_checks(
     tmp_path: Path,
+    schema_version: str,
+    legacy_status_values: str,
 ):
     db_path = tmp_path / "web" / "web.db"
     db_path.parent.mkdir(parents=True)
@@ -320,8 +335,9 @@ def test_ensure_web_db_migrates_v14_jobs_status_check_for_abandoned(
         connection.execute(
             """
             INSERT INTO web_schema_meta(key, value)
-            VALUES ("schema_version", "14")
-            """
+            VALUES ("schema_version", ?)
+            """,
+            (schema_version,),
         )
         connection.execute(
             """
@@ -337,17 +353,11 @@ def test_ensure_web_db_migrates_v14_jobs_status_check_for_abandoned(
             """
         )
         connection.execute(
-            """
+            f"""
             CREATE TABLE web_jobs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 kind TEXT NOT NULL CHECK(length(trim(kind)) > 0),
-                status TEXT NOT NULL CHECK(status IN (
-                    "queued",
-                    "running",
-                    "succeeded",
-                    "failed",
-                    "cancelled"
-                )),
+                status TEXT NOT NULL CHECK(status IN ({legacy_status_values})),
                 requested_by_user_id INTEGER,
                 requested_by_username TEXT NOT NULL CHECK(length(trim(requested_by_username)) > 0),
                 instance TEXT NOT NULL DEFAULT "default" CHECK(length(trim(instance)) > 0),
@@ -411,6 +421,24 @@ def test_ensure_web_db_migrates_v14_jobs_status_check_for_abandoned(
             )
             """
         )
+        connection.execute(
+            """
+            INSERT INTO web_jobs(
+                kind,
+                status,
+                requested_by_username,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                "safe:warning",
+                "warning",
+                "owner",
+                "2026-01-01T00:00:02+00:00",
+                "2026-01-01T00:00:02+00:00"
+            )
+            """
+        )
         rows = connection.execute(
             """
             SELECT status
@@ -419,7 +447,7 @@ def test_ensure_web_db_migrates_v14_jobs_status_check_for_abandoned(
             """
         ).fetchall()
 
-    assert rows == [("running",), ("abandoned",)]
+    assert rows == [("running",), ("abandoned",), ("warning",)]
 
 
 def test_ensure_web_runtime_creates_env_db_and_auth_tables(tmp_path: Path):

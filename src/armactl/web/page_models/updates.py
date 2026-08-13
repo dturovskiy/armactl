@@ -17,7 +17,7 @@ from armactl.web.services import server_versions
 
 _PROFILE_COMPATIBILITY_PRESENTATION = {
     mod_compatibility.COMPATIBLE: ("Ready for current build", "success"),
-    mod_compatibility.INCOMPATIBLE: ("Incompatible with current build", "error"),
+    mod_compatibility.INCOMPATIBLE: ("Incompatible with current build", "warning"),
     mod_compatibility.OUTDATED: ("Retest required", "warning"),
     mod_compatibility.NOT_TESTED: ("Not tested for current build", "unavailable"),
 }

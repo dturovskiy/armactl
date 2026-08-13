@@ -130,6 +130,10 @@ class CanaryRejectedError(SafeUpdateError):
     """Raised when the candidate build cannot load the configured scenario/mods."""
 
 
+class ProfileIncompatibleError(SafeUpdateError):
+    """Raised when a test-only canary safely rejects a stored profile."""
+
+
 class UpdateAlreadyRunningError(SafeUpdateError):
     """Raised when another CLI or web worker owns the instance update lock."""
 
@@ -1551,7 +1555,7 @@ def _verify_profile_source(
         )
         if record_warning:
             yield record_warning
-        raise SafeUpdateError(
+        raise ProfileIncompatibleError(
             f"Profile {profile_name} is incompatible with active build "
             f"{active_build or 'unknown'} ({reason}). The active profile was not changed."
         ) from exc
