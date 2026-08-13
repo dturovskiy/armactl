@@ -264,13 +264,6 @@ def stop(ctx: click.Context) -> None:
         click.echo(f"[{instance}] No server found.", err=True)
         sys.exit(1)
 
-    if not state.server_running:
-        if ctx.obj["json"]:
-            click.echo(json.dumps({"status": "already_stopped"}))
-        else:
-            click.echo(f"[{instance}] Server is already stopped.")
-        return
-
     if not ctx.obj["json"]:
         click.echo(f"[{instance}] Stopping server...")
 

@@ -82,6 +82,7 @@ POLL_INTERVAL_SECONDS = 2.0
 MIN_FREE_SPACE_BUFFER_BYTES = 2 * 1024**3
 FREE_SPACE_FACTOR = 1.10
 MAX_CANARY_TAIL_LINES = 80
+FATAL_CANARY_DIAGNOSTIC_GRACE_SECONDS = 0.25
 
 FATAL_CANARY_MARKERS = (
     'Can\'t compile "Game" script module',
@@ -546,6 +547,8 @@ def run_compatibility_canary(
     started_at = monotonic()
     ready_since: float | None = None
     last_status: a2s.PlayerStatus | None = None
+    fatal_line = ""
+    fatal_seen_at: float | None = None
 
     try:
         while monotonic() - started_at < timeout_seconds:
@@ -556,18 +559,37 @@ def run_compatibility_canary(
                     break
                 if line:
                     output_tail.append(line)
-                if any(marker.casefold() in line.casefold() for marker in FATAL_CANARY_MARKERS):
-                    raise CanaryRejectedError(
-                        "Candidate rejected by scenario/mod compilation: " + line
-                    )
+                if not fatal_line and any(
+                    marker.casefold() in line.casefold()
+                    for marker in FATAL_CANARY_MARKERS
+                ):
+                    fatal_line = line
+                    fatal_seen_at = monotonic()
 
             return_code = process.poll()
+            if fatal_line and (
+                return_code is not None
+                or (
+                    fatal_seen_at is not None
+                    and monotonic() - fatal_seen_at
+                    >= FATAL_CANARY_DIAGNOSTIC_GRACE_SECONDS
+                )
+            ):
+                tail = " | ".join(list(output_tail)[-8:])
+                raise CanaryRejectedError(
+                    "Candidate rejected by scenario/mod compilation: "
+                    + (tail or fatal_line)
+                )
             if return_code is not None:
                 tail = " | ".join(list(output_tail)[-5:])
                 detail = f"; last output: {tail}" if tail else ""
                 raise CanaryRejectedError(
                     f"Candidate server exited before readiness (code {return_code}){detail}"
                 )
+
+            if fatal_line:
+                sleep(poll_interval_seconds)
+                continue
 
             last_status = status_probe(update_paths.candidate_profile / "config.json")
             now = monotonic()

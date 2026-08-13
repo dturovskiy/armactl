@@ -232,14 +232,22 @@ def test_compatibility_canary_rejects_fatal_compile_output(tmp_path: Path, monke
 
     class FakeProcess:
         pid = 12345
-        stdout = iter(['SCRIPT : E : Can\'t compile "Game" script module\n'])
+        stdout = iter(
+            [
+                'SCRIPT : E : Can\'t compile "Game" script module\n',
+                "SCRIPT : E : Missing required API symbol\n",
+            ]
+        )
 
         def poll(self):
             return None
 
     monkeypatch.setattr(safe_update, "_terminate_process", lambda process: None)
 
-    with pytest.raises(safe_update.CanaryRejectedError, match="compilation"):
+    with pytest.raises(
+        safe_update.CanaryRejectedError,
+        match="Missing required API symbol",
+    ):
         safe_update.run_compatibility_canary(
             update_paths,
             timeout_seconds=1.0,
