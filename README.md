@@ -249,6 +249,10 @@ If the repo was only bootstrapped in prod mode before, both `./armactl` and `./s
 - [Support](SUPPORT.md)
 - [Changelog](CHANGELOG.md)
 
+## Community
+
+For support, setup questions, feedback, and project discussion, join the [Deus Apps Discord](https://discord.gg/UvWVVqKnYm).
+
 ## License
 
 MIT
