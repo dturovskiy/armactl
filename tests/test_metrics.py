@@ -479,6 +479,61 @@ def test_query_server_operational_status_prefers_terminal_failure_over_timeout(
     assert any("Unable to initialize the game" in item for item in result.details)
 
 
+def test_query_server_operational_status_exposes_failing_mod_script(tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-09-04_211500",
+        "\n".join(
+            [
+                "21:15:00 NETWORK : Starting dedicated server using command line args.",
+                "21:15:02 SCRIPT (E): scripts/Game/UI/Inventory/"
+                "WCS_LoadoutEditor_InventoryMenuUI.c(181): Unknown type "
+                "'SCR_AnalyticsApplication'",
+                '21:15:02 SCRIPT (E): Can\'t compile "Game" script module!',
+                "21:15:02 ENGINE (E): Addon loading failed",
+                "21:15:02 ENGINE (E): Cannot create game!",
+                "21:15:02 ENGINE : Game destroyed.",
+            ]
+        ),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.state == "startup_failed"
+    assert result.message == "Server startup failed"
+    assert any("WCS_LoadoutEditor" in item for item in result.details)
+    assert any("Can't compile" in item for item in result.details)
+    assert any("Addon loading failed" in item for item in result.details)
+
+
+def test_query_server_operational_status_does_not_wait_after_game_destroyed(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-09-04_211600",
+        "\n".join(
+            [
+                "21:16:00 NETWORK : Starting dedicated server using command line args.",
+                "21:16:03 ENGINE : Game destroyed.",
+            ]
+        ),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.state == "startup_failed"
+    assert result.severity == "error"
+    assert result.message == "Server startup failed"
+    assert any("Game destroyed" in item for item in result.details)
+
+
 def test_query_server_operational_status_reports_ready_from_fps(
     tmp_path: Path,
 ) -> None:

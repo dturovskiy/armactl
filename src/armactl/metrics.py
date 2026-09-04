@@ -328,6 +328,9 @@ def _line_has_startup_failure(line: str) -> bool:
         for marker in (
             "Unable to initialize the game",
             "Failed to fetch addon details from workshop API",
+            'Can\'t compile "Game" script module',
+            "Cannot create game",
+            "Addon loading failed",
         )
     )
 
@@ -344,11 +347,40 @@ def _line_has_workshop_metadata_error(line: str) -> bool:
 
 
 def _startup_failure_details(lines: list[str], index: int) -> tuple[str, ...]:
-    window = lines[max(index - 8, 0) : index + 1]
+    window = lines[max(index - 12, 0) : index + 1]
     details = [
         line
         for line in window
-        if _line_has_startup_failure(line) or _line_has_workshop_metadata_error(line)
+        if (
+            _line_has_startup_failure(line)
+            or _line_has_workshop_metadata_error(line)
+            or _line_has_mission_error(line)
+            or "Unknown type" in line
+            or "Unknown keyword/data" in line
+            or "no function with this name" in line
+            or "Failed to load" in line
+        )
+    ]
+    return _safe_operational_details(tuple(details or [lines[index]]))
+
+
+def _line_has_game_destroyed(line: str) -> bool:
+    return "Game destroyed." in line or line.rstrip().endswith("Game destroyed")
+
+
+def _startup_exit_details(lines: list[str], index: int) -> tuple[str, ...]:
+    window = lines[max(index - 12, 0) : index + 1]
+    details = [
+        line
+        for line in window
+        if (
+            _line_has_game_destroyed(line)
+            or _line_has_startup_failure(line)
+            or _line_has_workshop_metadata_error(line)
+            or _line_has_mission_error(line)
+            or " (E):" in line
+            or " (F):" in line
+        )
     ]
     return _safe_operational_details(tuple(details or [lines[index]]))
 
@@ -533,6 +565,26 @@ def query_server_operational_status(
             severity="error",
             message=message,
             details=details,
+            age_seconds=age_seconds,
+            source=source,
+        )
+
+    startup_exit_index = next(
+        (
+            index
+            for index in range(len(lines) - 1, -1, -1)
+            if _line_has_game_destroyed(lines[index])
+            and (last_fps_index is None or index > last_fps_index)
+        ),
+        None,
+    )
+    if startup_exit_index is not None:
+        return ServerOperationalStatus(
+            True,
+            state="startup_failed",
+            severity="error",
+            message="Server startup failed",
+            details=_startup_exit_details(lines, startup_exit_index),
             age_seconds=age_seconds,
             source=source,
         )
