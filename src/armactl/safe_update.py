@@ -1105,6 +1105,81 @@ def _active_profile_name(update_paths: UpdatePaths) -> str:
         return default_name
 
 
+def _available_archived_profile_name(
+    update_paths: UpdatePaths,
+    *,
+    preferred_name: str,
+    active_name: str,
+) -> str:
+    try:
+        preferred = validate_profile_name(preferred_name)
+    except UpdateProfileError:
+        preferred = "parked-modded"
+    candidates = [preferred]
+    archived_base = f"{preferred[:54].rstrip('-_')}-archived"
+    candidates.extend(
+        f"{archived_base[: 62 - len(str(index))].rstrip('-_')}-{index}"
+        for index in range(1, 100)
+    )
+    for candidate in candidates:
+        if candidate == active_name:
+            continue
+        destination = profile_path(update_paths.profiles_root, candidate)
+        if not destination.exists() and not destination.is_symlink():
+            return candidate
+    raise SafeUpdateError("Could not allocate a unique name for the stale parked profile.")
+
+
+def _archive_stale_parked_profile(
+    update_paths: UpdatePaths,
+    *,
+    active_mode: str,
+    active_profile_name: str,
+) -> NamedProfile | None:
+    """Preserve a stale parked selection before a new profile transaction."""
+    parked_config = update_paths.parked_modded_profile / "config.json"
+    if active_mode != MODDED_MODE or not parked_config.is_file():
+        return None
+    metadata = _load_metadata(update_paths)
+    rollback_kind = str(metadata.get("rollback_kind") or "")
+    if rollback_kind.endswith("+parked-modded") and update_paths.rollback_server.exists():
+        raise SafeUpdateError(
+            "The parked modded profile belongs to an available server rollback; "
+            "run or retire that rollback before starting a new profile transaction."
+        )
+    archived_name = _available_archived_profile_name(
+        update_paths,
+        preferred_name=str(metadata.get("parked_profile_name") or "parked-modded"),
+        active_name=active_profile_name,
+    )
+    destination = profile_path(update_paths.profiles_root, archived_name)
+    _copy_profile_bundle(
+        update_paths,
+        update_paths.parked_modded_profile,
+        destination,
+    )
+    try:
+        archived = inspect_profile(archived_name, destination, active=False)
+    except UpdateProfileError as exc:
+        raise SafeUpdateError(f"Archived parked profile is invalid: {exc}") from exc
+    if archived.mode != MODDED_MODE:
+        raise SafeUpdateError(
+            "The stale parked profile is not modded; it was preserved but not removed."
+        )
+    _remove_managed_path(update_paths, update_paths.parked_modded_profile)
+    _write_metadata(
+        update_paths,
+        "stale-parked-archived",
+        active_build=read_build_id(update_paths.server),
+        active_mode=active_mode,
+        active_profile=active_profile_name,
+        parked_profile_name="",
+        archived_parked_profile=archived_name,
+        disabled_mod_count=0,
+    )
+    return archived
+
+
 def get_named_profiles(install_dir: Path, config_path: Path) -> list[NamedProfile]:
     update_paths = resolve_update_paths(install_dir, config_path)
     return list_profiles(
@@ -1265,6 +1340,17 @@ def _stream_safe_server_update(
     status = get_compatibility_status(install_dir, config_path)
     previous_mode = status.active_mode
     active_profile_name = _active_profile_name(update_paths)
+    archived = _archive_stale_parked_profile(
+        update_paths,
+        active_mode=previous_mode,
+        active_profile_name=active_profile_name,
+    )
+    if archived is not None:
+        yield (
+            "Preserved the stale parked config as named profile "
+            f"{archived.name} at {archived.path}."
+        )
+        status = get_compatibility_status(install_dir, config_path)
     modded_source = _modded_source_profile(update_paths, status)
     metadata = _load_metadata(update_paths)
     modded_profile_name = (
@@ -1798,6 +1884,18 @@ def _activate_vanilla(
     if recover_interrupted_promotion(update_paths):
         yield "Recovered an interrupted profile switch before continuing."
     status = get_compatibility_status(install_dir, config_path)
+    active_profile_name = _active_profile_name(update_paths)
+    archived = _archive_stale_parked_profile(
+        update_paths,
+        active_mode=status.active_mode,
+        active_profile_name=active_profile_name,
+    )
+    if archived is not None:
+        yield (
+            "Preserved the stale parked config as named profile "
+            f"{archived.name} at {archived.path}."
+        )
+        status = get_compatibility_status(install_dir, config_path)
     if status.active_mode == VANILLA_MODE:
         yield (
             "Vanilla compatibility mode is already active; the modded config bundle "
@@ -1807,7 +1905,7 @@ def _activate_vanilla(
 
     cleanup_candidate_artifacts(update_paths)
     active_build = read_build_id(update_paths.server)
-    previous_profile_name = _active_profile_name(update_paths)
+    previous_profile_name = active_profile_name
     try:
         baseline = create_update_baseline(
             update_paths.instance_root,
@@ -2170,6 +2268,17 @@ def _switch_named_profile(
         yield f"Profile {target_name} is already active."
         return
     status = get_compatibility_status(install_dir, config_path)
+    archived = _archive_stale_parked_profile(
+        update_paths,
+        active_mode=status.active_mode,
+        active_profile_name=previous_name,
+    )
+    if archived is not None:
+        yield (
+            "Preserved the stale parked config as named profile "
+            f"{archived.name} at {archived.path}."
+        )
+        status = get_compatibility_status(install_dir, config_path)
     if status.parked_modded_available:
         raise SafeUpdateError(
             "A vanilla fallback transaction has a parked modded profile. Run "

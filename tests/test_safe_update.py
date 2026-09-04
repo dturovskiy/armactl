@@ -339,6 +339,62 @@ def test_actual_config_overrides_stale_vanilla_metadata(tmp_path: Path):
     assert candidate["game"]["mods"][0]["name"] == "WCS"
 
 
+def test_vanilla_switch_archives_stale_parked_config_before_parking_current(
+    tmp_path: Path,
+):
+    server, config_path = _layout(tmp_path)
+    update_paths = safe_update.resolve_update_paths(server, config_path)
+    update_paths.update_root.mkdir(mode=0o700)
+    update_paths.parked_modded_profile.mkdir(mode=0o700)
+    (update_paths.parked_modded_profile / "config.json").write_text(
+        json.dumps(
+            {
+                "game": {
+                    "scenarioId": "{OLD}Missions/Old.conf",
+                    "mods": [{"modId": "OLD", "name": "Old stack"}],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    safe_update._write_metadata(
+        update_paths,
+        "rejected",
+        active_mode=safe_update.VANILLA_MODE,
+        active_profile="vanilla",
+        parked_profile_name="old-modded",
+    )
+
+    output = list(
+        safe_update.activate_vanilla(
+            server,
+            config_path,
+            "armareforger.service",
+            current_canary_runner=lambda paths: safe_update.CanaryResult(
+                1.0, 128, "Everon"
+            ),
+            adapter=FakeServiceAdapter(),
+            readiness_checker=_ready,
+        )
+    )
+
+    archived = json.loads(
+        (update_paths.profiles_root / "old-modded" / "config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    parked = json.loads(
+        (update_paths.parked_modded_profile / "config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    active = json.loads(config_path.read_text(encoding="utf-8"))
+    assert archived["game"]["mods"][0]["name"] == "Old stack"
+    assert parked["game"]["mods"][0]["name"] == "WCS"
+    assert active["game"]["mods"] == []
+    assert any("named profile old-modded" in line for line in output)
+
+
 def test_vanilla_profile_preserves_host_settings_without_mutating_source(
     tmp_path: Path,
 ):
