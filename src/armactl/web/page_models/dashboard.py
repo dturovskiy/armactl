@@ -40,6 +40,7 @@ DEFAULT_RCON_PORT = 19999
 DASHBOARD_PLAYER_TIMEOUT_SECONDS = 0.35
 DASHBOARD_ROSTER_TIMEOUT_SECONDS = 1.5
 DASHBOARD_CURRENT_ROSTER_CACHE_MAX_AGE_SECONDS = 75
+DASHBOARD_TELEMETRY_WAIT_WARNING_SECONDS = 120.0
 
 
 def _resolve_service_adapter(adapter: ServiceAdapter | None) -> ServiceAdapter:
@@ -141,6 +142,7 @@ def _operational_status_dict(
     state: str,
     severity: str,
     message: str,
+    details: tuple[str, ...] = (),
     age_seconds: float | None = None,
     source: str = "service",
 ) -> dict[str, Any]:
@@ -150,6 +152,7 @@ def _operational_status_dict(
             state=state,
             severity=severity,
             message=message,
+            details=details,
             age_seconds=age_seconds,
             source=source,
         )
@@ -188,6 +191,46 @@ def _service_operational_override(
     return None
 
 
+def _service_restart_loop_status(service: dict[str, Any]) -> dict[str, Any] | None:
+    if _service_state_text(service, "sub_state") != "auto-restart":
+        return None
+    restart_count = service.get("n_restarts")
+    details = (
+        (f"systemd restart attempts: {restart_count}",)
+        if isinstance(restart_count, int) and restart_count > 0
+        else ("The game process exited and systemd is waiting to restart it.",)
+    )
+    return _operational_status_dict(
+        state="startup_failed",
+        severity="error",
+        message="Server startup failed",
+        details=details,
+    )
+
+
+def _prolonged_telemetry_wait_status(
+    service: dict[str, Any],
+    log_status: dict[str, Any],
+) -> dict[str, Any] | None:
+    if log_status.get("state") not in {"waiting_for_telemetry", "unknown"}:
+        return None
+    elapsed = metrics.service_elapsed_seconds(service)
+    if elapsed is None or elapsed < DASHBOARD_TELEMETRY_WAIT_WARNING_SECONDS:
+        return None
+    details = tuple(log_status.get("details") or ())
+    return _operational_status_dict(
+        state="telemetry_stale",
+        severity="warning",
+        message="Telemetry stale",
+        details=(
+            *details,
+            "The game service is running but server telemetry did not appear; "
+            "startup may be stalled. Inspect the console logs.",
+        ),
+        age_seconds=elapsed,
+    )
+
+
 def _fresh_fps_available(fps_metrics: dict[str, Any]) -> bool:
     return bool(fps_metrics.get("available")) and not bool(fps_metrics.get("stale"))
 
@@ -206,6 +249,10 @@ def _resolve_operational_status(
     if log_status.get("state") in _BLOCKING_LOG_OPERATIONAL_STATES:
         return log_status
 
+    restart_loop_status = _service_restart_loop_status(service)
+    if restart_loop_status is not None:
+        return restart_loop_status
+
     if _fresh_fps_available(fps_metrics) and log_status.get("state") in {
         "waiting_for_telemetry",
         "telemetry_stale",
@@ -218,6 +265,10 @@ def _resolve_operational_status(
             age_seconds=fps_metrics.get("age_seconds"),
             source="fps_metrics",
         )
+
+    prolonged_wait_status = _prolonged_telemetry_wait_status(service, log_status)
+    if prolonged_wait_status is not None:
+        return prolonged_wait_status
 
     return log_status
 

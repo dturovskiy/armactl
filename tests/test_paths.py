@@ -167,3 +167,10 @@ def test_validate_server_install_dir_allows_expected_instance_dir_under_git_home
     )
 
     assert validate_server_install_dir(install_dir, data_root=data_root) == install_dir
+
+
+def test_validate_server_install_dir_ignores_empty_stale_git_marker(tmp_path):
+    install_dir = tmp_path / "runtime" / "server-update" / "candidate-server"
+    (tmp_path / "runtime" / ".git").mkdir(parents=True)
+
+    assert validate_server_install_dir(install_dir) == install_dir

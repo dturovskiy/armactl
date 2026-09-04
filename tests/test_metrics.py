@@ -450,6 +450,35 @@ def test_query_server_operational_status_reports_workshop_startup_failure(tmp_pa
     assert any("Failed to fetch addon details" in item for item in result.details)
     assert any("Unable to initialize the game" in item for item in result.details)
 
+
+def test_query_server_operational_status_prefers_terminal_failure_over_timeout(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-09-04_210540",
+        "\n".join(
+            [
+                "21:05:59 BACKEND (E): Curl error=Timeout was reached",
+                "21:05:59 BACKEND (E): WorkshopApi/GetDownloadListS2S Timeout",
+                "21:05:59 BACKEND (E): Connection timeout to workshop API!",
+                "21:05:59 ENGINE (E): Unable to initialize the game",
+            ]
+        ),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.state == "startup_failed"
+    assert result.severity == "error"
+    assert result.message == "Workshop addon metadata error"
+    assert any("GetDownloadListS2S" in item for item in result.details)
+    assert any("Unable to initialize the game" in item for item in result.details)
+
+
 def test_query_server_operational_status_reports_ready_from_fps(
     tmp_path: Path,
 ) -> None:

@@ -1149,6 +1149,10 @@ def get_service_status(service_name: str = "armareforger.service") -> dict[str, 
     cpu_usage_nsec: int | None = None
     exec_main_start_usec: int | None = None
     active_enter_usec: int | None = None
+    n_restarts = 0
+    result_state = ""
+    exec_main_code = ""
+    exec_main_status: int | None = None
     try:
         result = subprocess.run(
             [
@@ -1157,7 +1161,8 @@ def get_service_status(service_name: str = "armareforger.service") -> dict[str, 
                 service_name,
                 "--property=ActiveState,SubState,Description,User,MainPID,"
                 "ExecMainPID,ControlPID,MemoryCurrent,CPUUsageNSec,"
-                "ExecMainStartTimestampMonotonic,ActiveEnterTimestampMonotonic",
+                "ExecMainStartTimestampMonotonic,ActiveEnterTimestampMonotonic,"
+                "NRestarts,Result,ExecMainCode,ExecMainStatus",
             ],
             capture_output=True,
             text=True,
@@ -1218,6 +1223,20 @@ def get_service_status(service_name: str = "armareforger.service") -> dict[str, 
                         active_enter_usec = parsed
                 except ValueError:
                     pass
+            elif key == "NRestarts":
+                try:
+                    n_restarts = max(int(val), 0)
+                except ValueError:
+                    pass
+            elif key == "Result":
+                result_state = "" if val == "n/a" else val
+            elif key == "ExecMainCode":
+                exec_main_code = "" if val == "n/a" else val
+            elif key == "ExecMainStatus":
+                try:
+                    exec_main_status = int(val)
+                except ValueError:
+                    pass
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
 
@@ -1242,6 +1261,10 @@ def get_service_status(service_name: str = "armareforger.service") -> dict[str, 
         "cpu_usage_nsec": cpu_usage_nsec,
         "exec_main_start_usec": exec_main_start_usec,
         "active_enter_usec": active_enter_usec,
+        "n_restarts": n_restarts,
+        "result": result_state,
+        "exec_main_code": exec_main_code,
+        "exec_main_status": exec_main_status,
     }
 
 

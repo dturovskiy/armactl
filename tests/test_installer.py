@@ -173,6 +173,7 @@ def test_installer_refuses_install_dir_inside_git_working_tree(tmp_path: Path) -
     git_root = tmp_path / "checkout"
     install_dir = git_root / "server"
     (git_root / ".git").mkdir(parents=True)
+    (git_root / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
 
     with pytest.raises(installer.InstallError, match="Git working tree"):
         installer.build_steamcmd_update_command(install_dir)

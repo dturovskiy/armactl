@@ -81,12 +81,19 @@ def _is_path_inside_or_equal(child: Path, parent: Path) -> bool:
 
 
 def _containing_git_marker(path: Path) -> Path | None:
-    """Return the nearest .git marker at or above path, if one exists."""
+    """Return the nearest valid .git marker at or above path, if one exists.
+
+    An empty directory named ``.git`` is not a repository.  Treating such a
+    stale marker as a working tree blocks managed runtime staging directories
+    even though there is no source checkout to protect.
+    """
     resolved = path.expanduser().resolve(strict=False)
     candidates = [resolved, *resolved.parents]
     for candidate in candidates:
         git_marker = candidate / ".git"
-        if git_marker.exists():
+        if git_marker.is_file():
+            return git_marker
+        if git_marker.is_dir() and (git_marker / "HEAD").is_file():
             return git_marker
     return None
 

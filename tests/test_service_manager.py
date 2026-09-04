@@ -151,6 +151,10 @@ def test_get_service_status_falls_back_to_exec_main_pid() -> None:
             "CPUUsageNSec=5000000000\n"
             "ExecMainStartTimestampMonotonic=5000000\n"
             "ActiveEnterTimestampMonotonic=4000000\n"
+            "NRestarts=7\n"
+            "Result=success\n"
+            "ExecMainCode=exited\n"
+            "ExecMainStatus=0\n"
         ),
         stderr="",
     )
@@ -173,6 +177,10 @@ def test_get_service_status_falls_back_to_exec_main_pid() -> None:
     assert status["cpu_usage_nsec"] == 5000000000
     assert status["exec_main_start_usec"] == 5000000
     assert status["active_enter_usec"] == 4000000
+    assert status["n_restarts"] == 7
+    assert status["result"] == "success"
+    assert status["exec_main_code"] == "exited"
+    assert status["exec_main_status"] == 0
 
 
 def test_get_service_status_keeps_zero_memory_current() -> None:

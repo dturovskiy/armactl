@@ -501,6 +501,42 @@ def query_server_operational_status(
             error="server console log is empty",
         )
 
+    # A backend timeout can be the cause of a terminal startup failure.  Prefer
+    # the later, actionable failure over the earlier connectivity warning.
+    last_fps_index = next(
+        (
+            index
+            for index in range(len(lines) - 1, -1, -1)
+            if FPS_STATS_RE.search(lines[index])
+        ),
+        None,
+    )
+    startup_failure_index = next(
+        (
+            index
+            for index in range(len(lines) - 1, -1, -1)
+            if _line_has_startup_failure(lines[index])
+            and (last_fps_index is None or index > last_fps_index)
+        ),
+        None,
+    )
+    if startup_failure_index is not None:
+        details = _startup_failure_details(lines, startup_failure_index)
+        message = (
+            "Workshop addon metadata error"
+            if any(_line_has_workshop_metadata_error(item) for item in details)
+            else "Server startup failed"
+        )
+        return ServerOperationalStatus(
+            True,
+            state="startup_failed",
+            severity="error",
+            message=message,
+            details=details,
+            age_seconds=age_seconds,
+            source=source,
+        )
+
     backend_incident_status = _latest_backend_incident_status(all_lines)
     if backend_incident_status is not None:
         backend_incident_status.age_seconds = age_seconds
@@ -528,23 +564,6 @@ def query_server_operational_status(
                 severity="success",
                 message="Ready",
                 details=_safe_operational_details([line]),
-                age_seconds=age_seconds,
-                source=source,
-            )
-
-        if _line_has_startup_failure(line):
-            details = _startup_failure_details(lines, index)
-            message = (
-                "Workshop addon metadata error"
-                if any(_line_has_workshop_metadata_error(item) for item in details)
-                else "Server startup failed"
-            )
-            return ServerOperationalStatus(
-                True,
-                state="startup_failed",
-                severity="error",
-                message=message,
-                details=details,
                 age_seconds=age_seconds,
                 source=source,
             )
@@ -699,14 +718,26 @@ def estimate_service_cpu_percent(service_status: dict[str, Any]) -> float | None
     ):
         return None
 
+    elapsed_seconds = service_elapsed_seconds(service_status)
+    if elapsed_seconds is None:
+        return None
+    elapsed_usec = max(int(elapsed_seconds * 1_000_000), 1)
+    elapsed_nsec = elapsed_usec * 1_000
+    return (cpu_usage_nsec / elapsed_nsec) * 100.0 / _cpu_count()
+
+
+def service_elapsed_seconds(service_status: dict[str, Any]) -> float | None:
+    """Return elapsed time for the current systemd service process."""
+    start_usec = service_status.get("exec_main_start_usec") or service_status.get(
+        "active_enter_usec"
+    )
+    if not isinstance(start_usec, int) or start_usec <= 0:
+        return None
     try:
         uptime_seconds = float(_read_text(Path("/proc/uptime")).split()[0])
     except (IndexError, OSError, ValueError):
         return None
-
-    elapsed_usec = max(int(uptime_seconds * 1_000_000) - start_usec, 1)
-    elapsed_nsec = elapsed_usec * 1_000
-    return (cpu_usage_nsec / elapsed_nsec) * 100.0 / _cpu_count()
+    return max(uptime_seconds - (start_usec / 1_000_000), 0.0)
 
 
 def query_process_metrics(pid: int) -> ProcessMetrics:

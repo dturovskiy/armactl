@@ -8,6 +8,17 @@ from typing import Any
 
 ACTIVE_LIFECYCLES = frozenset({"stopped", "starting", "stopping", "running", "updating"})
 TELEMETRY_LOADING_TEXT = "Waiting for telemetry..."
+_TELEMETRY_PROBLEM_STATES = frozenset(
+    {
+        "backend_connectivity_issue",
+        "backend_heartbeat_failure",
+        "downloading_mods",
+        "mission_error",
+        "service_failed",
+        "startup_failed",
+        "telemetry_stale",
+    }
+)
 
 
 def _section(value: Mapping[str, Any], name: str) -> Mapping[str, Any]:
@@ -97,27 +108,60 @@ def _telemetry_loading(
     lifecycle: str,
     section: Mapping[str, Any],
     display_field: str,
+    operational: Mapping[str, Any] | None = None,
 ) -> bool:
+    if _telemetry_problem_text(operational) is not None:
+        return False
     if lifecycle != "running" or section.get("available") is True:
         return False
     return not _has_meaningful_telemetry_text(section.get(display_field))
 
 
-def _players_text(players: Mapping[str, Any], lifecycle: str) -> str:
-    if _telemetry_loading(lifecycle, players, "count_text"):
+def _telemetry_problem_text(operational: Mapping[str, Any] | None) -> str | None:
+    if not isinstance(operational, Mapping):
+        return None
+    state = _text(operational.get("state"), "").lower()
+    severity = _text(operational.get("severity"), "").lower()
+    if state not in _TELEMETRY_PROBLEM_STATES and severity != "error":
+        return None
+    return _text(operational.get("message"), "Telemetry unavailable")
+
+
+def _players_text(
+    players: Mapping[str, Any],
+    lifecycle: str,
+    operational: Mapping[str, Any] | None = None,
+) -> str:
+    problem = _telemetry_problem_text(operational)
+    if problem is not None and players.get("available") is not True:
+        return problem
+    if _telemetry_loading(lifecycle, players, "count_text", operational):
         return TELEMETRY_LOADING_TEXT
     return _text(players.get("count_text"), "unavailable")
 
 
-def _fps_text(fps: Mapping[str, Any], lifecycle: str) -> str:
-    if _telemetry_loading(lifecycle, fps, "fps_text"):
+def _fps_text(
+    fps: Mapping[str, Any],
+    lifecycle: str,
+    operational: Mapping[str, Any] | None = None,
+) -> str:
+    problem = _telemetry_problem_text(operational)
+    if problem is not None and fps.get("available") is not True:
+        return problem
+    if _telemetry_loading(lifecycle, fps, "fps_text", operational):
         return TELEMETRY_LOADING_TEXT
     return _text(fps.get("fps_text"), "unavailable")
 
 
-def _telemetry_age_text(fps: Mapping[str, Any], lifecycle: str) -> str:
-    if _telemetry_loading(lifecycle, fps, "fps_text"):
+def _telemetry_age_text(
+    fps: Mapping[str, Any],
+    lifecycle: str,
+    operational: Mapping[str, Any] | None = None,
+) -> str:
+    if _telemetry_loading(lifecycle, fps, "fps_text", operational):
         return TELEMETRY_LOADING_TEXT
+    if fps.get("available") is not True and isinstance(operational, Mapping):
+        return _text(operational.get("age_text"), "unknown")
     return _text(fps.get("age_text"), "unknown")
 
 
@@ -129,6 +173,7 @@ def _summary_items(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str
     host = _section(snapshot, "host_metrics")
     config = _section(snapshot, "config")
     mods = _section(snapshot, "mods")
+    operational = _section(snapshot, "operational_status")
 
     items = [
         _item("Instance", snapshot.get("instance"), field="overview.instance"),
@@ -146,15 +191,15 @@ def _summary_items(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str
                 _item("Service", service_value, translate_value=True, field="overview.service"),
                 _item(
                     "Players",
-                    _players_text(players, lifecycle),
+                    _players_text(players, lifecycle, operational),
                     field="overview.players",
-                    loading=_telemetry_loading(lifecycle, players, "count_text"),
+                    loading=_telemetry_loading(lifecycle, players, "count_text", operational),
                 ),
                 _item(
                     "FPS",
-                    _fps_text(fps, lifecycle),
+                    _fps_text(fps, lifecycle, operational),
                     field="overview.fps",
-                    loading=_telemetry_loading(lifecycle, fps, "fps_text"),
+                    loading=_telemetry_loading(lifecycle, fps, "fps_text", operational),
                 ),
             ]
         )
@@ -426,10 +471,11 @@ def _metric_payload(
 ) -> dict[str, Any]:
     fps = _section(snapshot, "fps_metrics")
     host = _section(snapshot, "host_metrics")
+    operational = _section(snapshot, "operational_status")
 
     fps_value = _number(fps.get("fps"))
     fps_available = fps.get("available") is not False and fps_value is not None
-    fps_loading = _telemetry_loading(lifecycle, fps, "fps_text")
+    fps_loading = _telemetry_loading(lifecycle, fps, "fps_text", operational)
 
     host_available = host.get("available") is not False
     cpu_percent = _safe_percent(host.get("cpu_percent"))
@@ -448,7 +494,7 @@ def _metric_payload(
             "loading": fps_loading,
             "value": round(fps_value, 2) if fps_available else None,
             "percent": _fps_percent(fps_value) if fps_available else None,
-            "text": _fps_text(fps, lifecycle),
+            "text": _fps_text(fps, lifecycle, operational),
         },
         "cpu": {
             "available": host_available and cpu_percent is not None,
@@ -638,21 +684,21 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
                 "items": [
                     _item(
                         "Players",
-                        _players_text(players, lifecycle),
+                        _players_text(players, lifecycle, operational),
                         field="live.players",
-                        loading=_telemetry_loading(lifecycle, players, "count_text"),
+                        loading=_telemetry_loading(lifecycle, players, "count_text", operational),
                     ),
                     _item(
                         "Server FPS",
-                        _fps_text(fps, lifecycle),
+                        _fps_text(fps, lifecycle, operational),
                         field="live.fps",
-                        loading=_telemetry_loading(lifecycle, fps, "fps_text"),
+                        loading=_telemetry_loading(lifecycle, fps, "fps_text", operational),
                     ),
                     _item(
                         "Telemetry age",
-                        _telemetry_age_text(fps, lifecycle),
+                        _telemetry_age_text(fps, lifecycle, operational),
                         field="live.telemetry_age",
-                        loading=_telemetry_loading(lifecycle, fps, "fps_text"),
+                        loading=_telemetry_loading(lifecycle, fps, "fps_text", operational),
                     ),
                 ],
                 "meters": [_fps_meter(snapshot, lifecycle)],
@@ -677,6 +723,28 @@ def _diagnostics(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str, 
     overview = _section(snapshot, "overview")
     paths = _section(snapshot, "paths")
     server_version = _section(snapshot, "server_version")
+    operational = _section(snapshot, "operational_status")
+
+    operational_state = _text(operational.get("state"), "").lower()
+    operational_severity = _text(operational.get("severity"), "").lower()
+    if operational_state in _TELEMETRY_PROBLEM_STATES or operational_severity == "error":
+        items = []
+        age_text = _text(operational.get("age_text"), "")
+        if age_text and age_text != "unknown":
+            items.append(_item("Operational age", age_text))
+        items.extend(
+            _item("Details", detail)
+            for detail in operational.get("details") or ()
+            if _text(detail, "")
+        )
+        diagnostics.append(
+            {
+                "severity": "error" if operational_severity == "error" else "warning",
+                "title": operational.get("message", "Server startup failed"),
+                "message": "",
+                "items": items,
+            }
+        )
 
     server_update_available = (
         _text(server_version.get("check_state") or server_version.get("checkState"), "")

@@ -1033,6 +1033,55 @@ def test_dashboard_status_payload_handles_unavailable_numeric_metrics():
     assert all(meter["available"] is False for meter in dashboard["host_meters"])
 
 
+def test_dashboard_replaces_telemetry_spinner_with_startup_failure():
+    from armactl.web.views.dashboard import (
+        build_dashboard_status_payload,
+        build_dashboard_view,
+    )
+
+    snapshot = _view_snapshot("running")
+    snapshot["players"] = {"available": False, "count_text": "unavailable"}
+    snapshot["fps_metrics"] = {
+        "available": False,
+        "fps_text": "unavailable",
+        "age_text": "unknown",
+    }
+    snapshot["operational_status"] = {
+        "state": "startup_failed",
+        "severity": "error",
+        "message": "Workshop addon metadata error",
+        "details": (
+            "WorkshopApi/GetDownloadListS2S Timeout",
+            "Unable to initialize the game",
+        ),
+        "age_text": "4s",
+    }
+    dashboard = build_dashboard_view(
+        snapshot,
+        can_run_actions=True,
+        can_view_config=True,
+        can_view_mods=True,
+        can_view_admins=True,
+        can_view_bot=True,
+        can_view_jobs=True,
+        can_view_files=True,
+        can_view_logs=True,
+    )
+    payload = build_dashboard_status_payload(snapshot, dashboard)
+
+    assert payload["fields"]["overview.players"] == "Workshop addon metadata error"
+    assert payload["fields"]["overview.fps"] == "Workshop addon metadata error"
+    assert payload["field_states"]["overview.players"] == {"loading": False}
+    assert payload["metrics"]["fps"]["loading"] is False
+    assert payload["metrics"]["fps"]["text"] == "Workshop addon metadata error"
+    assert dashboard["diagnostics"][0]["severity"] == "error"
+    assert dashboard["diagnostics"][0]["title"] == "Workshop addon metadata error"
+    assert any(
+        item["value"] == "Unable to initialize the game"
+        for item in dashboard["diagnostics"][0]["items"]
+    )
+
+
 def test_dashboard_view_model_omits_neutral_sat_unavailable_notice():
     from armactl.web.views.dashboard import build_dashboard_view
 
@@ -1192,3 +1241,52 @@ def test_dashboard_snapshot_service_failure_overrides_fps_status(monkeypatch):
     assert snapshot["operational_status"]["state"] == "service_failed"
     assert snapshot["operational_status"]["severity"] == "error"
     assert snapshot["operational_status"]["message"] == "Service failed"
+
+
+def test_dashboard_operational_status_reports_systemd_restart_loop():
+    facade = _import_dashboard_model()
+
+    result = facade._resolve_operational_status(
+        lifecycle="starting",
+        service={
+            "active": False,
+            "active_state": "activating",
+            "sub_state": "auto-restart",
+            "main_pid": 0,
+            "n_restarts": 33,
+        },
+        fps_metrics={"available": False},
+        log_status={
+            "state": "waiting_for_telemetry",
+            "severity": "warning",
+            "message": "Waiting for server telemetry",
+        },
+    )
+
+    assert result["state"] == "startup_failed"
+    assert result["severity"] == "error"
+    assert result["message"] == "Server startup failed"
+    assert result["details"] == ["systemd restart attempts: 33"]
+
+
+def test_dashboard_operational_status_explains_prolonged_telemetry_wait(monkeypatch):
+    facade = _import_dashboard_model()
+    monkeypatch.setattr(facade.metrics, "service_elapsed_seconds", lambda service: 181.0)
+
+    result = facade._resolve_operational_status(
+        lifecycle="running",
+        service={"active": True, "active_state": "active", "sub_state": "running"},
+        fps_metrics={"available": False},
+        log_status={
+            "state": "waiting_for_telemetry",
+            "severity": "warning",
+            "message": "Waiting for server telemetry",
+            "details": ("Last startup log line",),
+        },
+    )
+
+    assert result["state"] == "telemetry_stale"
+    assert result["severity"] == "warning"
+    assert result["message"] == "Telemetry stale"
+    assert result["age_seconds"] == 181.0
+    assert "startup may be stalled" in result["details"][-1]
