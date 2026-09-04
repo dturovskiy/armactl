@@ -24,7 +24,7 @@ import time
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -432,6 +432,16 @@ def prepare_candidate(update_paths: UpdatePaths, *, source_profile: Path | None 
     update_paths.candidate_server.mkdir(mode=0o700)
     update_paths.candidate_logs.mkdir(mode=0o700)
     _prepare_canary_config(update_paths.candidate_profile / "config.json")
+    try:
+        candidate_mode = inspect_profile(
+            "candidate",
+            update_paths.candidate_profile,
+            active=False,
+        ).mode
+    except UpdateProfileError as exc:
+        raise SafeUpdateError(f"Candidate profile is invalid: {exc}") from exc
+    if candidate_mode == VANILLA_MODE:
+        update_paths.candidate_addons.mkdir(mode=0o700)
 
 
 def cleanup_candidate_artifacts(update_paths: UpdatePaths) -> None:
@@ -471,6 +481,7 @@ def prepare_vanilla_candidate(
         )
     except (CompatibilityConfigError, UpdateProfileError) as exc:
         raise SafeUpdateError(str(exc)) from exc
+    update_paths.candidate_addons.mkdir(mode=0o700)
     _prepare_canary_config(update_paths.candidate_profile / "config.json")
     return max(source_disabled_count, active_disabled_count)
 
@@ -506,6 +517,21 @@ def _candidate_command(
     server_dir: Path | None = None,
 ) -> list[str]:
     server_dir = server_dir or update_paths.candidate_server
+    try:
+        candidate_mode = inspect_profile(
+            "candidate",
+            update_paths.candidate_profile,
+            active=False,
+        ).mode
+    except UpdateProfileError as exc:
+        raise SafeUpdateError(f"Candidate profile is invalid: {exc}") from exc
+    addons_dir = (
+        update_paths.candidate_addons
+        if candidate_mode == VANILLA_MODE
+        else update_paths.profile / "addons"
+    )
+    if candidate_mode == VANILLA_MODE and not addons_dir.is_dir():
+        raise SafeUpdateError("The isolated vanilla addon directory is missing.")
     return [
         str(server_dir / integrity.SERVER_BINARY_NAME),
         "-config",
@@ -513,7 +539,7 @@ def _candidate_command(
         "-profile",
         str(update_paths.candidate_profile),
         "-addonsDir",
-        str(update_paths.profile / "addons"),
+        str(addons_dir),
         "-addonDownloadDir",
         str(update_paths.candidate_profile),
         "-logsDir",
@@ -1005,11 +1031,28 @@ def get_compatibility_status(
             and update_paths.parked_modded_profile.exists()
         )
     )
-    return read_compatibility_status(
+    status = read_compatibility_status(
         update_paths.metadata,
         update_paths.parked_modded_profile,
         active_build=read_build_id(update_paths.server),
         rollback_available=rollback_available,
+    )
+    try:
+        actual_mode = inspect_profile(
+            DEFAULT_ACTIVE_PROFILE,
+            update_paths.profile,
+            active=True,
+        ).mode
+    except UpdateProfileError as exc:
+        raise SafeUpdateError(f"Active profile is invalid: {exc}") from exc
+    if status.active_mode == actual_mode:
+        return status
+    return replace(
+        status,
+        active_mode=actual_mode,
+        disabled_mod_count=(
+            status.disabled_mod_count if actual_mode == VANILLA_MODE else 0
+        ),
     )
 
 
@@ -1039,11 +1082,27 @@ def set_automatic_vanilla_fallback(
 def _active_profile_name(update_paths: UpdatePaths) -> str:
     metadata = _load_metadata(update_paths)
     try:
+        actual_mode = inspect_profile(
+            DEFAULT_ACTIVE_PROFILE,
+            update_paths.profile,
+            active=True,
+        ).mode
+    except UpdateProfileError as exc:
+        raise SafeUpdateError(f"Active profile is invalid: {exc}") from exc
+    stored_mode = str(metadata.get("active_mode") or "")
+    default_name = (
+        DEFAULT_VANILLA_PROFILE
+        if actual_mode == VANILLA_MODE
+        else DEFAULT_ACTIVE_PROFILE
+    )
+    if stored_mode in {MODDED_MODE, VANILLA_MODE} and stored_mode != actual_mode:
+        return default_name
+    try:
         return validate_profile_name(
-            str(metadata.get("active_profile") or DEFAULT_ACTIVE_PROFILE)
+            str(metadata.get("active_profile") or default_name)
         )
     except UpdateProfileError:
-        return DEFAULT_ACTIVE_PROFILE
+        return default_name
 
 
 def get_named_profiles(install_dir: Path, config_path: Path) -> list[NamedProfile]:

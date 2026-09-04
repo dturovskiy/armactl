@@ -282,6 +282,63 @@ def test_compatibility_canary_rejects_fatal_compile_output(tmp_path: Path, monke
     assert "AAAAAAAAAAAAAAAA" in diagnostic.read_text(encoding="utf-8")
 
 
+def test_vanilla_canary_cannot_see_shared_workshop_addons(tmp_path: Path):
+    server, config_path = _layout(tmp_path)
+    update_paths = safe_update.resolve_update_paths(server, config_path)
+
+    safe_update.prepare_candidate(update_paths)
+    modded_command = safe_update._candidate_command(update_paths)
+    modded_addons = Path(modded_command[modded_command.index("-addonsDir") + 1])
+    assert modded_addons == update_paths.profile / "addons"
+
+    safe_update.prepare_vanilla_candidate(update_paths)
+    vanilla_command = safe_update._candidate_command(update_paths)
+    vanilla_addons = Path(vanilla_command[vanilla_command.index("-addonsDir") + 1])
+    assert vanilla_addons == update_paths.candidate_addons
+    assert vanilla_addons.is_dir()
+    assert list(vanilla_addons.iterdir()) == []
+    assert (update_paths.profile / "addons" / "WCS" / "mod.pak").is_file()
+
+
+def test_actual_config_overrides_stale_vanilla_metadata(tmp_path: Path):
+    server, config_path = _layout(tmp_path)
+    update_paths = safe_update.resolve_update_paths(server, config_path)
+    update_paths.update_root.mkdir(mode=0o700)
+    update_paths.parked_modded_profile.mkdir(mode=0o700)
+    (update_paths.parked_modded_profile / "config.json").write_text(
+        json.dumps(
+            {
+                "game": {
+                    "scenarioId": "{OLD}Missions/Old.conf",
+                    "mods": [{"modId": "OLD", "name": "Old stack"}],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    safe_update._write_metadata(
+        update_paths,
+        "rejected",
+        active_mode=safe_update.VANILLA_MODE,
+        active_profile="vanilla",
+        parked_profile_name="old-modded",
+        disabled_mod_count=1,
+    )
+
+    status = safe_update.get_compatibility_status(server, config_path)
+    assert status.active_mode == safe_update.MODDED_MODE
+    assert status.disabled_mod_count == 0
+    assert safe_update._active_profile_name(update_paths) == "modded"
+    assert safe_update._modded_source_profile(update_paths, status) == update_paths.profile
+
+    safe_update.prepare_candidate(update_paths)
+    candidate = json.loads(
+        (update_paths.candidate_profile / "config.json").read_text(encoding="utf-8")
+    )
+    assert candidate["game"]["scenarioId"] == "{CUSTOM}Missions/Custom.conf"
+    assert candidate["game"]["mods"][0]["name"] == "WCS"
+
+
 def test_vanilla_profile_preserves_host_settings_without_mutating_source(
     tmp_path: Path,
 ):
