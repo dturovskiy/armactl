@@ -318,6 +318,40 @@ def test_cached_check_freshness(tmp_path: Path):
     assert not server_versions.cached_check_has_fresh_result(failed)
 
 
+def test_loaded_state_freshness_uses_successful_check_timestamp():
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    fresh = server_versions.ServerVersionState(
+        last_checked=(now - timedelta(minutes=5)).isoformat(),
+        check_state=server_versions.SERVER_VERSION_CHECK_AVAILABLE,
+    )
+    stale = server_versions.ServerVersionState(
+        last_checked=(now - timedelta(minutes=11)).isoformat(),
+        check_state=server_versions.SERVER_VERSION_CHECK_AVAILABLE,
+    )
+    failed = server_versions.ServerVersionState(
+        last_checked=now.isoformat(),
+        check_state=server_versions.SERVER_VERSION_CHECK_FAILED,
+    )
+
+    assert server_versions.server_version_state_has_fresh_result(
+        fresh,
+        max_age_seconds=server_versions.SERVER_VERSION_UPDATE_SAFETY_TTL_SECONDS,
+        now=now,
+    )
+    assert not server_versions.server_version_state_has_fresh_result(
+        stale,
+        max_age_seconds=server_versions.SERVER_VERSION_UPDATE_SAFETY_TTL_SECONDS,
+        now=now,
+    )
+    assert not server_versions.server_version_state_has_fresh_result(
+        failed,
+        max_age_seconds=server_versions.SERVER_VERSION_UPDATE_SAFETY_TTL_SECONDS,
+        now=now,
+    )
+
+
 def test_stale_cached_check_is_explicitly_expired_and_cannot_update(tmp_path: Path):
     from datetime import datetime, timedelta, timezone
 

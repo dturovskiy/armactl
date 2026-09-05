@@ -393,12 +393,8 @@ def request_server_update_and_start(
         db_path=db_path,
         server_running=server_versions.service_status_blocks_update(service_status),
     )
-    cached = server_versions.load_cached_server_version_check(
-        db_path,
-        instance=instance,
-    )
-    update_check_is_fresh = server_versions.cached_check_has_fresh_result(
-        cached,
+    update_check_is_fresh = server_versions.server_version_state_has_fresh_result(
+        version_state,
         max_age_seconds=server_versions.SERVER_VERSION_UPDATE_SAFETY_TTL_SECONDS,
     )
 

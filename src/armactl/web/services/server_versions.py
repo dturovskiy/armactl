@@ -483,8 +483,21 @@ def cached_check_has_fresh_result(
         SERVER_VERSION_CHECK_AVAILABLE,
     }:
         return False
+    return _successful_check_timestamp_is_fresh(
+        cached.checked_at,
+        max_age_seconds=max_age_seconds,
+        now=now,
+    )
+
+
+def _successful_check_timestamp_is_fresh(
+    checked_at_value: str,
+    *,
+    max_age_seconds: int,
+    now: datetime | None = None,
+) -> bool:
     try:
-        checked_at = datetime.fromisoformat(cached.checked_at)
+        checked_at = datetime.fromisoformat(checked_at_value)
     except ValueError:
         return False
     if checked_at.tzinfo is None:
@@ -492,6 +505,25 @@ def cached_check_has_fresh_result(
     current = now or datetime.now(timezone.utc)
     age = current.astimezone(timezone.utc) - checked_at.astimezone(timezone.utc)
     return timedelta(0) <= age <= timedelta(seconds=max_age_seconds)
+
+
+def server_version_state_has_fresh_result(
+    state: ServerVersionState,
+    *,
+    max_age_seconds: int = SERVER_VERSION_CHECK_CACHE_TTL_SECONDS,
+    now: datetime | None = None,
+) -> bool:
+    """Return whether a loaded state carries a recent successful build check."""
+    if state.check_state not in {
+        SERVER_VERSION_CHECK_UPTODATE,
+        SERVER_VERSION_CHECK_AVAILABLE,
+    }:
+        return False
+    return _successful_check_timestamp_is_fresh(
+        state.last_checked,
+        max_age_seconds=max_age_seconds,
+        now=now,
+    )
 
 
 def save_server_version_check(

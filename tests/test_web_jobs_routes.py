@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,8 @@ from web_route_helpers import _client, _form_token, _login, _set_cookie
 from armactl.web.auth.cookies import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
 from armactl.web.auth.setup import setup_owner_user
 from armactl.web.i18n import LANGUAGE_COOKIE_NAME
+
+TEST_CHECKED_AT = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
 def _jobs_csrf_token(client) -> str:
@@ -66,6 +69,7 @@ def _server_version_state(check_state: str, *, running: bool = False):
             installed="100",
             latest="100",
             branch="public",
+            last_checked=TEST_CHECKED_AT,
             check_state=check_state,
             status="up to date",
             message="Server is already up to date",
@@ -77,6 +81,7 @@ def _server_version_state(check_state: str, *, running: bool = False):
             installed="100",
             latest="101",
             branch="public",
+            last_checked=TEST_CHECKED_AT,
             check_state=check_state,
             status="update available",
             message="Update available",
