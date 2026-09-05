@@ -48,6 +48,7 @@
 <section class="panel full-width">
   <h2>{{ t("Official Game Admins") }}</h2>
   <p class="muted">{{ t("The official game admin list automatically synchronizes supported ServerAdminTools and WCS game-master permissions.") }}</p>
+  <p class="notice-inline notice-warning">{{ t("Native game.admins allows listed players to use #login without a password; it does not perform automatic login. Automatic Game Master assignment depends on the active Server Admin Tools mod and its compatibility with the current game build.") }}</p>
   {% if page.available %}
     {% if result and result.changed %}
       <p class="notice-inline notice-restart muted"><strong>{{ t("Restart required") }}:</strong> {{ t("Restart the server to apply admin changes.") }}</p>

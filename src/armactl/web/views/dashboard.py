@@ -14,6 +14,7 @@ _TELEMETRY_PROBLEM_STATES = frozenset(
         "backend_heartbeat_failure",
         "downloading_mods",
         "mission_error",
+        "runtime_crash",
         "service_failed",
         "startup_failed",
         "telemetry_stale",

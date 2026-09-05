@@ -1913,6 +1913,16 @@
     "Other player event": "Інша подія гравця",
     "Recorded player evidence": "Записаний доказ про гравця",
     "Faction evidence": "Доказ фракції",
-    "Stats unavailable because fresh log coverage does not span the player session.": "Статистика недоступна, бо свіже покриття логів не охоплює сесію гравця."
+    "Stats unavailable because fresh log coverage does not span the player session.": "Статистика недоступна, бо свіже покриття логів не охоплює сесію гравця.",
+    "Confirm": "Підтвердити",
+    "Delete": "Видалити",
+    "Rename active profile": "Перейменувати активний профіль",
+    "Renaming changes only the profile label; it does not copy config or restart the server.": "Перейменування змінює лише назву профілю; воно не копіює конфіг і не перезапускає сервер.",
+    "New active profile name": "Нова назва активного профілю",
+    "Rename active": "Перейменувати активний",
+    "Create inactive profile": "Створити неактивний профіль",
+    "Creating stores a separate scenario/mod selection and does not rename the active profile.": "Створення зберігає окремий вибір сценарію та модів і не перейменовує активний профіль.",
+    "Game process crashed": "Ігровий процес упав",
+    "Native game.admins allows listed players to use #login without a password; it does not perform automatic login. Automatic Game Master assignment depends on the active Server Admin Tools mod and its compatibility with the current game build.": "Нативний game.admins дозволяє доданим гравцям виконати #login без пароля, але не виконує автоматичний вхід. Автоматичне призначення Game Master залежить від активного мода Server Admin Tools та його сумісності з поточним білдом гри."
   }
 }

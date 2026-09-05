@@ -126,6 +126,7 @@ _BLOCKING_LOG_OPERATIONAL_STATES = frozenset(
         "startup_failed",
         "downloading_mods",
         "mission_error",
+        "runtime_crash",
         "starting",
         "backend_heartbeat_failure",
         "backend_connectivity_issue",

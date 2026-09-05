@@ -165,23 +165,26 @@ def _read_text(path: Path) -> str:
 
 
 def _latest_console_log(config_dir: Path) -> Path | None:
+    logs = _recent_console_logs(config_dir, limit=1)
+    return logs[0] if logs else None
+
+
+def _recent_console_logs(config_dir: Path, *, limit: int = 3) -> list[Path]:
     logs_dir = config_dir / "logs"
     try:
         candidates = list(logs_dir.glob("*/console.log"))
     except OSError:
-        return None
+        return []
 
-    latest_log: Path | None = None
-    latest_mtime = -1.0
+    dated: list[tuple[float, Path]] = []
     for candidate in candidates:
         try:
             mtime = os.path.getmtime(candidate)
         except OSError:
             continue
-        if mtime > latest_mtime:
-            latest_log = candidate
-            latest_mtime = mtime
-    return latest_log
+        dated.append((mtime, candidate))
+    dated.sort(key=lambda item: item[0], reverse=True)
+    return [path for _mtime, path in dated[: max(limit, 0)]]
 
 
 def query_server_fps_metrics(
@@ -368,6 +371,91 @@ def _line_has_game_destroyed(line: str) -> bool:
     return "Game destroyed." in line or line.rstrip().endswith("Game destroyed")
 
 
+def _line_has_runtime_crash(line: str) -> bool:
+    return "Application crashed!" in line or "Generated memory dump" in line
+
+
+def _runtime_crash_details(lines: list[str], index: int) -> tuple[str, ...]:
+    window = lines[max(index - 40, 0) : index + 1]
+    details = [
+        line
+        for line in window
+        if (
+            _line_has_runtime_crash(line)
+            or _line_has_game_destroyed(line)
+            or " (E):" in line
+            or " (F):" in line
+            or "Wrong GUID/name for resource" in line
+            or "SIGSEGV" in line
+        )
+    ]
+    return _safe_operational_details(tuple(details or [lines[index]]))
+
+
+def _runtime_crash_status(
+    lines: list[str],
+    *,
+    age_seconds: float,
+    source: str,
+) -> ServerOperationalStatus | None:
+    crash_index = next(
+        (
+            index
+            for index in range(len(lines) - 1, -1, -1)
+            if _line_has_runtime_crash(lines[index])
+        ),
+        None,
+    )
+    if crash_index is None:
+        return None
+    last_fps_index = next(
+        (
+            index
+            for index in range(len(lines) - 1, -1, -1)
+            if FPS_STATS_RE.search(lines[index])
+        ),
+        None,
+    )
+    if last_fps_index is not None and crash_index < last_fps_index:
+        return None
+    return ServerOperationalStatus(
+        True,
+        state="runtime_crash",
+        severity="error",
+        message="Game process crashed",
+        details=_runtime_crash_details(lines, crash_index),
+        age_seconds=age_seconds,
+        source=source,
+    )
+
+
+def _recent_previous_runtime_crash(
+    config_dir: Path,
+    *,
+    latest_log: Path,
+    max_age_seconds: float,
+) -> ServerOperationalStatus | None:
+    now = time.time()
+    for candidate in _recent_console_logs(config_dir, limit=4):
+        if candidate == latest_log:
+            continue
+        try:
+            age_seconds = max(now - os.path.getmtime(candidate), 0.0)
+            if age_seconds > max_age_seconds:
+                continue
+            text = _read_tail_text_file(candidate)
+        except OSError:
+            continue
+        status = _runtime_crash_status(
+            _all_log_lines(text),
+            age_seconds=age_seconds,
+            source=str(candidate),
+        )
+        if status is not None:
+            return status
+    return None
+
+
 def _startup_exit_details(lines: list[str], index: int) -> tuple[str, ...]:
     window = lines[max(index - 12, 0) : index + 1]
     details = [
@@ -447,7 +535,7 @@ def _latest_backend_incident_status(lines: list[str]) -> ServerOperationalStatus
     for index, line in enumerate(lines):
         if not after_latest_fps(index):
             continue
-        if _line_has_backend_heartbeat_terminal(line) or _line_has_shutdown_marker(line):
+        if _line_has_backend_heartbeat_terminal(line):
             severe_index = index if severe_index is None else severe_index
         if (
             _line_has_backend_heartbeat_failure(line)
@@ -569,6 +657,20 @@ def query_server_operational_status(
             source=source,
         )
 
+    backend_incident_status = _latest_backend_incident_status(all_lines)
+    if backend_incident_status is not None:
+        backend_incident_status.age_seconds = age_seconds
+        backend_incident_status.source = source
+        return backend_incident_status
+
+    runtime_crash = _runtime_crash_status(
+        lines,
+        age_seconds=age_seconds,
+        source=source,
+    )
+    if runtime_crash is not None:
+        return runtime_crash
+
     startup_exit_index = next(
         (
             index
@@ -589,11 +691,14 @@ def query_server_operational_status(
             source=source,
         )
 
-    backend_incident_status = _latest_backend_incident_status(all_lines)
-    if backend_incident_status is not None:
-        backend_incident_status.age_seconds = age_seconds
-        backend_incident_status.source = source
-        return backend_incident_status
+    if last_fps_index is None:
+        previous_crash = _recent_previous_runtime_crash(
+            Path(config_dir),
+            latest_log=latest_log,
+            max_age_seconds=max_age_seconds,
+        )
+        if previous_crash is not None:
+            return previous_crash
 
     if age_seconds > max_age_seconds:
         return ServerOperationalStatus(

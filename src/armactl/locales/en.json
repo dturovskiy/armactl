@@ -1330,6 +1330,16 @@
     "Other player event": "Other player event",
     "Recorded player evidence": "Recorded player evidence",
     "Faction evidence": "Faction evidence",
-    "Stats unavailable because fresh log coverage does not span the player session.": "Stats unavailable because fresh log coverage does not span the player session."
+    "Stats unavailable because fresh log coverage does not span the player session.": "Stats unavailable because fresh log coverage does not span the player session.",
+    "Confirm": "Confirm",
+    "Delete": "Delete",
+    "Rename active profile": "Rename active profile",
+    "Renaming changes only the profile label; it does not copy config or restart the server.": "Renaming changes only the profile label; it does not copy config or restart the server.",
+    "New active profile name": "New active profile name",
+    "Rename active": "Rename active",
+    "Create inactive profile": "Create inactive profile",
+    "Creating stores a separate scenario/mod selection and does not rename the active profile.": "Creating stores a separate scenario/mod selection and does not rename the active profile.",
+    "Game process crashed": "Game process crashed",
+    "Native game.admins allows listed players to use #login without a password; it does not perform automatic login. Automatic Game Master assignment depends on the active Server Admin Tools mod and its compatibility with the current game build.": "Native game.admins allows listed players to use #login without a password; it does not perform automatic login. Automatic Game Master assignment depends on the active Server Admin Tools mod and its compatibility with the current game build."
   }
 }

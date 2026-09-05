@@ -534,6 +534,68 @@ def test_query_server_operational_status_does_not_wait_after_game_destroyed(
     assert any("Game destroyed" in item for item in result.details)
 
 
+def test_query_server_operational_status_exposes_runtime_crash_context(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-09-05_170000",
+        "\n".join(
+            [
+                SAMPLE_FPS_LINE,
+                "17:00:28 RPL (E): Script called BumpMe from an Item without any "
+                "replicable state! class=CLBR_RemoteTurretDriveComponent",
+                "17:00:29 RESOURCES (E): Wrong GUID/name for resource "
+                "Particles/Vehicle/Mi8/Vehicle_fire_engine_Mi8_01.ptc",
+                "17:00:39 ENGINE (F): Application crashed! Generated memory dump "
+                "/tmp/server.dmp",
+            ]
+        ),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.state == "runtime_crash"
+    assert result.severity == "error"
+    assert result.message == "Game process crashed"
+    assert any("CLBR_RemoteTurretDriveComponent" in item for item in result.details)
+    assert any("Vehicle_fire_engine_Mi8_01" in item for item in result.details)
+    assert any("Application crashed" in item for item in result.details)
+
+
+def test_new_process_without_telemetry_reports_recent_previous_crash(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    crashed_log = _write_console_log(
+        config_dir,
+        "2026-09-05_170000",
+        "\n".join(
+            [
+                SAMPLE_FPS_LINE,
+                "17:00:39 ENGINE (F): Application crashed! Generated memory dump",
+            ]
+        ),
+        mtime=1000.0,
+    )
+    _write_console_log(
+        config_dir,
+        "2026-09-05_170056",
+        "17:00:57 BACKEND : Loading dedicated server config.",
+        mtime=1004.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.state == "runtime_crash"
+    assert result.message == "Game process crashed"
+    assert result.source == str(crashed_log)
+
+
 def test_query_server_operational_status_reports_ready_from_fps(
     tmp_path: Path,
 ) -> None:
