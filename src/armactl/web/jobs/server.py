@@ -27,6 +27,8 @@ SERVER_PROFILE_SWITCH_JOB_PREFIX = "server:ps:"
 SERVER_PROFILE_TEST_JOB_PREFIX = "server:pt:"
 SERVER_PROFILE_CREATE_JOB_PREFIX = "server:pc:"
 SERVER_VANILLA_PROFILE_CREATE_JOB_PREFIX = "server:pv:"
+SERVER_PROFILE_RENAME_JOB_PREFIX = "server:pr:"
+SERVER_PROFILE_DELETE_JOB_PREFIX = "server:pd:"
 SERVER_JOB_KINDS = frozenset(
     {
         SERVER_INSTALL_JOB_KIND,
@@ -99,6 +101,8 @@ def server_profile_job_kind(action: str, name: str = "") -> str:
         "test": SERVER_PROFILE_TEST_JOB_PREFIX,
         "create": SERVER_PROFILE_CREATE_JOB_PREFIX,
         "create-vanilla": SERVER_VANILLA_PROFILE_CREATE_JOB_PREFIX,
+        "rename-active": SERVER_PROFILE_RENAME_JOB_PREFIX,
+        "delete": SERVER_PROFILE_DELETE_JOB_PREFIX,
     }
     try:
         prefix = prefixes[action]
@@ -119,6 +123,8 @@ def _profile_job_action(kind: str) -> tuple[str, str] | None:
         (SERVER_PROFILE_TEST_JOB_PREFIX, "test"),
         (SERVER_PROFILE_CREATE_JOB_PREFIX, "create"),
         (SERVER_VANILLA_PROFILE_CREATE_JOB_PREFIX, "create-vanilla"),
+        (SERVER_PROFILE_RENAME_JOB_PREFIX, "rename-active"),
+        (SERVER_PROFILE_DELETE_JOB_PREFIX, "delete"),
     ):
         if kind.startswith(prefix):
             try:
@@ -417,7 +423,7 @@ def handle_server_profile_action(context: JobContext) -> JobHandlerResult:
     config_path = Path(state.config_path or paths.config_file(instance))
     service_name = state.service_name or paths.SERVICE_NAME
 
-    if action == "create" or action == "create-vanilla":
+    if action in {"create", "create-vanilla"}:
         created = safe_update.create_named_profile(
             install_dir,
             config_path,
@@ -426,6 +432,26 @@ def handle_server_profile_action(context: JobContext) -> JobHandlerResult:
         )
         context.append_output(stdout=f"Created profile {created.name} at {created.path}.")
         message = f"Profile {created.name} created."
+    elif action == "rename-active":
+        renamed = safe_update.rename_active_profile(
+            install_dir,
+            config_path,
+            name=name,
+        )
+        context.append_output(stdout=f"Active profile renamed to {renamed.name}.")
+        message = f"Active profile renamed to {renamed.name}."
+    elif action == "delete":
+        safe_update.delete_named_profile(
+            install_dir,
+            config_path,
+            name=name,
+        )
+        context.append_output(
+            stdout=(
+                f"Deleted inactive profile {name}; shared Workshop addons were not changed."
+            )
+        )
+        message = f"Inactive profile {name} deleted."
     else:
         adapter, was_running = _stop_running_service_for_job(
             context,

@@ -1220,6 +1220,80 @@ def test_server_profile_switch_job_streams_verified_operation(
     assert "profile canary passed" in result.job.stdout_tail
 
 
+@pytest.mark.parametrize(
+    ("action", "expected_kind"),
+    [
+        ("rename-active", "server:pr:renamed-profile"),
+        ("delete", "server:pd:renamed-profile"),
+    ],
+)
+def test_profile_metadata_jobs_do_not_stop_running_game_server(
+    tmp_path: Path,
+    monkeypatch,
+    action: str,
+    expected_kind: str,
+):
+    from types import SimpleNamespace
+
+    from armactl.web.jobs import server as server_jobs
+
+    db_path = _db_path(tmp_path)
+    install_dir = tmp_path / "default" / "server"
+    config_path = install_dir.parent / "config" / "config.json"
+    install_dir.mkdir(parents=True)
+    config_path.parent.mkdir()
+    (install_dir / "ArmaReforgerServer").write_text("binary", encoding="utf-8")
+    config_path.write_text("{}", encoding="utf-8")
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        server_jobs.discovery,
+        "discover",
+        lambda instance, save=False: SimpleNamespace(
+            install_dir=str(install_dir),
+            config_path=str(config_path),
+            service_name="armareforger.service",
+            server_running=True,
+        ),
+    )
+    monkeypatch.setattr(
+        server_jobs.paths,
+        "validate_server_install_dir",
+        lambda value, *, instance: Path(value),
+    )
+    monkeypatch.setattr(server_jobs, "get_service_adapter", AssertionError)
+
+    def rename(*args, name, **kwargs):
+        del args, kwargs
+        calls.append(("rename", name))
+        return SimpleNamespace(name=name)
+
+    def delete(*args, name, **kwargs):
+        del args, kwargs
+        calls.append(("delete", name))
+
+    monkeypatch.setattr(server_jobs.safe_update, "rename_active_profile", rename)
+    monkeypatch.setattr(server_jobs.safe_update, "delete_named_profile", delete)
+    job, created = server_jobs.ensure_server_profile_job(
+        db_path,
+        action=action,
+        name="renamed-profile",
+        requested_by_username="owner",
+    )
+
+    assert created is True
+    assert job.kind == expected_kind
+    assert server_jobs.parse_server_profile_job_kind(job.kind) == (
+        action,
+        "renamed-profile",
+    )
+    result = dispatch_server_job(db_path, job.id)
+
+    assert result.job.status == JOB_STATUS_SUCCEEDED
+    assert calls == [
+        ("rename" if action == "rename-active" else "delete", "renamed-profile")
+    ]
+
+
 def test_server_profile_test_job_runs_canary_without_switch_operation(
     tmp_path: Path,
     monkeypatch,

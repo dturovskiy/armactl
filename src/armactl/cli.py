@@ -465,9 +465,6 @@ def update_profile_create(ctx: click.Context, name: str, vanilla: bool) -> None:
     if not state.server_installed:
         click.echo(f"[{instance}] No server found.", err=True)
         raise click.exceptions.Exit(1)
-    if state.server_running:
-        click.echo(f"[{instance}] Stop the game server before creating a profile.", err=True)
-        raise click.exceptions.Exit(1)
     install_dir = Path(state.install_dir or paths.server_dir(instance))
     config_path = Path(state.config_path or paths.config_file(instance))
     try:
@@ -513,6 +510,86 @@ def update_profile_rename_active(ctx: click.Context, name: str) -> None:
         click.echo(json.dumps(renamed.to_dict(), indent=2))
     else:
         click.echo(f"[{instance}] Active profile name: {renamed.name}")
+
+
+@update_profile_group.command("delete")
+@click.argument("name")
+@click.confirmation_option(
+    prompt="Delete this inactive profile selection? Shared addon files are kept"
+)
+@click.pass_context
+def update_profile_delete(ctx: click.Context, name: str) -> None:
+    """Delete an inactive profile selection without deleting Workshop files."""
+    from armactl import safe_update
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    if not state.server_installed:
+        click.echo(f"[{instance}] No server found.", err=True)
+        raise click.exceptions.Exit(1)
+    install_dir = Path(state.install_dir or paths.server_dir(instance))
+    config_path = Path(state.config_path or paths.config_file(instance))
+    try:
+        safe_update.delete_named_profile(
+            install_dir,
+            config_path,
+            name=name,
+        )
+    except safe_update.SafeUpdateError as exc:
+        click.echo(f"[{instance}] ✗ {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+    if ctx.obj["json"]:
+        click.echo(json.dumps({"status": "deleted", "profile": name}, indent=2))
+    else:
+        click.echo(
+            f"[{instance}] Deleted inactive profile {name}; shared addons were kept."
+        )
+
+
+@update_profile_group.command("reconcile")
+@click.pass_context
+def update_profile_reconcile(ctx: click.Context) -> None:
+    """Separate an accidentally modified vanilla profile without restarting."""
+    from armactl import safe_update
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    if not state.server_installed:
+        click.echo(f"[{instance}] No server found.", err=True)
+        raise click.exceptions.Exit(1)
+    install_dir = Path(state.install_dir or paths.server_dir(instance))
+    config_path = Path(state.config_path or paths.config_file(instance))
+    try:
+        reconciled = safe_update.reconcile_modified_vanilla_profile(
+            install_dir,
+            config_path,
+        )
+    except safe_update.SafeUpdateError as exc:
+        click.echo(f"[{instance}] ✗ {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+    if ctx.obj["json"]:
+        click.echo(
+            json.dumps(
+                {
+                    "changed": reconciled.changed,
+                    "active_profile": reconciled.active_profile,
+                    "preserved_vanilla_profile": (
+                        reconciled.preserved_vanilla_profile
+                    ),
+                    "archived_conflict_profile": (
+                        reconciled.archived_conflict_profile
+                    ),
+                },
+                indent=2,
+            )
+        )
+    elif reconciled.changed:
+        click.echo(
+            f"[{instance}] Active profile: {reconciled.active_profile}; "
+            f"clean profile preserved as {reconciled.preserved_vanilla_profile}."
+        )
+    else:
+        click.echo(f"[{instance}] Active profile already has consistent metadata.")
 
 
 @update_profile_group.command("switch")

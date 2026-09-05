@@ -1258,7 +1258,22 @@ def test_updates_template_renders_profile_compatibility_and_test_action(tmp_path
                     "tested_build_id": "100",
                     "reason": "",
                 },
-            }
+            },
+            {
+                "name": "serhiivka-modded",
+                "active": False,
+                "mode": "modded",
+                "scenario_id": "Custom.conf",
+                "mod_count": 4,
+                "compatibility": {
+                    "status": "compatible",
+                    "label": "Ready for current build",
+                    "css_class": "success",
+                    "tested_at": "2026-08-13T11:00:00+00:00",
+                    "tested_build_id": "100",
+                    "reason": "",
+                },
+            },
         ],
         policy={"automatic_vanilla_fallback": True},
     )
@@ -1296,6 +1311,11 @@ def test_updates_template_renders_profile_compatibility_and_test_action(tmp_path
     assert "Retest required" in html
     assert "Ready for current build" in html
     assert 'action="/updates/retry-modded"' in html
+    assert 'action="/updates/profile/delete"' in html
+    assert 'name="confirm" value="delete" required' in html
+    assert 'action="/updates/profile/rename-active"' in html
+    assert "Renaming changes only the profile label" in html
+    assert "Creating stores a separate scenario/mod selection" in html
     assert "disabled aria-disabled=\"true\"" in html
 
 

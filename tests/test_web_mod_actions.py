@@ -739,6 +739,73 @@ def test_mod_service_pending_db_failure_writes_fallback_and_warns(
     ).read_text(encoding="utf-8")
 
 
+def test_adding_mod_to_vanilla_auto_separates_named_profile(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl import safe_update
+    from armactl.web.services import mod_actions
+
+    instance_root = tmp_path / "instance"
+    install_dir = instance_root / "server"
+    config_path = instance_root / "config" / "config.json"
+    install_dir.mkdir(parents=True)
+    config_path.parent.mkdir(parents=True)
+    (install_dir / "ArmaReforgerServer").write_text("server", encoding="utf-8")
+    config_path.write_text(
+        json.dumps(
+            {
+                "bindAddress": "0.0.0.0",
+                "bindPort": 2001,
+                "publicPort": 2001,
+                "game": {
+                    "name": "Test Server",
+                    "scenarioId": safe_update.DEFAULT_VANILLA_SCENARIO,
+                    "maxPlayers": 32,
+                    "admins": [],
+                    "mods": [],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    update_paths = safe_update.resolve_update_paths(install_dir, config_path)
+    safe_update._write_metadata(
+        update_paths,
+        "named-active",
+        active_mode="vanilla",
+        active_profile="vanilla",
+    )
+    monkeypatch.setattr(
+        mod_actions.discovery,
+        "discover",
+        lambda instance, save=False: ServerState(
+            server_installed=True,
+            config_exists=True,
+            install_dir=str(install_dir),
+            config_path=str(config_path),
+        ),
+    )
+
+    result = mod_actions.run_mod_action_and_audit(
+        mod_actions.ACTION_ADD,
+        instance="default",
+        mod_id="CCCCCCCCCCCCCCCC",
+        name="Charlie",
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+    )
+
+    assert result.success is True, result.message
+    assert result.details["active_profile"] == "vanilla-modded"
+    assert result.details["preserved_vanilla_profile"] == "vanilla"
+    active = safe_update.get_named_profiles(install_dir, config_path)
+    assert [(item.name, item.mod_count, item.active) for item in active] == [
+        ("vanilla-modded", 1, True),
+        ("vanilla", 0, False),
+    ]
+
+
 def test_mods_remove_pending_work_identifies_config_mod_by_name(
     tmp_path: Path,
     monkeypatch,

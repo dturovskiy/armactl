@@ -58,6 +58,7 @@ from armactl.update_profiles import (
     profile_path,
     read_policy,
     read_profile_selection,
+    remove_profile,
     validate_profile_name,
     write_policy,
     write_profile_selection,
@@ -169,6 +170,16 @@ class CanaryResult:
     ready_seconds: float
     max_players: int | None
     map_name: str
+
+
+@dataclass(frozen=True)
+class ModifiedVanillaReconciliation:
+    """Result of separating an edited vanilla selection from clean vanilla."""
+
+    changed: bool
+    active_profile: str
+    preserved_vanilla_profile: str = ""
+    archived_conflict_profile: str = ""
 
 
 def _utc_now() -> str:
@@ -1272,6 +1283,158 @@ def rename_active_profile(
             previous_profile_name=current_name,
         )
         return details
+    finally:
+        _release_update_lock(lock_descriptor)
+
+
+def _available_modified_profile_name(
+    update_paths: UpdatePaths,
+    *,
+    original_name: str,
+) -> str:
+    base = f"{original_name[:57].rstrip('-_')}-modded"
+    candidates = [base]
+    candidates.extend(
+        f"{base[: 62 - len(str(index))].rstrip('-_')}-{index}"
+        for index in range(2, 100)
+    )
+    for candidate in candidates:
+        destination = profile_path(update_paths.profiles_root, candidate)
+        if not destination.exists() and not destination.is_symlink():
+            return candidate
+    raise SafeUpdateError("Could not allocate a unique name for modified vanilla.")
+
+
+def _preserve_clean_vanilla_profile(
+    update_paths: UpdatePaths,
+    *,
+    name: str,
+) -> str:
+    """Store clean vanilla under name, archiving a conflicting stored selection."""
+    destination = profile_path(update_paths.profiles_root, name)
+    archived_name = ""
+    if destination.exists() or destination.is_symlink():
+        if not destination.is_dir() or destination.is_symlink():
+            raise SafeUpdateError(
+                f"Inactive profile path is unsafe and blocks clean vanilla: {name}."
+            )
+        try:
+            existing = inspect_profile(name, destination, active=False)
+        except UpdateProfileError as exc:
+            raise SafeUpdateError(str(exc)) from exc
+        if existing.mode == VANILLA_MODE:
+            return archived_name
+        archived_name = _available_archived_profile_name(
+            update_paths,
+            preferred_name=f"{name[:48].rstrip('-_')}-saved-modded",
+            active_name=name,
+        )
+        destination.replace(profile_path(update_paths.profiles_root, archived_name))
+
+    try:
+        clean_selection = read_profile_selection(update_paths.profile)
+        clean_selection["game"]["scenarioId"] = DEFAULT_VANILLA_SCENARIO
+        clean_selection["game"]["mods"] = []
+        write_profile_selection(destination, clean_selection)
+    except UpdateProfileError as exc:
+        raise SafeUpdateError(str(exc)) from exc
+    return archived_name
+
+
+def reconcile_modified_vanilla_profile(
+    install_dir: Path,
+    config_path: Path,
+) -> ModifiedVanillaReconciliation:
+    """Keep canonical vanilla clean after an operator changes its mod selection."""
+    update_paths = resolve_update_paths(install_dir, config_path)
+    lock_descriptor = _acquire_update_lock(update_paths.instance_root)
+    try:
+        metadata = _load_metadata(update_paths)
+        try:
+            active = inspect_profile(
+                DEFAULT_ACTIVE_PROFILE,
+                update_paths.profile,
+                active=True,
+            )
+        except UpdateProfileError as exc:
+            raise SafeUpdateError(f"Active profile is invalid: {exc}") from exc
+
+        stored_mode = str(metadata.get("active_mode") or "")
+        fallback_name = (
+            DEFAULT_VANILLA_PROFILE
+            if stored_mode == VANILLA_MODE
+            else DEFAULT_ACTIVE_PROFILE
+        )
+        try:
+            stored_name = validate_profile_name(
+                str(metadata.get("active_profile") or fallback_name)
+            )
+        except UpdateProfileError:
+            stored_name = fallback_name
+
+        was_vanilla = (
+            stored_mode == VANILLA_MODE or stored_name == DEFAULT_VANILLA_PROFILE
+        )
+        if active.mode != MODDED_MODE or not was_vanilla:
+            return ModifiedVanillaReconciliation(
+                changed=False,
+                active_profile=_active_profile_name(update_paths),
+            )
+
+        modified_name = _available_modified_profile_name(
+            update_paths,
+            original_name=stored_name,
+        )
+        archived_name = _preserve_clean_vanilla_profile(
+            update_paths,
+            name=stored_name,
+        )
+        _write_metadata(
+            update_paths,
+            "modified-vanilla-separated",
+            active_build=read_build_id(update_paths.server),
+            active_mode=MODDED_MODE,
+            active_profile=modified_name,
+            previous_profile_name=stored_name,
+            preserved_vanilla_profile=stored_name,
+            archived_conflict_profile=archived_name,
+        )
+        return ModifiedVanillaReconciliation(
+            changed=True,
+            active_profile=modified_name,
+            preserved_vanilla_profile=stored_name,
+            archived_conflict_profile=archived_name,
+        )
+    finally:
+        _release_update_lock(lock_descriptor)
+
+
+def delete_named_profile(
+    install_dir: Path,
+    config_path: Path,
+    *,
+    name: str,
+) -> None:
+    """Delete only one inactive selection profile; never touch shared addons."""
+    update_paths = resolve_update_paths(install_dir, config_path)
+    lock_descriptor = _acquire_update_lock(update_paths.instance_root)
+    try:
+        try:
+            safe_name = validate_profile_name(name)
+        except UpdateProfileError as exc:
+            raise SafeUpdateError(str(exc)) from exc
+        if safe_name == _active_profile_name(update_paths):
+            raise SafeUpdateError("The active profile cannot be deleted.")
+        metadata = _load_metadata(update_paths)
+        parked_name = str(metadata.get("parked_profile_name") or "")
+        if update_paths.parked_modded_profile.exists() and safe_name == parked_name:
+            raise SafeUpdateError(
+                "The parked rollback profile cannot be deleted from named profiles."
+            )
+        try:
+            remove_profile(update_paths.profiles_root, safe_name)
+        except UpdateProfileError as exc:
+            raise SafeUpdateError(str(exc)) from exc
     finally:
         _release_update_lock(lock_descriptor)
 

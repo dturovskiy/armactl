@@ -794,6 +794,78 @@ def test_named_profiles_can_be_created_and_switched_both_ways(tmp_path: Path):
     assert not (update_paths.profiles_root / "zakarpattia").exists()
 
 
+def test_modified_vanilla_is_separated_and_clean_vanilla_is_preserved(
+    tmp_path: Path,
+):
+    server, config_path = _layout(tmp_path)
+    update_paths = safe_update.resolve_update_paths(server, config_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["game"]["scenarioId"] = safe_update.DEFAULT_VANILLA_SCENARIO
+    config["game"]["mods"] = []
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    safe_update._write_metadata(
+        update_paths,
+        "named-active",
+        active_mode="vanilla",
+        active_profile="vanilla",
+    )
+
+    config["game"]["scenarioId"] = "{CUSTOM}Missions/Changed.conf"
+    config["game"]["mods"] = [{"modId": "0123456789ABCDEF", "name": "WCS"}]
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    result = safe_update.reconcile_modified_vanilla_profile(server, config_path)
+
+    assert result.changed is True
+    assert result.active_profile == "vanilla-modded"
+    assert result.preserved_vanilla_profile == "vanilla"
+    assert (config_path.parent / "addons" / "WCS" / "mod.pak").is_file()
+    active = json.loads(config_path.read_text(encoding="utf-8"))
+    assert active["game"]["scenarioId"] == "{CUSTOM}Missions/Changed.conf"
+    assert len(active["game"]["mods"]) == 1
+    stored_vanilla = json.loads(
+        (update_paths.profiles_root / "vanilla" / "config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert stored_vanilla == {
+        "game": {
+            "scenarioId": safe_update.DEFAULT_VANILLA_SCENARIO,
+            "mods": [],
+        }
+    }
+    profiles = safe_update.get_named_profiles(server, config_path)
+    assert [(profile.name, profile.active) for profile in profiles] == [
+        ("vanilla-modded", True),
+        ("vanilla", False),
+    ]
+
+
+def test_delete_named_profile_keeps_active_config_and_shared_addons(tmp_path: Path):
+    server, config_path = _layout(tmp_path)
+    safe_update.rename_active_profile(server, config_path, name="current-modded")
+    created = safe_update.create_named_profile(
+        server,
+        config_path,
+        name="vanilla",
+        vanilla=True,
+    )
+    active_before = config_path.read_bytes()
+    addon = config_path.parent / "addons" / "WCS" / "mod.pak"
+
+    safe_update.delete_named_profile(server, config_path, name=created.name)
+
+    assert config_path.read_bytes() == active_before
+    assert addon.read_text(encoding="utf-8") == "old mod"
+    assert not Path(created.path).exists()
+    with pytest.raises(safe_update.SafeUpdateError, match="active profile"):
+        safe_update.delete_named_profile(
+            server,
+            config_path,
+            name="current-modded",
+        )
+
+
 def test_named_profile_can_be_tested_without_activation_or_config_mutation(tmp_path: Path):
     server, config_path = _layout(tmp_path)
     safe_update.rename_active_profile(server, config_path, name="zakarpattia")

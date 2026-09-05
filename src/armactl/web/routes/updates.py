@@ -311,6 +311,44 @@ def create_named_profile(
     return _profile_job_response(current, action=action, name=profile_name)
 
 
+@router.post("/updates/profile/rename-active")
+def rename_active_profile(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    profile_name: str = Form(default=""),
+) -> Response:
+    current = _require_update_action(request, csrf_token)
+    if isinstance(current, Response):
+        return current
+    return _profile_job_response(
+        current,
+        action="rename-active",
+        name=profile_name,
+    )
+
+
+@router.post("/updates/profile/delete")
+def delete_named_profile(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    profile_name: str = Form(default=""),
+    confirm: str = Form(default=""),
+) -> Response:
+    current = _require_update_action(request, csrf_token)
+    if isinstance(current, Response):
+        return current
+    if confirm != "delete":
+        return PlainTextResponse(
+            "Confirmation is required to delete this profile.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    return _profile_job_response(
+        current,
+        action="delete",
+        name=profile_name,
+    )
+
+
 @router.post("/updates/auto-fallback")
 def set_auto_fallback(
     request: Request,

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from armactl import discovery, mods_manager, paths
+from armactl import discovery, mods_manager, paths, safe_update
 from armactl.addon_cleanup import CleanupResult, cleanup_unconfigured_addons
 from armactl.config_manager import ConfigError
 from armactl.redaction import redact_sensitive_text
@@ -1211,6 +1211,7 @@ def _run_mod_workflow_and_audit(
     username: str,
     db_path: Path | None = None,
     mark_pending_restart: bool = True,
+    reconcile_modified_vanilla: bool = False,
     workflow,
 ) -> ModActionResult:
     normalized_instance = instance or paths.DEFAULT_INSTANCE_NAME
@@ -1237,6 +1238,42 @@ def _run_mod_workflow_and_audit(
 
     try:
         result = workflow()
+        if result.success and result.changed and reconcile_modified_vanilla:
+            state = discovery.discover(instance=normalized_instance, save=False)
+            reconciled = None
+            if state.install_dir and state.config_path:
+                install_dir = paths.validate_server_install_dir(
+                    Path(state.install_dir),
+                    instance=normalized_instance,
+                )
+                config_path = Path(state.config_path)
+                reconciled = safe_update.reconcile_modified_vanilla_profile(
+                    install_dir,
+                    config_path,
+                )
+            if reconciled is not None and reconciled.changed:
+                details = dict(result.details)
+                details.update(
+                    {
+                        "active_profile": reconciled.active_profile,
+                        "preserved_vanilla_profile": (
+                            reconciled.preserved_vanilla_profile
+                        ),
+                    }
+                )
+                if reconciled.archived_conflict_profile:
+                    details["archived_conflict_profile"] = (
+                        reconciled.archived_conflict_profile
+                    )
+                result = replace(
+                    result,
+                    message=(
+                        f"{result.message} Modified vanilla was separated as profile "
+                        f"{reconciled.active_profile}; clean profile "
+                        f"{reconciled.preserved_vanilla_profile} was preserved."
+                    ),
+                    details=details,
+                )
     except Exception as exc:  # noqa: BLE001 - report controlled partial mutation state.
         state_changed_after_failure = False
         if baseline_fingerprint and baseline_config_path is not None:
@@ -1336,6 +1373,7 @@ def run_mod_action_and_audit(
         audit_log_path=audit_log_path,
         username=username,
         db_path=db_path,
+        reconcile_modified_vanilla=True,
         workflow=lambda: run_mod_action(
             normalized,
             instance=normalized_instance,
@@ -1363,6 +1401,7 @@ def run_bulk_add_and_audit(
         audit_log_path=audit_log_path,
         username=username,
         db_path=db_path,
+        reconcile_modified_vanilla=True,
         workflow=lambda: bulk_add_mods(
             instance=normalized_instance,
             text=text,
@@ -1390,6 +1429,7 @@ def run_import_mod_pack_and_audit(
         audit_log_path=audit_log_path,
         username=username,
         db_path=db_path,
+        reconcile_modified_vanilla=True,
         workflow=lambda: import_mod_pack(
             instance=normalized_instance,
             upload_file=upload_file,
@@ -1415,6 +1455,7 @@ def run_dedupe_and_audit(
         audit_log_path=audit_log_path,
         username=username,
         db_path=db_path,
+        reconcile_modified_vanilla=True,
         workflow=lambda: dedupe_mods(instance=normalized_instance),
     )
 

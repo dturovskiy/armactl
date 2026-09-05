@@ -230,6 +230,15 @@
                     <input type="hidden" name="profile_name" value="{{ profile.name }}">
                     <button type="submit"{% if not page.profile_actions_enabled or profile.compatibility.status != 'compatible' %} disabled aria-disabled="true"{% endif %}>{{ t("Switch") }}</button>
                   </form>
+                  <form method="post" action="/updates/profile/delete" class="action-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="profile_name" value="{{ profile.name }}">
+                    <label class="inline-confirm">
+                      <input type="checkbox" name="confirm" value="delete" required>
+                      <span>{{ t("Confirm") }}</span>
+                    </label>
+                    <button class="danger" type="submit"{% if not page.profile_actions_enabled %} disabled aria-disabled="true"{% endif %}>{{ t("Delete") }}</button>
+                  </form>
                 {% else %}
                   <span class="muted">{{ t("Currently active") }}</span>
                 {% endif %}
@@ -242,8 +251,25 @@
   {% endif %}
 
   {% if page.can_update_server %}
+    <div class="profile-editor-grid">
+    <form method="post" action="/updates/profile/rename-active" class="config-edit-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <h3>{{ t("Rename active profile") }}</h3>
+      <p class="muted">{{ t("Renaming changes only the profile label; it does not copy config or restart the server.") }}</p>
+      <div class="form-grid">
+        <label>
+          <span>{{ t("New active profile name") }}</span>
+          <input type="text" name="profile_name" pattern="[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?" maxlength="64" required autocomplete="off">
+        </label>
+      </div>
+      <div class="form-actions">
+        <button type="submit"{% if not page.profile_actions_enabled %} disabled aria-disabled="true"{% endif %}>{{ t("Rename active") }}</button>
+      </div>
+    </form>
     <form method="post" action="/updates/profile/create" class="config-edit-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <h3>{{ t("Create inactive profile") }}</h3>
+      <p class="muted">{{ t("Creating stores a separate scenario/mod selection and does not rename the active profile.") }}</p>
       <div class="form-grid">
         <label>
           <span>{{ t("New profile name") }}</span>
@@ -261,6 +287,7 @@
         <button type="submit"{% if not page.profile_actions_enabled %} disabled aria-disabled="true"{% endif %}>{{ t("Create profile") }}</button>
       </div>
     </form>
+    </div>
   {% endif %}
 </section>
 {% endblock %}
