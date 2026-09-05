@@ -10,18 +10,42 @@
 </form>
 {% endblock %}
 {% block content %}
-<section class="panel full-width" id="compatibility-profiles">
+<section class="panel full-width update-build-overview" id="compatibility-profiles">
   <div class="section-heading-row">
-    <h2>{{ t("Build status") }}</h2>
-    <span class="status-pill status-pill-{{ page.status.css_class }}">{{ t(page.status.check_state_label) }}</span>
+    <h2>{{ t("Server version") }}</h2>
+    <span class="status-pill status-pill-{{ page.build_status.css_class }}">{{ t(page.build_status.label) }}</span>
   </div>
-  <p class="notice">{{ t(page.status.message) }}</p>
-  <dl class="key-value-list">
+  <p class="notice update-build-message">{{ t(page.build_status.message) }}</p>
+  <dl class="key-value-list update-build-facts">
     {% for item in page["items"] %}
       <dt>{{ t(item.label) }}</dt>
       <dd>{% if item.timestamp %}{{ format_web_timestamp(item.value) }}{% elif item.translate_value %}{{ t(item.value) }}{% else %}{{ item.value }}{% endif %}</dd>
     {% endfor %}
   </dl>
+  <div class="update-check-summary">
+    <div class="update-check-summary-copy">
+      <div class="section-heading-row">
+        <h3>{{ t("Update check") }}</h3>
+        <span class="status-pill status-pill-{{ page.check_status.css_class }}">{{ t(page.check_status.label) }}</span>
+      </div>
+      <p class="update-check-time">
+        <strong>{{ t("Last completed check") }}:</strong>
+        {% if page.check_status.has_timestamp %}
+          {{ format_web_timestamp(page.check_status.last_checked) }}
+        {% else %}
+          {{ t("never") }}
+        {% endif %}
+      </p>
+      <p class="muted">{{ t(page.check_status.detail) }}</p>
+    </div>
+    <form method="post" action="/updates/check" class="action-form update-check-action">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit"{% if page.check_disabled %} disabled aria-disabled="true"{% endif %}>{{ t(page.check_action_label) }}</button>
+      {% if page.check_disabled_reason %}
+        <span class="muted">{{ t(page.check_disabled_reason) }}</span>
+      {% endif %}
+    </form>
+  </div>
   {% if page.active_job %}
     <p class="notice-inline">
       <strong>{{ t(page.active_job.label) }}:</strong>
@@ -49,9 +73,6 @@
   {% if page.failure_guidance %}
     <p class="notice-inline notice-warning">{{ t(page.failure_guidance) }}</p>
   {% endif %}
-  {% if page.cache_notice %}
-    <p class="notice-inline notice-warning">{{ t(page.cache_notice) }}</p>
-  {% endif %}
 </section>
 
 <section class="panel full-width">
@@ -72,21 +93,14 @@
   {% if page.failed_update_guidance %}
     <p class="notice-inline notice-warning">{{ t(page.failed_update_guidance) }}</p>
   {% endif %}
-  <div class="action-grid">
-    <form method="post" action="/updates/check" class="action-form action-tile">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button type="submit"{% if page.check_disabled %} disabled aria-disabled="true"{% endif %}>{{ t(page.check_action_label) }}</button>
-      {% if page.check_disabled_reason %}
-        <span class="muted">{{ t(page.check_disabled_reason) }}</span>
-      {% endif %}
-    </form>
-    {% if page.backend_allows_update %}
+  {% if page.backend_allows_update %}
+    <div class="action-grid">
       <form method="post" action="/updates/update" class="action-form action-tile">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit">{{ t(page.update_action_label) }}</button>
       </form>
-    {% endif %}
-  </div>
+    </div>
+  {% endif %}
 </section>
 
 <section class="panel full-width">

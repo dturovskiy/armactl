@@ -2422,6 +2422,59 @@ button.warning {
   gap: 10px;
 }
 
+.update-build-overview {
+  display: grid;
+  gap: 14px;
+}
+
+.update-build-overview > .section-heading-row h2,
+.update-check-summary h3 {
+  margin: 0;
+}
+
+.update-build-message,
+.update-build-facts {
+  margin-top: 0;
+}
+
+.update-check-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-strong);
+}
+
+.update-check-summary-copy {
+  min-width: 0;
+}
+
+.update-check-time {
+  margin: 10px 0 4px;
+}
+
+.update-check-summary-copy > .muted {
+  margin: 0;
+}
+
+.update-check-action {
+  min-width: 150px;
+}
+
+@media (max-width: 720px) {
+  .update-check-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .update-check-action,
+  .update-check-action button {
+    width: 100%;
+  }
+}
+
 .secondary-link {
   border-color: var(--border);
   background: var(--surface);

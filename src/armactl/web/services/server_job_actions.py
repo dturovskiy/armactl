@@ -272,7 +272,10 @@ def request_server_update_check_and_start(
         db_path,
         instance=instance,
     )
-    if server_versions.cached_check_has_fresh_result(cached):
+    if server_versions.cached_check_has_fresh_result(
+        cached,
+        max_age_seconds=server_versions.SERVER_VERSION_UPDATE_SAFETY_TTL_SECONDS,
+    ):
         return None
     return enqueue_server_job_and_start(
         db_path,
@@ -390,6 +393,36 @@ def request_server_update_and_start(
         db_path=db_path,
         server_running=server_versions.service_status_blocks_update(service_status),
     )
+    cached = server_versions.load_cached_server_version_check(
+        db_path,
+        instance=instance,
+    )
+    update_check_is_fresh = server_versions.cached_check_has_fresh_result(
+        cached,
+        max_age_seconds=server_versions.SERVER_VERSION_UPDATE_SAFETY_TTL_SECONDS,
+    )
+
+    if (
+        version_state.check_state
+        in {
+            server_versions.SERVER_VERSION_CHECK_UPTODATE,
+            server_versions.SERVER_VERSION_CHECK_AVAILABLE,
+        }
+        and not update_check_is_fresh
+    ):
+        _audit_update_check_or_raise(
+            audit_log_path,
+            version_state=version_state,
+            username=username,
+            instance=instance,
+            success=False,
+            message=server_versions.SERVER_VERSION_MESSAGE_STALE,
+        )
+        return ServerUpdateActionResult(
+            status=SERVER_UPDATE_ACTION_UNAVAILABLE,
+            message=server_versions.SERVER_VERSION_MESSAGE_STALE,
+            version_state=version_state,
+        )
 
     if version_state.check_state == server_versions.SERVER_VERSION_CHECK_UPTODATE:
         _audit_update_check_or_raise(

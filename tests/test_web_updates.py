@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,8 @@ from armactl.web.auth.permissions import DASHBOARD_VIEW
 from armactl.web.auth.setup import setup_owner_user
 from armactl.web.services import server_versions
 
+TEST_CHECKED_AT = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
 
 def _version_state(check_state: str, *, running: bool = False):
     if check_state == server_versions.SERVER_VERSION_CHECK_UPTODATE:
@@ -19,7 +22,7 @@ def _version_state(check_state: str, *, running: bool = False):
             installed="100",
             latest="100",
             branch="public",
-            last_checked="2026-06-21T00:00:00+00:00",
+            last_checked=TEST_CHECKED_AT,
             check_state=check_state,
             status="up to date",
             message="Server is already up to date",
@@ -31,7 +34,7 @@ def _version_state(check_state: str, *, running: bool = False):
             installed="100",
             latest="101",
             branch="public",
-            last_checked="2026-06-21T00:00:00+00:00",
+            last_checked=TEST_CHECKED_AT,
             check_state=check_state,
             status="update available",
             message="Update available",
@@ -43,7 +46,7 @@ def _version_state(check_state: str, *, running: bool = False):
             installed="100",
             latest="",
             branch="public",
-            last_checked="2026-06-21T00:00:00+00:00",
+            last_checked=TEST_CHECKED_AT,
             check_state=check_state,
             status="check failed",
             message="Build check failed",
@@ -55,7 +58,7 @@ def _version_state(check_state: str, *, running: bool = False):
             installed="100",
             latest="101",
             branch="public",
-            last_checked="2026-06-21T00:00:00+00:00",
+            last_checked=TEST_CHECKED_AT,
             check_state=check_state,
             status="checking",
             message="Checking for updates",
@@ -67,7 +70,7 @@ def _version_state(check_state: str, *, running: bool = False):
             installed="100",
             latest="101",
             branch="public",
-            last_checked="2026-06-21T00:00:00+00:00",
+            last_checked=TEST_CHECKED_AT,
             check_state=check_state,
             status="updating",
             message="Update job running",
@@ -303,47 +306,47 @@ def test_compact_profile_selector_rejects_invalid_selection(
 
 
 @pytest.mark.parametrize(
-    ("check_state", "message", "state_label", "check_disabled", "shows_update"),
+    ("check_state", "build_label", "check_label", "check_disabled", "shows_update"),
     [
         (
             server_versions.SERVER_VERSION_CHECK_UNKNOWN,
-            "Latest build unknown",
-            "latest build unknown",
+            "Server version unknown",
+            "Not checked yet",
             False,
             False,
         ),
         (
             server_versions.SERVER_VERSION_CHECK_UPTODATE,
-            "Server is already up to date",
-            "up to date",
+            "Server version is current",
+            "Checked recently",
             False,
             False,
         ),
         (
             server_versions.SERVER_VERSION_CHECK_AVAILABLE,
-            "Update available",
-            "update available",
+            "Server update available",
+            "Checked recently",
             False,
             True,
         ),
         (
             server_versions.SERVER_VERSION_CHECK_FAILED,
-            "Build check failed",
-            "build check failed",
+            "Server version could not be verified",
+            "Check failed",
             False,
             False,
         ),
         (
             server_versions.SERVER_VERSION_CHECK_CHECKING,
-            "Checking for updates",
-            "checking",
+            "Server update available",
+            "Checking now",
             True,
             False,
         ),
         (
             server_versions.SERVER_VERSION_CHECK_UPDATING,
-            "Update job running",
-            "updating",
+            "Server update available",
+            "Checked recently",
             True,
             False,
         ),
@@ -353,8 +356,8 @@ def test_updates_page_renders_build_states(
     tmp_path: Path,
     monkeypatch,
     check_state: str,
-    message: str,
-    state_label: str,
+    build_label: str,
+    check_label: str,
     check_disabled: bool,
     shows_update: bool,
 ):
@@ -370,20 +373,20 @@ def test_updates_page_renders_build_states(
 
     assert response.status_code == 200
     assert "Server updates" in response.text
-    assert "Build status" in response.text
+    assert "Server version" in response.text
     assert "Installed build" in response.text
     assert "Latest build" in response.text
     assert "Branch" in response.text
-    assert "Last checked" in response.text
+    assert "Update check" in response.text
+    assert "Last completed check" in response.text
     if check_state == server_versions.SERVER_VERSION_CHECK_UNKNOWN:
         assert "never" in response.text
     else:
-        assert 'data-local-time datetime="2026-06-21T00:00:00Z"' in response.text
-        assert "2026-06-21 00:00 UTC" in response.text
-        assert "2026-06-21T00:00:00+00:00" not in response.text
-    assert "Check state" in response.text
-    assert message in response.text
-    assert state_label in response.text
+        timestamp = TEST_CHECKED_AT.replace("+00:00", "Z")
+        assert f'data-local-time datetime="{timestamp}"' in response.text
+        assert TEST_CHECKED_AT not in response.text
+    assert build_label in response.text
+    assert check_label in response.text
     assert "action=\"/updates/check\"" in response.text
     check_form_match = re.search(
         r'<form method="post" action="/updates/check".*?</form>',
@@ -422,7 +425,8 @@ def test_failed_update_check_renders_retry_and_jobs_guidance(
     response = client.get("/updates", follow_redirects=False)
 
     assert response.status_code == 200
-    assert "Build check failed" in response.text
+    assert "Server version could not be verified" in response.text
+    assert "Check failed" in response.text
     assert "probe failed" in response.text
     assert "Check again" in response.text
     assert "Failed update check job" in response.text
@@ -450,10 +454,12 @@ def test_stale_cached_check_result_renders_check_again_notice(
     response = client.get("/updates", follow_redirects=False)
 
     assert response.status_code == 200
-    assert "Cached check result is stale" in response.text
+    assert "Server update available" in response.text
+    assert "Check expired" in response.text
+    assert "older than one hour" in response.text
     assert "Check again" in response.text
-    assert "Update server" in response.text
-    assert "action=\"/updates/update\"" in response.text
+    assert "Run a fresh build check before updating" in response.text
+    assert "action=\"/updates/update\"" not in response.text
 
 
 def test_failed_update_renders_retry_only_when_stopped_without_active_job(
@@ -738,7 +744,7 @@ def test_updates_page_offers_safe_update_action_when_server_running(
     response = client.get("/updates", follow_redirects=False)
 
     assert response.status_code == 200
-    assert "Update available" in response.text
+    assert "Server update available" in response.text
     assert "Safe update will stop the running game server" in response.text
     assert "action=\"/updates/check\"" in response.text
     assert "action=\"/updates/update\"" in response.text
@@ -785,7 +791,7 @@ def test_updates_get_does_not_run_discovery_steamcmd_or_mutate_jobs(
 
     after = get_job(db_path, failed.id)
     assert response.status_code == 200
-    assert "Latest build unknown" in response.text
+    assert "Server version unknown" in response.text
     assert after == failed
 
 
@@ -810,6 +816,12 @@ def test_updates_permission_denied_skips_page_model(
 
     password = "owner updates password"
     setup_owner_user(tmp_path, "owner", password)
+    server_versions.save_server_version_check(
+        tmp_path / "web" / "web.db",
+        installed="100",
+        latest="101",
+        check_state=server_versions.SERVER_VERSION_CHECK_AVAILABLE,
+    )
     set_web_owner_permissions(set())
     monkeypatch.setattr(
         updates_page_model,
@@ -833,6 +845,12 @@ def test_updates_check_rejects_invalid_csrf(tmp_path: Path, monkeypatch):
 
     password = "owner updates password"
     setup_owner_user(tmp_path, "owner", password)
+    server_versions.save_server_version_check(
+        tmp_path / "web" / "web.db",
+        installed="100",
+        latest="101",
+        check_state=server_versions.SERVER_VERSION_CHECK_AVAILABLE,
+    )
     monkeypatch.setattr(
         server_job_actions,
         "request_server_update_check_and_start",
@@ -863,6 +881,12 @@ def test_updates_check_permission_denied_before_csrf(
 
     password = "owner updates password"
     setup_owner_user(tmp_path, "owner", password)
+    server_versions.save_server_version_check(
+        tmp_path / "web" / "web.db",
+        installed="100",
+        latest="100",
+        check_state=server_versions.SERVER_VERSION_CHECK_UPTODATE,
+    )
     set_web_owner_permissions({DASHBOARD_VIEW})
     monkeypatch.setattr(
         server_job_actions,

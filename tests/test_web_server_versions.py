@@ -286,12 +286,19 @@ def test_cached_check_freshness(tmp_path: Path):
         check_state=server_versions.SERVER_VERSION_CHECK_AVAILABLE,
         checked_at=datetime.now(timezone.utc).isoformat(),
     )
-    stale = server_versions.save_server_version_check(
+    recent = server_versions.save_server_version_check(
         db_path,
         installed="100",
         latest="101",
         check_state=server_versions.SERVER_VERSION_CHECK_AVAILABLE,
         checked_at=(datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat(),
+    )
+    stale = server_versions.save_server_version_check(
+        db_path,
+        installed="100",
+        latest="101",
+        check_state=server_versions.SERVER_VERSION_CHECK_AVAILABLE,
+        checked_at=(datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(),
     )
     failed = server_versions.save_server_version_check(
         db_path,
@@ -302,6 +309,11 @@ def test_cached_check_freshness(tmp_path: Path):
     )
 
     assert server_versions.cached_check_has_fresh_result(fresh)
+    assert server_versions.cached_check_has_fresh_result(recent)
+    assert not server_versions.cached_check_has_fresh_result(
+        recent,
+        max_age_seconds=server_versions.SERVER_VERSION_UPDATE_SAFETY_TTL_SECONDS,
+    )
     assert not server_versions.cached_check_has_fresh_result(stale)
     assert not server_versions.cached_check_has_fresh_result(failed)
 
@@ -318,7 +330,7 @@ def test_stale_cached_check_is_explicitly_expired_and_cannot_update(tmp_path: Pa
         installed="100",
         latest="101",
         check_state=server_versions.SERVER_VERSION_CHECK_AVAILABLE,
-        checked_at=(datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat(),
+        checked_at=(datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(),
     )
 
     version_state = server_versions.load_server_version_state(

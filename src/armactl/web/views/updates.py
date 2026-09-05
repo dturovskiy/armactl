@@ -188,6 +188,24 @@ def _cache_result_is_stale(*, check_state: str, last_checked: str) -> bool:
     )
 
 
+def _successful_check_is_fresh(
+    *,
+    check_state: str,
+    last_checked: str,
+    max_age_seconds: int,
+) -> bool:
+    if check_state not in {
+        server_versions.SERVER_VERSION_CHECK_UPTODATE,
+        server_versions.SERVER_VERSION_CHECK_AVAILABLE,
+    }:
+        return False
+    checked_at = _timestamp(last_checked)
+    if checked_at is None:
+        return False
+    age = datetime.now(timezone.utc) - checked_at
+    return timedelta(0) <= age <= timedelta(seconds=max_age_seconds)
+
+
 def _check_action_label(
     *,
     check_state: str,
@@ -206,7 +224,7 @@ def _check_action_label(
         last_checked=last_checked,
     ):
         return "Check again"
-    return "Check for updates"
+    return "Check now"
 
 
 def _cache_notice(*, check_state: str, last_checked: str) -> str:
@@ -311,6 +329,106 @@ def _check_state_label(check_state: str) -> str:
     return check_state or "latest build unknown"
 
 
+def _build_version_status(
+    *,
+    installed: str,
+    latest: str,
+    check_state: str,
+) -> dict[str, str]:
+    installed_known = installed != "unknown"
+    latest_known = latest != "unknown"
+    if installed_known and latest_known:
+        installed_ahead = (
+            installed.isdecimal()
+            and latest.isdecimal()
+            and int(installed) > int(latest)
+        )
+        if installed == latest or installed_ahead:
+            return {
+                "label": "Server version is current",
+                "message": (
+                    "The installed build matches the latest build reported by the "
+                    "last completed update check."
+                    if not installed_ahead
+                    else (
+                        "The installed build is newer than the latest build reported "
+                        "by the last completed update check."
+                    )
+                ),
+                "css_class": "ok",
+            }
+        return {
+            "label": "Server update available",
+            "message": (
+                "The last completed update check reported a newer server build."
+            ),
+            "css_class": "warning",
+        }
+    if check_state == server_versions.SERVER_VERSION_CHECK_FAILED:
+        return {
+            "label": "Server version could not be verified",
+            "message": "The installed build is known, but the latest build check failed.",
+            "css_class": "failed",
+        }
+    return {
+        "label": "Server version unknown",
+        "message": "Run an update check to compare the installed and latest builds.",
+        "css_class": "unavailable",
+    }
+
+
+def _update_check_status(
+    *,
+    check_state: str,
+    last_checked: str,
+) -> dict[str, Any]:
+    if check_state == server_versions.SERVER_VERSION_CHECK_CHECKING:
+        return {
+            "label": "Checking now",
+            "detail": "The latest-build check is currently running.",
+            "css_class": "warning",
+            "last_checked": last_checked,
+            "has_timestamp": last_checked != "never",
+        }
+    if check_state == server_versions.SERVER_VERSION_CHECK_FAILED:
+        return {
+            "label": "Check failed",
+            "detail": "The last update check did not complete successfully.",
+            "css_class": "failed",
+            "last_checked": last_checked,
+            "has_timestamp": last_checked != "never",
+        }
+    if last_checked == "never":
+        return {
+            "label": "Not checked yet",
+            "detail": "No completed update check has been recorded.",
+            "css_class": "unavailable",
+            "last_checked": last_checked,
+            "has_timestamp": False,
+        }
+    if (
+        check_state == server_versions.SERVER_VERSION_CHECK_STALE
+        or _cache_result_is_stale(
+            check_state=check_state,
+            last_checked=last_checked,
+        )
+    ):
+        return {
+            "label": "Check expired",
+            "detail": "The last completed update check is older than one hour.",
+            "css_class": "warning",
+            "last_checked": last_checked,
+            "has_timestamp": True,
+        }
+    return {
+        "label": "Checked recently",
+        "detail": "Latest-build metadata was refreshed within the last hour.",
+        "css_class": "ok",
+        "last_checked": last_checked,
+        "has_timestamp": True,
+    }
+
+
 def _status_class(check_state: str) -> str:
     if check_state == server_versions.SERVER_VERSION_CHECK_UPTODATE:
         return "ok"
@@ -332,6 +450,7 @@ def _update_note(
     check_state: str,
     can_update_server: bool,
     update_available: bool,
+    update_check_is_fresh: bool,
     server_running: bool,
 ) -> str:
     if not can_update_server:
@@ -342,6 +461,11 @@ def _update_note(
         return "A server update job is already active."
     if check_state == server_versions.SERVER_VERSION_CHECK_STALE:
         return "Check again before updating."
+    if update_available and not update_check_is_fresh:
+        return (
+            "Run a fresh build check before updating. Starting an update requires "
+            "a successful check no older than 10 minutes."
+        )
     if update_available and server_running:
         return (
             "Safe update will stop the running game server, test the new build, "
@@ -384,7 +508,14 @@ def build_updates_view(
         check_state == server_versions.SERVER_VERSION_CHECK_AVAILABLE
         and _bool(version.get("can_update") or version.get("canUpdate"))
     )
-    backend_allows_update = can_update_server and update_available
+    update_check_is_fresh = _successful_check_is_fresh(
+        check_state=check_state,
+        last_checked=last_checked,
+        max_age_seconds=server_versions.SERVER_VERSION_UPDATE_SAFETY_TTL_SECONDS,
+    )
+    backend_allows_update = (
+        can_update_server and update_available and update_check_is_fresh
+    )
     checking_or_updating = check_state in {
         server_versions.SERVER_VERSION_CHECK_CHECKING,
         server_versions.SERVER_VERSION_CHECK_UPDATING,
@@ -394,6 +525,7 @@ def build_updates_view(
         check_state=check_state,
         can_update_server=can_update_server,
         update_available=update_available,
+        update_check_is_fresh=update_check_is_fresh,
         server_running=server_running,
     )
     failure_reason = _text(
@@ -468,14 +600,14 @@ def build_updates_view(
 
     return dict(
         instance=_text(page.get("instance"), "default"),
-        status=dict(
-            message=_text(
-                version.get("message"),
-                server_versions.SERVER_VERSION_MESSAGE_UNKNOWN,
-            ),
+        build_status=_build_version_status(
+            installed=installed,
+            latest=latest,
             check_state=check_state,
-            check_state_label=_check_state_label(check_state),
-            css_class=_status_class(check_state),
+        ),
+        check_status=_update_check_status(
+            check_state=check_state,
+            last_checked=last_checked,
         ),
         items=[
             _item(
@@ -489,13 +621,6 @@ def build_updates_view(
                 translate_value=latest == "unknown",
             ),
             _item("Branch", branch, translate_value=branch == "unknown"),
-            _item(
-                "Last checked",
-                last_checked,
-                translate_value=last_checked == "never",
-                timestamp=last_checked != "never",
-            ),
-            _item("Check state", _check_state_label(check_state), translate_value=True),
         ],
         server_running=server_running,
         can_request_check=can_request_check,
@@ -508,6 +633,7 @@ def build_updates_view(
         check_disabled_reason="" if can_request_check else note,
         can_update_server=can_update_server,
         backend_allows_update=backend_allows_update,
+        update_check_is_fresh=update_check_is_fresh,
         update_action_label=(
             "Retry update" if failed_update_job and backend_allows_update else "Update server"
         ),
