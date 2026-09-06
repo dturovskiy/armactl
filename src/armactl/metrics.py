@@ -416,15 +416,14 @@ def _incident_evidence(window: list[str], terminal_index: int) -> tuple[str, ...
         lambda line: any(
             marker in line
             for marker in (
-                "SpawnEntityPrefab",
-                "Create entity",
                 "Tripod_KORNET",
                 "Pod_Kornet",
                 "Stugna",
                 "Mi24",
                 "Mi-24",
             )
-        ),
+        )
+        and ("SpawnEntityPrefab" in line or "Create entity" in line),
         lambda line: "CLBR_" in line,
         lambda line: any(
             marker in line
@@ -469,12 +468,17 @@ def _incident_from_console_log(path: Path) -> ServerIncident | None:
     summary = "Native game crash (crash dump)"
 
     if terminal_index is None:
-        terminal_index = _last_line_index(
-            lines,
-            lambda line: _line_has_startup_failure(line) or _line_has_game_destroyed(line),
-        )
-        if terminal_index is None:
+        startup_failure_index = _last_line_index(lines, _line_has_startup_failure)
+        game_destroyed_index = _last_line_index(lines, _line_has_game_destroyed)
+        if startup_failure_index is None and game_destroyed_index is None:
             return None
+        if startup_failure_index is None and any(FPS_STATS_RE.search(line) for line in lines):
+            return None
+        terminal_index = max(
+            index
+            for index in (startup_failure_index, game_destroyed_index)
+            if index is not None
+        )
         if any(FPS_STATS_RE.search(line) for line in lines[terminal_index + 1 :]):
             return None
         kind = "startup_failure"

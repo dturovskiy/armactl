@@ -623,6 +623,29 @@ def test_query_recent_server_incidents_ignores_early_game_destroyed_after_recove
     assert incidents == ()
 
 
+def test_query_recent_server_incidents_ignores_controlled_shutdown_after_fps(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-09-06_160045",
+        "\n".join(
+            [
+                SAMPLE_FPS_LINE,
+                "17:16:24 DEFAULT: [PERSISTENCE] Save completed successfully.",
+                "17:16:26 ENGINE: Game destroyed.",
+            ]
+        ),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        incidents = metrics.query_recent_server_incidents(config_dir)
+
+    assert incidents == ()
+
+
 def test_new_process_without_telemetry_reports_recent_previous_crash(
     tmp_path: Path,
 ) -> None:
