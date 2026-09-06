@@ -15,6 +15,7 @@ from armactl.web.auth.dependencies import (
     require_permission,
 )
 from armactl.web.auth.permissions import LOGS_VIEW
+from armactl.web.page_models import incidents as incidents_page_model
 from armactl.web.services import log_views
 
 router = APIRouter()
@@ -78,6 +79,46 @@ def _authenticated_log_source(
 def logs_index(request: Request, lines: str | None = Query(default=None)) -> Response:
     """Render the default audit log source."""
     return _authenticated_log_source(request, log_views.SOURCE_AUDIT, lines=lines)
+
+
+@router.get("/incidents", response_class=HTMLResponse)
+def incidents_index(request: Request) -> Response:
+    """Render bounded historical game crash evidence."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, LOGS_VIEW):
+        return permission_denied_response()
+
+    form_csrf = get_form_csrf_token(request, current)
+    try:
+        page = incidents_page_model.load_incidents_page(
+            "default",
+            data_root=current.config.data_root,
+        )
+        page["error"] = ""
+    except Exception:  # noqa: BLE001 - incident history must fail closed.
+        page = {
+            "instance": "default",
+            "incidents": [],
+            "count": 0,
+            "history_days": incidents_page_model.INCIDENT_HISTORY_DAYS,
+            "history_limit": incidents_page_model.INCIDENT_HISTORY_LIMIT,
+            "error": "Incident history is unavailable.",
+        }
+
+    response = request.app.state.templates.TemplateResponse(
+        request=request,
+        name="incidents.html",
+        context={
+            "current_user": current.user,
+            "csrf_token": form_csrf.token,
+            "page": page,
+        },
+    )
+    if form_csrf.should_set_cookie:
+        set_csrf_cookie(response, form_csrf.token, current.config)
+    return response
 
 
 @router.get("/logs/{source_id}", response_class=HTMLResponse)

@@ -570,7 +570,12 @@ def _incident_summary(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str, Any]]:
+def _server_cards(
+    snapshot: Mapping[str, Any],
+    lifecycle: str,
+    *,
+    incident_href: str = "",
+) -> list[dict[str, Any]]:
     if lifecycle not in ACTIVE_LIFECYCLES:
         return []
 
@@ -677,17 +682,6 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
                     operational.get("age_text", "unknown"),
                     field="service.operational_age",
                 ),
-                _item(
-                    "Recent incidents",
-                    incident_summary["count"],
-                    field="incidents.count",
-                ),
-                _item(
-                    "Latest suspect",
-                    incident_summary["latest_suspect"],
-                    translate_value=not incident_summary["has_incidents"],
-                    field="incidents.latest_suspect",
-                ),
             ],
         },
         {
@@ -703,6 +697,38 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
                     field="mods.preview",
                 ),
             ],
+        },
+        {
+            "title": "Incidents",
+            "layout": "compact",
+            "tone": "error" if incident_summary["has_incidents"] else "neutral",
+            "href": incident_href,
+            "items": [
+                _item(
+                    "Count",
+                    incident_summary["count"],
+                    field="incidents.count",
+                ),
+                _item(
+                    "Latest",
+                    incident_summary["latest_at"] or "none",
+                    translate_value=not incident_summary["has_incidents"],
+                    timestamp=incident_summary["has_incidents"],
+                    field="incidents.latest_at",
+                ),
+                _item(
+                    "Likely trigger",
+                    incident_summary["latest_suspect"],
+                    translate_value=not incident_summary["has_incidents"],
+                    field="incidents.latest_suspect",
+                ),
+            ],
+        },
+        {
+            "title": "Host",
+            "layout": "compact",
+            "items": _host_items(snapshot),
+            "meters": _host_meters(snapshot),
         },
     ]
 
@@ -981,10 +1007,12 @@ def build_dashboard_view(
         "quick_action_note": _quick_action_note(lifecycle, actions),
         "management_links": management_links,
         "management_note": management_note,
-        "server_cards": _server_cards(snapshot, lifecycle),
+        "server_cards": _server_cards(
+            snapshot,
+            lifecycle,
+            incident_href="/incidents" if can_view_logs else "",
+        ),
         "incident_summary": _incident_summary(snapshot),
-        "recent_incidents": _recent_incidents(snapshot),
-        "incident_logs_href": "/logs" if can_view_logs else "",
         "host_meters": _host_meters(snapshot),
         "host_items": _host_items(snapshot),
         "diagnostics": _diagnostics(snapshot, lifecycle),

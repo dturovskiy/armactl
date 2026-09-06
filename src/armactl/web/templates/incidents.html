@@ -1,0 +1,57 @@
+{% extends "layout.html" %}
+{% block title %}{{ t("Server incidents - armactl web") }}{% endblock %}
+{% block heading %}{{ t("Server incidents") }}{% endblock %}
+{% block topbar_actions %}
+<a class="button-link secondary-link" href="/dashboard">{{ t("Dashboard") }}</a>
+<a class="button-link secondary-link" href="/logs">{{ t("Logs") }}</a>
+<form method="post" action="/logout" class="logout-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <span class="user-label">{{ current_user.username }}</span>
+  <button type="submit">{{ t("Log out") }}</button>
+</form>
+{% endblock %}
+{% block content %}
+<section class="dashboard-section incidents-history-page">
+  <div class="summary-band value-block-grid incidents-history-summary">
+    <div class="value-block"><span class="label">{{ t("Found incidents") }}</span><strong>{{ page.count }}</strong></div>
+    <div class="value-block"><span class="label">{{ t("History window") }}</span><strong>{{ page.history_days }} {{ t("days") }}</strong></div>
+    <div class="value-block"><span class="label">{{ t("Display limit") }}</span><strong>{{ page.history_limit }}</strong></div>
+  </div>
+
+  <div class="panel incidents-history-intro">
+    <h2>{{ t("Crash and startup-failure history") }}</h2>
+    <p class="muted">{{ t("Incidents remain visible after systemd starts the game server again. Suspects are inferred from nearby log evidence and do not by themselves prove which addon contains the final fault.") }}</p>
+  </div>
+
+  {% if page.error %}
+    <p class="notice-panel notice-error">{{ t(page.error) }}</p>
+  {% elif not page.incidents %}
+    <p class="notice-panel notice-unavailable">{{ t("No server incidents were found in the retained log window.") }}</p>
+  {% else %}
+    <div class="incident-history-list">
+      {% for incident in page.incidents %}
+        <details class="incident-history-item notice-{{ incident.severity }}"{% if loop.first %} open{% endif %}>
+          <summary>
+            <span class="incident-history-main">
+              <strong>{{ t(incident.summary) }}</strong>
+              <span>{{ format_web_timestamp(incident.occurred_at) }} · {{ incident.suspect }}</span>
+            </span>
+            <span class="status-pill status-pill-warning">{{ t(incident.confidence|capitalize) }} {{ t("confidence") }}</span>
+          </summary>
+          <dl class="key-value-list incident-history-details">
+            <dt>{{ t("Type") }}</dt><dd>{{ t(incident.kind) }}</dd>
+            <dt>{{ t("Likely trigger") }}</dt><dd>{{ incident.suspect }}</dd>
+            <dt>{{ t("Assessment") }}</dt><dd>{{ t(incident.reason) }}</dd>
+          </dl>
+          {% if incident.evidence %}
+            <h3>{{ t("Log evidence") }}</h3>
+            <ul class="incident-evidence-list">
+              {% for evidence in incident.evidence %}<li><code>{{ evidence }}</code></li>{% endfor %}
+            </ul>
+          {% endif %}
+        </details>
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

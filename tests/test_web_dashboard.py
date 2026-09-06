@@ -698,7 +698,7 @@ def test_dashboard_keeps_recent_crash_and_suspect_visible_after_recovery(
     monkeypatch.setattr(
         dashboard_model.metrics,
         "query_recent_server_incidents",
-        lambda config_dir: (
+        lambda config_dir, **kwargs: (
             ServerIncident(
                 occurred_at="2026-09-06T16:29:42+00:00",
                 kind="runtime_crash",
@@ -719,13 +719,19 @@ def test_dashboard_keeps_recent_crash_and_suspect_visible_after_recovery(
     _login(client, "owner", password)
 
     response = client.get("/dashboard", follow_redirects=False)
+    incidents_response = client.get("/incidents", follow_redirects=False)
     payload = client.get("/dashboard/status.json", follow_redirects=False).json()
 
     assert response.status_code == 200
-    assert "Recent server incidents" in response.text
+    assert 'href="/incidents"' in response.text
+    assert "Recent server incidents" not in response.text
     assert "ATGM / CLBR weapon stack" in response.text
-    assert "Tripod_KORNET.et" in response.text
+    assert "Tripod_KORNET.et" not in response.text
     assert 'data-dashboard-field="incidents.count">1' in response.text
+    assert incidents_response.status_code == 200
+    assert "Server incidents" in incidents_response.text
+    assert "ATGM / CLBR weapon stack" in incidents_response.text
+    assert "Tripod_KORNET.et" in incidents_response.text
     assert payload["incidents"] == {
         "count": 1,
         "latest_suspect": "ATGM / CLBR weapon stack",

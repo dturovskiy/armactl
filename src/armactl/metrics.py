@@ -507,15 +507,16 @@ def query_recent_server_incidents(
     *,
     max_incidents: int = RECENT_INCIDENT_MAX_ITEMS,
     max_age_seconds: float = RECENT_INCIDENT_MAX_AGE_SECONDS,
+    max_log_files: int = RECENT_INCIDENT_LOG_LIMIT,
 ) -> tuple[ServerIncident, ...]:
     """Return bounded recent crash/startup incidents without changing server state."""
-    if max_incidents <= 0:
+    if max_incidents <= 0 or max_log_files <= 0:
         return ()
     now = time.time()
     incidents: list[ServerIncident] = []
     for candidate in _recent_console_logs(
         Path(config_dir),
-        limit=RECENT_INCIDENT_LOG_LIMIT,
+        limit=max_log_files,
     ):
         try:
             if max(now - os.path.getmtime(candidate), 0.0) > max_age_seconds:

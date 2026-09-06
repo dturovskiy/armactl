@@ -1364,6 +1364,19 @@
     "The native crash followed a persistence save, but the log does not name a single responsible addon.": "The native crash followed a persistence save, but the log does not name a single responsible addon.",
     "Unknown native engine crash": "Unknown native engine crash",
     "Addon, scenario, or backend startup failure": "Addon, scenario, or backend startup failure",
-    "The game exited before reaching stable telemetry. The evidence below contains the last actionable startup errors found in the server log.": "The game exited before reaching stable telemetry. The evidence below contains the last actionable startup errors found in the server log."
+    "The game exited before reaching stable telemetry. The evidence below contains the last actionable startup errors found in the server log.": "The game exited before reaching stable telemetry. The evidence below contains the last actionable startup errors found in the server log.",
+    "Incidents": "Incidents",
+    "Server incidents": "Server incidents",
+    "Server incidents - armactl web": "Server incidents - armactl web",
+    "Found incidents": "Found incidents",
+    "History window": "History window",
+    "days": "days",
+    "Display limit": "Display limit",
+    "Crash and startup-failure history": "Crash and startup-failure history",
+    "Incidents remain visible after systemd starts the game server again. Suspects are inferred from nearby log evidence and do not by themselves prove which addon contains the final fault.": "Incidents remain visible after systemd starts the game server again. Suspects are inferred from nearby log evidence and do not by themselves prove which addon contains the final fault.",
+    "Incident history is unavailable.": "Incident history is unavailable.",
+    "No server incidents were found in the retained log window.": "No server incidents were found in the retained log window.",
+    "runtime_crash": "Runtime crash",
+    "startup_failure": "Startup failure"
   }
 }

@@ -1947,6 +1947,19 @@
     "The native crash followed a persistence save, but the log does not name a single responsible addon.": "Нативне падіння сталося після збереження persistence, але лог не називає один конкретний відповідальний аддон.",
     "Unknown native engine crash": "Невідоме нативне падіння рушія",
     "Addon, scenario, or backend startup failure": "Помилка запуску аддона, сценарію або backend",
-    "The game exited before reaching stable telemetry. The evidence below contains the last actionable startup errors found in the server log.": "Гра завершилася до появи стабільної телеметрії. Нижче наведено останні придатні для діагностики помилки запуску з серверного логу."
+    "The game exited before reaching stable telemetry. The evidence below contains the last actionable startup errors found in the server log.": "Гра завершилася до появи стабільної телеметрії. Нижче наведено останні придатні для діагностики помилки запуску з серверного логу.",
+    "Incidents": "Інциденти",
+    "Server incidents": "Інциденти сервера",
+    "Server incidents - armactl web": "Інциденти сервера - armactl web",
+    "Found incidents": "Знайдено інцидентів",
+    "History window": "Період історії",
+    "days": "днів",
+    "Display limit": "Ліміт відображення",
+    "Crash and startup-failure history": "Історія падінь і невдалих запусків",
+    "Incidents remain visible after systemd starts the game server again. Suspects are inferred from nearby log evidence and do not by themselves prove which addon contains the final fault.": "Інциденти залишаються видимими після повторного запуску ігрового сервера через systemd. Підозрювані визначаються за сусідніми доказами з логу й самі по собі не доводять, у якому аддоні міститься остаточна помилка.",
+    "Incident history is unavailable.": "Історія інцидентів недоступна.",
+    "No server incidents were found in the retained log window.": "У збереженому вікні логів інцидентів сервера не знайдено.",
+    "runtime_crash": "Аварійне падіння",
+    "startup_failure": "Невдалий запуск"
   }
 }

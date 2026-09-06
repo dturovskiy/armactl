@@ -921,8 +921,8 @@ def test_dashboard_view_keeps_recent_crash_visible_after_service_recovers():
 
     dashboard = build_dashboard_view(snapshot, **permissions)
     payload = build_dashboard_status_payload(snapshot, dashboard)
-    service_health = next(
-        card for card in dashboard["server_cards"] if card["title"] == "Service health"
+    incident_card = next(
+        card for card in dashboard["server_cards"] if card["title"] == "Incidents"
     )
 
     assert dashboard["incident_summary"] == {
@@ -931,13 +931,17 @@ def test_dashboard_view_keeps_recent_crash_visible_after_service_recovers():
         "latest_suspect": "ATGM / CLBR weapon stack",
         "has_incidents": True,
     }
-    assert dashboard["recent_incidents"][0]["evidence"] == [
-        "SpawnEntityPrefab Tripod_KORNET.et"
-    ]
     assert any(
         item["field"] == "incidents.count" and item["value"] == "1"
-        for item in service_health["items"]
+        for item in incident_card["items"]
     )
+    assert incident_card["href"] == "/incidents"
+    assert incident_card["tone"] == "error"
+    assert [card["title"] for card in dashboard["server_cards"][-3:]] == [
+        "Active mods",
+        "Incidents",
+        "Host",
+    ]
     assert payload["incidents"] == {
         "count": 1,
         "latest_suspect": "ATGM / CLBR weapon stack",

@@ -166,14 +166,6 @@
     });
   }
 
-  function updateIncidentBadge(incidents) {
-    const count = Number(incidents && incidents.count);
-    const hasIncidents = Number.isFinite(count) && count > 0;
-    document.querySelectorAll(".incident-summary-badge").forEach((node) => {
-      node.classList.toggle("incident-summary-badge-empty", !hasIncidents);
-    });
-  }
-
   function applyStatus(data) {
     if (!data || data.ok !== true || !data.fields) {
       throw new Error("Dashboard status payload is invalid.");
@@ -183,7 +175,6 @@
     updateLifecycleClass(data.lifecycle);
     root.dataset.dashboardLifecycle = data.lifecycle || "unknown";
     updateMeters(data.metrics);
-    updateIncidentBadge(data.incidents);
     refreshState.lastSuccessAt = Date.now();
     refreshState.failureCount = 0;
     setLiveStatus("fresh");
