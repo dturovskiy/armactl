@@ -321,6 +321,32 @@ def test_admins_page_renders_player_moderation_section(tmp_path: Path, monkeypat
     assert "Restart the server to apply admin changes." not in response.text
 
 
+def test_admins_page_marks_current_player_already_in_official_admins(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.page_models import admins as admins_page_model
+
+    player = _reliable_player()
+    client = _authed_client(tmp_path, monkeypatch, panel=_panel(player))
+    page = _admins_page()
+    page["official_admins"] = [
+        {
+            "identity_id": player.identity_id.upper(),
+            "name": player.display_name,
+            "source": "game.admins",
+        }
+    ]
+    page["official_count"] = 1
+    monkeypatch.setattr(admins_page_model, "load_admins_page", lambda instance: page)
+
+    response = client.get("/admins", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Already an admin" in response.text
+    assert "Add as admin" not in response.text
+
+
 def test_admins_player_search_query_is_passed_to_panel_loader(
     tmp_path: Path,
     monkeypatch,

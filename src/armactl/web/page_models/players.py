@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -19,7 +19,11 @@ from armactl.web.services import (
     player_session_stats,
     player_sources,
 )
-from armactl.web.services.player_identity import normalize_player_query, safe_player_text
+from armactl.web.services.player_identity import (
+    normalize_admin_reference,
+    normalize_player_query,
+    safe_player_text,
+)
 
 PLAYER_HISTORY_EVENT_TYPE_LABELS = {
     player_log_events.EVENT_TYPE_PLAYER_AUTHENTICATED: "Authenticated",
@@ -197,6 +201,7 @@ class ModerationPlayer:
     source: str
     status: str
     last_seen: str
+    is_admin: bool = False
 
     @property
     def can_add_admin(self) -> bool:
@@ -215,6 +220,35 @@ class PlayerModerationPanel:
     source: str
     status: str
     error: str = ""
+
+
+def with_admin_membership(
+    panel: PlayerModerationPanel,
+    admin_references: object,
+) -> PlayerModerationPanel:
+    """Mark roster players already present in the official game admin list."""
+    if not isinstance(admin_references, (list, tuple)):
+        admin_references = ()
+    normalized_admins = {
+        normalized
+        for item in admin_references
+        if isinstance(item, dict)
+        and (normalized := normalize_admin_reference(item.get("identity_id")))
+    }
+    return replace(
+        panel,
+        players=tuple(
+            replace(
+                player,
+                is_admin=(
+                    bool(player.admin_reference)
+                    and normalize_admin_reference(player.admin_reference)
+                    in normalized_admins
+                ),
+            )
+            for player in panel.players
+        ),
+    )
 
 
 @dataclass(frozen=True)

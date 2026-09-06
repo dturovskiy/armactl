@@ -42,6 +42,10 @@ def _render_admins_page(
         paths.DEFAULT_INSTANCE_NAME,
         query=request.query_params.get("player_search", ""),
     )
+    player_panel = players_page_model.with_admin_membership(
+        player_panel,
+        page.get("official_admins", ()),
+    )
     response = request.app.state.templates.TemplateResponse(
         request=request,
         name="admins.html",

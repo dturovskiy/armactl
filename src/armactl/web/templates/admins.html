@@ -158,7 +158,9 @@
           <td>{{ t(player.last_seen) }}</td>
           {% if can_manage_admins %}
             <td>
-              {% if player.can_add_admin %}
+              {% if player.is_admin %}
+                <span class="status-pill status-pill-success">{{ t("Already an admin") }}</span>
+              {% elif player.can_add_admin %}
                 <form method="post" action="/admins/add" class="player-admin-form">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                   <input type="hidden" name="admin_reference" value="{{ player.admin_reference }}">
