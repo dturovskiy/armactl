@@ -20,6 +20,7 @@ from armactl.metrics import (
     HostMetrics,
     ProcessMetrics,
     ServerFpsMetrics,
+    ServerIncident,
     ServerOperationalStatus,
 )
 from armactl.player_view import PlayerView
@@ -682,6 +683,55 @@ def test_dashboard_routes_render_html(tmp_path: Path, monkeypatch):
     assert 'data-dashboard-meter="cpu"' in root_response.text
     assert 'data-dashboard-metric-fill="disk"' in root_response.text
     assert calls == ["default", "default"]
+
+
+def test_dashboard_keeps_recent_crash_and_suspect_visible_after_recovery(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.page_models import dashboard as dashboard_model
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch)
+    monkeypatch.setattr(
+        dashboard_model.metrics,
+        "query_recent_server_incidents",
+        lambda config_dir: (
+            ServerIncident(
+                occurred_at="2026-09-06T16:29:42+00:00",
+                kind="runtime_crash",
+                severity="error",
+                summary="Native game crash (crash dump)",
+                suspect="ATGM / CLBR weapon stack",
+                confidence="high",
+                reason="Kornet prefab and CLBR weapon code appeared immediately before "
+                "the native crash.",
+                evidence=(
+                    "SpawnEntityPrefab Prefabs/Weapons/Tripods/Tripod_KORNET.et",
+                    "Application crashed! Generated memory dump",
+                ),
+            ),
+        ),
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+    payload = client.get("/dashboard/status.json", follow_redirects=False).json()
+
+    assert response.status_code == 200
+    assert "Recent server incidents" in response.text
+    assert "ATGM / CLBR weapon stack" in response.text
+    assert "Tripod_KORNET.et" in response.text
+    assert 'data-dashboard-field="incidents.count">1' in response.text
+    assert payload["incidents"] == {
+        "count": 1,
+        "latest_suspect": "ATGM / CLBR weapon stack",
+    }
+    assert payload["fields"]["incidents.count"] == "1"
+    assert payload["fields"]["incidents.latest_suspect"] == "ATGM / CLBR weapon stack"
 
 
 def test_dashboard_js_static_asset_is_served(tmp_path: Path):

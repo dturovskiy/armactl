@@ -552,6 +552,24 @@ def _fps_meter(snapshot: Mapping[str, Any], lifecycle: str) -> dict[str, Any]:
     return _metric_meter("fps", "Server FPS", metrics["fps"])
 
 
+def _recent_incidents(snapshot: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    value = snapshot.get("recent_incidents")
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [item for item in value if isinstance(item, Mapping)]
+
+
+def _incident_summary(snapshot: Mapping[str, Any]) -> dict[str, Any]:
+    incidents = _recent_incidents(snapshot)
+    latest = incidents[0] if incidents else {}
+    return {
+        "count": len(incidents),
+        "latest_at": _text(latest.get("occurred_at"), ""),
+        "latest_suspect": _text(latest.get("suspect"), "none"),
+        "has_incidents": bool(incidents),
+    }
+
+
 def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str, Any]]:
     if lifecycle not in ACTIVE_LIFECYCLES:
         return []
@@ -571,6 +589,7 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
         "never",
     )
     check_state = _text(server_version.get("check_state") or server_version.get("checkState"))
+    incident_summary = _incident_summary(snapshot)
 
     cards = [
         {
@@ -657,6 +676,17 @@ def _server_cards(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str,
                     "Operational age",
                     operational.get("age_text", "unknown"),
                     field="service.operational_age",
+                ),
+                _item(
+                    "Recent incidents",
+                    incident_summary["count"],
+                    field="incidents.count",
+                ),
+                _item(
+                    "Latest suspect",
+                    incident_summary["latest_suspect"],
+                    translate_value=not incident_summary["has_incidents"],
+                    field="incidents.latest_suspect",
                 ),
             ],
         },
@@ -952,6 +982,9 @@ def build_dashboard_view(
         "management_links": management_links,
         "management_note": management_note,
         "server_cards": _server_cards(snapshot, lifecycle),
+        "incident_summary": _incident_summary(snapshot),
+        "recent_incidents": _recent_incidents(snapshot),
+        "incident_logs_href": "/logs" if can_view_logs else "",
         "host_meters": _host_meters(snapshot),
         "host_items": _host_items(snapshot),
         "diagnostics": _diagnostics(snapshot, lifecycle),
@@ -1054,6 +1087,10 @@ def build_dashboard_status_payload(
             "state": _text(operational.get("state"), "unknown"),
             "severity": _text(operational.get("severity"), "unknown"),
             "message": _text(operational.get("message"), "unavailable"),
+        },
+        "incidents": {
+            "count": len(_recent_incidents(snapshot)),
+            "latest_suspect": _incident_summary(snapshot)["latest_suspect"],
         },
         "host": {
             "cpu": _text(host.get("cpu_text"), "unknown"),

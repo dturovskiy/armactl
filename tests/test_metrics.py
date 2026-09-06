@@ -566,6 +566,63 @@ def test_query_server_operational_status_exposes_runtime_crash_context(
     assert any("Application crashed" in item for item in result.details)
 
 
+def test_query_recent_server_incidents_identifies_atgm_kornet_crash(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-09-06_160045",
+        "\n".join(
+            [
+                SAMPLE_FPS_LINE,
+                "16:29:27 ENTITY: SpawnEntityPrefab "
+                '"{E4B61F751D2B8B7E}Prefabs/Weapons/Tripods/Tripod_KORNET.et"',
+                "16:29:27 SCRIPT (W): [CLBR_KORNET_OPTIC_ACTION] INIT owner=Turret",
+                "16:29:28 WEAPON (W): Warning: Loading incompatible ammo in barrel 0",
+                "16:29:42 ENGINE (E): Application crashed! Generated memory dump: "
+                "/tmp/server.dmp",
+            ]
+        ),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        incidents = metrics.query_recent_server_incidents(config_dir)
+
+    assert len(incidents) == 1
+    assert incidents[0].kind == "runtime_crash"
+    assert incidents[0].summary == "Native game crash (crash dump)"
+    assert incidents[0].suspect == "ATGM / CLBR weapon stack"
+    assert incidents[0].confidence == "high"
+    assert "Kornet prefab" in incidents[0].reason
+    assert any("Tripod_KORNET" in item for item in incidents[0].evidence)
+    assert any("Application crashed" in item for item in incidents[0].evidence)
+
+
+def test_query_recent_server_incidents_ignores_early_game_destroyed_after_recovery(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-09-06_171628",
+        "\n".join(
+            [
+                "17:16:35 NETWORK: Starting dedicated server using command line args.",
+                "17:16:35 ENGINE: Game destroyed.",
+                SAMPLE_FPS_LINE,
+            ]
+        ),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        incidents = metrics.query_recent_server_incidents(config_dir)
+
+    assert incidents == ()
+
+
 def test_new_process_without_telemetry_reports_recent_previous_crash(
     tmp_path: Path,
 ) -> None:

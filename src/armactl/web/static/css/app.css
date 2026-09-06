@@ -282,6 +282,109 @@ h2 {
   grid-column: 1 / -1;
 }
 
+.server-snapshot-heading {
+  align-items: center;
+}
+
+.incident-summary-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid color-mix(in srgb, var(--error) 65%, var(--border));
+  border-radius: 999px;
+  color: var(--error);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.incident-summary-badge strong {
+  min-width: 1.35rem;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--error);
+  color: var(--surface);
+  text-align: center;
+}
+
+.incident-summary-badge-empty {
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.incident-summary-badge-empty strong {
+  background: var(--muted);
+}
+
+.recent-server-incidents {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--error);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.recent-server-incidents h3,
+.recent-server-incidents h4,
+.recent-server-incidents p {
+  margin-top: 0;
+}
+
+.recent-server-incidents .section-heading-row {
+  align-items: start;
+}
+
+.incident-history-list {
+  display: grid;
+  gap: 8px;
+}
+
+.incident-history-item {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--error);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.incident-history-item summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.incident-history-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.incident-history-main span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.incident-history-details {
+  margin-top: 10px;
+}
+
+.incident-evidence-list {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 0;
+  padding-left: 20px;
+}
+
+.incident-evidence-list code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .summary-card-wide dl {
   grid-template-columns: minmax(120px, 0.25fr) minmax(0, 1fr);
 }

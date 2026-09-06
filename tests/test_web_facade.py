@@ -889,6 +889,61 @@ def test_dashboard_status_payload_is_small_and_safe():
     assert "csrf" not in serialized.lower()
 
 
+def test_dashboard_view_keeps_recent_crash_visible_after_service_recovers():
+    from armactl.web.views.dashboard import (
+        build_dashboard_status_payload,
+        build_dashboard_view,
+    )
+
+    snapshot = _view_snapshot("running")
+    snapshot["recent_incidents"] = [
+        {
+            "occurred_at": "2026-09-06T16:29:42+00:00",
+            "kind": "runtime_crash",
+            "severity": "error",
+            "summary": "Native game crash (crash dump)",
+            "suspect": "ATGM / CLBR weapon stack",
+            "confidence": "high",
+            "reason": "Kornet prefab and CLBR weapon code appeared before the crash.",
+            "evidence": ["SpawnEntityPrefab Tripod_KORNET.et"],
+        }
+    ]
+    permissions = {
+        "can_run_actions": True,
+        "can_view_config": True,
+        "can_view_mods": True,
+        "can_view_admins": True,
+        "can_view_bot": True,
+        "can_view_jobs": True,
+        "can_view_files": True,
+        "can_view_logs": True,
+    }
+
+    dashboard = build_dashboard_view(snapshot, **permissions)
+    payload = build_dashboard_status_payload(snapshot, dashboard)
+    service_health = next(
+        card for card in dashboard["server_cards"] if card["title"] == "Service health"
+    )
+
+    assert dashboard["incident_summary"] == {
+        "count": 1,
+        "latest_at": "2026-09-06T16:29:42+00:00",
+        "latest_suspect": "ATGM / CLBR weapon stack",
+        "has_incidents": True,
+    }
+    assert dashboard["recent_incidents"][0]["evidence"] == [
+        "SpawnEntityPrefab Tripod_KORNET.et"
+    ]
+    assert any(
+        item["field"] == "incidents.count" and item["value"] == "1"
+        for item in service_health["items"]
+    )
+    assert payload["incidents"] == {
+        "count": 1,
+        "latest_suspect": "ATGM / CLBR weapon stack",
+    }
+
+
 def test_dashboard_view_model_actions_follow_lifecycle():
     from armactl.web.views.dashboard import build_dashboard_view
 

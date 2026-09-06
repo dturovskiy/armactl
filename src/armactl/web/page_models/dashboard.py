@@ -60,6 +60,7 @@ class DashboardSnapshot:
     timer: dict[str, Any]
     service_runtime: dict[str, Any]
     operational_status: dict[str, Any]
+    recent_incidents: tuple[dict[str, Any], ...]
     config: dict[str, Any]
     mods: dict[str, Any]
     server_version: dict[str, Any]
@@ -574,6 +575,24 @@ def _load_operational_status(
     )
 
 
+def _load_recent_incidents(
+    state: ServerState,
+    errors: list[DashboardError],
+) -> tuple[dict[str, Any], ...]:
+    config_dir = _config_dir_from_state(state)
+    if config_dir is None:
+        return ()
+    try:
+        return tuple(
+            _plain_dict(incident)
+            for incident in metrics.query_recent_server_incidents(config_dir)
+        )
+    except Exception as error:  # dashboard history must degrade independently.
+        message = str(error) or error.__class__.__name__
+        errors.append(DashboardError(section="recent_incidents", message=message))
+        return ()
+
+
 def _load_web_runtime(web_config: Any | None) -> dict[str, Any]:
     if web_config is None:
         return _unavailable("web runtime config is not available")
@@ -777,6 +796,7 @@ def load_dashboard_snapshot(
         timer=timer,
         service_runtime=_load_service_runtime(service, errors),
         operational_status=operational_status,
+        recent_incidents=_load_recent_incidents(state, errors),
         config=config_summary,
         mods=mods_summary,
         server_version=server_version,
