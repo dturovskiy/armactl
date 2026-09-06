@@ -134,6 +134,72 @@ def test_safe_update_promotes_verified_server_and_profile(tmp_path: Path, monkey
     assert any("active and stable" in line for line in output)
 
 
+def test_safe_update_archives_parked_profile_from_previous_rollback(
+    tmp_path: Path,
+    monkeypatch,
+):
+    server, config_path = _layout(tmp_path)
+    adapter = FakeServiceAdapter()
+    update_paths = safe_update.resolve_update_paths(server, config_path)
+    monkeypatch.setattr(safe_update, "ensure_staging_capacity", lambda paths: (1, 2))
+    _write_server(update_paths.rollback_server, "90", "older rollback")
+    update_paths.parked_modded_profile.mkdir(mode=0o700)
+    parked_selection = {
+        "game": {
+            "scenarioId": "{OLD}Missions/Old.conf",
+            "mods": [{"modId": "OLD", "name": "Old stack"}],
+        }
+    }
+    (update_paths.parked_modded_profile / "config.json").write_text(
+        json.dumps(parked_selection),
+        encoding="utf-8",
+    )
+    safe_update._write_metadata(
+        update_paths,
+        "committed",
+        active_mode=safe_update.MODDED_MODE,
+        active_profile="current-modded",
+        active_build="100",
+        rollback_available=True,
+        rollback_kind="server+parked-modded",
+        parked_profile_name="legacy-modded",
+    )
+
+    output = list(
+        safe_update.stream_safe_server_update(
+            server,
+            config_path,
+            "armareforger.service",
+            update_stream=_fake_update,
+            canary_runner=lambda paths: safe_update.CanaryResult(1.0, 128, "Map"),
+            adapter=adapter,
+            readiness_checker=_ready,
+        )
+    )
+
+    archived = json.loads(
+        (update_paths.profiles_root / "legacy-modded" / "config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    metadata = json.loads(update_paths.metadata.read_text(encoding="utf-8"))
+    baselines = sorted((tmp_path / "default" / "backups" / "update-baselines").iterdir())
+    baseline_manifest = json.loads(
+        (baselines[-1] / "manifest.json").read_text(encoding="utf-8")
+    )
+
+    assert archived == parked_selection
+    assert not update_paths.parked_modded_profile.exists()
+    assert safe_update.read_build_id(server) == "200"
+    assert safe_update.read_build_id(update_paths.rollback_server) == "100"
+    assert metadata["rollback_kind"] == "server+profile"
+    assert baseline_manifest["parked_mods"] == [
+        {"modId": "OLD", "name": "Old stack", "version": ""}
+    ]
+    assert any("Preserved the stale parked config" in line for line in output)
+    assert any("Retired the previous rollback slot" in line for line in output)
+
+
 def test_canary_rejection_leaves_old_generation_and_restarts_it(tmp_path: Path, monkeypatch):
     server, config_path = _layout(tmp_path)
     adapter = FakeServiceAdapter()

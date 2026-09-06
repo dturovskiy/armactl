@@ -1146,6 +1146,7 @@ def _archive_stale_parked_profile(
     *,
     active_mode: str,
     active_profile_name: str,
+    retire_linked_rollback: bool = False,
 ) -> NamedProfile | None:
     """Preserve a stale parked selection before a new profile transaction."""
     parked_config = update_paths.parked_modded_profile / "config.json"
@@ -1153,7 +1154,10 @@ def _archive_stale_parked_profile(
         return None
     metadata = _load_metadata(update_paths)
     rollback_kind = str(metadata.get("rollback_kind") or "")
-    if rollback_kind.endswith("+parked-modded") and update_paths.rollback_server.exists():
+    linked_rollback = rollback_kind.endswith("+parked-modded") and (
+        update_paths.rollback_server.exists() or update_paths.rollback_profile.exists()
+    )
+    if linked_rollback and not retire_linked_rollback:
         raise SafeUpdateError(
             "The parked modded profile belongs to an available server rollback; "
             "run or retire that rollback before starting a new profile transaction."
@@ -1177,16 +1181,23 @@ def _archive_stale_parked_profile(
         raise SafeUpdateError(
             "The stale parked profile is not modded; it was preserved but not removed."
         )
+    if linked_rollback:
+        retire_previous_rollback(update_paths)
     _remove_managed_path(update_paths, update_paths.parked_modded_profile)
+    metadata_fields: dict[str, Any] = {
+        "active_build": read_build_id(update_paths.server),
+        "active_mode": active_mode,
+        "active_profile": active_profile_name,
+        "parked_profile_name": "",
+        "archived_parked_profile": archived_name,
+        "disabled_mod_count": 0,
+    }
+    if linked_rollback:
+        metadata_fields.update(rollback_available=False, rollback_kind="")
     _write_metadata(
         update_paths,
         "stale-parked-archived",
-        active_build=read_build_id(update_paths.server),
-        active_mode=active_mode,
-        active_profile=active_profile_name,
-        parked_profile_name="",
-        archived_parked_profile=archived_name,
-        disabled_mod_count=0,
+        **metadata_fields,
     )
     return archived
 
@@ -1503,24 +1514,6 @@ def _stream_safe_server_update(
     status = get_compatibility_status(install_dir, config_path)
     previous_mode = status.active_mode
     active_profile_name = _active_profile_name(update_paths)
-    archived = _archive_stale_parked_profile(
-        update_paths,
-        active_mode=previous_mode,
-        active_profile_name=active_profile_name,
-    )
-    if archived is not None:
-        yield (
-            "Preserved the stale parked config as named profile "
-            f"{archived.name} at {archived.path}."
-        )
-        status = get_compatibility_status(install_dir, config_path)
-    modded_source = _modded_source_profile(update_paths, status)
-    metadata = _load_metadata(update_paths)
-    modded_profile_name = (
-        str(metadata.get("parked_profile_name") or DEFAULT_ACTIVE_PROFILE)
-        if previous_mode == VANILLA_MODE
-        else active_profile_name
-    )
     cleanup_candidate_artifacts(update_paths)
 
     try:
@@ -1536,9 +1529,32 @@ def _stream_safe_server_update(
         )
     except Exception as exc:
         raise SafeUpdateError(f"Could not create the pre-update baseline: {exc}") from exc
+
+    rollback_existed = (
+        update_paths.rollback_server.exists() or update_paths.rollback_profile.exists()
+    )
+    archived = _archive_stale_parked_profile(
+        update_paths,
+        active_mode=previous_mode,
+        active_profile_name=active_profile_name,
+        retire_linked_rollback=True,
+    )
+    if archived is not None:
+        yield (
+            "Preserved the stale parked config as named profile "
+            f"{archived.name} at {archived.path}."
+        )
+        status = get_compatibility_status(install_dir, config_path)
+    modded_source = _modded_source_profile(update_paths, status)
+    metadata = _load_metadata(update_paths)
+    modded_profile_name = (
+        str(metadata.get("parked_profile_name") or DEFAULT_ACTIVE_PROFILE)
+        if previous_mode == VANILLA_MODE
+        else active_profile_name
+    )
     yield f"Saved the pre-update configuration baseline at {baseline}."
 
-    if retire_previous_rollback(update_paths):
+    if retire_previous_rollback(update_paths) or rollback_existed:
         yield "Retired the previous rollback slot; the active generation remains unchanged."
     required, free = ensure_staging_capacity(update_paths)
     yield (
