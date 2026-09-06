@@ -108,16 +108,16 @@ def _install_management_page_fakes(monkeypatch, *, has_config: bool = True) -> N
     monkeypatch.setattr(
         players_page_model,
         "load_player_moderation_panel",
-        lambda instance, query="": {
-            "available": True,
-            "query": query,
-            "players": [],
-            "total_count": 0,
-            "filtered_count": 0,
-            "source": "rcon.roster",
-            "status": "available",
-            "error": "",
-        },
+        lambda instance, query="": players_page_model.PlayerModerationPanel(
+            available=True,
+            query=query,
+            players=(),
+            total_count=0,
+            filtered_count=0,
+            source="rcon.roster",
+            status="available",
+            error="",
+        ),
     )
     if has_config:
         monkeypatch.setattr(
