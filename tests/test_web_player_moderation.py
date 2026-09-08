@@ -210,8 +210,7 @@ def test_current_player_roster_preserves_a2s_count_without_roster(monkeypatch):
             roster_available=False,
             roster_configured=True,
             roster_error=(
-                "RCON failed token=raw-roster-secret from 198.51.100.9 "
-                "using /home/deus/private.log"
+                "RCON failed token=raw-roster-secret from 198.51.100.9 using /home/deus/private.log"
             ),
         ),
     )
@@ -317,7 +316,7 @@ def test_admins_page_renders_player_moderation_section(tmp_path: Path, monkeypat
     assert "&lt;Alpha &amp; Co&gt;" in response.text
     assert "<Alpha & Co>" not in response.text
     assert "21761a7f-c9b4-4bff-8375-b4b43abb95ec" in response.text
-    assert "Add as admin" in response.text
+    assert "Grant full admin + GM" in response.text
     assert "Restart the server to apply admin changes." not in response.text
 
 
@@ -343,8 +342,56 @@ def test_admins_page_marks_current_player_already_in_official_admins(
     response = client.get("/admins", follow_redirects=False)
 
     assert response.status_code == 200
-    assert "Already an admin" in response.text
-    assert "Add as admin" not in response.text
+    assert "Native admin; mod roles unverified" in response.text
+    assert "Grant full admin + GM" not in response.text
+
+
+def test_admins_page_reports_verified_full_admin_and_mod_roles(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.page_models import admins as admins_page_model
+
+    player = _reliable_player()
+    client = _authed_client(tmp_path, monkeypatch, panel=_panel(player))
+    page = _admins_page()
+    page["official_admins"] = [
+        {
+            "identity_id": player.identity_id,
+            "name": player.display_name,
+            "source": "game.admins",
+        }
+    ]
+    page["official_count"] = 1
+    page["permission_sync"] = {
+        "available": True,
+        "synchronized": True,
+        "desired_admin_count": 1,
+        "missing_mapping_count": 0,
+        "error": "",
+        "roles": [
+            {
+                "config": "Server Admin Tools",
+                "role": "gameMasters",
+                "synchronized": True,
+                "desired_count": 1,
+                "actual_count": 1,
+                "missing_count": 0,
+                "unexpected_count": 0,
+            }
+        ],
+    }
+    monkeypatch.setattr(admins_page_model, "load_admins_page", lambda instance: page)
+
+    response = client.get("/admins", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Full admin configured" in response.text
+    assert "Full admin + Unlimited GM" in response.text
+    assert "Server Admin Tools" in response.text
+    assert "gameMasters" in response.text
+    assert "Synchronized" in response.text
+    assert "Re-sync full access" not in response.text
 
 
 def test_admins_player_search_query_is_passed_to_panel_loader(
@@ -464,7 +511,7 @@ def test_player_without_reliable_identity_has_no_add_admin_button(
     assert response.status_code == 200
     assert "Observer" in response.text
     assert "Player identity unavailable" in response.text
-    assert "Add as admin" not in response.text
+    assert "Grant full admin + GM" not in response.text
     assert "Read-only" in response.text
 
 
@@ -492,7 +539,7 @@ def test_player_add_admin_requires_manage_permission(
     )
 
     assert get_response.status_code == 200
-    assert "Add as admin" not in get_response.text
+    assert "Grant full admin + GM" not in get_response.text
     assert post_response.status_code == 403
     assert post_response.text == "Permission denied."
 

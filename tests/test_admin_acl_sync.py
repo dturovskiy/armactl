@@ -105,6 +105,75 @@ def test_add_admin_exactly_syncs_sat_and_wcs_roles_and_preserves_other_fields(
     assert len(tuple(backups.glob("*.bak"))) == 2
 
 
+def test_inspection_reports_every_full_admin_role_as_synchronized(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    _write_config(config_path, [ADMIN_UUID])
+    _write_mod_acls(
+        config_path,
+        sat_admins=[ADMIN_UUID],
+        wcs_admins=[ADMIN_UUID],
+    )
+
+    inspection = admin_acl_sync.inspect_admin_acls(config_path)
+
+    assert inspection.available is True
+    assert inspection.synchronized is True
+    assert inspection.desired_admin_count == 1
+    assert inspection.missing_mapping_count == 0
+    assert [role.to_dict() for role in inspection.roles] == [
+        {
+            "config": "Server Admin Tools",
+            "role": "admins",
+            "synchronized": True,
+            "desired_count": 1,
+            "actual_count": 1,
+            "missing_count": 0,
+            "unexpected_count": 0,
+        },
+        {
+            "config": "Server Admin Tools",
+            "role": "gameMasters",
+            "synchronized": True,
+            "desired_count": 1,
+            "actual_count": 1,
+            "missing_count": 0,
+            "unexpected_count": 0,
+        },
+        {
+            "config": "WCS Admin",
+            "role": "gameMaster",
+            "synchronized": True,
+            "desired_count": 1,
+            "actual_count": 1,
+            "missing_count": 0,
+            "unexpected_count": 0,
+        },
+    ]
+
+
+def test_inspection_exposes_role_drift_without_changing_files(tmp_path: Path) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    _write_config(config_path, [ADMIN_UUID])
+    sat_path, wcs_path = _write_mod_acls(
+        config_path,
+        sat_admins=[],
+        wcs_admins=[STALE_UUID],
+    )
+    original_sat = sat_path.read_bytes()
+    original_wcs = wcs_path.read_bytes()
+
+    inspection = admin_acl_sync.inspect_admin_acls(config_path)
+
+    assert inspection.available is True
+    assert inspection.synchronized is False
+    assert [role.missing_count for role in inspection.roles] == [1, 1, 1]
+    assert [role.unexpected_count for role in inspection.roles] == [0, 0, 1]
+    assert sat_path.read_bytes() == original_sat
+    assert wcs_path.read_bytes() == original_wcs
+
+
 def test_remove_admin_removes_stale_mod_rights_from_both_supported_acls(
     tmp_path: Path,
 ) -> None:

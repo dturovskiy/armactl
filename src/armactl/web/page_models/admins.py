@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from armactl import admins_manager, config_manager
+from armactl import admin_acl_sync, admins_manager, config_manager
 from armactl.web.page_models.common import (
     UNAVAILABLE_LABEL,
     _basename_display,
@@ -93,6 +93,19 @@ def load_admins_page(instance: str) -> dict[str, Any]:
             }
         enriched.append(entry)
 
+    permission_sync: dict[str, Any]
+    try:
+        permission_sync = admin_acl_sync.inspect_admin_acls(state.config_path).to_dict()
+    except Exception:
+        permission_sync = {
+            "available": False,
+            "synchronized": False,
+            "desired_admin_count": len(enriched),
+            "missing_mapping_count": 0,
+            "roles": [],
+            "error": "Admin permission status is unavailable.",
+        }
+
     return {
         "instance": instance,
         "available": True,
@@ -106,4 +119,5 @@ def load_admins_page(instance: str) -> dict[str, Any]:
         "local_labels_path": sidecar_path,
         "local_labels_path_display": sidecar_path,
         "local_labels_error": label_error,
+        "permission_sync": permission_sync,
     }

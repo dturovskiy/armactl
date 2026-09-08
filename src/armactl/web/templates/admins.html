@@ -46,9 +46,9 @@
 {% endif %}
 
 <section class="panel full-width">
-  <h2>{{ t("Official Game Admins") }}</h2>
-  <p class="muted">{{ t("The official game admin list automatically synchronizes supported ServerAdminTools and WCS game-master permissions.") }}</p>
-  <p class="notice-inline notice-warning">{{ t("Native game.admins allows listed players to use #login without a password; it does not perform automatic login. Automatic Game Master assignment depends on the active Server Admin Tools mod and its compatibility with the current game build.") }}</p>
+  <h2>{{ t("Full Game Administrators") }}</h2>
+  <p class="muted">{{ t("Granting full access synchronizes native game.admins, Server Admin Tools admins and gameMasters, and WCS gameMaster. GM Tools treats a native server administrator as a Game Master.") }}</p>
+  <p class="notice-inline notice-warning">{{ t("Native game.admins alone allows #login without a password. Automatic Unlimited Game Master access requires the active administration mods and a synchronized UUID.") }}</p>
   {% if page.available %}
     {% if result and result.changed %}
       <p class="notice-inline notice-restart muted"><strong>{{ t("Restart required") }}:</strong> {{ t("Restart the server to apply admin changes.") }}</p>
@@ -60,20 +60,67 @@
       <dt>{{ t("Local label count") }}</dt><dd>{{ page.local_label_count }}</dd>
       <dt>{{ t("Local labels state") }}</dt><dd>{{ t(page.local_labels_path_display|default(page.local_labels_path|default("unavailable"))) }}</dd>
     </dl>
+    {% if page.permission_sync is defined %}
+      <div class="notice-inline {% if page.permission_sync.synchronized %}notice-success{% else %}notice-warning{% endif %}">
+        <strong>{{ t("Full access synchronization") }}:</strong>
+        {% if page.permission_sync.synchronized %}
+          {{ t("All configured administrators have synchronized full admin and Game Master roles.") }}
+        {% elif page.permission_sync.error %}
+          {{ t("Permission synchronization could not be verified.") }} {{ t(page.permission_sync.error) }}
+        {% elif not page.permission_sync.available %}
+          {{ t("No supported automatic Game Master ACL was found; only native game admin access can be verified.") }}
+        {% else %}
+          {{ t("Permission synchronization needs repair before the next game-server restart.") }}
+        {% endif %}
+        {% if page.permission_sync.missing_mapping_count %}
+          {{ t("Administrators without a synchronized mod UUID") }}: {{ page.permission_sync.missing_mapping_count }}.
+        {% endif %}
+      </div>
+      {% if page.permission_sync.roles %}
+        <table class="compact-table">
+          <thead><tr><th>{{ t("Integration") }}</th><th>{{ t("Role") }}</th><th>{{ t("State") }}</th><th>{{ t("Entries") }}</th></tr></thead>
+          <tbody>
+          {% for role in page.permission_sync.roles %}
+            <tr>
+              <td>{{ role.config }}</td>
+              <td><code>{{ role.role }}</code></td>
+              <td><span class="status-pill status-pill-{{ 'success' if role.synchronized else 'warning' }}">{{ t("Synchronized") if role.synchronized else t("Needs repair") }}</span></td>
+              <td>{{ role.actual_count }} / {{ role.desired_count }}{% if role.missing_count or role.unexpected_count %} · {{ t("Missing") }}: {{ role.missing_count }}, {{ t("Unexpected") }}: {{ role.unexpected_count }}{% endif %}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+    {% endif %}
     {% if page.local_labels_error %}
       <p class="error">{{ t(page.local_labels_error) }}</p>
     {% endif %}
     {% if page.official_admins %}
       <table>
-        <thead><tr><th>{{ t("Identity ID") }}</th><th>{{ t("Label") }}</th><th>{{ t("Source") }}</th>{% if can_manage_admins %}<th>{{ t("Actions") }}</th>{% endif %}</tr></thead>
+        <thead><tr><th>{{ t("Identity ID") }}</th><th>{{ t("Label") }}</th><th>{{ t("Access") }}</th><th>{{ t("Source") }}</th>{% if can_manage_admins %}<th>{{ t("Actions") }}</th>{% endif %}</tr></thead>
         <tbody>
         {% for admin in page.official_admins %}
           <tr>
             <td>{{ admin.identity_id }}</td>
             <td>{{ admin.name or t("none") }}</td>
+            <td>
+              {% if page.permission_sync is defined and page.permission_sync.synchronized %}
+                <span class="status-pill status-pill-success">{{ t("Full admin + Unlimited GM") }}</span>
+              {% else %}
+                <span class="status-pill status-pill-warning">{{ t("Native admin; mod roles unverified") }}</span>
+              {% endif %}
+            </td>
             <td>{{ admin.source or t("unknown") }}</td>
             {% if can_manage_admins %}
               <td>
+                {% if page.permission_sync is defined and not page.permission_sync.synchronized %}
+                  <form method="post" action="/admins/add" class="player-admin-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="admin_reference" value="{{ admin.identity_id }}">
+                    <input type="hidden" name="label" value="{{ admin.name }}">
+                    <button type="submit">{{ t("Re-sync full access") }}</button>
+                  </form>
+                {% endif %}
                 <form method="post" action="/admins/remove" class="admin-remove-form">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                   <input type="hidden" name="admin_reference" value="{{ admin.identity_id }}">
@@ -101,7 +148,7 @@
 {% if page.available and can_manage_admins %}
 <section class="panel full-width admin-edit-panel">
   <div class="section-heading-row">
-    <h2>{{ t("Add or update game admin") }}</h2>
+    <h2>{{ t("Grant or update full admin access") }}</h2>
   </div>
   <form method="post" action="/admins/add" class="config-edit-form admin-edit-form" data-admin-edit-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -116,7 +163,7 @@
       </label>
     </div>
     <div class="form-actions">
-      <button type="submit">{{ t("Add or update admin") }}</button>
+      <button type="submit">{{ t("Grant full admin + GM") }}</button>
     </div>
   </form>
 </section>
@@ -159,13 +206,17 @@
           {% if can_manage_admins %}
             <td>
               {% if player.is_admin %}
-                <span class="status-pill status-pill-success">{{ t("Already an admin") }}</span>
+                {% if page.permission_sync is defined and page.permission_sync.synchronized %}
+                  <span class="status-pill status-pill-success">{{ t("Full admin configured") }}</span>
+                {% else %}
+                  <span class="status-pill status-pill-warning">{{ t("Native admin; mod roles unverified") }}</span>
+                {% endif %}
               {% elif player.can_add_admin %}
                 <form method="post" action="/admins/add" class="player-admin-form">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                   <input type="hidden" name="admin_reference" value="{{ player.admin_reference }}">
                   <input type="hidden" name="label" value="{{ player.display_name }}">
-                  <button type="submit">{{ t("Add as admin") }}</button>
+                  <button type="submit">{{ t("Grant full admin + GM") }}</button>
                 </form>
               {% else %}
                 <span class="muted">{{ t("Read-only") }}</span>

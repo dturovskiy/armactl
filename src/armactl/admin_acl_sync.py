@@ -51,6 +51,53 @@ class AdminAclMutationResult:
 
 
 @dataclass(frozen=True)
+class AdminAclRoleInspection:
+    """Read-only state of one supported mod role."""
+
+    config: str
+    role: str
+    synchronized: bool
+    desired_count: int
+    actual_count: int
+    missing_count: int
+    unexpected_count: int
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a template-safe representation without filesystem paths or IDs."""
+        return {
+            "config": self.config,
+            "role": self.role,
+            "synchronized": self.synchronized,
+            "desired_count": self.desired_count,
+            "actual_count": self.actual_count,
+            "missing_count": self.missing_count,
+            "unexpected_count": self.unexpected_count,
+        }
+
+
+@dataclass(frozen=True)
+class AdminAclInspection:
+    """Read-only synchronization state for automatic full-admin roles."""
+
+    available: bool
+    synchronized: bool
+    desired_admin_count: int
+    missing_mapping_count: int
+    roles: tuple[AdminAclRoleInspection, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a template-safe representation without filesystem paths or IDs."""
+        return {
+            "available": self.available,
+            "synchronized": self.synchronized,
+            "desired_admin_count": self.desired_admin_count,
+            "missing_mapping_count": self.missing_mapping_count,
+            "roles": [role.to_dict() for role in self.roles],
+            "error": "",
+        }
+
+
+@dataclass(frozen=True)
 class _FileSnapshot:
     path: Path
     existed: bool
@@ -89,9 +136,7 @@ def _optional_profile_config(config_path: Path, filename: str) -> Path | None:
                 "A supported mod admin config uses a symlink; synchronization was not run."
             )
         try:
-            selected.resolve(strict=True).relative_to(
-                config_path.parent.resolve(strict=True)
-            )
+            selected.resolve(strict=True).relative_to(config_path.parent.resolve(strict=True))
         except (OSError, ValueError) as exc:
             raise AdminAclSyncError(
                 "A supported mod admin config is outside the instance config boundary."
@@ -241,9 +286,7 @@ def _normalized_role_values(value: object, *, field_name: str) -> list[str]:
         return normalized
 
     if not isinstance(value, list):
-        raise AdminAclSyncError(
-            f"Supported mod admin field {field_name} must be a list or object."
-        )
+        raise AdminAclSyncError(f"Supported mod admin field {field_name} must be a list or object.")
     normalized: list[str] = []
     seen: set[str] = set()
     for item in value:
@@ -270,13 +313,10 @@ def _role_style(payload: dict[str, Any], keys: tuple[str, ...]) -> str:
     styles = {
         "mapping" if isinstance(payload.get(key), dict) else "list"
         for key in keys
-        if payload.get(key) is not None
-        and isinstance(payload.get(key), (dict, list))
+        if payload.get(key) is not None and isinstance(payload.get(key), (dict, list))
     }
     if len(styles) > 1:
-        raise AdminAclSyncError(
-            "Supported mod admin role fields use conflicting storage formats."
-        )
+        raise AdminAclSyncError("Supported mod admin role fields use conflicting storage formats.")
     return next(iter(styles), "mapping")
 
 
@@ -295,9 +335,7 @@ def _desired_role_value(
     )
     if style == "mapping":
         return {
-            identity: existing_labels.get(identity.casefold())
-            or label
-            or "armactl admin"
+            identity: existing_labels.get(identity.casefold()) or label or "armactl admin"
             for identity, label in desired_entries
         }
     return [identity for identity, _label in desired_entries]
@@ -365,6 +403,72 @@ def _prepare_acl_updates(config_path: Path) -> tuple[tuple[_PreparedAcl, ...], i
             )
 
     return tuple(updates), len(desired_values)
+
+
+def _inspect_role(
+    payload: dict[str, Any],
+    *,
+    config: str,
+    role: str,
+    desired_values: list[str],
+) -> AdminAclRoleInspection:
+    actual = _normalized_role_values(payload.get(role), field_name=role)
+    desired_keys = {value.casefold() for value in desired_values}
+    actual_keys = {value.casefold() for value in actual}
+    return AdminAclRoleInspection(
+        config=config,
+        role=role,
+        synchronized=actual_keys == desired_keys,
+        desired_count=len(desired_values),
+        actual_count=len(actual),
+        missing_count=len(desired_keys - actual_keys),
+        unexpected_count=len(actual_keys - desired_keys),
+    )
+
+
+def inspect_admin_acls(config_path: Path | str) -> AdminAclInspection:
+    """Inspect native-to-mod full-admin synchronization without changing files."""
+    path = Path(config_path)
+    desired_entries, missing_mappings = sat_admin_guard.desired_sat_admin_entries(
+        path,
+        migrate=False,
+    )
+    desired_values = [identity for identity, _label in desired_entries]
+    roles: list[AdminAclRoleInspection] = []
+
+    sat_path = sat_config_path_for_config(path)
+    if sat_path is not None:
+        sat_payload = _load_json_object(sat_path)
+        for role in SAT_ROLE_KEYS:
+            roles.append(
+                _inspect_role(
+                    sat_payload,
+                    config="Server Admin Tools",
+                    role=role,
+                    desired_values=desired_values,
+                )
+            )
+
+    wcs_path = wcs_config_path_for_config(path)
+    if wcs_path is not None:
+        roles.append(
+            _inspect_role(
+                _load_json_object(wcs_path),
+                config="WCS Admin",
+                role=WCS_ROLE_KEY,
+                desired_values=desired_values,
+            )
+        )
+
+    available = bool(roles)
+    synchronized = available and not missing_mappings and all(role.synchronized for role in roles)
+    return AdminAclInspection(
+        available=available,
+        synchronized=synchronized,
+        desired_admin_count=len(desired_values),
+        missing_mapping_count=len(missing_mappings),
+        roles=tuple(roles),
+    )
 
 
 def _backup_directory(config_path: Path) -> Path:

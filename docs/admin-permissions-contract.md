@@ -11,6 +11,12 @@ The synchronized role targets are:
 - ServerAdminTools `gameMasters`;
 - WCS Admin `gameMaster`.
 
+The web UI describes this canonical mutation as **full admin + GM**. It is one
+audited action, not a separate native-admin and mod-admin toggle. When GM Tools
+is active, its documented fallback treats the native `ADMINISTRATOR` role as a
+Game Master; rank-changing commands still depend on that mod's own runtime
+configuration.
+
 Supported role fields may use either a legacy JSON list or the production
 object form `UUID -> label`. Synchronization preserves each file's existing
 representation. Object-form roles keep existing labels for retained UUIDs and
