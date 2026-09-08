@@ -307,7 +307,7 @@ def test_management_pages_render_ukrainian_labels(tmp_path: Path, monkeypatch):
     assert config_response.status_code == 200
     assert "Конфіг сервера" in config_response.text
     assert "Активні моди" in mods_response.text
-    assert "Офіційні ігрові адміни" in admins_response.text
+    assert "Повні адміністратори гри" in admins_response.text
     assert "Стан Telegram-бота" in bot_response.text
 
 
