@@ -24,14 +24,15 @@
 
 ## Remaining Planned Work
 
-- Complete the public/private documentation and extraction boundary before a public `main` merge.
-- Add a bounded, redacted diagnostic report download/export flow on top of the existing report builder and preview.
-- Implement native moderation Slices 7d-7e: authenticated mutation UI, then staged production acceptance; kick remains a separate fixture-gated follow-up after the verified Slice 7c ban/unban backend.
-- Add a bounded operator-visible warning for anomalously large active game logs.
-- Expand safe config controls one verified field group at a time; network, bind, port, RCON, and secret controls remain behind separate recovery contracts.
-- Consider richer Discord player columns only after each value has a reliable source and truthful scope label.
-- Keep live worker cancellation, broader mod cleanup with quarantine/restore, compatibility removal, shared audit/enqueue wrappers, and low-noise dead-code tooling as explicit conditional engineering work rather than merge blockers.
-- Keep public docs concise and user-facing.
+The ordered and decision-gated public backlog is maintained only in
+[checklist.md](checklist.md). It includes stabilization of the current
+update/profile/incident/admin baseline, a renewed operator-critical CLI/TUI/Web
+parity audit, native moderation completion, remaining diagnostics, the complete
+public-main preparation gate, and post-merge release work.
+
+Detailed contracts define behavior but do not maintain competing progress
+lists. Private/commercial dashboard planning remains outside this public
+roadmap.
 
 ## Contributor Priorities
 

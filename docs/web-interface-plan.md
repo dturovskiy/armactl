@@ -1,5 +1,9 @@
 # Web Dashboard
 
+Status: implemented-baseline and historical design reference. All unfinished
+work, including parity and public-main preparation, is tracked only in
+[checklist.md](checklist.md).
+
 The armactl web dashboard is a local browser interface for managing the same Arma Reforger Dedicated Server that CLI and TUI manage. It runs on the server host and reuses existing backend modules instead of reimplementing server control logic.
 
 ## Goals
@@ -223,20 +227,15 @@ See [web-deployment.md](web-deployment.md) for setup, service commands, health c
 
 ## Public Roadmap
 
-Production hardening, update-flow polish, current safe config/file controls,
-current mod cleanup recovery, player session/history UI, schedule timezone UX,
-and TUI/Web parity classification are complete on the current branch.
-
-Remaining dashboard work is:
-
-- the public/private documentation and extraction boundary;
-- a bounded, redacted authenticated diagnostic report download/export flow;
-- native moderation Slices 7d-7e and the separately gated kick follow-up;
-- safe config field expansion only after field behavior and rollback are verified;
-- richer Discord player columns only after each field has a reliable source and truthful scope label;
-- conditional P2 cleanup tracked in [checklist.md](checklist.md), not as current production blockers.
+The implemented baseline is summarized in [roadmap.md](roadmap.md). The ordered
+active work and all decision-gated follow-ups are maintained only in
+[checklist.md](checklist.md).
 
 ## Before Public Main Merge
+
+The authoritative merge-preparation checklist is
+[checklist.md](checklist.md). The review record below describes the previous
+baseline only and must not be used as a second task tracker.
 
 The final deployment review is complete for the current branch baseline. Repeat
 it after future code/deployment changes. It is necessary but not sufficient for
@@ -250,7 +249,8 @@ Review status:
 - [x] Schedule timezone UX with browser-local display/input and UTC backend normalization.
 - [x] Player history/session/moderation/banlist scope with reliable identity rules.
 - [x] Architecture, security, compatibility/dead-code, and source-of-truth review.
-- [ ] Public/private extraction and documentation boundary cleanup.
+- Public/private extraction and documentation boundary cleanup remains required;
+  track and close it only in the active checklist.
 
 ## Post Phase 4 Hardening Audit Plan
 
@@ -438,4 +438,5 @@ Flows that must use the pattern before implementation:
 
 ### Recommended Next Implementation Slice
 
-Player-session Slices 6c and 6d and native moderation backend Slice 7c are complete. The next player implementation slice is moderation UI 7d; production acceptance remains 7e, while kick, public-doc extraction, and Discord/player enrichment retain their separate gates.
+This historical plan no longer selects the next slice. Use the priority order in
+[checklist.md](checklist.md).

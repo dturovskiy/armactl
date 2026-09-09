@@ -1,5 +1,8 @@
 # Player Log Event Inventory
 
+Status: historical inventory. It is not an active plan; use
+[checklist.md](checklist.md) for unfinished work.
+
 This inventory records the historical read-only pass over real Arma Reforger server logs that guided the player history/statistics work. The inventory pass itself added no code, schema, or live-server changes. Its original next-slice recommendations are now superseded by the implemented contracts and closure status linked below.
 
 ## Scope And Method
@@ -256,8 +259,9 @@ Keep nullable or future-only:
 - Do not copy raw large logs into the repo.
 - Redact player names/IDs in docs unless the value is already intentionally public and needed for operator-facing behavior.
 
-## Recommended Next Slice
+## Result And Status Routing
 
 - Completed after this inventory: bounded parser/storage, automatic incremental log ingest, supervised sessionization/live-scan/maintenance, retention, authenticated current/history/session/search/detail views, and staged production acceptance on both target VMs. See [player-session-stats-contract.md](player-session-stats-contract.md), [player-session-supervised-pipeline-contract.md](player-session-supervised-pipeline-contract.md), and [player-session-detail-search-contract.md](player-session-detail-search-contract.md).
-- The remaining player implementation work is native moderation Slices 7c-7e. Richer Discord columns remain truth-gated and separate.
+- Native moderation Slice 7c is complete. Remaining moderation and truth-gated
+  Discord work is tracked only in the active checklist.
 - Do not ship kill/death/KD claims as generic vanilla/no-mod truth. Current combat evidence remains source/capability-dependent, and player network-address storage remains out of scope without a separate explicit decision.

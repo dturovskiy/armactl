@@ -317,6 +317,10 @@ part of the completed Slice 7c ban/unban backend.
 
 ## Slice Plan
 
+Implementation status is tracked only in [checklist.md](checklist.md). The
+requirements below preserve the contract order and completed foundation, but
+they are not a second active checklist.
+
 - [x] Slice 7a: audit sources, choose native RCON truth, settle identity/IP,
   permission, recovery, UX, and architecture contracts.
 - [x] Slice 7b: typed read-only native ban adapter, fixtures, permission, and
@@ -334,25 +338,25 @@ part of the completed Slice 7c ban/unban backend.
   - [x] Write bounded outcome audit without raw command/response data.
   - [x] Add a dedicated operator-visible moderation-verification record and
     read-first retry path; do not reuse restart-pending recovery.
-  - [ ] Deferred follow-up: add kick only with a fresh reliable roster, exact
+  - Deferred follow-up: add kick only with a fresh reliable roster, exact
     identity plus current player ID, immediate re-resolution, and
     fixture-proven response handling.
-- [ ] Slice 7d: implement the mutation UI.
-  - [ ] Keep all mutations POST-only, CSRF-protected, and gated by
+- Slice 7d: implement the mutation UI.
+  - Keep all mutations POST-only, CSRF-protected, and gated by
     `players:moderate`.
-  - [ ] Add separate explicit confirmations for supported ban and unban actions.
-  - [ ] Submit normalized reliable identity, bounded duration, and sanitized
+  - Add separate explicit confirmations for supported ban and unban actions.
+  - Submit normalized reliable identity, bounded duration, and sanitized
     optional reason; nickname remains search/display-only.
-  - [ ] Render controlled changed/no-op/failed/uncertain/recovery notices with no
+  - Render controlled changed/no-op/failed/uncertain/recovery notices with no
     IP, raw command/response, secret, path, or traceback exposure.
-  - [ ] Add focused permission, route, template, CSRF, read-only GET, and
+  - Add focused permission, route, template, CSRF, read-only GET, and
     sensitive-output regression coverage.
-- [ ] Slice 7e: complete staged production acceptance.
-  - [ ] Run Serhiivka-first read/mutation/retry/recovery smoke with a designated
+- Slice 7e: complete staged production acceptance.
+  - Run Serhiivka-first read/mutation/retry/recovery smoke with a designated
     test identity and audited action.
-  - [ ] Review journals, audit, authoritative state, and recovery state.
-  - [ ] Roll out to Chervonopilya only after explicit approval.
-- [ ] Future separate decision: IP moderation/privacy contract.
+  - Review journals, audit, authoritative state, and recovery state.
+  - Roll out to Chervonopilya only after explicit approval.
+- Future separate decision: IP moderation/privacy contract.
 
 ## Global Acceptance Gate
 

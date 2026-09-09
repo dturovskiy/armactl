@@ -1,5 +1,8 @@
 # Player Data Inventory
 
+Status: historical/source-of-truth inventory. It does not track unfinished
+work; use [checklist.md](checklist.md) for current priorities.
+
 This inventory records the current implemented player-data flow before the players/history/banlist work. It is based on the current code in `src/armactl`, `src/armactl/web`, `src/armactl/tui`, `src/armactl/cli.py`, and the related tests.
 
 ## Current Implemented Sources
@@ -155,7 +158,8 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 - The supervised player-log ingest and synchronous ordered player-session pipeline are installed, explicitly enabled, and accepted on both target VMs. They remain independent of browser GET/JS/app-start triggers and do not treat legacy queued web scheduler metadata as execution truth.
 - `/players`, `/players/history`, `/players/sessions`, and `/players/sessions/{session_id}` provide authenticated current/history/list/search/detail views with truth-labelled nullable stats, alias/exact-ID filters, bounded keyset pagination, and sanitized evidence. No separate JSON session API or bulk export is planned without an operator need.
 - A2S remains count-only and cannot identify players. RCON may identify reliable players but can be unavailable; stale/current roster cache state is observation truth, not stored session truth.
-- Remaining player work is native moderation Slices 7c-7e and separately truth-gated Discord enrichment, not another session scheduler or replacement player-data store.
+- Native moderation Slices 7a-7c are implemented. Current moderation and
+  separately truth-gated Discord work are tracked only in the active checklist.
 - Keep IP storage out unless there is a separate explicit product/security decision and migration.
 
 ### Search By Nickname / ID
@@ -166,7 +170,7 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 
 ### Banlist Manager
 
-- Slices 7a and 7b are documented in
+- Slices 7a-7c are documented in
   [banlist-moderation-contract.md](banlist-moderation-contract.md).
 - The native Reforger server ban list accessed through typed admin RCON operations is the sole runtime source of truth. `config.json`, SAT `bans`, `players.db`, `web.db`, sidecars, and audit records must not become mirrored or shadow ban registries.
 - Slice 7b reads only one requested native page (`1..100`, at most 25 rows)
@@ -174,9 +178,9 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
   complete/partial/unavailable DTOs. It creates no table, cache, mirror,
   sidecar, audit/job/recovery record, or player-storage write.
 - Ban/unban targets use normalized reliable identities. Nicknames are search/display context only; kick uses a freshly re-resolved transient player ID matched to the reliable identity.
-- Remaining runtime work is ordered: Slice 7c verified/idempotent mutations and
-  recovery, Slice 7d mutation UI integration, and Slice 7e Serhiivka-first
-  production acceptance.
+- The remaining runtime contract is Slice 7d mutation UI integration followed by
+  Slice 7e staged production acceptance; status and ordering live only in the
+  active checklist.
 - The runtime workflow requires a dedicated `players:moderate` permission, POST-only CSRF-protected mutations, intent audit, authoritative read-before/read-after verification, bounded typed RCON commands, and explicit uncertainty/recovery without blind inverse commands.
 - IP storage, IP bans, SAT/WCS mirroring, nickname-only targeting, arbitrary RCON commands, public/Discord moderation data, and automatic moderation remain out of scope.
 
@@ -196,9 +200,8 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 - Public status must not expose extra personal data. Keep `/public/server-status.json` count/status only unless a future public-data review explicitly changes it.
 - Discord player-name enrichment must stay bounded and mention-safe; richer public columns should wait for reliable history/session data.
 
-## Recommended Next Slices
+## Status Routing
 
-- Completed: read-only/current/history/session/search/detail work, supervised automatic ingest/session execution, retention, and Slice 7b native read-only ban-list viewing.
-- Next: Slice 7c verified/idempotent native moderation mutations and recovery, Slice 7d authenticated mutation UI, then Slice 7e Serhiivka-first production acceptance before any explicitly approved Chervonopilya rollout.
-- Later: Discord stats enrichment only for fields with a verified source and truthful scope label; do not guess K/D, playtime, faction, role, or moderation state from the current roster alone.
-- Conditional only: broader APIs/indexes after measured need, and IP storage only after a separate explicit product/security decision and migration.
+This inventory does not select future slices. Completed implementation is kept
+as evidence here; all active and decision-gated work is routed through
+[checklist.md](checklist.md).

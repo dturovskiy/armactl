@@ -1,150 +1,235 @@
-# Public Status Checklist
+# Active Work Checklist
 
-This checklist tracks public, user-facing work for the free/local `armactl` core. It is intentionally concise; detailed implementation history and review notes are not kept in public docs.
+This is the single status tracker for unfinished work in the public/free,
+local-first `armactl` repository.
 
-The cross-document status and classification are summarized in
+Rules for this file:
+
+- keep only open or explicitly decision-gated work here;
+- remove completed items after their outcome is recorded in `CHANGELOG.md`, the
+  relevant contract, or Git history;
+- use detailed plan/contract documents for requirements, not competing status
+  checklists;
+- keep private/commercial `armactl-dashboard` planning in the private docs
+  repository and do not duplicate it here;
+- treat deployment, hardening, and release runbooks as recurring procedures,
+  invoked only by the gates below.
+
+The document classification is maintained in
 [plans-register.md](plans-register.md).
 
-## Public Merge Boundary
+## P0 - Stabilize The Current Update, Incident, And Admin Baseline
 
-- [ ] Complete the public/private docs boundary review before merging `feat/web-interface` to public `main`.
-- [ ] Decide the future private `armactl-dashboard` extraction/snapshot path separately from public `armactl` backports.
-- [ ] Keep public `armactl` scoped to the free/local Arma core and local dashboard; move private product, hosted, infrastructure, and commercial planning out of public docs first.
+- [ ] Run the full local validation suite for the current branch and resolve any
+  remaining CI failure before production acceptance.
+- [ ] Verify the game update path depends on SteamCMD/game-package state, not on
+  Git checkout cleanliness, fetchability, or repository deployment state.
+- [ ] Verify transient SteamCMD connection/download failures produce a bounded,
+  actionable failure and can be retried without corrupting the active package,
+  config, or compatibility state.
+- [ ] Verify the pre-update baseline is written under
+  `<instance>/backups/update-baselines/<UTC timestamp>/` and contains the config
+  hash, non-addon profile, addon inventory, metadata, and manifest.
+- [ ] Verify profile create, rename, delete, compatibility check, manual switch,
+  and automatic vanilla fallback against the current server build.
+- [ ] Verify editing mods/scenario while clean vanilla is active creates or
+  selects a named modified profile instead of mutating the canonical vanilla
+  definition.
+- [ ] Verify profile switching changes only `game.scenarioId` and `game.mods`;
+  admins, passwords, player limits, ports, RCON, persistence, server name, and
+  all Workshop addon payloads must remain unchanged.
+- [ ] Verify a failed modded canary leaves its profile parked and usable for a
+  later retry, while a failed vanilla canary leaves the active package/profile
+  unchanged.
+- [ ] Verify dashboard startup state distinguishes service activation, telemetry
+  readiness, controlled shutdown, startup failure, and native crash instead of
+  showing indefinite unexplained telemetry waiting.
+- [ ] Verify retained incidents expose bounded evidence, confidence, and likely
+  mod/scenario suspects without claiming certainty or exposing raw paths,
+  secrets, or unbounded log output.
+- [ ] Verify an existing game admin is not offered the add-admin action and test
+  full Game Master access with a designated non-`deus` identity.
+- [ ] Complete staged acceptance on Serhiivka first and record the exact deployed
+  commit and results.
+- [ ] Keep Chervonopilya read-only while players are present; deploy or restart
+  its game service only after explicit approval and a safe maintenance window.
 
-## Current Core
+Detailed update behavior is defined in
+[server-update-compatibility.md](server-update-compatibility.md). Deployment
+acceptance must not copy runtime config, profiles, addons, or scenario payloads
+between the two servers.
 
-- [x] Repo-local launcher with automatic bootstrap and read-only bootstrap drift diagnostics.
-- [x] Fresh install flow for Arma Reforger Dedicated Server.
-- [x] Existing-server detection and management.
-- [x] Repair flow for missing or stale generated files.
-- [x] TUI for install, repair, config, mods, schedule, logs, and status.
-- [x] CLI commands for common server operations.
-- [x] Optional Telegram bot service.
-- [x] Real server FPS/frame-time telemetry from `-logStats` output.
-- [x] Runtime data separated from source code.
+## P1 - Reopen And Finish Operator-Critical CLI/TUI/Web Parity
 
-## Local Web Dashboard
+- [ ] Re-audit the actual current CLI commands, TUI screens, web routes, and
+  shared backend owners; the existing parity table predates the compatibility
+  profile and incident work.
+- [ ] Approve one explicit operational-parity rule: every critical mutation and
+  recovery flow must use a shared backend and remain operable without a working
+  web process through CLI and, where required by the operator workflow, TUI.
+- [ ] Classify status/service controls, install/repair, config, mods, admins,
+  schedule, logs/report, update/check/rollback, compatibility profiles, vanilla
+  fallback, and incident diagnosis against that rule.
+- [ ] Implement or explicitly document every critical gap found by the audit;
+  do not mark parity complete merely because a difference was classified.
+- [ ] Keep rich player/session tables and other read-heavy presentation web-first
+  only where there is a deliberate operator decision and a reliable CLI/TUI
+  recovery path is not required.
+- [ ] Add focused shared-backend and adapter tests for each parity gap closed.
 
-- [x] Local web setup through `./armactl web`.
-- [x] Authenticated dashboard and live status polling.
-- [x] Safe config editing for selected non-secret fields.
-- [x] Safe config controls audit/design for the current safe field set, forbidden scope, and reuse contract.
-- [x] Safe config controls runtime grouping, helper text, impact labels, and restart labels for the current safe field set.
-- [x] Mods management with add/remove, enable/disable, bulk paste, import/export, dedupe, and unused-addon cleanup.
-- [x] Game-admin management foundation.
-- [x] Canonical game-admin permission synchronization from `game.admins` into existing SAT/WCS ACLs with exact roles, backup, atomic publish, and full rollback.
-- [x] Restart schedule and autostart controls.
-- [x] File browser with bounded preview, download, and no-overwrite upload.
-- [x] Bounded, redacted logs and diagnostic report preview views.
-- [ ] Add an authenticated bounded, redacted diagnostic report download/export flow; keep `armactl report` as the CLI fallback and do not add a second report builder.
-- [x] Background jobs for install, repair, update checks, and updates.
-- [x] Read-only public statistics output, Discord webhook publisher service, and `/bot` webhook settings for community channels, without server-control commands.
-- [x] Player registry foundation with reliable IDs and no IP storage by default.
-- [x] Player data inventory before history/banlist implementation.
-- [x] Real server log/event inventory before player history/statistics implementation.
-- [x] Player history parser foundation for sanitized auth/update/faction/combat log events, without live scanning, UI, DB ingest, raw log-line storage, or IP storage.
-- [x] Player history DB ingest foundation for sanitized parsed log events in existing `players.db`, with dedupe, source/ref/confidence, and no raw log-line or IP storage.
-- [x] Player history manual collector/import foundation for explicitly supplied bounded text log files, with dry-run/write CLI, safe basename+file-marker+line source refs, fail-closed oversize handling, and no live journalctl, background service, UI, raw log-line, or IP storage.
-- [x] Read-only player history web view for already stored `player_log_events`, with bounded filters and no live log reads, mutations, raw source paths, raw log lines, or IP display.
-- [x] Manual web collection job for player log events from allowlisted instance config logs, with background-job dedupe, bounded reads, audit counts, and no arbitrary file picker, browser poller, raw paths, raw log lines, or IP storage; it remains an explicit operator path through the shared one-shot service.
-- [x] Explicit current-roster refresh foundation through `players:refresh-current` background jobs, with active-job dedupe, counts-only audit/job output, no registry/session writes from GET routes, and no raw paths, raw log lines, IPs, joined/role/session K/D, ban/kick, or Discord enrichment.
-- [x] Automatic current-roster cache updater foundation through `players current-cache run`, with shared safe `web.db` snapshot cache, observed count/count source/roster availability fields, A2S count-only UI state, dashboard/public count-only reads from the safe snapshot, protection against replacing a recent RCON nonzero snapshot with an A2S-only zero during temporary RCON roster unavailability, 60s default interval, `/players` 60s no-store polling, `--once` mode, redacted retry warnings, no `players.db`/`player_sessions` writes, no raw paths/IPs/secrets, and no session truth claims.
-- [x] Current players table UX cleanup on /players, with compact Player/Status, nullable Kills/Deaths/TK/Faction cells, Role as `—`, Available actions, sanitized ID/source/freshness/window details, `—` for unavailable proof and `0` only for proven zero, no K/D, and no GET player DB/session/stat writes.
-- [x] Keep `/players/known` as a reliable identity directory, not a historical combat-stat board.
-- [x] Phase 4a session tracking design for boundary events, reliable versus heuristic sources, roster-observation versus session truth, no-IP schema, retention/cleanup, source conflicts, and truthful UI/API scope.
-- [x] Phase 4b session schema/vocabulary foundation in `players.db`, without live scanner, session writers, UI/API pages, retention cleanup, IP storage, or raw log/path storage.
-- [x] Phase 4c session writer foundation in the registry service layer, with explicit reliable-ID observe/close helpers, sanitized evidence, one-open-session enforcement, and no live scanner/job, session UI/API, retention cleanup, IP storage, raw log/path storage, or current-session K/D/role/joined claims.
-- [x] Phase 4d-a stored-log sessionization job foundation, with explicit `players:sessionize-log-events` background jobs over already stored `player_log_events`, active-job dedupe, counts-only audit/job output, checkpoint idempotence, and no live poller, session UI/API, disconnect pairing, retention cleanup, IP storage, raw log/path storage, or current-session K/D/role/joined claims.
-- [x] Phase 4d-b stored-log close/lifecycle foundation, parsing sanitized disconnect/lifecycle evidence and closing sessions only from unambiguous stored correlation or server-boundary markers, with counts-only output and no live poller, stale-close, retention cleanup, session UI/API, IP storage, raw log/path storage, or current-session K/D/role/joined claims.
-- [x] Phase 4d-c stale-close and retention foundation, with explicit service helpers and an explicit player-session maintenance background job, active-job dedupe, counts-only output/audit, `stale_timeout` closes for overdue open sessions, closed-session-only retention cleanup, preserved identity registry/log events, and no live poller, GET mutation, session UI/API, IP storage, raw log/path storage, or current-session K/D/role/joined claims.
-- [x] Phase 4e-a explicit live session scanner foundation, with `scan_live_player_sessions_once(...)` and `players:scan-live-sessions` using reliable current-roster IDs as medium-confidence live presence observations through the registry session writer, active-job dedupe, counts-only output/audit, no A2S synthetic sessions, no closes on source failure, and no automatic daemon/poller, GET mutation, session UI/API, IP storage, raw log/path storage, or current-session K/D/role/joined claims.
-- [x] Phase 4e-b live session conflict-window foundation, with a safe `players.db` live scan-window ledger and explicit one-shot scanner closes only after repeated successful reliable RCON roster absence through `close_player_session(...)` using low-confidence `stale_absence`; source failure, roster unavailable, A2S count-only, and unreliable/name-only or mixed-unreliable rows do not advance absence windows or close sessions, with counts-only output/audit and no automatic daemon/poller, GET mutation, session UI/API, IP storage, raw RCON rows, raw log/path storage, or current-session K/D/role/faction/joined/playtime claims.
-- [x] Read-only player sessions web surface at `/players/sessions`, with authenticated bounded reliable-ID/name/status/end-reason/source/limit filters over existing stored `player_sessions`, truth-safe Observed/Last observed/Inferred close labels, sanitized fields only, and no GET mutations, scanner/current-cache side effects, IP/raw path/raw line/secret/public player ID/K/D/role/faction/playtime/Discord/ban/kick display.
-- [x] Manual player-session operator controls on `/players/sessions`, with POST-only CSRF-protected `players:view` buttons for `players:scan-live-sessions`, `players:sessionize-log-events`, and `players:session-maintenance`, active-job dedupe left in service/job layers, `/jobs` notices, counts-only audit intent/outcome, and no automatic scheduler/poller, GET mutation, raw paths/lines/source refs/IP/secrets, K/D, role, playtime, faction truth, Discord enrichment, ban/kick, or banlist behavior.
-- [x] Session freshness/operator UX polish on `/players/sessions`, with compact read-only stored-session counts and safe queued/running session-job links to `/jobs`, as UX only and not new session truth, scheduler, poller, raw output, or GET mutation.
-- [x] Phase 4e/4f automatic session tracking planning/prep, with side-effect-free scheduler policy constants, safe automatic job cadence/backoff/close-scope rules, GET no-start tests, and the automatic scheduler still disabled at that planning stage.
-- [x] Phase 4e/4f explicit opt-in session scheduler runner foundation, with `armactl players sessions scheduler run --once`, read-only `armactl players sessions scheduler status`, safe `web.db` scheduler state, allowed-job enqueue through existing dedupe, bounded failure backoff, missing-state empty/disabled status, and no service/timer/daemon/app-start/GET/JS trigger.
-- [x] Player-session F3-a supervised pipeline architecture audit/design, with the real CLI/job/worker call graph, source-of-truth map, P0 enqueue-only conclusion, ordered ingest-generation → sessionization → reliable live scan → due maintenance contract, concurrency/recovery matrix, privacy constraints, and one synchronous disabled-by-default F3-b service/timer recommendation documented in [player-session-supervised-pipeline-contract.md](player-session-supervised-pipeline-contract.md).
-- [x] Player-session F3-b supervised pipeline implementation: one synchronous ordered orchestrator, shared per-instance nonblocking mutation lock, atomic fixed ingest-generation high-water, bounded sessionization over that event-ID range in trusted occurrence-time order backed by schema-v14 canonical UTC microsecond keys, versioned durable time cursor with fail-closed legacy-prefix promotion, expected backlog recorded as nonfailure `catching_up` progress without consumed-generation/success advancement or downstream work, exact reliable-roster gate, durable completion/interruption state, generated disabled-by-default oneshot/timer, explicit install/enable/disable/status, counts-only sanitized output, and no automatic dependency on `armactl-web.service` or `web_jobs` execution.
-- [x] Player-session F3-c staged production acceptance: Serhiivka passed first, then Chervonopilya was explicitly approved and accepted with automatic cycles, real player/session evidence, rollback proof, no fake zeroes or duplicate open sessions, and no game or web restart for acceptance.
-- [x] Player data truth Slice 1 timestamp contract/storage, with separate occurred/observed/collected times, explicit time source/confidence, and legacy/ambiguous rows kept truthfully labeled.
-- [x] Player data truth Slice 2 player-history noise/details UX, with high-signal default player events, a separate session-evidence diagnostics mode, structured safe details, and no new session/stat truth claims.
-- [x] Player data truth Slice 3 session semantics/job UX, with Session not closed/closed and First/Last/Close evidence labels, concise manual session-job guidance, and no online/playtime/K-D/role/faction truth claims.
-- [x] Player data truth Slice 4 operational status telemetry fix, with dashboard/public status sharing precedence that treats fresh FPS telemetry as ready while keeping service failure/startup blockers authoritative.
-- [x] Player data truth Slice 5 wrapper/bootstrap drift recovery, with non-mutating `scripts/bootstrap.sh --check --web`, clearer non-interactive wrapper guidance, and normal bootstrap remaining the stamp refresh path.
-- [x] Player stats truth audit and implemented authenticated current-player `Kills`/`Deaths`/`TK`/last-known `Faction`/first-observed contract, with source matrix, nullable verdicts, and explicit exclusions for fake zeroes, Role truth, K/D, Discord/public enrichment, GET writes, public player IDs, and raw log/path/IP/secret exposure.
-- [x] Document the play-session-scoped current stats contract in [player-session-stats-contract.md](player-session-stats-contract.md), including reconnect grace, automatic log ingest freshness, parser fixture requirements, no fake zeroes, and Discord/public gating.
-- [x] Player stats truth Slice A current UI guard, with `/players` and `/players/current.json` returning placeholders plus a short unavailable reason for `Kills`/`Deaths`/`TK`/`Faction`/`Role` until play-session boundaries and automatic log freshness are proven; no new DB schema, ingest, counters, GET writes, scanner/sessionizer/maintenance starts, or Discord/public enrichment.
-- [x] Player stats truth Slice B parser fixture audit, with supported stable player-log patterns, blocked/diagnostic-only patterns, required future stat fields, and focused occurrence-time collector fixtures documented before automatic ingest or play-session work.
-- [x] Player stats truth Slice C automatic log ingest foundation, with the explicit player-log job reusing the existing collector/parser/storage path, players.db checkpoint/freshness metadata, unchanged-log skips, controlled missing/rotated/truncated/oversized counts, safe operator status, and no GET ingest, fake stats, daemon/timer, Discord/public enrichment, or current-roster stat writes.
-- [x] Player-log Slice F1 audit/design and reusable foreground foundation, with one synchronous one-shot service shared by the manual web job and `armactl players log-ingest run --once`, read-only `status`, one cross-process instance/scope lock, counts-only sanitized output/audit, restart-durable existing checkpoint/freshness storage, and no second parser/collector/SQL pipeline, daemon thread, GET/browser trigger, service install, deploy, or restart.
-- [x] Player-log Slice F2-a local supervised service foundation, with generated `armactl-player-log-ingest.service`/`.timer` units, explicit install/enable/disable/status commands, installation that never enables/starts the timer and preserves existing enablement, one 120-second completion-relative cadence, direct project `.venv` execution as the instance owner, `UMask=0077`, bounded 360-second failure guard, restrained CPU/I/O priority, shared F1 lock with controlled scheduled skips, counts-only journald output, bounded failure/freshness-transition/recovery audit, safe missing-unit/DB status, and no game-service restart, GET/browser/app-start trigger, background thread, or session-scheduler coupling.
-- [x] Player-log Slice F2-c bounded incremental ingest foundation, with newest-active-log tail bootstrap, persisted append offsets/parser rollover/file identity/coverage start, larger-replacement rotation detection, non-blocking oversized historical-log counts, line-limit catch-up, legacy read-only metadata compatibility, and no fake session zeroes when tail coverage begins after session opening. See [player-log-ingest-incremental-contract.md](player-log-ingest-incremental-contract.md).
-- [x] Player-log Slice F2-b VM deployment and acceptance on Serhiivka and Chervonopilya, with the F2-a timer explicitly installed/enabled, repeated non-overlapping completion-relative cycles producing stored freshness without the manual button, F2-c bounded catch-up on the busy active log, unchanged game/web processes, counts-only journals, and the separate player-session scheduler still disabled. Stats still require a proven open play session whose opening is covered by ingest.
-- [x] Player stats truth Slice D play-session/reconnect model foundation, with durable play-session window metadata, server-run lifecycle boundary markers, 10-minute compatible reconnect merge, identity-conflict blocking, and last gameplay evidence metadata consumed by Slice E; no GET mutation, daemon/timer, Discord/public enrichment, K/D column, or role truth.
-- [x] Continue production hardening for the local dashboard, including gateway throttle guidance, dashboard stale-refresh recovery, restart timing/source-of-truth clarification, and current VM smoke follow-up.
-- [x] Clarify web-service restart diagnostics so `armactl web service restart` reports the `systemctl` result, `/healthz` liveness, and `/readyz` schema readiness as separate bounded outcomes, without changing game restart behavior.
-- [x] Add a read-only public-safe readiness gate for `web.db` and optional `players.db` schema compatibility, and require web restart plus liveness/readiness checks after Python or schema deploys.
-- [x] Keep long-lived async theme preference toggles usable after stale page CSRF by allowing only the cookie-only fetch preference update to recover safely, while normal mutating POST CSRF checks remain fail-closed.
-- [x] Polish server update browser flow with controlled post-action notices, active job links, retry/failure guidance, and stale active-job notices.
-- [x] Background job worker heartbeat/lease foundation, with opaque worker IDs, bounded heartbeat/lease timestamps on running jobs, heartbeat refresh from worker progress and wrapper heartbeat, terminal states clearing active leases, jobs page fresh/expired lease diagnostics, duplicate queued metadata repair only on mutating maintenance/enqueue paths, no GET job mutation, no process/thread kill, no running-job cancel action, and no automatic expired-lease metadata recovery.
-- [x] Harden generated scheduled restart units with an explicit root-owned bounded restart helper, service stop timeout/kill policy, SIGKILL fallback scoped to the `armareforger*.service` control group, active/running verification, and short post-start stability checking.
-- [x] Improve server update check/update UX after VM smoke feedback with stale-cache notices, clearer active queued/running check/update labels, failed check/update job links, server-running update blocks, and expired running-job diagnostics only.
-- [x] Add explicit stale-running job metadata recovery through a POST-only Mark abandoned action gated by worker lease freshness, with no fake cancel, process/thread kill, destructive repair, output deletion, or GET mutation.
-- [ ] Add a bounded operator-visible warning for anomalously large active game logs without unbounded reads or raw-path exposure.
-- [ ] Decide any future live job cancellation/worker termination model as a separate explicit worker lease/cancel slice; do not treat abandoned metadata recovery as process cancellation.
-- [ ] Expand safe config controls after field behavior is verified, using `docs/safe-config-controls-plan.md` and the existing config editor pipeline.
-- [x] Improve mod cleanup/mod mutation edge-case recovery workflows with controlled partial-change results, audit-safe diagnostics, and pending-work recovery markers.
-- [x] Add narrow `/mods` stale profile settings cleanup for allowlisted disabled-mod module blocks only, with backup, counts-only audit, pending restart tracking, and no addon deletion, sidecar removal, active `game.mods` change, or generic file editing.
-- [x] Route stale profile-settings cleanup through the shared mutation recovery helper instead of keeping a local primary/fallback pending-work duplicate.
-- [x] Build slice 2 read-only players page / improved players view from existing sources.
-- [x] Add the initial web-only current-player enrichment/guard slice that established nullable fields and placeholder-safe behavior before the play-session contract, without DB migration/materialized counters/jobs, K/D, Discord/public enrichment, Role truth, GET writes, public IDs, or raw log/path/IP/secret exposure.
-- [x] Player stats truth Slice E session-scoped current stats aggregation: read existing `players.db` query-only, gate on normalized reliable ID plus Slice D open play-session/server-run/lifecycle proof and Slice C fresh checkpoint coverage, count only stable exact/derived-time Kills/Deaths/TK inside the inclusive session window, keep teamkills out of Kills and deaths victim-only, preserve reconnect windows within grace, reset after grace/lifecycle, expose last-known Faction and safe freshness/window details, render `—` when unavailable and `0` only when proven, keep Role `—`, and add no K/D, GET mutation, daemon/timer, Discord/public enrichment, raw correlations, paths, lines, IPs, or secrets.
-- [x] Complete player-session Slice 6a read-only detail/search/conflict audit and contract in [player-session-detail-search-contract.md](player-session-detail-search-contract.md), reusing registry/current-enrichment/history owners and keeping IP/raw evidence/public IDs out.
-- [x] Implement Slice 6b query-only session detail/search DTO foundation with alias-safe identity rules, fail-closed UTC/source filters, bounded deterministic session/event keyset pagination, controlled missing/legacy storage results, sanitized DTOs, and one shared open/closed session-window stats evaluator used by current enrichment.
-- [x] Implement Slice 6c authenticated session detail/search UI with the thin `players:view` detail route, alias/exact-ID/status/end-reason/source/UTC-range filters, deterministic list/timeline keyset pagination, preserved list state, shared nullable session stats, browser-local time, responsive EN/UK templates, read-only/privacy regressions, and post-smoke clarity that keeps the list primary while manual recovery tools and advanced filters are collapsed by default.
-- [x] Complete Slice 6d Serhiivka-first VM smoke, followed by explicitly approved Chervonopilya acceptance, without game restarts: normal owner sessions verified filters, aliases, pagination, detail, nullable stats, browser-local time, sanitized not-found output, and `/players/current.json`; focused before/after checks found no player DB, session, or job writes and no web 500/traceback.
-- [x] Complete banlist/moderation Slice 7a audit and design in [banlist-moderation-contract.md](banlist-moderation-contract.md), choosing the native Reforger RCON ban list as the sole runtime source of truth, keeping SAT bans non-authoritative, requiring reliable identity targets and a dedicated moderation permission, excluding IP storage, and defining typed RCON, verification, idempotency, recovery, UX, and staged rollout rules before runtime work.
-- [x] Implement Slice 7b typed read-only native ban-list adapter and authenticated list with bounded pagination, fixture-proven parsing, explicit unavailable/partial states, no shadow ban table, no arbitrary RCON commands, and no mutation controls.
-- [x] Implement Slice 7c typed ban/unban workflow with a shared per-instance moderation lock, redacted intent/outcome audit, authoritative read-before/read-after verification, idempotent retries, controlled uncertainty, and a schema-v16 moderation-verification recovery record; kick remains a separate fixture-gated follow-up.
-- [ ] Implement Slice 7d mutation UI with dedicated `players:moderate` permission, POST-only CSRF-protected confirmations, safe notices, and no name-only/IP/raw-command paths.
-- [ ] Complete Slice 7e Serhiivka-first production acceptance before any explicitly approved Chervonopilya rollout.
-- [ ] Add richer read-only Discord player columns only after reliable player history/session data is stable and each K/D, playtime, role, faction, or current-session claim has a verified source and truth label.
-- [x] Improve schedule timezone UX with browser-local input/display and UTC backend normalization.
-- [x] Add config-focused editor phase 2 with validation, backups, audit, recovery, and reset/error UX.
-- [x] Add narrow safe replacement foundation for allowlisted /files/config config/profile files, including AdminServerSettings and CMPlayerStatsHUD profile JSON, with no broad editing, delete, rename, or arbitrary file-manager scope.
-- [x] Document safe file editor Slice 1 read-only design and allowlist audit, including editable targets, must-not-edit boundaries, save/UI contract, and missing Slice 2 tests before runtime editor work.
-- [x] Run a project-wide reuse/SOLID duplication audit before runtime file editor work and broad new feature expansion, mapping existing config/file mutation, filesystem containment, audit/recovery, jobs, and player/session service contracts so new slices reuse shared behavior instead of creating parallel sources of truth.
-- [x] Add a narrow file editor reuse-helper slice before runtime editor UI/save work, exposing editor read/save DTOs through file_replacements, stale baseline checks, and focused tests without duplicating config/replacement/recovery contracts.
-- [x] Add the runtime safe file editor UI/save slice using the reuse helper, without broad file-manager, delete, rename, move, copy, bulk, or arbitrary path scope.
-- [x] Add shared mutation recovery foundation for config/raw-config and allowlisted file replacement, with restart-pending fallback markers, controlled post-mutation bookkeeping failures, and tests for audit/pending fallback without broad file editor/moderation expansion.
-- [x] Close hardening-audit P1 cleanup by removing obsolete admin/mod pending fallback dead code, routing admin restart-pending recovery through the shared mutation recovery helper, and preserving controlled post-mutation failure behavior with regression tests.
-- [x] Close hardening-audit P2 compatibility cleanup by explicitly testing retained legacy web facade, filesystem facade, pending-restart adapter, and `/players/refresh` alias, while leaving lower-noise dead-code tooling as future cleanup rather than adding a noisy dependency.
-- [x] Document local/same-host and gateway-managed VM web deployment profiles, including the internal `8765` VM bind port, external gateway ports, and HTTPS-required cookie responsibility.
-- [x] Classify operator-critical TUI/Web parity gaps for install/repair/update, logs/report, bot/Discord, ports/exposure, host tests, and player/session flows; track the one confirmed web-primary report export gap separately.
-- [x] Run production SSH read-only ops smoke for current `feat/web-interface`, including normal wrapper/bootstrap checks, web service status, public health/status, recent web journals, gateway health, and nginx error logs, without game restarts.
-- [x] Run post-hardening VM web smoke for the current `feat/web-interface` baseline after web-restart diagnostics, async theme preference recovery, and stale-job abandoned recovery; web status, `/healthz`, public status, and recent web journals were healthy, and no game restart was required.
-- [x] Run authenticated browser UI smoke and architecture/security/dead-code review for the current `feat/web-interface` deployment baseline; current pass found no P0/P1 code blockers, but this does not close the public `main` merge gate until extraction/docs-boundary decisions are complete.
+## P2 - Finish Native Moderation
 
-## Deferred Or Conditional Engineering Backlog
+- [ ] Implement Slice 7d authenticated ban/unban mutation UI using the existing
+  typed native moderation service.
+- [ ] Keep mutations POST-only, CSRF-protected, and gated by
+  `players:moderate`; require reliable identity and separate confirmations.
+- [ ] Render bounded changed, no-op, failed, uncertain, and recovery outcomes
+  without IPs, raw commands/responses, secrets, paths, or tracebacks.
+- [ ] Add focused permission, route, template, CSRF, read-only GET, and
+  sensitive-output regression coverage.
+- [ ] Complete Slice 7e Serhiivka-first read/mutation/retry/recovery acceptance
+  with a designated test identity and audited action.
+- [ ] Review authoritative ban state, journals, audit, and recovery state before
+  any explicitly approved Chervonopilya rollout.
 
-- [ ] Consolidate repeated intent/action/outcome audit boilerplate only when another multi-service mutation slice needs it; current service owners and behavior remain explicit and tested.
-- [ ] Reduce repeated background-job enqueue wrappers only after job semantics settle; the shared job store/runner remains the current source of truth.
-- [ ] Add low-noise dead-code tooling only after an allowlist exists; do not remove tested compatibility facades or `/players/refresh` solely from heuristic output.
-- [ ] Retire legacy web/filesystem/pending-restart facades and `/players/refresh` only after the downstream compatibility window and public-merge decision allow it.
-- [ ] Add mod-cleanup quarantine/restore only before deliberately broadening destructive cleanup; the current bounded `config/addons` cleanup must not expand without that recovery gate.
-- [ ] Add a CLI current-roster cache status command only if authenticated web diagnostics prove insufficient for operators.
+The detailed contract remains
+[banlist-moderation-contract.md](banlist-moderation-contract.md).
 
-## Public Documentation
+## P3 - Close Remaining Operator Diagnostics
 
-- [x] README covers install, usage, runtime layout, CLI commands, Telegram, and local web dashboard.
-- [x] Architecture doc explains source/runtime/service boundaries.
-- [x] Troubleshooting covers install, service, ports, telemetry, Telegram, and web dashboard basics.
-- [x] Web deployment doc covers local/same-host, gateway-managed VM, reverse-proxy, and HTTPS-required cookie guidance.
-- [ ] Sanitize public web deployment/hardening docs so they contain no private hostnames, IPs, routes, or operator-only topology.
-- [ ] Split or move internal dashboard extraction/commercial planning before public `main` merge.
+- [ ] Add one authenticated, bounded, redacted diagnostic report download/export
+  response that reuses the existing report builder and keeps `armactl report` as
+  the CLI fallback.
+- [ ] Add a bounded operator-visible warning when active `console.log`,
+  `error.log`, or `script.log` becomes anomalously large or matches the defined
+  spam signal.
+- [ ] Keep log anomaly checks bounded and expose neither raw filesystem paths nor
+  unbounded raw log lines.
 
-Recurring gates, not feature backlog:
+## P4 - Prepare `feat/web-interface` For Public `main`
 
-- Refresh screenshots after visible UI changes.
-- Keep release notes concise and operator-focused.
+### 4.1 Public Scope And Integration Decision
+
+- [ ] Decide explicitly whether public `main` receives a sanitized local/free
+  dashboard merge or selected public-core backports; do not merge the current
+  branch as-is by default.
+- [ ] Confirm the public boundary contains only the free/local Arma-specific
+  core, CLI/TUI, local backend, and approved local dashboard surfaces.
+- [ ] Confirm billing, subscriptions, tenants, organizations, hosted identity,
+  hub orchestration, provisioning, commercial entitlements, and private
+  infrastructure remain outside the public repository.
+- [ ] Keep any future private dashboard snapshot/extraction decision independent
+  from the public merge and tracked only in private documentation.
+
+### 4.2 Documentation Boundary
+
+- [ ] Apply the keep/trim/move/archive classification to every public planning,
+  audit, handoff, deployment, player-data, and hardening document.
+- [ ] Move or archive internal implementation histories instead of leaving
+  completed plans mixed with active public work.
+- [ ] Sanitize public docs and examples for private hostnames, IPs, routes,
+  provider details, topology, credentials, and operator-only identifiers.
+- [ ] Reduce `README.md`, architecture, roadmap, troubleshooting, and web
+  deployment documentation to stable public/free behavior and links.
+- [ ] Confirm this file remains the only public unfinished-work checklist and
+  detailed contracts contain no competing task-status checkboxes.
+
+### 4.3 Upgrade And Compatibility Review
+
+- [ ] Audit `main...feat/web-interface` for public API, CLI, config-schema,
+  runtime-layout, SQLite migration, systemd-unit, and packaging compatibility.
+- [ ] Verify an existing v0.5.3 installation can upgrade without losing config,
+  mods, profiles, admins, schedules, player data, or rollback state.
+- [ ] Verify a fresh install and existing-server discovery from a built release
+  artifact on a clean supported Ubuntu environment.
+- [ ] Confirm runtime data, backups, logs, databases, secrets, VM-specific files,
+  and private operator notes are absent from the merge diff and package.
+- [ ] Review retained compatibility facades and alias routes; remove none solely
+  from heuristic dead-code output before the downstream compatibility window.
+
+### 4.4 Final Validation And Production Smoke
+
+- [ ] Run `git diff --check`, Ruff, the full pytest suite, wrapper/bootstrap
+  checks, and package build/install smoke.
+- [ ] Require all GitHub Actions checks to pass on the exact proposed merge head.
+- [ ] Run secret, infrastructure-identifier, generated-file, and large-artifact
+  scans over the complete merge diff and built artifacts.
+- [ ] Verify localhost-first binding, HTTPS-required cookie responsibility,
+  login throttling, CSRF, schema readiness, audit redaction, and gateway/firewall
+  assumptions against the public deployment and hardening runbooks.
+- [ ] Re-run the network/deployment checklist if gateway, nginx, firewall, VPN,
+  bind, TLS, or routing state changed.
+- [ ] Smoke CLI and TUI install/repair/status/config/mod/schedule/log/report and
+  all operator-critical parity paths.
+- [ ] Smoke authenticated web login, dashboard, config, mods, admins, schedule,
+  files, logs, report, jobs, updates, profiles, incidents, players, sessions,
+  moderation, bot, service controls, health, readiness, and public status.
+- [ ] Re-run Serhiivka-first production acceptance on the exact merge candidate;
+  keep Chervonopilya changes approval-gated and non-disruptive while occupied.
+- [ ] Confirm no new traceback, HTTP 500, failed unit, restart loop, stale worker,
+  secret exposure, or unexplained telemetry state appears during the observation
+  window.
+- [ ] Refresh public screenshots after visible UI changes and verify that their
+  text and capability claims match the merge candidate.
+
+### 4.5 Merge Gate
+
+- [ ] Produce a final merge-readiness report listing the chosen public scope,
+  intentional parity differences, validation evidence, production evidence,
+  migrations, operator actions, rollback path, and accepted residual risks.
+- [ ] Confirm the branch is clean, synchronized, based on the intended public
+  `main`, and contains no unresolved conflict or unrelated private work.
+- [ ] Open the public-main PR only after Sections 4.1-4.4 are complete.
+- [ ] Merge only after required review and CI; do not treat deployment smoke or a
+  passing local suite alone as merge approval.
+
+## P5 - Release After Public Merge
+
+- [ ] Select the next version from the actual change scope and prepare a separate
+  release PR using [release-process.md](release-process.md).
+- [ ] Update only the release source-of-truth files allowed by repository policy,
+  build the artifacts, and require CI before tagging.
+- [ ] Install the release artifact on a clean supported environment and verify
+  upgrade/recovery notes before publishing the GitHub Release.
+
+## Decision-Gated Backlog
+
+These items are not current merge blockers. Activate an item only after its gate
+is explicitly satisfied.
+
+- [ ] Add kick only after fresh reliable roster resolution, exact identity plus
+  current player ID, immediate re-resolution, and response fixtures are proven.
+- [ ] Define a separate IP moderation/privacy contract before storing, searching,
+  displaying, or acting on player IP data.
+- [ ] Expand safe config controls one field group at a time only after validation,
+  backup, restart, rollback, and VM behavior are proven for that group.
+- [ ] Choose Discord/public player enrichment scope before adding combat/session
+  columns; keep Role unavailable without a reliable source.
+- [ ] Design live job cancellation only with a real worker lease, cancellation,
+  and process-termination contract; abandoned metadata is not cancellation.
+- [ ] Add mod quarantine/restore before expanding destructive cleanup beyond the
+  current bounded `config/addons` behavior.
+- [ ] Add CLI current-roster cache status only if authenticated web diagnostics
+  prove insufficient for operators.
+- [ ] Add a player-session JSON API or bulk export only after a demonstrated
+  operator need; keep authenticated server-rendered search/detail as the current
+  supported surface.
+- [ ] Consolidate audit/enqueue wrappers, add dead-code tooling, or retire tested
+  compatibility facades only when a concrete downstream need and safe migration
+  window exist.
+
+## Fixed Operating Constraints
+
+These are rules, not checklist items:
+
+- production deployment is Git-only;
+- never copy runtime payloads or configuration from Serhiivka to Chervonopilya
+  or in the opposite direction;
+- profile switching ignores inactive Workshop addons; it never clones, moves, or
+  deletes their files;
+- preserve per-instance configuration and use its own update baselines and
+  infrastructure snapshots;
+- do not restart Chervonopilya while players are present without explicit
+  approval;
+- use Serhiivka-first rollout whenever a change can affect the game process,
+  configuration, mods, profiles, permissions, or persistent data.

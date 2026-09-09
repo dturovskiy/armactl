@@ -301,9 +301,12 @@ The full execution, ordering, failure/recovery, cadence, status, privacy, rollou
 
 ### Slice G: Discord/Public Evaluation - gated
 
-- [ ] Decide whether Discord should show current-session stats, last-session stats, or no combat stats.
-- [ ] If enrichment is chosen, align/reuse the authenticated truth owners before adding columns and label every value by scope.
-- [ ] Keep role blocked unless a reliable source is added.
+Status for this gated decision is tracked only in
+[checklist.md](checklist.md). The contract requirements are:
+
+- decide whether Discord should show current-session stats, last-session stats, or no combat stats;
+- if enrichment is chosen, align/reuse the authenticated truth owners before adding columns and label every value by scope;
+- keep role blocked unless a reliable source is added.
 
 ## Acceptance Checklist
 
