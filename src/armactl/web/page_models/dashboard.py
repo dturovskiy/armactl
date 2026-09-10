@@ -8,6 +8,7 @@ from typing import Any
 
 from armactl import (
     discovery,
+    incident_monitor,
     metrics,
     paths,
     player_view,
@@ -61,6 +62,7 @@ class DashboardSnapshot:
     service_runtime: dict[str, Any]
     operational_status: dict[str, Any]
     recent_incidents: tuple[dict[str, Any], ...]
+    incident_monitor: dict[str, Any]
     config: dict[str, Any]
     mods: dict[str, Any]
     server_version: dict[str, Any]
@@ -797,6 +799,10 @@ def load_dashboard_snapshot(
         service_runtime=_load_service_runtime(service, errors),
         operational_status=operational_status,
         recent_incidents=_load_recent_incidents(state, errors),
+        incident_monitor=incident_monitor.read_monitor_status(
+            instance,
+            data_root=_dashboard_data_root(web_config),
+        ),
         config=config_summary,
         mods=mods_summary,
         server_version=server_version,

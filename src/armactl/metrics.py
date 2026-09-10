@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -87,6 +88,13 @@ class ServerIncident:
     confidence: str
     reason: str
     evidence: tuple[str, ...] = ()
+    source: str = "log_inference"
+    incident_id: str = ""
+    captured_at: str = ""
+    bundle: str = ""
+    confirmed: bool = False
+    pid: int = 0
+    artifacts: tuple[str, ...] = ()
 
 
 FPS_STATS_RE = re.compile(
@@ -502,6 +510,113 @@ def _incident_from_console_log(path: Path) -> ServerIncident | None:
     )
 
 
+def _collected_incident_from_metadata(path: Path) -> ServerIncident | None:
+    """Load one bounded collector record without exposing arbitrary bundle data."""
+    try:
+        if path.is_symlink() or path.stat().st_size > 512 * 1024:
+            return None
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(value, dict) or value.get("schema_version") != 1:
+        return None
+
+    occurred_at = str(value.get("occurred_at") or "")
+    try:
+        datetime.fromisoformat(occurred_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+    def safe(value: Any, limit: int = OPERATIONAL_STATUS_DETAIL_MAX_CHARS) -> str:
+        return _safe_operational_detail(str(value or ""))[:limit]
+
+    raw_evidence = value.get("evidence")
+    if not isinstance(raw_evidence, list):
+        raw_evidence = []
+    evidence = tuple(
+        safe(item)
+        for item in raw_evidence[:RECENT_INCIDENT_EVIDENCE_MAX_ITEMS]
+        if isinstance(item, str) and safe(item)
+    )
+    raw_artifacts = value.get("artifacts")
+    if not isinstance(raw_artifacts, list):
+        raw_artifacts = []
+    artifacts = tuple(
+        safe(item, 160)
+        for item in raw_artifacts[:32]
+        if isinstance(item, str) and safe(item, 160)
+    )
+    try:
+        pid = max(int(value.get("pid") or 0), 0)
+    except (TypeError, ValueError):
+        pid = 0
+    severity = safe(value.get("severity"), 24)
+    if severity not in {"error", "warning", "info", "success"}:
+        severity = "error"
+    return ServerIncident(
+        occurred_at=occurred_at,
+        kind=safe(value.get("kind"), 80) or "runtime_crash",
+        severity=severity,
+        summary=safe(value.get("summary")) or "Captured server incident",
+        suspect=safe(value.get("suspect")) or "Unknown",
+        confidence=safe(value.get("confidence"), 24) or "low",
+        reason=safe(value.get("reason"), 500),
+        evidence=evidence,
+        source="collector",
+        incident_id=safe(value.get("id"), 160),
+        captured_at=safe(value.get("captured_at"), 80),
+        bundle=safe(value.get("bundle"), 200),
+        confirmed=bool(value.get("confirmed")),
+        pid=pid,
+        artifacts=artifacts,
+    )
+
+
+def _query_collected_incidents(
+    config_dir: Path,
+    *,
+    max_age_seconds: float,
+    max_incidents: int,
+) -> list[ServerIncident]:
+    root = config_dir.parent / "incidents"
+    now = time.time()
+    try:
+        candidates = [
+            item / "metadata.json"
+            for item in root.iterdir()
+            if item.is_dir() and not item.is_symlink()
+        ]
+    except OSError:
+        return []
+    incidents: list[ServerIncident] = []
+    for metadata in sorted(candidates, key=lambda item: item.parent.name, reverse=True):
+        incident = _collected_incident_from_metadata(metadata)
+        if incident is None:
+            continue
+        try:
+            occurred = datetime.fromisoformat(
+                incident.occurred_at.replace("Z", "+00:00")
+            ).timestamp()
+        except ValueError:
+            continue
+        if max(now - occurred, 0.0) > max_age_seconds:
+            continue
+        incidents.append(incident)
+        if len(incidents) >= max(max_incidents, 0):
+            break
+    return incidents
+
+
+def _incident_duplicates_collected(
+    inferred: ServerIncident,
+    collected: list[ServerIncident],
+) -> bool:
+    inferred_evidence = set(inferred.evidence)
+    if not inferred_evidence:
+        return False
+    return any(inferred_evidence.intersection(item.evidence) for item in collected)
+
+
 def query_recent_server_incidents(
     config_dir: str | Path,
     *,
@@ -513,9 +628,15 @@ def query_recent_server_incidents(
     if max_incidents <= 0 or max_log_files <= 0:
         return ()
     now = time.time()
-    incidents: list[ServerIncident] = []
+    config_path = Path(config_dir)
+    collected = _query_collected_incidents(
+        config_path,
+        max_age_seconds=max_age_seconds,
+        max_incidents=max_incidents,
+    )
+    inferred: list[ServerIncident] = []
     for candidate in _recent_console_logs(
-        Path(config_dir),
+        config_path,
         limit=max_log_files,
     ):
         try:
@@ -525,10 +646,13 @@ def query_recent_server_incidents(
         except OSError:
             continue
         if incident is not None:
-            incidents.append(incident)
-        if len(incidents) >= max(max_incidents, 0):
+            if not _incident_duplicates_collected(incident, collected):
+                inferred.append(incident)
+        if len(inferred) >= max(max_incidents, 0):
             break
-    return tuple(incidents)
+    incidents = collected + inferred
+    incidents.sort(key=lambda item: item.occurred_at, reverse=True)
+    return tuple(incidents[: max(max_incidents, 0)])
 
 
 def _line_has_download_retry(line: str) -> bool:
@@ -604,7 +728,19 @@ def _line_has_game_destroyed(line: str) -> bool:
 
 
 def _line_has_runtime_crash(line: str) -> bool:
-    return "Application crashed!" in line or "Generated memory dump" in line
+    return any(
+        marker in line
+        for marker in (
+            "Application crashed!",
+            "Generated memory dump",
+            "Application hangs (force crash)",
+            "double free or corruption",
+            "free(): invalid pointer",
+            "corrupted size",
+            "SIGSEGV",
+            "Segmentation fault",
+        )
+    )
 
 
 def _runtime_crash_details(lines: list[str], index: int) -> tuple[str, ...]:

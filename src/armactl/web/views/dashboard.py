@@ -595,6 +595,10 @@ def _server_cards(
     )
     check_state = _text(server_version.get("check_state") or server_version.get("checkState"))
     incident_summary = _incident_summary(snapshot)
+    incident_monitor = _section(snapshot, "incident_monitor")
+    monitor_reporting = bool(incident_monitor.get("available")) and not bool(
+        incident_monitor.get("last_error")
+    )
 
     cards = [
         {
@@ -721,6 +725,12 @@ def _server_cards(
                     incident_summary["latest_suspect"],
                     translate_value=not incident_summary["has_incidents"],
                     field="incidents.latest_suspect",
+                ),
+                _item(
+                    "Evidence monitor",
+                    "active" if monitor_reporting else "not reporting",
+                    translate_value=True,
+                    field="incidents.monitor",
                 ),
             ],
         },

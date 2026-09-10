@@ -34,6 +34,8 @@ PLAYER_LOG_INGEST_SERVICE_NAME = "armactl-player-log-ingest.service"
 PLAYER_LOG_INGEST_TIMER_NAME = "armactl-player-log-ingest.timer"
 PLAYER_SESSION_PIPELINE_SERVICE_NAME = "armactl-player-session-pipeline.service"
 PLAYER_SESSION_PIPELINE_TIMER_NAME = "armactl-player-session-pipeline.timer"
+INCIDENT_MONITOR_SERVICE_NAME = "armactl-incident-monitor.service"
+INCIDENT_MONITOR_TIMER_NAME = "armactl-incident-monitor.timer"
 PRIVILEGED_HELPER_NAME = "armactl-systemctl-helper"
 PRIVILEGED_SUDOERS_NAME = "armactl-systemctl-helper"
 SAFE_RESTART_HELPER_NAME = "armactl-safe-restart"
@@ -186,6 +188,14 @@ def backups_dir(
 ) -> Path:
     """Directory for automatic backups before config changes."""
     return instance_root(instance, data_root) / "backups"
+
+
+def incidents_dir(
+    instance: str = DEFAULT_INSTANCE_NAME,
+    data_root: Path = DEFAULT_DATA_ROOT,
+) -> Path:
+    """Persistent evidence bundles captured by the incident monitor."""
+    return instance_root(instance, data_root) / "incidents"
 
 
 def armactl_logs_dir(data_root: Path = DEFAULT_DATA_ROOT) -> Path:

@@ -7,17 +7,25 @@ Semantic Versioning once public releases begin.
 
 ## [Unreleased]
 
+### Added
+- Added a supervised 15-second incident monitor that persistently captures bounded journal, engine-log, systemd, active-profile, and live-process evidence without restarting the game.
+- Added authenticated incident artifact viewing and explicit monitor health/storage status to the incident page and dashboard card.
+
+### Changed
+- Generated game-server services now allow native core dumps so the host core handler can retain an authoritative backtrace after a future native crash.
+
 ### Fixed
 - Prevented restart schedule edits from immediately running newly added past slots on persistent systemd timers.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
 - `python3 -m pytest tests/test_service_manager.py tests/test_web_schedule.py tests/test_web_cli.py -q` in WSL.
-- `python3 -m pytest -q` in WSL (`1433 passed`).
+- `python3 -m pytest -q` in WSL (`1558 passed`).
 - `python3 -m ruff check .` in WSL.
 
 ### Operational notes
 - Updating a restart schedule now preserves whether the timer was active and clears only its persistent trigger timestamp before rearming it.
+- Incident evidence is stored per instance under `<data-root>/<instance>/incidents/`; the monitor records evidence only and never performs automatic game recovery.
 
 ## [0.5.3] - 2026-06-07
 

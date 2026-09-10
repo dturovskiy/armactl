@@ -2112,6 +2112,154 @@ def players_current_cache_run(
     if result is not None and not result.success:
         sys.exit(result.exit_code or 1)
 
+
+# ---------------------------------------------------------------------------
+# Persistent incident evidence monitor
+# ---------------------------------------------------------------------------
+
+
+@main.group("incidents")
+def incidents() -> None:
+    """Inspect and manage persistent game-server incident evidence."""
+
+
+@incidents.group("monitor")
+def incidents_monitor() -> None:
+    """Run and manage the non-restarting incident evidence monitor."""
+
+
+def _incident_monitor_data_root(data_root: Path | None) -> Path:
+    return data_root or paths.DEFAULT_DATA_ROOT
+
+
+@incidents_monitor.command("run")
+@click.option("--once", is_flag=True, help="Collect one bounded evidence pass and exit.")
+@click.option("--scheduled", is_flag=True, hidden=True)
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+)
+@click.pass_context
+def incidents_monitor_run(
+    ctx: click.Context,
+    once: bool,
+    scheduled: bool,
+    data_root: Path | None,
+) -> None:
+    """Capture new journal, engine-log, service, and process evidence once."""
+    from armactl.incident_monitor import collect_incidents_once
+
+    if not once:
+        raise click.ClickException("Only --once is supported.")
+    del scheduled
+    result = collect_incidents_once(
+        ctx.obj["instance"],
+        data_root=_incident_monitor_data_root(data_root),
+    )
+    if ctx.obj["json"]:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+    else:
+        click.echo(
+            "incident_monitor "
+            f"success={int(result.success)} captured={result.captured} "
+            f"updated={result.updated} ignored={result.ignored}"
+        )
+        click.echo(f"  Evidence status: {result.status_path}")
+        if result.error:
+            click.echo(f"  Warning: {result.error}", err=True)
+    if result.exit_code:
+        raise click.exceptions.Exit(result.exit_code)
+
+
+@incidents_monitor.command("install")
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+)
+@click.pass_context
+def incidents_monitor_install(ctx: click.Context, data_root: Path | None) -> None:
+    """Install the monitor service/timer without enabling a first install."""
+    from armactl.incident_monitor_service import install_incident_monitor_service
+
+    result = install_incident_monitor_service(
+        ctx.obj["instance"],
+        data_root=_incident_monitor_data_root(data_root),
+    )
+    if ctx.obj["json"]:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+    else:
+        click.echo("Incident monitor service/timer installation.")
+        for item in result.results:
+            click.echo(f"  {'ok' if item.success else 'failed'}: {item.message}")
+        click.echo("  Existing timer enablement is preserved; a first install stays disabled.")
+    if result.exit_code:
+        raise click.exceptions.Exit(result.exit_code)
+
+
+@incidents_monitor.command("enable")
+@click.pass_context
+def incidents_monitor_enable(ctx: click.Context) -> None:
+    """Enable and start periodic incident collection."""
+    from armactl.incident_monitor_service import enable_incident_monitor_timer
+
+    result = enable_incident_monitor_timer(ctx.obj["instance"])
+    if ctx.obj["json"]:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+    else:
+        for item in result.results:
+            click.echo(f"  {'ok' if item.success else 'failed'}: {item.message}")
+    if result.exit_code:
+        raise click.exceptions.Exit(result.exit_code)
+
+
+@incidents_monitor.command("disable")
+@click.pass_context
+def incidents_monitor_disable(ctx: click.Context) -> None:
+    """Stop and disable periodic incident collection."""
+    from armactl.incident_monitor_service import disable_incident_monitor_timer
+
+    result = disable_incident_monitor_timer(ctx.obj["instance"])
+    if ctx.obj["json"]:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+    else:
+        for item in result.results:
+            click.echo(f"  {'ok' if item.success else 'failed'}: {item.message}")
+    if result.exit_code:
+        raise click.exceptions.Exit(result.exit_code)
+
+
+@incidents_monitor.command("status")
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+)
+@click.pass_context
+def incidents_monitor_status(ctx: click.Context, data_root: Path | None) -> None:
+    """Show systemd and collector heartbeat state without mutation."""
+    from armactl.incident_monitor_service import get_incident_monitor_status
+
+    status = get_incident_monitor_status(
+        ctx.obj["instance"],
+        data_root=_incident_monitor_data_root(data_root),
+    )
+    if ctx.obj["json"]:
+        click.echo(json.dumps(status, indent=2))
+        return
+    collector = status["collector"]
+    timer_status = status["timer"]
+    click.echo("Incident monitor status (read-only).")
+    click.echo(f"  Timer enabled: {'yes' if timer_status['enabled'] else 'no'}")
+    click.echo(f"  Timer state:   {timer_status['active_state']} / {timer_status['sub_state']}")
+    click.echo(f"  Last run:      {collector['last_run_at'] or '-'}")
+    click.echo(f"  Last success:  {collector['last_success_at'] or '-'}")
+    click.echo(f"  Incidents:     {collector['incident_count']}")
+    click.echo(f"  Evidence root: {collector['storage']}")
+    if collector["last_error"]:
+        click.echo(f"  Last error:    {collector['last_error']}")
+
 # ---------------------------------------------------------------------------
 # Discovery / Install / Repair
 # ---------------------------------------------------------------------------

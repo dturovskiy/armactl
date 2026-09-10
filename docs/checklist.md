@@ -47,6 +47,11 @@ The document classification is maintained in
 - [ ] Verify retained incidents expose bounded evidence, confidence, and likely
   mod/scenario suspects without claiming certainty or exposing raw paths,
   secrets, or unbounded log output.
+- [ ] Complete Serhiivka-first and then approved Chervonopillia production
+  acceptance of the persistent incident monitor defined in
+  [incident-monitoring.md](incident-monitoring.md): verify its 15-second timer,
+  journal access, redaction, early stale-telemetry capture, artifact links, and
+  core-capture capability report without restarting an occupied game server.
 - [ ] Verify an existing game admin is not offered the add-admin action and test
   full Game Master access with a designated non-`deus` identity.
 - [ ] Complete staged acceptance on Serhiivka first and record the exact deployed

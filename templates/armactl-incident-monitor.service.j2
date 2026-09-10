@@ -1,0 +1,26 @@
+[Unit]
+Description=armactl Game Incident Evidence Monitor ({{ instance }})
+After=local-fs.target {{ game_service_name }}
+RequiresMountsFor={{ project_root }} {{ data_root }}
+
+[Service]
+Type=oneshot
+User={{ user }}
+SupplementaryGroups=systemd-journal
+WorkingDirectory={{ project_root }}
+ExecStart={{ python_bin }} -m armactl --instance {{ instance }} incidents monitor run --once --scheduled --data-root {{ data_root }}
+TimeoutStartSec={{ runtime_guard_seconds }}s
+UMask=0027
+Nice=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths={{ data_root }}
+ProtectHome=read-only
+Environment=HOME={{ home_dir }}
+Environment=USER={{ user }}
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=armactl-incident-monitor

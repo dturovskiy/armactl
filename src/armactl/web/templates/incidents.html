@@ -16,11 +16,17 @@
     <div class="value-block"><span class="label">{{ t("Found incidents") }}</span><strong>{{ page.count }}</strong></div>
     <div class="value-block"><span class="label">{{ t("History window") }}</span><strong>{{ page.history_days }} {{ t("days") }}</strong></div>
     <div class="value-block"><span class="label">{{ t("Display limit") }}</span><strong>{{ page.history_limit }}</strong></div>
+    <div class="value-block"><span class="label">{{ t("Evidence monitor") }}</span><strong class="status-pill {% if page.collector.available and not page.collector.last_error %}status-pill-ok{% else %}status-pill-warning{% endif %}">{{ t("active") if page.collector.available and not page.collector.last_error else t("not reporting") }}</strong></div>
   </div>
 
   <div class="panel incidents-history-intro">
     <h2>{{ t("Crash and startup-failure history") }}</h2>
-    <p class="muted">{{ t("Incidents remain visible after systemd starts the game server again. Suspects are inferred from nearby log evidence and do not by themselves prove which addon contains the final fault.") }}</p>
+    <p class="muted">{{ t("The monitor preserves journal, engine logs, active profile, service state, and process evidence without restarting the game. A native core or backtrace remains the deciding evidence for an exact engine function.") }}</p>
+    <dl class="key-value-list incident-monitor-summary">
+      <dt>{{ t("Last monitor run") }}</dt><dd>{% if page.collector.last_run_at %}{{ format_web_timestamp(page.collector.last_run_at) }}{% else %}{{ t("never") }}{% endif %}</dd>
+      <dt>{{ t("Evidence storage") }}</dt><dd><code>{{ page.collector.storage }}</code></dd>
+      {% if page.collector.last_error %}<dt>{{ t("Monitor warning") }}</dt><dd>{{ page.collector.last_error }}</dd>{% endif %}
+    </dl>
   </div>
 
   {% if page.error %}
@@ -42,12 +48,21 @@
             <dt>{{ t("Type") }}</dt><dd>{{ t(incident.kind) }}</dd>
             <dt>{{ t("Likely trigger") }}</dt><dd>{{ incident.suspect }}</dd>
             <dt>{{ t("Assessment") }}</dt><dd>{{ t(incident.reason) }}</dd>
+            <dt>{{ t("Evidence source") }}</dt><dd>{{ t(incident.source) }}</dd>
+            {% if incident.pid %}<dt>PID</dt><dd>{{ incident.pid }}</dd>{% endif %}
+            {% if incident.captured_at %}<dt>{{ t("Captured") }}</dt><dd>{{ format_web_timestamp(incident.captured_at) }}</dd>{% endif %}
           </dl>
           {% if incident.evidence %}
             <h3>{{ t("Log evidence") }}</h3>
             <ul class="incident-evidence-list">
               {% for evidence in incident.evidence %}<li><code>{{ evidence }}</code></li>{% endfor %}
             </ul>
+          {% endif %}
+          {% if incident.artifact_links %}
+            <h3>{{ t("Captured artifacts") }}</h3>
+            <div class="incident-artifact-links">
+              {% for artifact in incident.artifact_links %}<a class="button-link secondary-link" href="{{ artifact.href }}">{{ artifact.name }}</a>{% endfor %}
+            </div>
           {% endif %}
         </details>
       {% endfor %}

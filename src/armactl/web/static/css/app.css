@@ -354,6 +354,21 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.incident-monitor-summary {
+  margin-bottom: 0;
+}
+
+.incident-artifact-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.incident-artifact-links .button-link {
+  font-size: 0.78rem;
+  padding: 5px 8px;
+}
+
 .summary-card-wide dl {
   grid-template-columns: minmax(120px, 0.25fr) minmax(0, 1fr);
 }

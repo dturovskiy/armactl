@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -598,6 +600,49 @@ def test_query_recent_server_incidents_identifies_atgm_kornet_crash(
     assert "Kornet prefab" in incidents[0].reason
     assert any("Tripod_KORNET" in item for item in incidents[0].evidence)
     assert any("Application crashed" in item for item in incidents[0].evidence)
+
+
+def test_query_recent_server_incidents_prefers_persistent_collector_bundle(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "default" / "config"
+    metadata_dir = tmp_path / "default" / "incidents" / "20260909T141310Z-memory"
+    metadata_dir.mkdir(parents=True)
+    (metadata_dir / "metadata.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "id": metadata_dir.name,
+                "occurred_at": "2026-09-09T14:13:10+00:00",
+                "captured_at": "2026-09-09T14:13:20+00:00",
+                "kind": "memory_corruption",
+                "severity": "error",
+                "summary": "Native memory corruption",
+                "suspect": "Enfusion native heap / addon-triggered engine path",
+                "confidence": "high",
+                "reason": "Allocator reported double free.",
+                "evidence": ["double free or corruption (!prev)"],
+                "confirmed": True,
+                "pid": 38222,
+                "artifacts": ["journal.log", "runtime.json"],
+                "bundle": f"incidents/{metadata_dir.name}",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with patch(
+        "armactl.metrics.time.time",
+        return_value=datetime(2026, 9, 9, 14, 20, tzinfo=timezone.utc).timestamp(),
+    ):
+        incidents = metrics.query_recent_server_incidents(config_dir)
+
+    assert len(incidents) == 1
+    assert incidents[0].source == "collector"
+    assert incidents[0].kind == "memory_corruption"
+    assert incidents[0].confirmed is True
+    assert incidents[0].pid == 38222
+    assert incidents[0].artifacts == ("journal.log", "runtime.json")
 
 
 def test_query_recent_server_incidents_ignores_early_game_destroyed_after_recovery(

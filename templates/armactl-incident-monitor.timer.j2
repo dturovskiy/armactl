@@ -1,0 +1,12 @@
+[Unit]
+Description=Run armactl incident evidence monitor after each completed cycle ({{ instance }})
+
+[Timer]
+OnActiveSec={{ initial_delay_seconds }}s
+OnUnitInactiveSec={{ interval_seconds }}s
+AccuracySec=1s
+RandomizedDelaySec=0
+Unit={{ service_name }}
+
+[Install]
+WantedBy=timers.target
