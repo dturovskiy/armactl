@@ -15,12 +15,13 @@ Semantic Versioning once public releases begin.
 - Generated game-server services now allow native core dumps so the host core handler can retain an authoritative backtrace after a future native crash.
 
 ### Fixed
+- Allowed the generated privileged helper to manage the incident monitor service and timer after installation.
 - Prevented restart schedule edits from immediately running newly added past slots on persistent systemd timers.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
 - `python3 -m pytest tests/test_service_manager.py tests/test_web_schedule.py tests/test_web_cli.py -q` in WSL.
-- `python3 -m pytest -q` in WSL (`1558 passed`).
+- `python3 -m pytest -q` in WSL (`1559 passed`).
 - `python3 -m ruff check .` in WSL.
 
 ### Operational notes

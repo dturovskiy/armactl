@@ -19,6 +19,7 @@ from armactl.service_manager import (
     disable_service,
     enable_service,
     get_systemd_unit_status,
+    install_privileged_systemctl_channel,
     install_systemd_unit_file,
     resolve_linux_user,
     service_unit_name,
@@ -254,6 +255,8 @@ def install_incident_monitor_service(
             results.append(install_systemd_unit_file(temp_core_dropin, core_dropin_path))
     if all(result.success for result in results):
         results.append(daemon_reload())
+    if all(result.success for result in results):
+        results.extend(install_privileged_systemctl_channel())
     if all(result.success for result in results) and first_install:
         results.extend((stop_service(timer_name), disable_service(timer_name)))
     return IncidentMonitorInstallResult(

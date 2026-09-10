@@ -82,6 +82,11 @@ def test_monitor_install_places_core_dropin_without_game_action(tmp_path: Path) 
             "daemon_reload",
             return_value=ServiceResult(True, "reloaded"),
         ),
+        patch.object(
+            incident_monitor_service,
+            "install_privileged_systemctl_channel",
+            return_value=[ServiceResult(True, "helper installed")],
+        ) as helper_install,
         patch.object(incident_monitor_service, "start_service") as start_service,
         patch.object(incident_monitor_service, "stop_service") as stop_service,
     ):
@@ -96,5 +101,19 @@ def test_monitor_install_places_core_dropin_without_game_action(tmp_path: Path) 
     assert installed[dropin] == "[Service]\nLimitCORE=infinity\n"
     assert systemd_dir / "armactl-incident-monitor.service" in installed
     assert systemd_dir / "armactl-incident-monitor.timer" in installed
+    helper_install.assert_called_once_with()
     start_service.assert_not_called()
     stop_service.assert_not_called()
+
+
+def test_privileged_helper_allows_monitor_lifecycle_only() -> None:
+    from armactl.service_manager import _render_privileged_helper_script
+
+    helper = _render_privileged_helper_script()
+
+    assert '"armactl-incident-monitor.service"' in helper
+    assert '"armactl-incident-monitor.timer"' in helper
+    assert '"armactl-incident-monitor@*.service"' in helper
+    assert '"armactl-incident-monitor@*.timer"' in helper
+    allowed_timers = helper.split("ALLOWED_TIMERS = [", 1)[1].split("]", 1)[0]
+    assert "incident-monitor" not in allowed_timers
