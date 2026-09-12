@@ -1,6 +1,8 @@
 """Integration-style tests for the installer orchestration flow."""
 
 import json
+import signal
+import threading
 import types
 from pathlib import Path
 from unittest.mock import patch
@@ -151,7 +153,10 @@ def test_download_server_streams_steamcmd_output_lines() -> None:
         patch("armactl.installer.paths.server_dir", return_value=Path("/tmp/server")),
         patch("armactl.installer.paths._containing_git_marker", return_value=None),
         patch("armactl.installer._resolve_steamcmd_binary", return_value="/usr/games/steamcmd"),
-        patch("armactl.installer.subprocess.Popen", return_value=FakeProc()),
+        patch(
+            "armactl.installer.subprocess.Popen",
+            return_value=FakeProc(),
+        ) as popen_mock,
     ):
         lines = list(installer.download_server("default"))
 
@@ -160,6 +165,9 @@ def test_download_server_streams_steamcmd_output_lines() -> None:
         "Connecting anonymously to Steam Public...OK",
         "Success! App '1874900' fully installed.",
     ]
+    command = popen_mock.call_args.args[0]
+    assert command[0] == "/usr/games/steamcmd"
+    assert "git" not in command
 
 
 def test_installer_refuses_project_root_as_install_dir() -> None:
@@ -248,6 +256,76 @@ def test_stream_server_update_raises_after_retry_attempts() -> None:
     assert popen_mock.call_count == 2
     sleep_mock.assert_not_called()
     assert "Missing configuration" in str(exc_info.value)
+
+
+def test_stream_server_update_terminates_stalled_attempt_and_retries() -> None:
+    release = threading.Event()
+
+    class BlockingOutput:
+        def __iter__(self):
+            return self
+
+        def __next__(self) -> str:
+            release.wait(timeout=1.0)
+            raise StopIteration
+
+    class StalledProc:
+        pid = 4242
+        stdout = BlockingOutput()
+
+        def poll(self):
+            return 143 if release.is_set() else None
+
+        def wait(self, timeout=None):
+            release.wait(timeout=timeout)
+            return 143
+
+        def terminate(self) -> None:
+            release.set()
+
+        def kill(self) -> None:
+            release.set()
+
+    class SuccessfulProc:
+        stdout = iter(["Success! App '1874900' fully installed.\n"])
+
+        def wait(self) -> int:
+            return 0
+
+    def terminate_group(pid: int, sent_signal: signal.Signals) -> None:
+        assert pid == 4242
+        assert sent_signal == signal.SIGTERM
+        release.set()
+
+    with (
+        patch("armactl.installer.paths._containing_git_marker", return_value=None),
+        patch(
+            "armactl.installer._resolve_steamcmd_binary",
+            return_value="/usr/games/steamcmd",
+        ),
+        patch(
+            "armactl.installer.subprocess.Popen",
+            side_effect=[StalledProc(), SuccessfulProc()],
+        ) as popen_mock,
+        patch("armactl.installer.os.killpg", side_effect=terminate_group) as killpg_mock,
+    ):
+        lines = list(
+            installer.stream_server_update(
+                Path("/tmp/server"),
+                max_attempts=2,
+                retry_delays=(0.0,),
+                idle_timeout_seconds=0.01,
+            )
+        )
+
+    assert popen_mock.call_count == 2
+    killpg_mock.assert_called_once_with(4242, signal.SIGTERM)
+    assert lines == [
+        "SteamCMD server download attempt 1/2...",
+        "SteamCMD download failed; retrying...",
+        "SteamCMD server download attempt 2/2...",
+        "Success! App '1874900' fully installed.",
+    ]
 
 
 def test_download_server_does_not_retry_permanent_steamcmd_error() -> None:

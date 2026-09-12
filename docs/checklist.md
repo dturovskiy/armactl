@@ -22,14 +22,6 @@ The document classification is maintained in
 
 - [ ] Run the full local validation suite for the current branch and resolve any
   remaining CI failure before production acceptance.
-- [ ] Verify the game update path depends on SteamCMD/game-package state, not on
-  Git checkout cleanliness, fetchability, or repository deployment state.
-- [ ] Verify transient SteamCMD connection/download failures produce a bounded,
-  actionable failure and can be retried without corrupting the active package,
-  config, or compatibility state.
-- [ ] Verify the pre-update baseline is written under
-  `<instance>/backups/update-baselines/<UTC timestamp>/` and contains the config
-  hash, non-addon profile, addon inventory, metadata, and manifest.
 - [ ] Verify profile create, rename, delete, compatibility check, manual switch,
   and automatic vanilla fallback against the current server build.
 - [ ] Verify editing mods/scenario while clean vanilla is active creates or

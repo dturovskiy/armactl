@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from armactl import integrity, safe_update
+from armactl import installer, integrity, safe_update
 from armactl.service_manager import ServiceResult
 
 
@@ -227,6 +227,54 @@ def test_canary_rejection_leaves_old_generation_and_restarts_it(tmp_path: Path, 
     assert not update_paths.candidate_server.exists()
     assert not update_paths.candidate_profile.exists()
     assert json.loads(update_paths.metadata.read_text(encoding="utf-8"))["phase"] == "rejected"
+    assert adapter.calls == [("start", "armareforger.service")]
+
+
+def test_download_failure_keeps_active_generation_config_and_addons(
+    tmp_path: Path,
+    monkeypatch,
+):
+    server, config_path = _layout(tmp_path)
+    adapter = FakeServiceAdapter()
+    monkeypatch.setattr(safe_update, "ensure_staging_capacity", lambda paths: (1, 2))
+    original_config = config_path.read_bytes()
+    original_addon = config_path.parent / "addons" / "WCS" / "mod.pak"
+
+    def fail_download(install_dir: Path, *, instance: str):
+        assert instance == "default"
+        install_dir.mkdir(parents=True, exist_ok=True)
+        (install_dir / "partial-download.tmp").write_text("partial", encoding="utf-8")
+        yield "candidate download started"
+        raise installer.InstallError("SteamCMD connection timed out after retries")
+
+    with pytest.raises(
+        safe_update.SafeUpdateError,
+        match="rejected before promotion.*SteamCMD connection timed out",
+    ):
+        list(
+            safe_update.stream_safe_server_update(
+                server,
+                config_path,
+                "armareforger.service",
+                update_stream=fail_download,
+                adapter=adapter,
+                readiness_checker=_ready,
+            )
+        )
+
+    update_paths = safe_update.resolve_update_paths(server, config_path)
+    baselines = sorted(
+        (tmp_path / "default" / "backups" / "update-baselines").iterdir()
+    )
+    assert safe_update.read_build_id(server) == "100"
+    assert config_path.read_bytes() == original_config
+    assert original_addon.read_text(encoding="utf-8") == "old mod"
+    assert not update_paths.candidate_server.exists()
+    assert not update_paths.candidate_profile.exists()
+    assert json.loads(update_paths.metadata.read_text(encoding="utf-8"))["phase"] == "rejected"
+    assert len(baselines) == 1
+    assert (baselines[0] / "profile-config" / "config.json").read_bytes() == original_config
+    assert not list(baselines[0].rglob("*.pak"))
     assert adapter.calls == [("start", "armareforger.service")]
 
 

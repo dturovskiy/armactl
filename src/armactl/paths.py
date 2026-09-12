@@ -117,6 +117,9 @@ def validate_server_install_dir(
     resolved = Path(install_dir).expanduser().resolve(strict=False)
     source_root = project_root().expanduser().resolve(strict=False)
     expected_path = server_dir(instance, data_root).expanduser().resolve(strict=False)
+    expected_candidate_path = (
+        instance_root(instance, data_root) / "server-update" / "candidate-server"
+    ).expanduser().resolve(strict=False)
     expected = str(expected_path)
 
     if resolved == source_root:
@@ -140,7 +143,7 @@ def validate_server_install_dir(
 
     git_marker = _containing_git_marker(resolved)
     if git_marker is not None:
-        if resolved == expected_path:
+        if resolved in {expected_path, expected_candidate_path}:
             return resolved
         raise UnsafeServerInstallDirError(
             "Refusing to use a directory inside a Git working tree as the "

@@ -19,6 +19,20 @@ addons to make a server boot.
    with the generated vanilla profile.
 7. If vanilla also fails, leave the active package and profile unchanged.
 
+The game-update path invokes SteamCMD against game-package state only. It does
+not inspect Git status, fetch or pull source, or depend on repository network
+access. The install-path validator recognizes `.git` solely to prevent a large
+Steam runtime package from being written into a source checkout; the canonical
+`<instance>/server` and isolated candidate directories remain valid regardless
+of source-checkout cleanliness.
+
+SteamCMD update/download runs use at most three attempts with bounded retry
+delays. A process that produces no output for five minutes is terminated with
+its process group and treated as a retryable failure. Every attempt targets the
+isolated candidate package. Exhausted attempts discard that candidate and
+restart the unchanged active generation; the active config and Workshop addon
+pool are never SteamCMD targets.
+
 The parked bundle contains only the original `game.scenarioId` and `game.mods`
 selection. Workshop payload stays in the canonical `<instance>/config/addons/`
 pool. Profile switching never clones, moves, or deletes those files. A vanilla

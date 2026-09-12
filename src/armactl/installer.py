@@ -7,10 +7,13 @@ and initial configuration generation.
 from __future__ import annotations
 
 import os
+import queue
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
+import threading
 import time
 from collections import deque
 from collections.abc import Iterator
@@ -50,6 +53,7 @@ class InstallError(Exception):
 STEAMCMD_MAX_ATTEMPTS = 3
 STEAMCMD_RETRY_DELAYS_SECONDS = (10.0, 30.0)
 STEAMCMD_APP_INFO_TIMEOUT_SECONDS = 90.0
+STEAMCMD_UPDATE_IDLE_TIMEOUT_SECONDS = 5 * 60.0
 MAX_STEAM_APP_INFO_OUTPUT_CHARS = 2_000_000
 STEAMCMD_PERMANENT_ERROR_MARKERS = (
     "No subscription",
@@ -228,8 +232,9 @@ def _stream_cmd(
     *,
     err_msg: str,
     env: dict[str, str] | None = None,
+    idle_timeout_seconds: float | None = None,
 ) -> Iterator[str]:
-    """Run a subprocess and stream combined stdout/stderr lines."""
+    """Run a subprocess and stream output, optionally bounding output stalls."""
     try:
         proc = subprocess.Popen(
             cmd,
@@ -238,6 +243,7 @@ def _stream_cmd(
             text=True,
             bufsize=1,
             env=env or os.environ,
+            start_new_session=True,
         )
     except OSError as e:
         raise InstallError(
@@ -251,12 +257,58 @@ def _stream_cmd(
     output_tail: deque[str] = deque(maxlen=50)
     assert proc.stdout is not None
 
-    for raw_line in proc.stdout:
-        line = redact_sensitive_text(raw_line.rstrip())
-        if not line:
-            continue
-        output_tail.append(line)
-        yield line
+    if idle_timeout_seconds is None:
+        for raw_line in proc.stdout:
+            line = redact_sensitive_text(raw_line.rstrip())
+            if not line:
+                continue
+            output_tail.append(line)
+            yield line
+    else:
+        timeout = max(float(idle_timeout_seconds), 0.01)
+        output_queue: queue.Queue[object] = queue.Queue()
+        stream_finished = object()
+
+        def read_output() -> None:
+            try:
+                for raw_line in proc.stdout:
+                    output_queue.put(raw_line)
+            finally:
+                output_queue.put(stream_finished)
+
+        reader = threading.Thread(
+            target=read_output,
+            name="armactl-subprocess-output",
+            daemon=True,
+        )
+        reader.start()
+        while True:
+            try:
+                queued = output_queue.get(timeout=timeout)
+            except queue.Empty as exc:
+                _terminate_process_group(proc)
+                details = tr(
+                    "SteamCMD produced no output for {seconds} seconds; "
+                    "the stalled process was terminated.",
+                    seconds=f"{timeout:.0f}",
+                )
+                if output_tail:
+                    output_details = "\n".join(output_tail)
+                    details = f"{output_details}\n{details}"
+                raise InstallError(
+                    tr(
+                        "{message}:\n{details}",
+                        message=_(err_msg),
+                        details=details,
+                    )
+                ) from exc
+            if queued is stream_finished:
+                break
+            line = redact_sensitive_text(str(queued).rstrip())
+            if not line:
+                continue
+            output_tail.append(line)
+            yield line
 
     return_code = proc.wait()
     if return_code == 0:
@@ -273,6 +325,35 @@ def _stream_cmd(
             details=details,
         )
     )
+
+
+def _terminate_process_group(proc: subprocess.Popen[str]) -> None:
+    """Terminate a stalled isolated subprocess and its descendants."""
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        try:
+            proc.terminate()
+        except OSError:
+            return
+    try:
+        proc.wait(timeout=10.0)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        try:
+            proc.kill()
+        except OSError:
+            return
+    try:
+        proc.wait(timeout=5.0)
+    except subprocess.TimeoutExpired:
+        return
 
 
 def download_server(instance: str) -> Iterator[str]:
@@ -372,8 +453,9 @@ def stream_server_update(
     instance: str = paths.DEFAULT_INSTANCE_NAME,
     max_attempts: int = STEAMCMD_MAX_ATTEMPTS,
     retry_delays: tuple[float, ...] = STEAMCMD_RETRY_DELAYS_SECONDS,
+    idle_timeout_seconds: float = STEAMCMD_UPDATE_IDLE_TIMEOUT_SECONDS,
 ) -> Iterator[str]:
-    """Run SteamCMD app_update validate with retries for transient failures."""
+    """Run bounded SteamCMD app_update validate retries for transient failures."""
     cmd = build_steamcmd_update_command(install_dir, instance=instance)
     attempts = max(max_attempts, 1)
 
@@ -385,6 +467,7 @@ def stream_server_update(
             yield from _stream_cmd(
                 cmd,
                 err_msg="Failed to download server via steamcmd",
+                idle_timeout_seconds=idle_timeout_seconds,
             )
             return
         except InstallError as error:

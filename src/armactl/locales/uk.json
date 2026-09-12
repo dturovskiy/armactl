@@ -507,6 +507,7 @@
     "Failed to download server via steamcmd": "Не вдалося завантажити сервер через steamcmd",
     "Failed to query latest server build via steamcmd": "Не вдалося отримати останній build сервера через steamcmd",
     "SteamCMD latest-build query timed out.": "Запит latest-build через SteamCMD перевищив час очікування.",
+    "SteamCMD produced no output for {seconds} seconds; the stalled process was terminated.": "SteamCMD не виводив даних протягом {seconds} секунд; завислий процес було завершено.",
     "Failed to download server via steamcmd:{details}": "Не вдалося завантажити сервер через steamcmd:{details}",
     "Failed to download server via steamcmd: {error}": "Не вдалося завантажити сервер через steamcmd: {error}",
     "steamcmd exited without additional output.": "steamcmd завершився без додаткового виводу.",

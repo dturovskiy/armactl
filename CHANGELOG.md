@@ -17,15 +17,18 @@ Semantic Versioning once public releases begin.
 ### Fixed
 - Allowed the generated privileged helper to manage the incident monitor service and timer after installation.
 - Prevented append-only engine logs from recreating the same incident as their mtime changes, preserved the original PID and early process-artifact links during correlation, deduplicated retained journal context, and recognized systemd `status=11/SEGV` exits directly.
+- Bounded stalled SteamCMD update attempts with a five-minute no-output watchdog, terminated the isolated process group before retry, kept failed candidate downloads from changing the active generation, and allowed the managed candidate directory to ignore unrelated parent Git markers without permitting Steam installs inside the source checkout.
 - Prevented restart schedule edits from immediately running newly added past slots on persistent systemd timers.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
+- `.venv/bin/python -m pytest tests/test_installer.py tests/test_safe_update.py tests/test_paths.py -q` (`60 passed`) in WSL.
 - `python3 -m pytest tests/test_service_manager.py tests/test_web_schedule.py tests/test_web_cli.py -q` in WSL.
 - `python3 -m pytest -q` in WSL (`1559 passed`).
 - `python3 -m ruff check .` in WSL.
 
 ### Operational notes
+- Game-package updates use SteamCMD and isolated runtime directories; they do not run or depend on Git repository operations.
 - Updating a restart schedule now preserves whether the timer was active and clears only its persistent trigger timestamp before rearming it.
 - Incident evidence is stored per instance under `<data-root>/<instance>/incidents/`; the monitor records evidence only and never performs automatic game recovery.
 

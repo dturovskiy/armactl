@@ -169,6 +169,23 @@ def test_validate_server_install_dir_allows_expected_instance_dir_under_git_home
     assert validate_server_install_dir(install_dir, data_root=data_root) == install_dir
 
 
+def test_validate_server_install_dir_allows_managed_candidate_under_git_home(
+    tmp_path,
+    monkeypatch,
+):
+    data_root = tmp_path / "armactl-data"
+    install_dir = data_root / "default" / "server-update" / "candidate-server"
+    git_marker = tmp_path / ".git"
+    git_marker.mkdir()
+
+    monkeypatch.setattr(
+        "armactl.paths._containing_git_marker",
+        lambda path: git_marker,
+    )
+
+    assert validate_server_install_dir(install_dir, data_root=data_root) == install_dir
+
+
 def test_validate_server_install_dir_ignores_empty_stale_git_marker(tmp_path):
     install_dir = tmp_path / "runtime" / "server-update" / "candidate-server"
     (tmp_path / "runtime" / ".git").mkdir(parents=True)

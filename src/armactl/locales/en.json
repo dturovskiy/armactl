@@ -1059,6 +1059,7 @@
     "A server update is already running.": "A server update is already running.",
     "Failed to query latest server build via steamcmd": "Failed to query latest server build via steamcmd",
     "SteamCMD latest-build query timed out.": "SteamCMD latest-build query timed out.",
+    "SteamCMD produced no output for {seconds} seconds; the stalled process was terminated.": "SteamCMD produced no output for {seconds} seconds; the stalled process was terminated.",
     "Server is already up to date": "Server is already up to date",
     "Installed build is newer than reported latest": "Installed build is newer than reported latest",
     "Update available": "Update available",
