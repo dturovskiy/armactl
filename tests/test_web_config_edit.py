@@ -141,6 +141,7 @@ def _patch_discovery(monkeypatch, config_path: Path) -> None:
 def _authed_client(tmp_path: Path, monkeypatch, config_path: Path):
     from armactl.web.app import create_app
 
+    _write_minimal_server(config_path)
     _patch_discovery(monkeypatch, config_path)
     password = "owner config edit password"
     setup_owner_user(tmp_path, "owner", password)
