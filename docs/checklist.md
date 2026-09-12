@@ -139,7 +139,7 @@ The detailed contract remains
 - [ ] Confirm this file remains the only public unfinished-work checklist and
   detailed contracts contain no competing task-status checkboxes.
 
-### 4.3 Upgrade And Compatibility Review
+### 4.3 Upgrade, Architecture, And Compatibility Review
 
 - [ ] Audit `main...feat/web-interface` for public API, CLI, config-schema,
   runtime-layout, SQLite migration, systemd-unit, and packaging compatibility.
@@ -151,11 +151,33 @@ The detailed contract remains
   and private operator notes are absent from the merge diff and package.
 - [ ] Review retained compatibility facades and alias routes; remove none solely
   from heuristic dead-code output before the downstream compatibility window.
+- [ ] Re-audit current module ownership and call sites, starting with
+  `service_manager.py`, and record which responsibilities belong to shared
+  platform contracts, Linux/systemd implementations, or compatibility facades.
+- [ ] Decide explicitly which `service_manager.py` extractions are public-main
+  merge requirements and which remain decision-gated; do not combine a
+  behavior-preserving decomposition with unrelated operator features.
+- [ ] For each approved extraction, separate systemd execution, privileged
+  operations, unit rendering, service status, and restart-timer behavior behind
+  tested boundaries while retaining `service_manager.py` as a compatibility
+  facade for the supported downstream window.
+- [ ] Prove CLI, TUI, web, bot, installer, and recovery callers retain the same
+  operator behavior and use the intended shared backend or platform adapter
+  after each extraction.
+- [ ] Define the supported-Python policy, then align `requires-python`, package
+  classifiers, development documentation, local validation, and CI with that
+  policy instead of implying untested runtime support.
 
 ### 4.4 Final Validation And Production Smoke
 
 - [ ] Run `git diff --check`, Ruff, the full pytest suite, wrapper/bootstrap
   checks, and package build/install smoke.
+- [ ] Run the test suite in GitHub Actions on every explicitly supported Python
+  runtime, including 3.10, 3.11, and 3.12 while those classifiers remain
+  published.
+- [ ] Add a gradual `mypy` or `pyright` check with an explicit initial scope,
+  checked configuration, and no blanket suppression of existing errors; expand
+  the enforced surface as module boundaries are stabilized.
 - [ ] Require all GitHub Actions checks to pass on the exact proposed merge head.
 - [ ] Run secret, infrastructure-identifier, generated-file, and large-artifact
   scans over the complete merge diff and built artifacts.
