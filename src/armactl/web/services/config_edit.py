@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
-from armactl import config_manager, discovery, paths
+from armactl import config_manager, discovery, paths, safe_update
 from armactl.redaction import redact_sensitive_text
 from armactl.server_config_schema import (
     RESTART_BEHAVIOR_CHANGED_ONLY,
@@ -59,6 +59,8 @@ class ConfigEditResult:
     audit_written: bool = True
     pending_work_warning: str = ""
     pending_work_error: str = ""
+    profile_separated: bool = False
+    profile_reconciliation_error: str = ""
 
 
 @dataclass(frozen=True)
@@ -68,6 +70,8 @@ class _PreparedConfigEdit:
     changed_fields: tuple[str, ...]
     baseline_fingerprint: str = ""
     current_fingerprint: str = ""
+    profile_selection_changed: bool = False
+    profile_was_vanilla: bool = False
 
 @dataclass(frozen=True)
 class RawConfigReplacementValidation:
@@ -201,6 +205,28 @@ def _submitted_fields(form: Mapping[str, Any]) -> tuple[str, ...]:
 
 def _config_restart_fingerprint(config: Mapping[str, Any]) -> str:
     return pending_work.safe_state_fingerprint(_config_state_for_fingerprint(config))
+
+
+def _profile_selection_changed(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+) -> bool:
+    for path in (("game", "scenarioId"), ("game", "mods")):
+        before_value = _nested_value(before, path) if _path_exists(before, path) else None
+        after_value = _nested_value(after, path) if _path_exists(after, path) else None
+        if before_value != after_value:
+            return True
+    return False
+
+
+def _profile_selection_is_vanilla(config: Mapping[str, Any]) -> bool:
+    game = config.get("game")
+    if not isinstance(game, Mapping):
+        return False
+    return (
+        game.get("scenarioId") == safe_update.DEFAULT_VANILLA_SCENARIO
+        and game.get("mods", []) == []
+    )
 
 
 def build_raw_config_editor_text(config: Mapping[str, Any]) -> str:
@@ -417,6 +443,8 @@ def _prepare_basic_config_edit(config_path, form):
         changed_fields=changed_fields,
         baseline_fingerprint=_config_restart_fingerprint(data),
         current_fingerprint=_config_restart_fingerprint(updated),
+        profile_selection_changed=_profile_selection_changed(data, updated),
+        profile_was_vanilla=_profile_selection_is_vanilla(data),
     )
 
 
@@ -488,6 +516,8 @@ def _prepare_raw_config_edit(config_path, raw_config):
         changed_fields=changed_fields,
         baseline_fingerprint=_config_restart_fingerprint(data),
         current_fingerprint=_config_restart_fingerprint(updated),
+        profile_selection_changed=_profile_selection_changed(data, updated),
+        profile_was_vanilla=_profile_selection_is_vanilla(data),
     )
 
 def validate_raw_config_replacement(config_path, raw_config: str):
@@ -518,6 +548,38 @@ def _apply_prepared_config_edit(prepared):
         backup_path=backup_path,
         changed_fields=prepared.changed_fields,
     )
+
+
+def _reconcile_saved_profile_selection(
+    instance: str,
+    prepared: _PreparedConfigEdit,
+    result: ConfigEditResult,
+) -> ConfigEditResult:
+    """Separate a modified canonical vanilla selection after a config save."""
+    if not prepared.profile_selection_changed:
+        return result
+    try:
+        state = discovery.discover(instance=instance, save=False)
+        if not state.install_dir or not state.config_path:
+            raise safe_update.SafeUpdateError("Server paths are unavailable.")
+        install_dir = paths.validate_server_install_dir(
+            Path(state.install_dir),
+            instance=instance,
+        )
+        reconciled = safe_update.reconcile_modified_vanilla_profile(
+            install_dir,
+            Path(state.config_path),
+            previous_was_vanilla=prepared.profile_was_vanilla,
+        )
+    except Exception:  # noqa: BLE001 - config is already saved; return controlled state.
+        return replace(
+            result,
+            profile_reconciliation_error=(
+                "Config was saved, but the modified vanilla profile could not be "
+                "separated. Review compatibility profiles before restarting."
+            ),
+        )
+    return replace(result, profile_separated=reconciled.changed)
 
 
 def save_basic_config_file(config_path, form):
@@ -670,6 +732,11 @@ def save_default_config_and_audit(instance, form, *, audit_log_path, username, d
         except AuditLogError:
             pass
         raise
+    result = _reconcile_saved_profile_selection(
+        normalized_instance,
+        prepared,
+        result,
+    )
 
     try:
         _audit_config_save(
@@ -772,6 +839,11 @@ def save_default_raw_config_and_audit(
         except AuditLogError:
             pass
         raise
+    result = _reconcile_saved_profile_selection(
+        normalized_instance,
+        prepared,
+        result,
+    )
 
     try:
         _audit_config_save(

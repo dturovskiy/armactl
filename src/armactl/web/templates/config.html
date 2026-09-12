@@ -17,6 +17,18 @@
   <p class="muted">{{ t("Config saved. Restart the server to apply these changes.") }}</p>
 </section>
 {% endif %}
+{% if config_profile_separated %}
+<section class="notice-panel notice-success full-width result-success config-message">
+  <h2>{{ t("Compatibility profile created") }}</h2>
+  <p class="muted">{{ t("Modified vanilla was separated as a new active profile. Clean vanilla remains available on the Updates page.") }}</p>
+</section>
+{% endif %}
+{% if config_profile_reconciliation_error %}
+<section class="notice-panel notice-warning full-width result-warning config-message">
+  <h2>{{ t("Compatibility profile warning") }}</h2>
+  <p class="muted">{{ t(config_profile_reconciliation_error) }}</p>
+</section>
+{% endif %}
 {% if config_unchanged %}
 <section class="notice-panel full-width config-message" data-config-flash-message>
   <h2>{{ t("No config changes") }}</h2>

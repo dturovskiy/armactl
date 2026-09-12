@@ -82,6 +82,13 @@ remain exactly as they are in the active instance. The selected profile is
 always canary-tested against the current server build and shared addon pool
 before the service starts it.
 
+When an operator changes `game.scenarioId` or `game.mods` while canonical
+`vanilla` is active, both the Mods workflow and the basic/raw Config editors
+reconcile the saved selection immediately: the modified selection receives a
+new active profile name and a clean addon-free vanilla selection remains
+available. A reconciliation failure is reported as a post-save warning so the
+operator is never told that an already-written config was not saved.
+
 ```text
 armactl update profile list
 armactl update profile rename-active zakarpattia

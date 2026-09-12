@@ -105,6 +105,13 @@ def _write_config(tmp_path: Path, config: dict[str, Any] | None = None) -> Path:
     return config_path
 
 
+def _write_minimal_server(config_path: Path) -> Path:
+    server = config_path.parents[1] / "server"
+    server.mkdir(parents=True)
+    (server / "ArmaReforgerServer").write_text("test server", encoding="utf-8")
+    return server
+
+
 def _state_for(config_path: Path) -> ServerState:
     return ServerState(
         server_installed=True,
@@ -563,6 +570,131 @@ def test_config_edit_updates_allowlisted_fields_creates_backup_and_preserves_res
         assert secret not in audit_text
 
 
+def test_config_edit_separates_modified_canonical_vanilla(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl import safe_update
+    from armactl.web.services import config_edit
+
+    config = _sample_config()
+    config["game"]["scenarioId"] = safe_update.DEFAULT_VANILLA_SCENARIO
+    config["game"]["mods"] = []
+    config_path = _write_config(tmp_path, config)
+    server = _write_minimal_server(config_path)
+    _patch_discovery(monkeypatch, config_path)
+    update_paths = safe_update.resolve_update_paths(
+        server,
+        config_path,
+    )
+    safe_update._write_metadata(
+        update_paths,
+        "named-active",
+        active_mode="vanilla",
+        active_profile="vanilla",
+    )
+
+    result = config_edit.save_default_config_and_audit(
+        "default",
+        _valid_post_data("unused"),
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+    )
+
+    assert result.profile_separated is True
+    assert result.profile_reconciliation_error == ""
+    active = json.loads(config_path.read_text(encoding="utf-8"))
+    assert active["game"]["scenarioId"] == "UpdatedScenario.conf"
+    profiles = safe_update.get_named_profiles(update_paths.server, config_path)
+    assert [(profile.name, profile.active) for profile in profiles] == [
+        ("vanilla-modded", True),
+        ("vanilla", False),
+    ]
+    clean_vanilla = json.loads(
+        (update_paths.profiles_root / "vanilla" / "config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert clean_vanilla["game"] == {
+        "scenarioId": safe_update.DEFAULT_VANILLA_SCENARIO,
+        "mods": [],
+    }
+
+
+def test_raw_config_edit_separates_modified_canonical_vanilla(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl import safe_update
+    from armactl.web.services import config_edit
+
+    config = _sample_config()
+    config["game"]["scenarioId"] = safe_update.DEFAULT_VANILLA_SCENARIO
+    config["game"]["mods"] = []
+    config_path = _write_config(tmp_path, config)
+    server = _write_minimal_server(config_path)
+    _patch_discovery(monkeypatch, config_path)
+    update_paths = safe_update.resolve_update_paths(
+        server,
+        config_path,
+    )
+    submitted = json.loads(config_edit.build_raw_config_editor_text(config))
+    submitted["game"]["mods"] = [
+        {"modId": "FEDCBA0987654321", "name": "Added through raw config"}
+    ]
+
+    result = config_edit.save_default_raw_config_and_audit(
+        "default",
+        json.dumps(submitted),
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+    )
+
+    assert result.profile_separated is True
+    assert result.profile_reconciliation_error == ""
+    active = json.loads(config_path.read_text(encoding="utf-8"))
+    assert active["game"]["mods"][0]["modId"] == "FEDCBA0987654321"
+    assert (update_paths.profiles_root / "vanilla" / "config.json").is_file()
+
+
+def test_config_edit_reports_profile_reconciliation_failure_after_save(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl import safe_update
+    from armactl.web.services import config_edit
+
+    config = _sample_config()
+    config["game"]["scenarioId"] = safe_update.DEFAULT_VANILLA_SCENARIO
+    config["game"]["mods"] = []
+    config_path = _write_config(tmp_path, config)
+    _patch_discovery(monkeypatch, config_path)
+    monkeypatch.setattr(
+        safe_update,
+        "reconcile_modified_vanilla_profile",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            safe_update.SafeUpdateError("private profile failure")
+        ),
+    )
+
+    result = config_edit.save_default_config_and_audit(
+        "default",
+        _valid_post_data("unused"),
+        audit_log_path=tmp_path / "logs" / "web" / "audit.log",
+        username="owner",
+    )
+
+    assert result.profile_separated is False
+    assert "modified vanilla profile could not be separated" in (
+        result.profile_reconciliation_error
+    )
+    assert "private profile failure" not in result.profile_reconciliation_error
+    assert json.loads(config_path.read_text(encoding="utf-8"))["game"][
+        "scenarioId"
+    ] == "UpdatedScenario.conf"
+    assert result.backup_path is not None
+
+
 def test_config_edit_noop_save_does_not_backup_or_request_restart(
     tmp_path: Path,
     monkeypatch,
@@ -779,6 +911,85 @@ def test_config_edit_pending_warning_from_service_is_rendered(
     assert "Config saved" in response.text
     assert "Restart tracking warning" in response.text
     assert pending_work.PENDING_WORK_FALLBACK_WARNING in response.text
+
+
+def test_config_edit_profile_separation_redirect_renders_notice(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import config_edit
+
+    config_path = _write_config(tmp_path, deepcopy(_sample_config()))
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+    csrf_token = _form_token(client.get("/config").text)
+
+    def save_with_profile_separation(*args, **kwargs):
+        return config_edit.ConfigEditResult(
+            config_path=config_path,
+            backup_path=None,
+            changed_fields=("scenario_id",),
+            profile_separated=True,
+        )
+
+    monkeypatch.setattr(
+        config_edit,
+        "save_default_config_and_audit",
+        save_with_profile_separation,
+    )
+
+    response = client.post(
+        "/config",
+        data=_valid_post_data(csrf_token),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/config?saved=1&profile_separated=1"
+    notice = client.get(response.headers["location"])
+    assert notice.status_code == 200
+    assert "Compatibility profile created" in notice.text
+    assert "Clean vanilla remains available" in notice.text
+
+
+def test_config_edit_profile_reconciliation_error_is_rendered_as_post_save_warning(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.services import config_edit
+
+    config_path = _write_config(tmp_path, deepcopy(_sample_config()))
+    client = _authed_client(tmp_path, monkeypatch, config_path)
+    csrf_token = _form_token(client.get("/config").text)
+    controlled_error = (
+        "Config was saved, but the modified vanilla profile could not be separated. "
+        "Review compatibility profiles before restarting."
+    )
+
+    def save_with_profile_warning(*args, **kwargs):
+        return config_edit.ConfigEditResult(
+            config_path=config_path,
+            backup_path=None,
+            changed_fields=("scenario_id",),
+            profile_reconciliation_error=controlled_error,
+        )
+
+    monkeypatch.setattr(
+        config_edit,
+        "save_default_config_and_audit",
+        save_with_profile_warning,
+    )
+
+    response = client.post(
+        "/config",
+        data=_valid_post_data(csrf_token),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 500
+    assert "Config saved" in response.text
+    assert "Compatibility profile warning" in response.text
+    assert controlled_error in response.text
+    assert "Config was not saved." not in response.text
 
 
 def test_config_service_pending_db_and_fallback_failure_is_controlled(

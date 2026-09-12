@@ -24,9 +24,6 @@ The document classification is maintained in
   remaining CI failure before production acceptance.
 - [ ] Verify profile create, rename, delete, compatibility check, manual switch,
   and automatic vanilla fallback against the current server build.
-- [ ] Verify editing mods/scenario while clean vanilla is active creates or
-  selects a named modified profile instead of mutating the canonical vanilla
-  definition.
 - [ ] Verify profile switching changes only `game.scenarioId` and `game.mods`;
   admins, passwords, player limits, ports, RCON, persistence, server name, and
   all Workshop addon payloads must remain unchanged.

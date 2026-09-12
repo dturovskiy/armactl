@@ -31,6 +31,8 @@ def _render_config_page(
     save_error: str = "",
     unchanged: bool = False,
     audit_error: str = "",
+    profile_separated: bool = False,
+    profile_reconciliation_error: str = "",
     pending_work_warning: str = "",
     pending_work_error: str = "",
     raw_config_text_override: str | None = None,
@@ -56,6 +58,8 @@ def _render_config_page(
             "config_save_error": save_error,
             "config_unchanged": unchanged,
             "config_audit_error": audit_error,
+            "config_profile_separated": profile_separated,
+            "config_profile_reconciliation_error": profile_reconciliation_error,
             "config_pending_work_warning": pending_work_warning,
             "config_pending_work_error": pending_work_error,
         },
@@ -77,6 +81,7 @@ def config_page(request: Request) -> Response:
         current,
         saved=request.query_params.get("saved") == "1",
         unchanged=request.query_params.get("unchanged") == "1",
+        profile_separated=request.query_params.get("profile_separated") == "1",
     )
 
 
@@ -120,6 +125,8 @@ async def save_config_page(request: Request) -> Response:
             current,
             saved=True,
             audit_error=str(error),
+            profile_separated=result.profile_separated,
+            profile_reconciliation_error=result.profile_reconciliation_error,
             pending_work_warning=result.pending_work_warning,
             pending_work_error=result.pending_work_error,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -127,6 +134,16 @@ async def save_config_page(request: Request) -> Response:
 
     if not result.changed_fields:
         return RedirectResponse("/config?unchanged=1", status_code=status.HTTP_303_SEE_OTHER)
+    if result.profile_reconciliation_error:
+        return _render_config_page(
+            request,
+            current,
+            saved=True,
+            profile_reconciliation_error=result.profile_reconciliation_error,
+            pending_work_warning=result.pending_work_warning,
+            pending_work_error=result.pending_work_error,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
     if result.pending_work_error:
         return _render_config_page(
             request,
@@ -143,7 +160,10 @@ async def save_config_page(request: Request) -> Response:
             pending_work_warning=result.pending_work_warning,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
-    return RedirectResponse("/config?saved=1", status_code=status.HTTP_303_SEE_OTHER)
+    location = "/config?saved=1"
+    if result.profile_separated:
+        location += "&profile_separated=1"
+    return RedirectResponse(location, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/config/raw", response_class=HTMLResponse)
@@ -210,6 +230,8 @@ async def save_raw_config_page(request: Request) -> Response:
             current,
             saved=True,
             audit_error=str(error),
+            profile_separated=result.profile_separated,
+            profile_reconciliation_error=result.profile_reconciliation_error,
             pending_work_warning=result.pending_work_warning,
             pending_work_error=result.pending_work_error,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -217,6 +239,16 @@ async def save_raw_config_page(request: Request) -> Response:
 
     if not result.changed_fields:
         return RedirectResponse("/config?unchanged=1", status_code=status.HTTP_303_SEE_OTHER)
+    if result.profile_reconciliation_error:
+        return _render_config_page(
+            request,
+            current,
+            saved=True,
+            profile_reconciliation_error=result.profile_reconciliation_error,
+            pending_work_warning=result.pending_work_warning,
+            pending_work_error=result.pending_work_error,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
     if result.pending_work_error:
         return _render_config_page(
             request,
@@ -233,4 +265,7 @@ async def save_raw_config_page(request: Request) -> Response:
             pending_work_warning=result.pending_work_warning,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
-    return RedirectResponse("/config?saved=1", status_code=status.HTTP_303_SEE_OTHER)
+    location = "/config?saved=1"
+    if result.profile_separated:
+        location += "&profile_separated=1"
+    return RedirectResponse(location, status_code=status.HTTP_303_SEE_OTHER)

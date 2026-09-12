@@ -1355,8 +1355,10 @@ def _preserve_clean_vanilla_profile(
 def reconcile_modified_vanilla_profile(
     install_dir: Path,
     config_path: Path,
+    *,
+    previous_was_vanilla: bool = False,
 ) -> ModifiedVanillaReconciliation:
-    """Keep canonical vanilla clean after an operator changes its mod selection."""
+    """Keep canonical vanilla clean after an operator changes its profile selection."""
     update_paths = resolve_update_paths(install_dir, config_path)
     lock_descriptor = _acquire_update_lock(update_paths.instance_root)
     try:
@@ -1382,9 +1384,12 @@ def reconcile_modified_vanilla_profile(
             )
         except UpdateProfileError:
             stored_name = fallback_name
+        if previous_was_vanilla and stored_mode not in {MODDED_MODE, VANILLA_MODE}:
+            stored_name = DEFAULT_VANILLA_PROFILE
 
         was_vanilla = (
             stored_mode == VANILLA_MODE or stored_name == DEFAULT_VANILLA_PROFILE
+            or previous_was_vanilla
         )
         if active.mode != MODDED_MODE or not was_vanilla:
             return ModifiedVanillaReconciliation(
