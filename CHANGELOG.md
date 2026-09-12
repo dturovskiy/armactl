@@ -10,6 +10,7 @@ Semantic Versioning once public releases begin.
 ### Added
 - Added a supervised 15-second incident monitor that persistently captures bounded journal, engine-log, systemd, active-profile, and live-process evidence without restarting the game.
 - Added authenticated incident artifact viewing and explicit monitor health/storage status to the incident page and dashboard card.
+- Added `armactl update profile check <name>` as a CLI fallback for the web profile compatibility canary without activating the tested profile.
 
 ### Changed
 - Generated game-server services now allow native core dumps so the host core handler can retain an authoritative backtrace after a future native crash.

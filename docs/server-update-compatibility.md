@@ -94,11 +94,17 @@ armactl update profile list
 armactl update profile rename-active zakarpattia
 armactl update profile create vanilla-everon --vanilla
 armactl update profile create test-current
+armactl update profile check vanilla-everon
 armactl update profile switch vanilla-everon
 armactl update auto-fallback status
 armactl update auto-fallback on
 armactl update auto-fallback off
 ```
+
+`update profile check <name>` runs the same current-build compatibility canary
+used by the web profile test action, records bounded per-profile/per-mod
+evidence, and never activates the tested profile. The game service must already
+be stopped; the command refuses to stop a running server implicitly.
 
 The policy is stored at `<instance>/server-update/policy.json`. With automatic
 fallback disabled, a failed modded update canary leaves the current generation

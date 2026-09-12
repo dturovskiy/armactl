@@ -592,6 +592,87 @@ def update_profile_reconcile(ctx: click.Context) -> None:
         click.echo(f"[{instance}] Active profile already has consistent metadata.")
 
 
+@update_profile_group.command("check")
+@click.argument("name")
+@click.pass_context
+def update_profile_check(ctx: click.Context, name: str) -> None:
+    """Canary-test a named profile without activating it."""
+    from armactl import safe_update
+
+    instance = ctx.obj["instance"]
+    state = _get_state(ctx)
+    if not state.server_installed:
+        if ctx.obj["json"]:
+            click.echo(json.dumps({"status": "failed", "error": "no_server_found"}))
+        else:
+            click.echo(f"[{instance}] No server found.", err=True)
+        raise click.exceptions.Exit(1)
+    if state.server_running:
+        message = "Stop the game server before testing profiles."
+        if ctx.obj["json"]:
+            click.echo(json.dumps({"status": "failed", "error": message}))
+        else:
+            click.echo(f"[{instance}] {message}", err=True)
+        raise click.exceptions.Exit(1)
+
+    install_dir = Path(state.install_dir or paths.server_dir(instance))
+    config_path = Path(state.config_path or paths.config_file(instance))
+    output: list[str] = []
+    try:
+        for line in safe_update.verify_named_profile(
+            install_dir,
+            config_path,
+            name=name,
+        ):
+            output.append(line)
+            if not ctx.obj["json"]:
+                click.echo(f"[{instance}] {line}")
+    except safe_update.ProfileIncompatibleError as exc:
+        if ctx.obj["json"]:
+            click.echo(
+                json.dumps(
+                    {
+                        "status": "incompatible",
+                        "profile": name,
+                        "error": str(exc),
+                        "steps": output,
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            click.echo(f"[{instance}] ✗ {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+    except safe_update.SafeUpdateError as exc:
+        if ctx.obj["json"]:
+            click.echo(
+                json.dumps(
+                    {
+                        "status": "failed",
+                        "profile": name,
+                        "error": str(exc),
+                        "steps": output,
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            click.echo(f"[{instance}] ✗ {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+
+    if ctx.obj["json"]:
+        click.echo(
+            json.dumps(
+                {
+                    "status": "compatible",
+                    "profile": name,
+                    "steps": output,
+                },
+                indent=2,
+            )
+        )
+
+
 @update_profile_group.command("switch")
 @click.argument("name")
 @click.pass_context
