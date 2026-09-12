@@ -132,6 +132,7 @@ def test_collector_correlates_double_free_and_hang_and_redacts_bundle(tmp_path: 
     journal_text = (bundle / "journal.log").read_text(encoding="utf-8")
 
     assert metadata["kind"] == "memory_corruption"
+    assert metadata["pid"] == 4321
     assert metadata["suspect"] == "Game Master cleanup / admin-mod interaction"
     assert metadata["confirmed"] is True
     assert metadata["signals"] == ["hang", "memory_corruption"]
@@ -144,6 +145,8 @@ def test_collector_correlates_double_free_and_hang_and_redacts_bundle(tmp_path: 
     assert "192.168.1.20" not in journal_text
     assert "double free or corruption" in journal_text
     assert "Application hangs" in journal_text
+    assert journal_text.count("double free or corruption") == 1
+    assert journal_text.count("Application hangs") == 1
 
 
 def test_collector_deduplicates_already_seen_journal_signal(tmp_path: Path) -> None:
@@ -169,6 +172,106 @@ def test_collector_deduplicates_already_seen_journal_signal(tmp_path: Path) -> N
     assert second.captured == 0
     assert second.updated == 0
     assert second.ignored >= 1
+
+
+def test_collector_deduplicates_engine_signal_when_log_mtime_changes(tmp_path: Path) -> None:
+    now = datetime(2026, 9, 9, 14, 20, tzinfo=timezone.utc).timestamp()
+    log_dir = _runtime_files(tmp_path, mtime=now)
+    console = log_dir / "console.log"
+    console.write_text(
+        ("x" * incident_monitor.MONITOR_SCAN_TAIL_BYTES)
+        + "\n14:19:59.000 ENGINE (F): Application crashed!\n",
+        encoding="utf-8",
+    )
+    os.utime(console, (now, now))
+
+    def runner(args):
+        if args[0] == "systemctl":
+            return incident_monitor.CommandOutput(0, _systemctl_output())
+        return incident_monitor.CommandOutput(0, "")
+
+    first = incident_monitor.collect_incidents_once(
+        data_root=tmp_path, runner=runner, now=now
+    )
+    with console.open("a", encoding="utf-8") as handle:
+        handle.write("14:20:10.000 DEFAULT : FPS: 120.0\n")
+    os.utime(console, (now + 20, now + 20))
+    second = incident_monitor.collect_incidents_once(
+        data_root=tmp_path, runner=runner, now=now + 20
+    )
+
+    assert first.captured == 1
+    assert second.captured == 0
+    assert second.updated == 0
+    assert second.ignored >= 1
+    root = tmp_path / "default" / "incidents"
+    bundles = [item for item in root.iterdir() if item.is_dir()]
+    assert len(bundles) == 1
+    metadata = json.loads((bundles[0] / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["occurred_at"] == "2026-09-09T14:19:59+00:00"
+    journal_text = (bundles[0] / "journal.log").read_text(encoding="utf-8")
+    assert journal_text.count("Application crashed!") == 1
+
+
+def test_correlated_pidless_signal_keeps_pid_and_process_artifact_links(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    now = datetime(2026, 9, 9, 14, 20, tzinfo=timezone.utc).timestamp()
+    log_dir = _runtime_files(tmp_path, mtime=now)
+    console = log_dir / "console.log"
+    journal_calls = 0
+    systemctl_calls = 0
+
+    def runner(args):
+        nonlocal journal_calls, systemctl_calls
+        if args[0] == "systemctl":
+            systemctl_calls += 1
+            pid = 4321 if systemctl_calls == 1 else 9999
+            return incident_monitor.CommandOutput(0, _systemctl_output(pid=pid))
+        journal_calls += 1
+        if journal_calls == 1:
+            return incident_monitor.CommandOutput(
+                0,
+                _journal_record(
+                    "Main process exited, code=dumped, status=11/SEGV",
+                    cursor="crash-cursor",
+                    timestamp=now - 1,
+                ),
+            )
+        return incident_monitor.CommandOutput(0, "")
+
+    monkeypatch.setattr(
+        incident_monitor,
+        "_process_snapshot",
+        lambda pid: (
+            ({"pid": pid, "available": True}, {"process/status.txt": "captured\n"})
+            if pid == 4321
+            else ({"pid": pid, "available": False}, {})
+        ),
+    )
+
+    first = incident_monitor.collect_incidents_once(
+        data_root=tmp_path, runner=runner, now=now
+    )
+    with console.open("a", encoding="utf-8") as handle:
+        handle.write("14:19:59.000 ENGINE (F): Application crashed!\n")
+    os.utime(console, (now, now))
+    second = incident_monitor.collect_incidents_once(
+        data_root=tmp_path, runner=runner, now=now + 1
+    )
+
+    assert first.captured == 1
+    assert second.captured == 0
+    assert second.updated == 1
+    root = tmp_path / "default" / "incidents"
+    bundles = [item for item in root.iterdir() if item.is_dir()]
+    assert len(bundles) == 1
+    bundle = bundles[0]
+    metadata = json.loads((bundle / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["pid"] == 4321
+    assert "process/status.txt" in metadata["artifacts"]
+    assert (bundle / "process" / "status.txt").read_text(encoding="utf-8") == "captured\n"
 
 
 def test_collector_captures_stale_live_process_before_restart(tmp_path: Path) -> None:

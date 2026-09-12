@@ -52,6 +52,10 @@ Run one non-restarting foreground collection pass with:
 
 The first pass looks back 24 hours so a recent retained journal failure is not
 lost. Later passes use the systemd journal cursor and event fingerprints.
+Engine-log fingerprints use the log generation and absolute line offset, so an
+old fatal line is not rediscovered merely because the active append-only log's
+mtime changes. Correlated updates retain the first known game PID and any early
+live-process artifacts while adding later confirmation evidence.
 `double free` followed by `Application hangs (force crash)` for the same PID is
 updated as one incident rather than two unrelated failures.
 

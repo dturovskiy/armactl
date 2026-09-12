@@ -48,7 +48,10 @@ _FAILURE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     (
         "segmentation_fault",
-        re.compile(r"SIGSEGV|segmentation fault|signal 11", re.IGNORECASE),
+        re.compile(
+            r"SIGSEGV|segmentation fault|signal 11|status\s*=\s*11/SEGV",
+            re.IGNORECASE,
+        ),
     ),
     (
         "runtime_crash",
@@ -76,6 +79,11 @@ _KIND_PRIORITY: Final = {
     "startup_failure": 1,
     "telemetry_hang_suspected": 0,
 }
+
+_ENGINE_LINE_TIME_RE: Final = re.compile(
+    r"^\s*(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})"
+    r"(?:\.(?P<fraction>\d{1,6}))?"
+)
 
 
 @dataclass(frozen=True)
@@ -333,6 +341,52 @@ def _tail_text(path: Path, max_bytes: int = MONITOR_MAX_LOG_TAIL_BYTES) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+def _tail_lines_with_offsets(path: Path, max_bytes: int) -> list[tuple[int, str]]:
+    """Return a bounded append-only log tail with stable absolute byte offsets."""
+    if path.is_symlink() or not path.is_file():
+        return []
+    with path.open("rb") as handle:
+        size = os.fstat(handle.fileno()).st_size
+        start = max(size - max_bytes, 0)
+        handle.seek(start)
+        data = handle.read()
+    if start:
+        first_newline = data.find(b"\n")
+        if first_newline < 0:
+            return []
+        consumed = first_newline + 1
+        start += consumed
+        data = data[consumed:]
+
+    lines: list[tuple[int, str]] = []
+    offset = start
+    for raw_line in data.splitlines(keepends=True):
+        message = raw_line.rstrip(b"\r\n").decode("utf-8", errors="replace")
+        lines.append((offset, message))
+        offset += len(raw_line)
+    return lines
+
+
+def _engine_line_occurred_at(message: str, *, file_mtime: float) -> str:
+    """Resolve an engine time-of-day against the closest UTC day to the file mtime."""
+    match = _ENGINE_LINE_TIME_RE.match(message)
+    if match is None:
+        return _utc_now(file_mtime)
+    try:
+        fraction = (match.group("fraction") or "").ljust(6, "0")
+        anchor = datetime.fromtimestamp(file_mtime, tz=timezone.utc)
+        candidate = anchor.replace(
+            hour=int(match.group("hour")),
+            minute=int(match.group("minute")),
+            second=int(match.group("second")),
+            microsecond=int(fraction or 0),
+        ).timestamp()
+    except (OverflowError, OSError, ValueError):
+        return _utc_now(file_mtime)
+    candidates = (candidate - 86400, candidate, candidate + 86400)
+    return _utc_now(min(candidates, key=lambda value: abs(value - file_mtime)))
+
+
 def _signals_from_engine_logs(log_dir: Path | None) -> list[IncidentSignal]:
     if log_dir is None:
         return []
@@ -340,20 +394,21 @@ def _signals_from_engine_logs(log_dir: Path | None) -> list[IncidentSignal]:
     for name in ("console.log", "script.log", "error.log", "crash.log"):
         path = log_dir / name
         try:
-            text = _tail_text(path, MONITOR_SCAN_TAIL_BYTES)
-            occurred_at = _utc_now(path.stat().st_mtime)
+            lines_with_offsets = _tail_lines_with_offsets(path, MONITOR_SCAN_TAIL_BYTES)
+            file_mtime = path.stat().st_mtime
         except OSError:
             continue
-        lines = text.splitlines()
-        for index, message in enumerate(lines):
+        lines = [message for _, message in lines_with_offsets]
+        for index, (offset, message) in enumerate(lines_with_offsets):
             kind = _kind_for_message(message)
             if not kind:
                 continue
             signals.append(
                 IncidentSignal(
                     kind=kind,
-                    occurred_at=occurred_at,
+                    occurred_at=_engine_line_occurred_at(message, file_mtime=file_mtime),
                     message=_safe_line(message),
+                    cursor=f"{log_dir.name}/{name}:{offset}",
                     source=f"engine:{name}",
                     context=_relevant_context(lines, index),
                 )
@@ -362,6 +417,9 @@ def _signals_from_engine_logs(log_dir: Path | None) -> list[IncidentSignal]:
 
 
 def _signal_fingerprint(signal: IncidentSignal) -> str:
+    if signal.cursor:
+        material = "\x1f".join((signal.kind, signal.source, signal.cursor))
+        return hashlib.sha256(material.encode("utf-8", errors="replace")).hexdigest()
     if signal.kind == "telemetry_hang_suspected":
         material = f"{signal.kind}\x1f{signal.pid}"
         return hashlib.sha256(material.encode("utf-8")).hexdigest()
@@ -638,6 +696,50 @@ def _correlatable_bundle(root: Path, signal: IncidentSignal) -> Path | None:
     return None
 
 
+def _merge_journal_context(previous: str, current: Sequence[str]) -> str:
+    """Keep correlated context useful without appending identical lines each cycle."""
+    merged: list[str] = []
+    seen: set[str] = set()
+    for value in [*previous.splitlines(), *current]:
+        line = _safe_line(value, limit=2000)
+        if not line or line in seen:
+            continue
+        seen.add(line)
+        merged.append(line)
+    return "\n".join(merged)
+
+
+def _retained_artifact_names(bundle: Path, metadata: Mapping[str, Any]) -> list[str]:
+    """Retain only existing safe bundle-relative artifacts from an earlier capture."""
+    raw_names = metadata.get("artifacts")
+    if not isinstance(raw_names, list):
+        return []
+    retained: list[str] = []
+    for value in raw_names:
+        if not isinstance(value, str) or not value or len(value) > 200:
+            continue
+        relative = Path(value)
+        if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+            continue
+        current = bundle
+        unsafe = False
+        for part in relative.parts:
+            current /= part
+            if current.is_symlink():
+                unsafe = True
+                break
+        if unsafe:
+            continue
+        try:
+            target = (bundle / relative).resolve(strict=True)
+            target.relative_to(bundle)
+        except (OSError, ValueError):
+            continue
+        if target.is_file() and not target.is_symlink():
+            retained.append(relative.as_posix())
+    return retained
+
+
 def _capture_bundle(
     root: Path,
     signal: IncidentSignal,
@@ -677,7 +779,11 @@ def _capture_bundle(
             evidence.append(item)
     evidence = evidence[-16:]
 
-    pid = signal.pid
+    try:
+        previous_pid = max(int(previous.get("pid") or 0), 0)
+    except (TypeError, ValueError):
+        previous_pid = 0
+    pid = max(signal.pid, 0) or previous_pid
     try:
         active_pid = int(service.get("MainPID") or 0)
     except (TypeError, ValueError):
@@ -691,7 +797,7 @@ def _capture_bundle(
                 "reason": "Original incident PID is no longer the active game-service PID.",
             }
         )
-    artifact_names: list[str] = []
+    artifact_names = _retained_artifact_names(bundle, previous)
 
     journal_name = "journal.log"
     previous_journal = ""
@@ -700,7 +806,10 @@ def _capture_bundle(
     except OSError:
         pass
     journal_lines = list(signal.context) or [signal.message]
-    _write_evidence(bundle / journal_name, previous_journal + "\n" + "\n".join(journal_lines))
+    _write_evidence(
+        bundle / journal_name,
+        _merge_journal_context(previous_journal, journal_lines),
+    )
     artifact_names.append(journal_name)
 
     if log_dir is not None:

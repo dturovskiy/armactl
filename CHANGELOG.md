@@ -16,6 +16,7 @@ Semantic Versioning once public releases begin.
 
 ### Fixed
 - Allowed the generated privileged helper to manage the incident monitor service and timer after installation.
+- Prevented append-only engine logs from recreating the same incident as their mtime changes, preserved the original PID and early process-artifact links during correlation, deduplicated retained journal context, and recognized systemd `status=11/SEGV` exits directly.
 - Prevented restart schedule edits from immediately running newly added past slots on persistent systemd timers.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
