@@ -24,6 +24,8 @@ Semantic Versioning once public releases begin.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
+- GitHub Actions passed Ruff, all 1572 pytest cases, and package build for the CLI profile-check head.
+- Serhiivka current-build acceptance passed named profile create, rename, delete, check, vanilla switch, and modded switch-back while preserving every non-profile config setting and leaving Workshop storage shared.
 - Focused safe-update, i18n, and config/profile-selection pytest coverage (`39 passed`) in WSL.
 - `.venv/bin/python -m pytest tests/test_installer.py tests/test_safe_update.py tests/test_paths.py -q` (`60 passed`) in WSL.
 - `python3 -m pytest tests/test_service_manager.py tests/test_web_schedule.py tests/test_web_cli.py -q` in WSL.

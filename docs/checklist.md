@@ -24,9 +24,11 @@ The document classification is maintained in
   remaining CI failure before production acceptance.
 - [ ] Verify profile create, rename, delete, compatibility check, manual switch,
   and automatic vanilla fallback against the current server build.
-- [ ] Verify profile switching changes only `game.scenarioId` and `game.mods`;
+- [x] Verify profile switching changes only `game.scenarioId` and `game.mods`;
   admins, passwords, player limits, ports, RCON, persistence, server name, and
-  all Workshop addon payloads must remain unchanged.
+  all other active settings remain unchanged. Profile operations must never
+  clone, move, or delete Workshop payloads; Enfusion may still update an active
+  Workshop package in place when its modded stack starts.
 - [ ] Verify a failed modded canary leaves its profile parked and usable for a
   later retry, while a failed vanilla canary leaves the active package/profile
   unchanged.

@@ -128,3 +128,34 @@ A Workshop version string is not treated as proof of game compatibility. armactl
 does not claim that every member of a failed stack is broken, and does not
 blindly enable a mod whose dependencies or scenario requirements were not
 verified together.
+
+## Serhiivka acceptance evidence (2026-09-12 UTC)
+
+Commit `b06380f` was deployed Git-only after GitHub Actions passed Ruff, 1572
+pytest cases, and package build. The game had zero players before the controlled
+profile maintenance window; Chervonopilya was not changed.
+
+- A private pre-test copy of `config.json` and update state was stored under
+  `<data-root>/default/backups/profile-acceptance/20260912T222046Z/`. The
+  profile switch also created its normal update baseline under
+  `<data-root>/default/backups/update-baselines/20260912T223552Z/`.
+- `vanilla` and `vanilla-modded` both passed current-build canaries against
+  build `24870635`; the clean vanilla canary was stable after 44.8 seconds and
+  the final modded switch canary after 58.5 seconds.
+- Manual switching reached ready, fresh 120 FPS operation in both directions
+  and restored `vanilla-modded` with its original scenario and 47 configured
+  mods.
+- The final active configuration was semantically identical to the pre-test
+  backup. A selection-neutral hash also remained identical across the vanilla
+  switch, proving that admins, passwords, player limit, ports, RCON,
+  persistence, server name, and every other non-profile setting were retained.
+- Create and delete operated on one temporary selection-only profile containing
+  only `game.scenarioId` and `game.mods`; rename and rename-back changed only
+  active-profile metadata. No profile contained or copied an `addons` tree.
+- The shared Workshop pool retained 1970 files across the vanilla switch. When
+  the modded stack started, Enfusion updated `GRS-Apparel` 1.0.67 and
+  `ACMFlightCORE` 1.0.30 in place, increasing the pool by 7,507,741 bytes. This
+  was runtime Workshop refresh, not a profile copy, move, or deletion.
+
+Automatic-fallback and forced canary-failure recovery remain separate open
+acceptance gates in the active checklist.
