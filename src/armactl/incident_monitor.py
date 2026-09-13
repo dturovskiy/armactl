@@ -552,7 +552,15 @@ def _assessment(
         if isinstance(item, dict)
     } if isinstance(active_mods, list) else set()
     if kind in {"memory_corruption", "segmentation_fault", "runtime_crash", "hang"}:
-        if any(marker in joined for marker in ("clbr_", "kornet", "stugna")):
+        if any(
+            marker in joined
+            for marker in (
+                "clbr_kornet",
+                "clbr_remoteturretdrivecomponent",
+                "kornet",
+                "stugna",
+            )
+        ):
             return (
                 "Native game crash" if kind != "hang" else "Game thread hang confirmed",
                 "ATGM / CLBR weapon stack",
@@ -654,7 +662,8 @@ def _important_evidence(signal: IncidentSignal) -> list[str]:
         "GameMaster",
         "SpawnEntityPrefab",
         "Create entity",
-        "CLBR_",
+        "CLBR_KORNET",
+        "CLBR_RemoteTurretDriveComponent",
         "KORNET",
         "Stugna",
         "Unknown class",

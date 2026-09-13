@@ -681,6 +681,7 @@ def test_collected_incident_refines_generic_suspect_from_bounded_bundle_log(
     engine_dir = metadata_dir / "engine"
     engine_dir.mkdir(parents=True)
     (engine_dir / "console.log").write_text(
+        "18:00:15.689 SCRIPT (W): CLBR_PlayerController uses an obsolete API\n"
         "18:00:17.352 WORLD (E): Unknown class 'SAL_DroneBulletComponent'\n"
         "18:00:17.490 ENGINE (E): Application crashed! Generated memory dump\n",
         encoding="utf-8",
@@ -720,6 +721,7 @@ def test_collected_incident_refines_generic_suspect_from_bounded_bundle_log(
     assert incidents[0].confidence == "high"
     assert "SAL_DroneBulletComponent" in incidents[0].reason
     assert any("Unknown class" in item for item in incidents[0].evidence)
+    assert not any("CLBR_PlayerController" in item for item in incidents[0].evidence)
 
 
 def test_query_recent_server_incidents_ignores_early_game_destroyed_after_recovery(

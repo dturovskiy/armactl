@@ -230,6 +230,7 @@ def test_collector_attributes_unresolved_drone_class_before_native_crash(
     config_file.write_text(json.dumps(config), encoding="utf-8")
     console = log_dir / "console.log"
     console.write_text(
+        "18:00:15.689 SCRIPT (W): CLBR_PlayerController uses an obsolete API\n"
         "18:00:17.352 WORLD (E): Unknown class 'SAL_DroneBulletComponent' "
         "at offset 101(0x65)\n"
         "18:00:17.490 ENGINE (E): Application crashed! Generated memory dump\n",
@@ -255,6 +256,7 @@ def test_collector_attributes_unresolved_drone_class_before_native_crash(
     assert metadata["confidence"] == "high"
     assert "SAL_DroneBulletComponent" in metadata["reason"]
     assert any("Unknown class" in item for item in metadata["evidence"])
+    assert not any("CLBR_PlayerController" in item for item in metadata["evidence"])
 
 
 def test_correlated_pidless_signal_keeps_pid_and_process_artifact_links(

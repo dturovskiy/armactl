@@ -442,7 +442,13 @@ def _incident_evidence(window: list[str], terminal_index: int) -> tuple[str, ...
             )
         )
         and ("SpawnEntityPrefab" in line or "Create entity" in line),
-        lambda line: "CLBR_" in line,
+        lambda line: any(
+            marker in line
+            for marker in (
+                "CLBR_KORNET",
+                "CLBR_RemoteTurretDriveComponent",
+            )
+        ),
         lambda line: any(
             marker in line
             for marker in (
