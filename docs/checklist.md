@@ -97,10 +97,10 @@ The detailed contract remains
 - [x] Add one authenticated, bounded, redacted diagnostic report download/export
   response that reuses the existing report builder and keeps `armactl report` as
   the CLI fallback.
-- [ ] Add a bounded operator-visible warning when active `console.log`,
+- [x] Add a bounded operator-visible warning when active `console.log`,
   `error.log`, or `script.log` becomes anomalously large or matches the defined
   spam signal.
-- [ ] Keep log anomaly checks bounded and expose neither raw filesystem paths nor
+- [x] Keep log anomaly checks bounded and expose neither raw filesystem paths nor
   unbounded raw log lines.
 
 ## P4 - Prepare `feat/web-interface` For Public `main`

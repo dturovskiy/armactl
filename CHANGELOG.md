@@ -39,6 +39,9 @@ Semantic Versioning once public releases begin.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
+- Active-log anomaly checks passed bounded-tail, allowlist, symlink, path
+  redaction, permission, and localization coverage; GitHub Actions passed Ruff,
+  all `1616` tests, and package build for commit `c3c3816`.
 - GitHub Actions passed Ruff, all `1608` tests, and package build for the
   non-web incident-history and native-moderation recovery adapters.
 - Typed native moderation service, RCON, and localization coverage passed locally
