@@ -2193,7 +2193,6 @@ def players_current_cache_run(
     if result is not None and not result.success:
         sys.exit(result.exit_code or 1)
 
-
 # ---------------------------------------------------------------------------
 # Persistent incident evidence monitor
 # ---------------------------------------------------------------------------
@@ -2204,13 +2203,150 @@ def incidents() -> None:
     """Inspect and manage persistent game-server incident evidence."""
 
 
+def _incident_monitor_data_root(data_root: Path | None) -> Path:
+    return data_root or paths.DEFAULT_DATA_ROOT
+
+
+def _incident_history_payload(incident) -> dict[str, object]:
+    """Return the bounded incident fields safe for CLI/JSON output."""
+    return {
+        "id": incident.incident_id,
+        "occurred_at": incident.occurred_at,
+        "captured_at": incident.captured_at,
+        "kind": incident.kind,
+        "severity": incident.severity,
+        "summary": incident.summary,
+        "suspect": incident.suspect,
+        "confidence": incident.confidence,
+        "reason": incident.reason,
+        "evidence": list(incident.evidence),
+        "source": incident.source,
+        "confirmed": incident.confirmed,
+        "pid": incident.pid,
+        "artifacts": list(incident.artifacts),
+    }
+
+
+def _load_cli_incident_history(
+    instance: str,
+    *,
+    data_root: Path,
+    limit: int,
+    days: int,
+):
+    from armactl.metrics import query_recent_server_incidents
+
+    return query_recent_server_incidents(
+        paths.config_dir(instance, data_root),
+        max_incidents=limit,
+        max_age_seconds=days * 24 * 60 * 60,
+        max_log_files=max(limit, 1),
+    )
+
+
+@incidents.command("list")
+@click.option("--limit", type=click.IntRange(1, 100), default=20, show_default=True)
+@click.option("--days", type=click.IntRange(1, 365), default=30, show_default=True)
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+)
+@click.pass_context
+def incidents_list(
+    ctx: click.Context,
+    limit: int,
+    days: int,
+    data_root: Path | None,
+) -> None:
+    """List bounded retained and inferred game-server incidents read-only."""
+    instance = ctx.obj["instance"]
+    rows = _load_cli_incident_history(
+        instance,
+        data_root=_incident_monitor_data_root(data_root),
+        limit=limit,
+        days=days,
+    )
+    if ctx.obj["json"]:
+        click.echo(
+            json.dumps(
+                {
+                    "instance": instance,
+                    "count": len(rows),
+                    "incidents": [_incident_history_payload(item) for item in rows],
+                },
+                indent=2,
+            )
+        )
+        return
+    click.echo(f"Recent server incidents: {len(rows)} (last {days} day(s)).")
+    if not rows:
+        click.echo("  No retained or inferred incidents found.")
+        return
+    for item in rows:
+        incident_id = item.incident_id or "inferred"
+        click.echo(
+            f"  {incident_id} | {item.occurred_at} | {item.kind} | {item.confidence} confidence"
+        )
+        click.echo(f"    {item.summary}")
+        click.echo(f"    Suspect: {item.suspect}")
+
+
+@incidents.command("show")
+@click.argument("incident_id")
+@click.option("--days", type=click.IntRange(1, 365), default=30, show_default=True)
+@click.option(
+    "--data-root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+)
+@click.pass_context
+def incidents_show(
+    ctx: click.Context,
+    incident_id: str,
+    days: int,
+    data_root: Path | None,
+) -> None:
+    """Show one bounded retained incident explanation and evidence summary."""
+    normalized_id = incident_id.strip()
+    if not normalized_id or len(normalized_id) > 160:
+        raise click.ClickException("Incident ID is invalid.")
+    instance = ctx.obj["instance"]
+    rows = _load_cli_incident_history(
+        instance,
+        data_root=_incident_monitor_data_root(data_root),
+        limit=100,
+        days=days,
+    )
+    incident = next((item for item in rows if item.incident_id == normalized_id), None)
+    if incident is None:
+        raise click.ClickException("Incident was not found in the retained window.")
+    payload = _incident_history_payload(incident)
+    if ctx.obj["json"]:
+        click.echo(json.dumps(payload, indent=2))
+        return
+    click.echo(f"Incident {incident.incident_id}")
+    click.echo(f"  Occurred:   {incident.occurred_at}")
+    click.echo(f"  Type:       {incident.kind}")
+    click.echo(f"  Summary:    {incident.summary}")
+    click.echo(f"  Suspect:    {incident.suspect}")
+    click.echo(f"  Confidence: {incident.confidence}")
+    click.echo(f"  Assessment: {incident.reason}")
+    if incident.pid:
+        click.echo(f"  PID:        {incident.pid}")
+    if incident.evidence:
+        click.echo("  Evidence:")
+        for item in incident.evidence:
+            click.echo(f"    - {item}")
+    if incident.artifacts:
+        click.echo("  Artifacts:")
+        for item in incident.artifacts:
+            click.echo(f"    - {item}")
+
+
 @incidents.group("monitor")
 def incidents_monitor() -> None:
     """Run and manage the non-restarting incident evidence monitor."""
-
-
-def _incident_monitor_data_root(data_root: Path | None) -> Path:
-    return data_root or paths.DEFAULT_DATA_ROOT
 
 
 @incidents_monitor.command("run")
@@ -2340,6 +2476,7 @@ def incidents_monitor_status(ctx: click.Context, data_root: Path | None) -> None
     click.echo(f"  Evidence root: {collector['storage']}")
     if collector["last_error"]:
         click.echo(f"  Last error:    {collector['last_error']}")
+
 
 # ---------------------------------------------------------------------------
 # Discovery / Install / Repair
