@@ -595,6 +595,7 @@
     "Waiting for server telemetry": "Очікування телеметрії сервера",
     "Telemetry log unavailable": "Лог телеметрії недоступний",
     "Telemetry stale": "Телеметрія застаріла",
+    "Server startup appears stalled": "Схоже, запуск сервера завис",
     "enabled": "увімкнений",
     "Admins": "Адміни",
     "[bold cyan]Admins[/bold cyan]": "[bold cyan]Адміни[/bold cyan]",

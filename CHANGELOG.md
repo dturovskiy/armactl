@@ -16,6 +16,7 @@ Semantic Versioning once public releases begin.
 - Generated game-server services now allow native core dumps so the host core handler can retain an authoritative backtrace after a future native crash.
 
 ### Fixed
+- Prevented fresh repeated startup log lines from leaving the dashboard in `Starting` indefinitely after telemetry failed to appear, and prevented a stale `Starting` marker from hiding a systemd auto-restart loop.
 - Attributed native crashes immediately preceded by an unresolved `SAL_DroneBulletComponent` to the Realistic Combat Drones/FPV dependency path and retained the exact unknown-class evidence instead of reporting only a generic active-addon suspect.
 - Allowed the generated privileged helper to manage the incident monitor service and timer after installation.
 - Prevented append-only engine logs from recreating the same incident as their mtime changes, preserved the original PID and early process-artifact links during correlation, deduplicated retained journal context, and recognized systemd `status=11/SEGV` exits directly.
@@ -25,6 +26,7 @@ Semantic Versioning once public releases begin.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
+- Focused lifecycle, telemetry, incident, and i18n coverage passed (`75 passed`), including prolonged startup telemetry timeout and systemd auto-restart precedence.
 - Serhiivka retained-incident acceptance on `32ec2e9` kept the game process untouched while the 15-second monitor and web view surfaced the bounded `SAL_DroneBulletComponent` evidence as a Realistic Combat Drones/FPV trigger correlation without claiming the final native owner.
 - GitHub Actions passed Ruff, all 1572 pytest cases, and package build for the CLI profile-check head.
 - Serhiivka current-build acceptance passed named profile create, rename, delete, check, vanilla switch, and modded switch-back while preserving every non-profile config setting and leaving Workshop storage shared.

@@ -32,7 +32,7 @@ The document classification is maintained in
 - [x] Verify a failed modded canary leaves its profile parked and usable for a
   later retry, while a failed vanilla canary leaves the active package/profile
   unchanged.
-- [ ] Verify dashboard startup state distinguishes service activation, telemetry
+- [x] Verify dashboard startup state distinguishes service activation, telemetry
   readiness, controlled shutdown, startup failure, and native crash instead of
   showing indefinite unexplained telemetry waiting.
 - [x] Verify retained incidents expose bounded evidence, confidence, and likely

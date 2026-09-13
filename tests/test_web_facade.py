@@ -1328,6 +1328,31 @@ def test_dashboard_operational_status_reports_systemd_restart_loop():
     assert result["details"] == ["systemd restart attempts: 33"]
 
 
+def test_dashboard_operational_status_does_not_hide_restart_loop_behind_starting_log():
+    facade = _import_dashboard_model()
+
+    result = facade._resolve_operational_status(
+        lifecycle="starting",
+        service={
+            "active": False,
+            "active_state": "activating",
+            "sub_state": "auto-restart",
+            "main_pid": 0,
+            "n_restarts": 4,
+        },
+        fps_metrics={"available": False},
+        log_status={
+            "state": "starting",
+            "severity": "info",
+            "message": "Starting",
+        },
+    )
+
+    assert result["state"] == "startup_failed"
+    assert result["message"] == "Server startup failed"
+    assert result["details"] == ["systemd restart attempts: 4"]
+
+
 def test_dashboard_operational_status_explains_prolonged_telemetry_wait(monkeypatch):
     facade = _import_dashboard_model()
     monkeypatch.setattr(facade.metrics, "service_elapsed_seconds", lambda service: 181.0)
@@ -1346,6 +1371,29 @@ def test_dashboard_operational_status_explains_prolonged_telemetry_wait(monkeypa
 
     assert result["state"] == "telemetry_stale"
     assert result["severity"] == "warning"
-    assert result["message"] == "Telemetry stale"
+    assert result["message"] == "Server startup appears stalled"
     assert result["age_seconds"] == 181.0
     assert "startup may be stalled" in result["details"][-1]
+
+
+def test_dashboard_operational_status_times_out_repeated_starting_log(monkeypatch):
+    facade = _import_dashboard_model()
+    monkeypatch.setattr(facade.metrics, "service_elapsed_seconds", lambda service: 181.0)
+
+    result = facade._resolve_operational_status(
+        lifecycle="running",
+        service={"active": True, "active_state": "active", "sub_state": "running"},
+        fps_metrics={"available": False},
+        log_status={
+            "state": "starting",
+            "severity": "info",
+            "message": "Starting",
+            "details": ("Game successfully created.",),
+        },
+    )
+
+    assert result["state"] == "telemetry_stale"
+    assert result["message"] == "Server startup appears stalled"
+    assert result["age_seconds"] == 181.0
+    assert result["details"][0] == "Game successfully created."
+    assert "Inspect the console logs" in result["details"][-1]

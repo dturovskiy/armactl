@@ -130,7 +130,6 @@ _BLOCKING_LOG_OPERATIONAL_STATES = frozenset(
         "downloading_mods",
         "mission_error",
         "runtime_crash",
-        "starting",
         "backend_heartbeat_failure",
         "backend_connectivity_issue",
     }
@@ -216,7 +215,7 @@ def _prolonged_telemetry_wait_status(
     service: dict[str, Any],
     log_status: dict[str, Any],
 ) -> dict[str, Any] | None:
-    if log_status.get("state") not in {"waiting_for_telemetry", "unknown"}:
+    if log_status.get("state") not in {"starting", "waiting_for_telemetry", "unknown"}:
         return None
     elapsed = metrics.service_elapsed_seconds(service)
     if elapsed is None or elapsed < DASHBOARD_TELEMETRY_WAIT_WARNING_SECONDS:
@@ -225,7 +224,7 @@ def _prolonged_telemetry_wait_status(
     return _operational_status_dict(
         state="telemetry_stale",
         severity="warning",
-        message="Telemetry stale",
+        message="Server startup appears stalled",
         details=(
             *details,
             "The game service is running but server telemetry did not appear; "
@@ -273,6 +272,9 @@ def _resolve_operational_status(
     prolonged_wait_status = _prolonged_telemetry_wait_status(service, log_status)
     if prolonged_wait_status is not None:
         return prolonged_wait_status
+
+    if log_status.get("state") == "starting":
+        return log_status
 
     return log_status
 

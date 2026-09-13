@@ -1445,6 +1445,7 @@
     "M777 entity / active addon interaction": "M777 entity / active addon interaction",
     "ATGM/CLBR prefab or script activity occurred in the captured failure window. This is a strong trigger correlation; the native core remains authoritative.": "ATGM/CLBR prefab or script activity occurred in the captured failure window. This is a strong trigger correlation; the native core remains authoritative.",
     "The failure followed Game Master activity while GM/admin extensions were active. This narrows the reproduction profile but does not prove which extension or engine cleanup path owns the native fault.": "The failure followed Game Master activity while GM/admin extensions were active. This narrows the reproduction profile but does not prove which extension or engine cleanup path owns the native fault.",
-    "M777 entity activity occurred in the captured failure window. This is a candidate trigger, not proof of the native owner.": "M777 entity activity occurred in the captured failure window. This is a candidate trigger, not proof of the native owner."
+    "M777 entity activity occurred in the captured failure window. This is a candidate trigger, not proof of the native owner.": "M777 entity activity occurred in the captured failure window. This is a candidate trigger, not proof of the native owner.",
+    "Server startup appears stalled": "Server startup appears stalled"
   }
 }
