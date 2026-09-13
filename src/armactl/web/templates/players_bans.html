@@ -20,6 +20,28 @@
     <a class="player-section-tab active" href="/players/bans">{{ t("Ban list") }}</a>
   </nav>
 
+  {% if moderation_result %}
+    <section class="notice-panel {% if moderation_result.uncertain %}notice-warning{% elif moderation_result.success %}notice-success{% else %}notice-error{% endif %}" role="status">
+      <strong>{{ t(moderation_result.message) }}</strong>
+      <dl>
+        <dt>{{ t("Action") }}</dt><dd>{{ t(moderation_result.action) }}</dd>
+        <dt>{{ t("Reliable identity") }}</dt><dd class="wrap-value">{{ moderation_result.target_identity or t("unavailable") }}</dd>
+        <dt>{{ t("Outcome") }}</dt><dd>{{ t(moderation_result.classification) }}</dd>
+      </dl>
+      {% if moderation_result.recovery_record_id %}
+        <p>{{ t("Verification recovery record") }}: #{{ moderation_result.recovery_record_id }} · {{ t(moderation_result.recovery_state) }}</p>
+      {% endif %}
+      {% if moderation_result.recovery_error %}
+        <p class="error">{{ t(moderation_result.recovery_error) }}</p>
+      {% endif %}
+    </section>
+  {% endif %}
+  {% if moderation_error %}
+    <section class="notice-panel notice-error" role="alert">
+      <strong>{{ t(moderation_error) }}</strong>
+    </section>
+  {% endif %}
+
   <div class="section-heading-row">
     <div>
       <h2>{{ t("Native server ban list") }}</h2>
@@ -59,6 +81,7 @@
             <th>{{ t("Native ban ID") }}</th>
             <th>{{ t("Reliable identity") }}</th>
             <th>{{ t("Native duration") }}</th>
+            <th>{{ t("Actions") }}</th>
           </tr>
         </thead>
         <tbody>
@@ -71,6 +94,21 @@
                   {{ t("0 seconds (native permanent value)") }}
                 {% else %}
                   {{ entry.duration_seconds }} {{ t("seconds") }}
+                {% endif %}
+              </td>
+              <td>
+                {% if result.complete %}
+                  <form method="post" action="/players/bans/unban" class="inline-action-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="target_identity" value="{{ entry.player_uid }}">
+                    <label class="inline-confirm">
+                      <input type="checkbox" name="confirm" value="unban">
+                      {{ t("Confirm native unban") }}
+                    </label>
+                    <button class="danger" type="submit">{{ t("Unban") }}</button>
+                  </form>
+                {% else %}
+                  <span class="muted">{{ t("Unavailable until the current native page is verified.") }}</span>
                 {% endif %}
               </td>
             </tr>
@@ -96,5 +134,117 @@
       <span class="player-section-tab disabled">{{ t("Next") }}</span>
     {% endif %}
   </nav>
+</section>
+
+<section class="panel full-width">
+  <div class="section-heading-row">
+    <div>
+      <h2>{{ t("Create native ban") }}</h2>
+      <p class="muted">{{ t("Use a reliable Reforger identity. Nicknames are display-only and cannot be moderation targets.") }}</p>
+    </div>
+  </div>
+  {% if result.complete %}
+    <form method="post" action="/players/bans/ban" class="config-edit-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-grid">
+        <label class="field-wide">
+          <span>{{ t("Reliable identity") }}</span>
+          <input type="text" name="target_identity" autocomplete="off" maxlength="128" required>
+        </label>
+        <label>
+          <span>{{ t("Ban duration") }}</span>
+          <select name="duration_seconds" required>
+            <option value="3600">{{ t("1 hour") }}</option>
+            <option value="21600">{{ t("6 hours") }}</option>
+            <option value="86400">{{ t("1 day") }}</option>
+            <option value="604800">{{ t("7 days") }}</option>
+            <option value="2592000">{{ t("30 days") }}</option>
+            <option value="0">{{ t("Permanent (native 0 seconds)") }}</option>
+          </select>
+        </label>
+        <label class="field-wide">
+          <span>{{ t("Optional reason") }}</span>
+          <input type="text" name="reason" autocomplete="off" maxlength="160">
+        </label>
+      </div>
+      <label class="inline-confirm">
+        <input type="checkbox" name="confirm" value="ban">
+        {{ t("Confirm native ban") }}
+      </label>
+      <div class="form-actions">
+        <button class="danger" type="submit">{{ t("Ban identity") }}</button>
+      </div>
+    </form>
+  {% else %}
+    <section class="notice-panel notice-unavailable" role="status">
+      <strong>{{ t("Native moderation controls are unavailable until the current native page is verified.") }}</strong>
+    </section>
+  {% endif %}
+</section>
+
+<section class="panel full-width">
+  <div class="section-heading-row">
+    <div>
+      <h2>{{ t("Pending moderation verification") }}</h2>
+      <p class="muted">{{ t("A retry reads the authoritative native list first. It never runs a blind inverse command.") }}</p>
+    </div>
+  </div>
+  {% if pending_verifications_error %}
+    <p class="error">{{ t(pending_verifications_error) }}</p>
+  {% elif pending_verifications %}
+    <div class="player-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>{{ t("Record") }}</th>
+            <th>{{ t("Action") }}</th>
+            <th>{{ t("Reliable identity") }}</th>
+            <th>{{ t("State") }}</th>
+            <th>{{ t("Actions") }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for recovery in pending_verifications %}
+            <tr>
+              <td>#{{ recovery.id }}</td>
+              <td>{{ t(recovery.action) }}</td>
+              <td class="wrap-value">{{ recovery.reliable_identity }}</td>
+              <td>{{ t(recovery.verification_state) }}</td>
+              <td>
+                <form method="post" action="/players/bans/retry" class="inline-action-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="record_id" value="{{ recovery.id }}">
+                  {% if recovery.action == "ban" %}
+                    <label>
+                      <span>{{ t("Ban duration") }}</span>
+                      <select name="duration_seconds" required>
+                        <option value="3600">{{ t("1 hour") }}</option>
+                        <option value="21600">{{ t("6 hours") }}</option>
+                        <option value="86400">{{ t("1 day") }}</option>
+                        <option value="604800">{{ t("7 days") }}</option>
+                        <option value="2592000">{{ t("30 days") }}</option>
+                        <option value="0">{{ t("Permanent (native 0 seconds)") }}</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>{{ t("Replacement reason (optional)") }}</span>
+                      <input type="text" name="reason" autocomplete="off" maxlength="160">
+                    </label>
+                  {% endif %}
+                  <label class="inline-confirm">
+                    <input type="checkbox" name="confirm" value="retry">
+                    {{ t("Confirm verification retry") }}
+                  </label>
+                  <button type="submit">{{ t("Verify / retry") }}</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">{{ t("No pending moderation verification records.") }}</p>
+  {% endif %}
 </section>
 {% endblock %}

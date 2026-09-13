@@ -25,7 +25,9 @@ from armactl.web.auth.dependencies import (
 from armactl.web.auth.permissions import PLAYERS_MODERATE, PLAYERS_VIEW
 from armactl.web.page_models import players as players_page_model
 from armactl.web.services import (
+    moderation_verification,
     native_banlist,
+    native_moderation,
     player_current_refresh,
     player_live_session_scan,
     player_log_collection,
@@ -434,6 +436,9 @@ def _render_native_ban_list_page(
     current: CurrentSession,
     *,
     page: int,
+    moderation_result: native_moderation.NativeModerationResult | None = None,
+    moderation_error: str = "",
+    status_code: int = status.HTTP_200_OK,
 ) -> Response:
     if not require_permission(current, PLAYERS_MODERATE):
         return permission_denied_response()
@@ -442,6 +447,16 @@ def _render_native_ban_list_page(
         paths.DEFAULT_INSTANCE_NAME,
         page=page,
     )
+    pending_verifications: tuple[moderation_verification.ModerationVerificationRecord, ...] = ()
+    pending_verifications_error = ""
+    try:
+        pending_verifications = moderation_verification.list_pending_moderation_verifications(
+            current.config.db_path,
+            instance=paths.DEFAULT_INSTANCE_NAME,
+            limit=20,
+        )
+    except moderation_verification.ModerationVerificationError:
+        pending_verifications_error = "Pending moderation verification records are unavailable."
     form_csrf = get_form_csrf_token(request, current)
     response = request.app.state.templates.TemplateResponse(
         request=request,
@@ -452,11 +467,85 @@ def _render_native_ban_list_page(
             "can_moderate_players": True,
             "result": result,
             "entries": result.entries,
+            "moderation_result": moderation_result,
+            "moderation_error": moderation_error,
+            "pending_verifications": pending_verifications,
+            "pending_verifications_error": pending_verifications_error,
         },
+        status_code=status_code,
     )
     if form_csrf.should_set_cookie:
         set_csrf_cookie(response, form_csrf.token, current.config)
     return response
+
+
+def _native_moderation_status_code(
+    result: native_moderation.NativeModerationResult,
+) -> int:
+    if result.success:
+        return status.HTTP_200_OK
+    if result.recovery_error or not result.audit_written:
+        return status.HTTP_500_INTERNAL_SERVER_ERROR
+    if result.uncertain:
+        return status.HTTP_409_CONFLICT
+    return status.HTTP_400_BAD_REQUEST
+
+
+def _run_native_moderation_page_action(
+    request: Request,
+    *,
+    action: str,
+    csrf_token: str,
+    confirmation: str,
+    target_identity: str,
+    duration_seconds: str = "0",
+    reason: str = "",
+) -> Response:
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, PLAYERS_MODERATE):
+        return permission_denied_response()
+    if not validate_csrf_token(current.config.db_path, current.session.id, csrf_token):
+        return PlainTextResponse(
+            "Invalid CSRF token.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+    if confirmation != action:
+        return _render_native_ban_list_page(
+            request,
+            current,
+            page=1,
+            moderation_error="Explicit confirmation is required for native moderation.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        result = native_moderation.run_native_moderation_action(
+            action,
+            target_identity=target_identity,
+            duration_seconds=duration_seconds,
+            reason=reason,
+            instance=paths.DEFAULT_INSTANCE_NAME,
+            audit_log_path=current.config.audit_log_path,
+            username=current.user.username,
+            db_path=current.config.db_path,
+        )
+    except native_moderation.NativeModerationError as error:
+        return _render_native_ban_list_page(
+            request,
+            current,
+            page=1,
+            moderation_error=str(error),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    return _render_native_ban_list_page(
+        request,
+        current,
+        page=1,
+        moderation_result=result,
+        status_code=_native_moderation_status_code(result),
+    )
 
 
 def _render_player_session_detail_page(
@@ -527,7 +616,7 @@ def player_history_page(request: Request) -> Response:
 
 @router.get("/players/bans", response_class=HTMLResponse)
 def native_ban_list_page(request: Request, page: str = "1") -> Response:
-    """Render one authenticated read-only native Reforger ban-list page."""
+    """Render one authenticated native Reforger ban-list page."""
     current = get_current_session(request)
     if current is None:
         return _redirect_to_login(request)
@@ -543,6 +632,122 @@ def native_ban_list_page(request: Request, page: str = "1") -> Response:
         request,
         current,
         page=requested_page,
+    )
+
+
+@router.post("/players/bans/ban", response_class=HTMLResponse)
+def create_native_ban_page(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    target_identity: str = Form(default=""),
+    duration_seconds: str = Form(default=""),
+    reason: str = Form(default=""),
+    confirm: str = Form(default=""),
+) -> Response:
+    """Create and verify one native identity ban after confirmation."""
+    return _run_native_moderation_page_action(
+        request,
+        action=native_moderation.ACTION_BAN,
+        csrf_token=csrf_token,
+        confirmation=confirm,
+        target_identity=target_identity,
+        duration_seconds=duration_seconds,
+        reason=reason,
+    )
+
+
+@router.post("/players/bans/unban", response_class=HTMLResponse)
+def remove_native_ban_page(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    target_identity: str = Form(default=""),
+    confirm: str = Form(default=""),
+) -> Response:
+    """Remove and verify one native identity ban after confirmation."""
+    return _run_native_moderation_page_action(
+        request,
+        action=native_moderation.ACTION_UNBAN,
+        csrf_token=csrf_token,
+        confirmation=confirm,
+        target_identity=target_identity,
+    )
+
+
+@router.post("/players/bans/retry", response_class=HTMLResponse)
+def retry_native_ban_verification_page(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    record_id: str = Form(default=""),
+    duration_seconds: str = Form(default="0"),
+    reason: str = Form(default=""),
+    confirm: str = Form(default=""),
+) -> Response:
+    """Read first and retry one pending native moderation verification."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, PLAYERS_MODERATE):
+        return permission_denied_response()
+    if not validate_csrf_token(current.config.db_path, current.session.id, csrf_token):
+        return PlainTextResponse(
+            "Invalid CSRF token.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+    if confirm != "retry":
+        return _render_native_ban_list_page(
+            request,
+            current,
+            page=1,
+            moderation_error=(
+                "Explicit confirmation is required to retry moderation verification."
+            ),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    normalized_record_id = record_id.strip()
+    if (
+        not normalized_record_id.isascii()
+        or not normalized_record_id.isdecimal()
+        or len(normalized_record_id) > 18
+    ):
+        return _render_native_ban_list_page(
+            request,
+            current,
+            page=1,
+            moderation_error="Pending moderation verification record is invalid.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    record_number = int(normalized_record_id)
+    if record_number < 1:
+        return _render_native_ban_list_page(
+            request,
+            current,
+            page=1,
+            moderation_error="Pending moderation verification record is invalid.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        result = native_moderation.retry_native_moderation_verification(
+            record_number,
+            duration_seconds=duration_seconds,
+            reason=reason,
+            audit_log_path=current.config.audit_log_path,
+            username=current.user.username,
+            db_path=current.config.db_path,
+        )
+    except (ValueError, native_moderation.NativeModerationError) as error:
+        return _render_native_ban_list_page(
+            request,
+            current,
+            page=1,
+            moderation_error=str(error),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    return _render_native_ban_list_page(
+        request,
+        current,
+        page=1,
+        moderation_result=result,
+        status_code=_native_moderation_status_code(result),
     )
 
 

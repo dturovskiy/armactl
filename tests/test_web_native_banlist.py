@@ -257,7 +257,7 @@ def test_complete_empty_native_page_has_explicit_empty_state(
     assert "Native ban list unavailable." not in response.text
 
 
-def test_native_ban_surface_has_no_mutation_controls_or_routes(
+def test_native_ban_surface_exposes_only_typed_confirmed_mutation_routes(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -269,12 +269,15 @@ def test_native_ban_surface_has_no_mutation_controls_or_routes(
     response = client.get("/players/bans", follow_redirects=False)
 
     assert response.status_code == 200
+    for expected in (
+        'action="/players/bans/ban"',
+        'name="confirm" value="ban"',
+    ):
+        assert expected in response.text
     for forbidden in (
-        'action="/players/bans',
         "#ban create",
         "#ban remove",
         "#kick",
-        ">Unban<",
         ">Kick<",
         "Edit reason",
     ):
@@ -287,7 +290,10 @@ def test_native_ban_surface_has_no_mutation_controls_or_routes(
         if getattr(route, "path", "").startswith("/players/bans")
     ]
     assert [(route.path, route.methods) for route in matching_routes] == [
-        ("/players/bans", {"GET"})
+        ("/players/bans", {"GET"}),
+        ("/players/bans/ban", {"POST"}),
+        ("/players/bans/unban", {"POST"}),
+        ("/players/bans/retry", {"POST"}),
     ]
     assert not any(
         getattr(route, "path", "").startswith(("/rcon", "/console"))
@@ -307,9 +313,7 @@ def test_native_ban_get_creates_no_ban_or_player_storage_and_no_audit(
     assert not audit_log.exists()
     web_db = tmp_path / "web" / "web.db"
     with sqlite3.connect(web_db) as connection:
-        job_count_before = int(
-            connection.execute("SELECT COUNT(*) FROM web_jobs").fetchone()[0]
-        )
+        job_count_before = int(connection.execute("SELECT COUNT(*) FROM web_jobs").fetchone()[0])
 
     response = client.get("/players/bans", follow_redirects=False)
 
@@ -319,9 +323,7 @@ def test_native_ban_get_creates_no_ban_or_player_storage_and_no_audit(
     with sqlite3.connect(web_db) as connection:
         table_names = {
             str(row[0])
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
         job_count = int(connection.execute("SELECT COUNT(*) FROM web_jobs").fetchone()[0])
     assert not any("ban" in table_name.casefold() for table_name in table_names)
