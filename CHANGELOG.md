@@ -8,6 +8,9 @@ Semantic Versioning once public releases begin.
 ## [Unreleased]
 
 ### Added
+- Added a bounded active-log health warning for unusually large current
+  `console.log`, `error.log`, or `script.log` files and repeated known engine
+  error signatures, without exposing paths or raw lines.
 - Added `armactl players bans` list/ban/unban/pending/retry commands as a
   confirmation-gated non-web adapter over the same typed native moderation
   service and recovery records used by the dashboard.

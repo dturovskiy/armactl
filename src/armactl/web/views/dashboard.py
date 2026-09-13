@@ -20,6 +20,13 @@ _TELEMETRY_PROBLEM_STATES = frozenset(
         "telemetry_stale",
     }
 )
+_LOG_SPAM_SIGNAL_LABELS = {
+    "virtual_machine_exception": "Virtual Machine Exception",
+    "division_by_zero": "Division by zero",
+    "unknown_class": "Unknown class errors",
+    "addon_loading_failed": "Addon loading failures",
+    "game_creation_failed": "Game creation failures",
+}
 
 
 def _section(value: Mapping[str, Any], name: str) -> Mapping[str, Any]:
@@ -785,7 +792,78 @@ def _host_items(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _diagnostics(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str, Any]]:
+def _log_health_diagnostic(snapshot: Mapping[str, Any]) -> dict[str, Any] | None:
+    health = _section(snapshot, "log_health")
+    anomalies = health.get("anomalies")
+    if not isinstance(anomalies, list) or not anomalies:
+        return None
+
+    items: list[dict[str, Any]] = []
+    for anomaly in anomalies[:3]:
+        if not isinstance(anomaly, Mapping):
+            continue
+        name = _text(anomaly.get("name"), "log")
+        items.extend(
+            (
+                _item("Log", name),
+                _item("Size", _format_bytes(anomaly.get("size_bytes"))),
+            )
+        )
+        if anomaly.get("large") is True:
+            items.append(
+                _item(
+                    "Size status",
+                    "At or above the active-log warning threshold",
+                    translate_value=True,
+                )
+            )
+        if anomaly.get("spam") is True:
+            signal = _text(anomaly.get("spam_signal"), "")
+            items.extend(
+                (
+                    _item(
+                        "Repeated signal",
+                        _LOG_SPAM_SIGNAL_LABELS.get(signal, "Repeated error signature"),
+                        translate_value=True,
+                    ),
+                    _item(
+                        "Matches in bounded tail",
+                        anomaly.get("spam_matches", 0),
+                    ),
+                )
+            )
+    if not items:
+        return None
+    return {
+        "severity": "warning",
+        "title": "Active game logs need attention",
+        "message": (
+            "A current engine log is unusually large or contains a repeated error "
+            "signature. Only a bounded tail was inspected."
+        ),
+        "items": items,
+    }
+
+
+def _format_bytes(value: Any) -> str:
+    count = _byte_count(value)
+    if count is None:
+        return "unknown"
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    amount = float(count)
+    for unit in units:
+        if amount < 1024 or unit == units[-1]:
+            return f"{amount:.1f} {unit}" if unit != "B" else f"{int(amount)} B"
+        amount /= 1024
+    return "unknown"
+
+
+def _diagnostics(
+    snapshot: Mapping[str, Any],
+    lifecycle: str,
+    *,
+    can_view_logs: bool = False,
+) -> list[dict[str, Any]]:
     diagnostics: list[dict[str, Any]] = []
     overview = _section(snapshot, "overview")
     paths = _section(snapshot, "paths")
@@ -831,6 +909,11 @@ def _diagnostics(snapshot: Mapping[str, Any], lifecycle: str) -> list[dict[str, 
                 "items": [_item("Status", "Update available", translate_value=True)],
             }
         )
+
+    if can_view_logs:
+        log_diagnostic = _log_health_diagnostic(snapshot)
+        if log_diagnostic is not None:
+            diagnostics.append(log_diagnostic)
 
     if overview.get("empty_state"):
         diagnostics.append(
@@ -1025,7 +1108,11 @@ def build_dashboard_view(
         "incident_summary": _incident_summary(snapshot),
         "host_meters": _host_meters(snapshot),
         "host_items": _host_items(snapshot),
-        "diagnostics": _diagnostics(snapshot, lifecycle),
+        "diagnostics": _diagnostics(
+            snapshot,
+            lifecycle,
+            can_view_logs=can_view_logs,
+        ),
         "show_recent_jobs": can_view_jobs,
     }
 

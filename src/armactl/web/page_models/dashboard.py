@@ -9,6 +9,7 @@ from typing import Any
 from armactl import (
     discovery,
     incident_monitor,
+    log_health,
     metrics,
     paths,
     player_view,
@@ -61,6 +62,7 @@ class DashboardSnapshot:
     timer: dict[str, Any]
     service_runtime: dict[str, Any]
     operational_status: dict[str, Any]
+    log_health: dict[str, Any]
     recent_incidents: tuple[dict[str, Any], ...]
     incident_monitor: dict[str, Any]
     config: dict[str, Any]
@@ -579,6 +581,24 @@ def _load_operational_status(
     )
 
 
+def _load_log_health(
+    state: ServerState,
+    fps_metrics: dict[str, Any],
+    errors: list[DashboardError],
+) -> dict[str, Any]:
+    config_dir = _config_dir_from_state(state)
+    if config_dir is None:
+        return _unavailable("config path is not available")
+    return _safe_section(
+        "log_health",
+        errors,
+        _unavailable("active game log health is not available"),
+        log_health.query_active_log_health,
+        config_dir,
+        active_console=fps_metrics.get("source"),
+    )
+
+
 def _load_recent_incidents(
     state: ServerState,
     errors: list[DashboardError],
@@ -800,6 +820,7 @@ def load_dashboard_snapshot(
         timer=timer,
         service_runtime=_load_service_runtime(service, errors),
         operational_status=operational_status,
+        log_health=_load_log_health(state, fps_metrics, errors),
         recent_incidents=_load_recent_incidents(state, errors),
         incident_monitor=incident_monitor.read_monitor_status(
             instance,

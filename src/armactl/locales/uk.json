@@ -2089,6 +2089,19 @@
     "Moderation verification recovery could not be updated.": "Не вдалося оновити запис відновлення перевірки модерації.",
     "Moderation verification recovery is unavailable.": "Сховище відновлення перевірки модерації недоступне.",
     "Download report": "Завантажити звіт",
-    "Diagnostic report unavailable.": "Діагностичний звіт недоступний."
+    "Diagnostic report unavailable.": "Діагностичний звіт недоступний.",
+    "Active game logs need attention": "Активні журнали гри потребують уваги",
+    "A current engine log is unusually large or contains a repeated error signature. Only a bounded tail was inspected.": "Поточний журнал рушія має аномальний розмір або містить повторювану сигнатуру помилки. Перевірено лише обмежений хвіст файла.",
+    "Log": "Журнал",
+    "Size status": "Стан розміру",
+    "At or above the active-log warning threshold": "Досягнуто або перевищено поріг попередження для активного журналу",
+    "Repeated signal": "Повторюваний сигнал",
+    "Repeated error signature": "Повторювана сигнатура помилки",
+    "Matches in bounded tail": "Збіги в обмеженому хвості",
+    "Virtual Machine Exception": "Виняток віртуальної машини",
+    "Division by zero": "Ділення на нуль",
+    "Unknown class errors": "Помилки невідомого класу",
+    "Addon loading failures": "Помилки завантаження аддонів",
+    "Game creation failures": "Помилки створення гри"
   }
 }

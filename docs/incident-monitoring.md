@@ -76,6 +76,24 @@ the confirmed evidence.
 The monitor intentionally does not perform automatic recovery. Recovery policy
 and profile fallback remain separate operator-controlled mechanisms.
 
+## Active log health warning
+
+The authenticated dashboard also performs a lightweight, read-only health check
+against the current log generation selected by the existing FPS telemetry
+reader. This warning is independent from retained crash incidents:
+
+- only sibling `console.log`, `error.log`, and `script.log` files are allowed;
+- symlinks and paths outside the current instance log generation are rejected;
+- at most the final 256 KiB of each file is read;
+- a file is considered unusually large at 256 MiB or more;
+- a spam signal requires at least 20 occurrences in the bounded tail of one
+  fixed marker: `Virtual Machine Exception`, `Reason: Division by zero`,
+  `Unknown class`, `Addon loading failed`, or `Cannot create game`.
+
+The dashboard returns only the log basename, size, controlled signal label, and
+match count to users with log-view permission. It never returns the filesystem
+path or matching raw lines and never restarts the game or changes a profile.
+
 ## Native attribution boundary
 
 The monitor installation adds a narrow systemd drop-in with

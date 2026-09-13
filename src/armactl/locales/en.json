@@ -1506,6 +1506,19 @@
     "Moderation verification recovery could not be updated.": "Moderation verification recovery could not be updated.",
     "Moderation verification recovery is unavailable.": "Moderation verification recovery is unavailable.",
     "Download report": "Download report",
-    "Diagnostic report unavailable.": "Diagnostic report unavailable."
+    "Diagnostic report unavailable.": "Diagnostic report unavailable.",
+    "Active game logs need attention": "Active game logs need attention",
+    "A current engine log is unusually large or contains a repeated error signature. Only a bounded tail was inspected.": "A current engine log is unusually large or contains a repeated error signature. Only a bounded tail was inspected.",
+    "Log": "Log",
+    "Size status": "Size status",
+    "At or above the active-log warning threshold": "At or above the active-log warning threshold",
+    "Repeated signal": "Repeated signal",
+    "Repeated error signature": "Repeated error signature",
+    "Matches in bounded tail": "Matches in bounded tail",
+    "Virtual Machine Exception": "Virtual Machine Exception",
+    "Division by zero": "Division by zero",
+    "Unknown class errors": "Unknown class errors",
+    "Addon loading failures": "Addon loading failures",
+    "Game creation failures": "Game creation failures"
   }
 }

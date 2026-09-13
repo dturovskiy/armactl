@@ -236,6 +236,11 @@ def _install_dashboard_model_fakes(
         operational_status,
     )
     monkeypatch.setattr(
+        dashboard_model.log_health,
+        "query_active_log_health",
+        lambda config_dir, **kwargs: {"available": False, "anomalies": []},
+    )
+    monkeypatch.setattr(
         dashboard_model.player_view,
         "query_player_view",
         lambda instance, **kwargs: PlayerView(
@@ -738,6 +743,94 @@ def test_dashboard_keeps_recent_crash_and_suspect_visible_after_recovery(
     }
     assert payload["fields"]["incidents.count"] == "1"
     assert payload["fields"]["incidents.latest_suspect"] == "ATGM / CLBR weapon stack"
+
+
+def test_dashboard_warns_about_bounded_active_log_anomalies(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.page_models import dashboard as dashboard_model
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    _install_dashboard_model_fakes(monkeypatch)
+    monkeypatch.setattr(
+        dashboard_model.log_health,
+        "query_active_log_health",
+        lambda config_dir, **kwargs: {
+            "available": True,
+            "checked_files": ["console.log", "error.log", "script.log"],
+            "anomalies": [
+                {
+                    "name": "error.log",
+                    "size_bytes": 300 * 1024 * 1024,
+                    "large": True,
+                    "spam": True,
+                    "spam_signal": "division_by_zero",
+                    "spam_matches": 47,
+                    "sampled_bytes": 256 * 1024,
+                }
+            ],
+        },
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Active game logs need attention" in response.text
+    assert "Only a bounded tail was inspected." in response.text
+    assert "error.log" in response.text
+    assert "300.0 MiB" in response.text
+    assert "Division by zero" in response.text
+    assert ">47<" in response.text
+    assert str(tmp_path) not in response.text
+
+    _set_cookie(client, LANGUAGE_COOKIE_NAME, "uk")
+    localized = client.get("/dashboard", follow_redirects=False)
+    assert "Активні журнали гри потребують уваги" in localized.text
+    assert "Ділення на нуль" in localized.text
+    assert "Збіги в обмеженому хвості" in localized.text
+
+
+def test_dashboard_hides_active_log_anomalies_without_log_permission(
+    tmp_path: Path,
+    monkeypatch,
+    set_web_owner_permissions,
+):
+    from armactl.web.app import create_app
+    from armactl.web.auth.permissions import DASHBOARD_VIEW
+    from armactl.web.page_models import dashboard as dashboard_model
+
+    password = "owner dashboard password"
+    setup_owner_user(tmp_path, "owner", password)
+    set_web_owner_permissions({DASHBOARD_VIEW})
+    _install_dashboard_model_fakes(monkeypatch)
+    monkeypatch.setattr(
+        dashboard_model.log_health,
+        "query_active_log_health",
+        lambda config_dir, **kwargs: {
+            "available": True,
+            "anomalies": [
+                {
+                    "name": "error.log",
+                    "size_bytes": 300 * 1024 * 1024,
+                    "large": True,
+                    "spam": False,
+                }
+            ],
+        },
+    )
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Active game logs need attention" not in response.text
+    assert "300.0 MiB" not in response.text
 
 
 def test_dashboard_js_static_asset_is_served(tmp_path: Path):
