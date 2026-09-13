@@ -2,11 +2,10 @@
 
 ## Status
 
-Slices 7a-7c are complete for design, the typed read-only native adapter/page,
-and the backend-only verified ban/unban service. Slice 7c adds no mutation route,
-template, browser control, or production deployment. Mutation UI and staged
-production acceptance remain split across Slices 7d-7e. Kick remains deferred
-until fresh-roster target resolution and native response fixtures are proven.
+Slices 7a-7d are complete for design, the typed native adapter, the verified
+ban/unban service, and the authenticated mutation UI. Staged production
+acceptance remains open as Slice 7e. Kick remains deferred until fresh-roster
+target resolution and native response fixtures are proven.
 
 ## Authoritative Backend Decision
 
@@ -38,16 +37,18 @@ operator evidence, not ban truth.
 
 | Surface | Current behavior | Slice 7 decision |
 | --- | --- | --- |
-| `src/armactl/rcon.py` | Uses the configured RCON password transiently and runs only `#players` / `players` roster queries. | Keep protocol transport ownership here. Add typed moderation operations later; never expose arbitrary request-supplied commands. |
+| `src/armactl/rcon.py` | Uses the configured RCON password transiently for bounded roster and typed native ban-list/create/remove operations. | Keep protocol transport ownership here; never expose arbitrary request-supplied commands. |
 | `game.admins` | Canonical game-admin membership. | Not a ban source. Admin synchronization remains separate. |
 | `ServerAdminTools_Config.json` `bans` | The SAT guard clears placeholder-only values and otherwise preserves the field. | Not authoritative, not mirrored, and not mutated by Slice 7. A later SAT-specific feature would require its own contract. |
 | WCS/SAT admin ACLs | Synchronized from `game.admins`. | Not ban sources. Existing ACL rollback behavior must not be coupled to native bans. |
 | `players.db` player registry and sessions | Stores reliable IDs, names, evidence, and sessions without IPs. | Read-only candidate/search context only. It must not store authoritative ban state. |
 | Web audit log | Records bounded intent/outcome events for existing mutations. | Records moderation intent/outcome and uncertainty, but does not prove current ban state. |
-| Current/known/session player pages | Authenticated identity and evidence views. Ban list tab is disabled/planned. | Reuse reliable identity links after the native read adapter exists. Do not bolt mutation logic into page models. |
+| Current/known/session player pages | Authenticated identity and evidence views; the dedicated native ban page is gated by `players:moderate`. | Keep reliable identity as the only durable moderation target and keep backend decisions out of page models/templates. |
 
-No current armactl code implements ban, unban, kick, native ban-list parsing,
-or ban-list persistence. No current permission grants moderation authority.
+armactl now implements typed native ban-list reads plus verified ban/unban
+workflows and intentionally implements neither kick nor local authoritative ban
+persistence. The dedicated `players:moderate` permission grants access to the
+native moderation surface.
 
 ## Identity Contract
 
@@ -341,15 +342,15 @@ they are not a second active checklist.
   - Deferred follow-up: add kick only with a fresh reliable roster, exact
     identity plus current player ID, immediate re-resolution, and
     fixture-proven response handling.
-- Slice 7d: implement the mutation UI.
-  - Keep all mutations POST-only, CSRF-protected, and gated by
+- [x] Slice 7d: implement the mutation UI.
+  - [x] Keep all mutations POST-only, CSRF-protected, and gated by
     `players:moderate`.
-  - Add separate explicit confirmations for supported ban and unban actions.
-  - Submit normalized reliable identity, bounded duration, and sanitized
+  - [x] Add separate explicit confirmations for supported ban and unban actions.
+  - [x] Submit normalized reliable identity, bounded duration, and sanitized
     optional reason; nickname remains search/display-only.
-  - Render controlled changed/no-op/failed/uncertain/recovery notices with no
+  - [x] Render controlled changed/no-op/failed/uncertain/recovery notices with no
     IP, raw command/response, secret, path, or traceback exposure.
-  - Add focused permission, route, template, CSRF, read-only GET, and
+  - [x] Add focused permission, route, template, CSRF, read-only GET, and
     sensitive-output regression coverage.
 - Slice 7e: complete staged production acceptance.
   - Run Serhiivka-first read/mutation/retry/recovery smoke with a designated

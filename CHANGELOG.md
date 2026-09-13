@@ -8,6 +8,9 @@ Semantic Versioning once public releases begin.
 ## [Unreleased]
 
 ### Added
+- Added authenticated native ban/unban controls with reliable-identity targets,
+  fixed duration choices, explicit confirmations, authoritative read-before-write
+  verification, and operator-visible read-first recovery for uncertain outcomes.
 - Added a supervised 15-second incident monitor that persistently captures bounded journal, engine-log, systemd, active-profile, and live-process evidence without restarting the game.
 - Added authenticated incident artifact viewing and explicit monitor health/storage status to the incident page and dashboard card.
 - Added `armactl update profile check <name>` as a CLI fallback for the web profile compatibility canary without activating the tested profile.
@@ -26,6 +29,9 @@ Semantic Versioning once public releases begin.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
+- Typed native moderation service, RCON, and localization coverage passed locally
+  (`75 passed`); GitHub Actions passed Ruff, all `1591` tests, and package build
+  for the authenticated native-moderation UI head.
 - Focused lifecycle, telemetry, incident, and i18n coverage passed (`75 passed`), including prolonged startup telemetry timeout and systemd auto-restart precedence.
 - Serhiivka retained-incident acceptance on `32ec2e9` kept the game process untouched while the 15-second monitor and web view surfaced the bounded `SAL_DroneBulletComponent` evidence as a Realistic Combat Drones/FPV trigger correlation without claiming the final native owner.
 - GitHub Actions passed Ruff, all 1572 pytest cases, and package build for the CLI profile-check head.

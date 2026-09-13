@@ -75,13 +75,13 @@ between the two servers.
 
 ## P2 - Finish Native Moderation
 
-- [ ] Implement Slice 7d authenticated ban/unban mutation UI using the existing
+- [x] Implement Slice 7d authenticated ban/unban mutation UI using the existing
   typed native moderation service.
-- [ ] Keep mutations POST-only, CSRF-protected, and gated by
+- [x] Keep mutations POST-only, CSRF-protected, and gated by
   `players:moderate`; require reliable identity and separate confirmations.
-- [ ] Render bounded changed, no-op, failed, uncertain, and recovery outcomes
+- [x] Render bounded changed, no-op, failed, uncertain, and recovery outcomes
   without IPs, raw commands/responses, secrets, paths, or tracebacks.
-- [ ] Add focused permission, route, template, CSRF, read-only GET, and
+- [x] Add focused permission, route, template, CSRF, read-only GET, and
   sensitive-output regression coverage.
 - [ ] Complete Slice 7e Serhiivka-first read/mutation/retry/recovery acceptance
   with a designated test identity and audited action.
