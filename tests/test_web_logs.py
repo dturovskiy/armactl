@@ -7,6 +7,7 @@ import warnings
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from starlette.exceptions import StarletteDeprecationWarning
 
 from armactl.web.auth.cookies import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
@@ -94,9 +95,7 @@ def test_authenticated_owner_can_open_audit_logs(tmp_path: Path):
     assert CSRF_COOKIE_NAME not in response.text
 
 
-def test_logs_permission_denied_returns_controlled_403(
-    tmp_path: Path, set_web_owner_permissions
-):
+def test_logs_permission_denied_returns_controlled_403(tmp_path: Path, set_web_owner_permissions):
     from armactl.web.app import create_app
 
     password = "owner logs password"
@@ -211,9 +210,7 @@ def test_large_audit_log_uses_bounded_tail_and_marks_truncated(tmp_path: Path):
 
     password = "owner logs password"
     setup_owner_user(tmp_path, "owner", password)
-    old_payload = "old audit secret should not render\n" * (
-        log_views.MAX_RENDER_BYTES // 8
-    )
+    old_payload = "old audit secret should not render\n" * (log_views.MAX_RENDER_BYTES // 8)
     _write_audit(tmp_path, f"{old_payload}latest audit line\n")
     client = _client(create_app(data_root=tmp_path))
     _login(client, "owner", password)
@@ -250,6 +247,101 @@ def test_report_preview_calls_existing_report_builder(tmp_path: Path, monkeypatc
     assert "diagnostic report" in response.text
     assert "hunter2" not in response.text
     assert "password=***" in response.text
+    assert 'href="/report/download?lines=250"' in response.text
+
+
+def test_report_download_requires_authentication(tmp_path: Path, monkeypatch):
+    from armactl.web.app import create_app
+    from armactl.web.services import log_views
+
+    monkeypatch.setattr(log_views.report, "build_report", pytest.fail)
+    client = _client(create_app(data_root=tmp_path))
+
+    response = client.get("/report/download", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_report_download_requires_log_permission(
+    tmp_path: Path,
+    monkeypatch,
+    set_web_owner_permissions,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services import log_views
+
+    monkeypatch.setattr(log_views.report, "build_report", pytest.fail)
+    password = "owner report download password"
+    setup_owner_user(tmp_path, "owner", password)
+    set_web_owner_permissions(set())
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/report/download", follow_redirects=False)
+
+    assert response.status_code == 403
+    assert response.text == "Permission denied."
+
+
+def test_report_download_reuses_bounded_redacted_report_view(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services import log_views
+
+    calls: list[tuple[str, int, bool]] = []
+
+    def fake_build_report(instance: str, *, lines: int, include_journal: bool) -> str:
+        calls.append((instance, lines, include_journal))
+        return f"{'x' * (log_views.MAX_RENDER_BYTES * 2)}\npassword=hunter2\n"
+
+    monkeypatch.setattr(log_views.report, "build_report", fake_build_report)
+    password = "owner report download password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/report/download?lines=9999", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert calls == [("default", 500, False)]
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="armactl-diagnostic-report.txt"'
+    )
+    assert response.headers["content-type"].startswith("text/plain")
+    assert len(response.content) <= log_views.MAX_RENDER_BYTES
+    assert response.text.startswith(log_views.TRUNCATED_PREFIX)
+    assert "hunter2" not in response.text
+    assert "password=***" in response.text
+
+
+def test_report_download_fails_closed_when_report_is_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.app import create_app
+    from armactl.web.services import log_views
+
+    def fail_report(*args, **kwargs):
+        raise RuntimeError("password=raw-secret 198.51.100.10")
+
+    monkeypatch.setattr(log_views.report, "build_report", fail_report)
+    password = "owner report download password"
+    setup_owner_user(tmp_path, "owner", password)
+    client = _client(create_app(data_root=tmp_path))
+    _login(client, "owner", password)
+
+    response = client.get("/report/download", follow_redirects=False)
+
+    assert response.status_code == 503
+    assert response.text == "Diagnostic report unavailable."
+    assert response.headers["cache-control"] == "no-store"
+    assert "raw-secret" not in response.text
+    assert "198.51.100.10" not in response.text
 
 
 def test_logs_page_renders_ukrainian_labels(tmp_path: Path):

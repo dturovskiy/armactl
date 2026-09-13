@@ -2087,6 +2087,8 @@
     "Pending moderation verification record was not found.": "Запис незавершеної перевірки модерації не знайдено.",
     "Moderation verification recovery could not be stored.": "Не вдалося зберегти запис відновлення перевірки модерації.",
     "Moderation verification recovery could not be updated.": "Не вдалося оновити запис відновлення перевірки модерації.",
-    "Moderation verification recovery is unavailable.": "Сховище відновлення перевірки модерації недоступне."
+    "Moderation verification recovery is unavailable.": "Сховище відновлення перевірки модерації недоступне.",
+    "Download report": "Завантажити звіт",
+    "Diagnostic report unavailable.": "Діагностичний звіт недоступний."
   }
 }

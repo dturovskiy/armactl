@@ -15,6 +15,9 @@
     <div>
       <h2>{{ t(view.title) }}</h2>
       <p class="muted">{{ t(view.description) }}</p>
+      {% if view.source_id == "report" %}
+        <a class="button-link secondary-link" href="/report/download?lines={{ view.lines }}">{{ t("Download report") }}</a>
+      {% endif %}
     </div>
     <form method="get" action="{{ view.path }}" class="log-control-form">
       <label>

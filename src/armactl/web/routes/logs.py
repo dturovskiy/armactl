@@ -209,3 +209,36 @@ def logs_source(
 def report_preview(request: Request, lines: str | None = Query(default=None)) -> Response:
     """Render the redacted diagnostic report preview."""
     return _authenticated_log_source(request, log_views.SOURCE_REPORT, lines=lines)
+
+
+@router.get("/report/download")
+def report_download(request: Request, lines: str | None = Query(default=None)) -> Response:
+    """Download the same bounded, redacted report used by the preview."""
+    current = get_current_session(request)
+    if current is None:
+        return _redirect_to_login(request)
+    if not require_permission(current, LOGS_VIEW):
+        return permission_denied_response()
+
+    view = log_views.build_log_view(
+        current.config,
+        log_views.SOURCE_REPORT,
+        lines=lines,
+    )
+    if not view.available:
+        return PlainTextResponse(
+            "Diagnostic report unavailable.",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            headers={
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    return PlainTextResponse(
+        view.content,
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": 'attachment; filename="armactl-diagnostic-report.txt"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

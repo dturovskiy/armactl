@@ -1504,6 +1504,8 @@
     "Pending moderation verification record was not found.": "Pending moderation verification record was not found.",
     "Moderation verification recovery could not be stored.": "Moderation verification recovery could not be stored.",
     "Moderation verification recovery could not be updated.": "Moderation verification recovery could not be updated.",
-    "Moderation verification recovery is unavailable.": "Moderation verification recovery is unavailable."
+    "Moderation verification recovery is unavailable.": "Moderation verification recovery is unavailable.",
+    "Download report": "Download report",
+    "Diagnostic report unavailable.": "Diagnostic report unavailable."
   }
 }
