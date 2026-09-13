@@ -6,6 +6,7 @@ delegates to the corresponding backend module — no business logic here.
 
 from __future__ import annotations
 
+import getpass
 import json
 import sys
 from pathlib import Path
@@ -1638,6 +1639,288 @@ def player_history_collect(
 @main.group("players")
 def players() -> None:
     """Player cache and registry tools."""
+
+
+@players.group("bans")
+def players_bans() -> None:
+    """Inspect and change the authoritative native Reforger ban list."""
+
+
+def _native_ban_list_payload(result) -> dict[str, object]:
+    return {
+        "requested_page": result.requested_page,
+        "available": result.available,
+        "complete": result.complete,
+        "status": result.status,
+        "error_code": result.error_code,
+        "error": result.error,
+        "has_previous": result.has_previous,
+        "has_next": result.has_next,
+        "entries": [
+            {
+                "native_ban_id": entry.native_ban_id,
+                "player_uid": entry.player_uid,
+                "duration_seconds": entry.duration_seconds,
+            }
+            for entry in result.entries
+        ],
+    }
+
+
+def _native_moderation_payload(result) -> dict[str, object]:
+    return {
+        "action": result.action,
+        "instance": result.instance,
+        "target_identity": result.target_identity,
+        "classification": result.classification,
+        "success": result.success,
+        "changed": result.changed,
+        "message": result.message,
+        "error_code": result.error_code,
+        "intent_audited": result.intent_audited,
+        "audit_written": result.audit_written,
+        "baseline_complete": result.baseline_complete,
+        "verification_complete": result.verification_complete,
+        "recovery_record_id": result.recovery_record_id,
+        "recovery_state": result.recovery_state,
+        "recovery_error": result.recovery_error,
+    }
+
+
+def _native_moderation_runtime_paths() -> tuple[Path, Path]:
+    from armactl.web.runtime.paths import web_audit_log_file, web_db_file
+
+    return web_audit_log_file(), web_db_file()
+
+
+def _native_moderation_username() -> str:
+    return f"cli:{getpass.getuser()[:64]}"
+
+
+def _normalize_cli_native_target(target_identity: str) -> str:
+    from armactl.rcon import normalize_native_ban_target
+
+    try:
+        return normalize_native_ban_target(target_identity)
+    except ValueError as error:
+        raise click.ClickException(
+            "A reliable player identity is required for native moderation."
+        ) from error
+
+
+def _echo_native_moderation_result(ctx: click.Context, result) -> None:
+    if ctx.obj["json"]:
+        click.echo(json.dumps(_native_moderation_payload(result), indent=2))
+    else:
+        click.echo(f"Native moderation: {result.classification}.")
+        click.echo(f"  Action:       {result.action or '-'}")
+        click.echo(f"  Identity:     {result.target_identity or '-'}")
+        click.echo(f"  Message:      {result.message}")
+        click.echo(
+            "  Verification: "
+            + ("complete" if result.verification_complete else "incomplete")
+        )
+        if result.recovery_record_id:
+            click.echo(
+                f"  Recovery:     #{result.recovery_record_id} "
+                f"({result.recovery_state or 'pending'})"
+            )
+        if result.recovery_error:
+            click.echo(f"  Recovery warning: {result.recovery_error}")
+    if not result.success:
+        raise click.exceptions.Exit(1)
+
+
+@players_bans.command("list")
+@click.option(
+    "--page",
+    type=click.IntRange(1, 100),
+    default=1,
+    show_default=True,
+)
+@click.pass_context
+def players_bans_list(ctx: click.Context, page: int) -> None:
+    """Read one bounded authoritative native ban-list page."""
+    from armactl.web.services.native_banlist import load_native_ban_list
+
+    result = load_native_ban_list(ctx.obj["instance"], page=page)
+    if ctx.obj["json"]:
+        click.echo(json.dumps(_native_ban_list_payload(result), indent=2))
+    else:
+        click.echo(
+            f"Native ban list page {result.requested_page}: {result.status} "
+            f"({len(result.entries)} entries)."
+        )
+        if result.error:
+            click.echo(f"  {result.error}")
+        for entry in result.entries:
+            duration = (
+                "permanent (native 0 seconds)"
+                if entry.duration_seconds == 0
+                else f"{entry.duration_seconds} seconds"
+            )
+            click.echo(f"  {entry.native_ban_id} | {entry.player_uid} | {duration}")
+    if not result.complete:
+        raise click.exceptions.Exit(1)
+
+
+@players_bans.command("ban")
+@click.argument("target_identity")
+@click.option(
+    "--duration",
+    "duration_seconds",
+    type=click.IntRange(0, 2_147_483_647),
+    required=True,
+    help="Native duration in seconds; pass 0 explicitly for permanent.",
+)
+@click.option("--reason", default="", help="Optional bounded native ban reason.")
+@click.option("--yes", is_flag=True, help="Confirm the native ban action.")
+@click.pass_context
+def players_bans_ban(
+    ctx: click.Context,
+    target_identity: str,
+    duration_seconds: int,
+    reason: str,
+    yes: bool,
+) -> None:
+    """Create and verify one native identity ban."""
+    from armactl.web.services import native_moderation
+
+    target_identity = _normalize_cli_native_target(target_identity)
+    if not yes:
+        click.confirm(
+            f"Ban reliable identity {target_identity} for {duration_seconds} seconds?",
+            abort=True,
+        )
+    audit_log_path, db_path = _native_moderation_runtime_paths()
+    try:
+        result = native_moderation.run_native_moderation_action(
+            native_moderation.ACTION_BAN,
+            target_identity=target_identity,
+            duration_seconds=duration_seconds,
+            reason=reason,
+            instance=ctx.obj["instance"],
+            audit_log_path=audit_log_path,
+            username=_native_moderation_username(),
+            db_path=db_path,
+        )
+    except native_moderation.NativeModerationError as error:
+        raise click.ClickException(str(error)) from error
+    _echo_native_moderation_result(ctx, result)
+
+
+@players_bans.command("unban")
+@click.argument("target_identity")
+@click.option("--yes", is_flag=True, help="Confirm the native unban action.")
+@click.pass_context
+def players_bans_unban(
+    ctx: click.Context,
+    target_identity: str,
+    yes: bool,
+) -> None:
+    """Remove and verify one native identity ban."""
+    from armactl.web.services import native_moderation
+
+    target_identity = _normalize_cli_native_target(target_identity)
+    if not yes:
+        click.confirm(f"Unban reliable identity {target_identity}?", abort=True)
+    audit_log_path, db_path = _native_moderation_runtime_paths()
+    try:
+        result = native_moderation.run_native_moderation_action(
+            native_moderation.ACTION_UNBAN,
+            target_identity=target_identity,
+            instance=ctx.obj["instance"],
+            audit_log_path=audit_log_path,
+            username=_native_moderation_username(),
+            db_path=db_path,
+        )
+    except native_moderation.NativeModerationError as error:
+        raise click.ClickException(str(error)) from error
+    _echo_native_moderation_result(ctx, result)
+
+
+@players_bans.command("pending")
+@click.option("--limit", type=click.IntRange(1, 100), default=20, show_default=True)
+@click.pass_context
+def players_bans_pending(ctx: click.Context, limit: int) -> None:
+    """List bounded non-authoritative moderation recovery records."""
+    from armactl.web.services import moderation_verification
+
+    _audit_log_path, db_path = _native_moderation_runtime_paths()
+    try:
+        records = moderation_verification.list_pending_moderation_verifications(
+            db_path,
+            instance=ctx.obj["instance"],
+            limit=limit,
+        )
+    except moderation_verification.ModerationVerificationError as error:
+        raise click.ClickException(
+            "Moderation verification recovery is unavailable."
+        ) from error
+    payload = [
+        {
+            "id": item.id,
+            "instance": item.instance,
+            "action": item.action,
+            "reliable_identity": item.reliable_identity,
+            "reason_class": item.reason_class,
+            "verification_state": item.verification_state,
+            "created_at": item.created_at,
+            "updated_at": item.updated_at,
+        }
+        for item in records
+    ]
+    if ctx.obj["json"]:
+        click.echo(json.dumps({"count": len(payload), "records": payload}, indent=2))
+        return
+    click.echo(f"Pending moderation verification records: {len(records)}.")
+    for item in records:
+        click.echo(
+            f"  #{item.id} | {item.action} | {item.reliable_identity} | "
+            f"{item.verification_state} | reason={item.reason_class}"
+        )
+
+
+@players_bans.command("retry")
+@click.argument("record_id", type=click.IntRange(1, 999_999_999_999_999_999))
+@click.option(
+    "--duration",
+    "duration_seconds",
+    type=click.IntRange(0, 2_147_483_647),
+    required=True,
+    help="Required replacement duration; pass 0 explicitly only when intended.",
+)
+@click.option("--reason", default="", help="Optional replacement ban reason.")
+@click.option("--yes", is_flag=True, help="Confirm the read-first recovery retry.")
+@click.pass_context
+def players_bans_retry(
+    ctx: click.Context,
+    record_id: int,
+    duration_seconds: int,
+    reason: str,
+    yes: bool,
+) -> None:
+    """Read authoritative state first, then resolve or retry one record."""
+    from armactl.web.services import native_moderation
+
+    if not yes:
+        click.confirm(
+            f"Read first and retry moderation verification record #{record_id}?",
+            abort=True,
+        )
+    audit_log_path, db_path = _native_moderation_runtime_paths()
+    try:
+        result = native_moderation.retry_native_moderation_verification(
+            record_id,
+            duration_seconds=duration_seconds,
+            reason=reason,
+            audit_log_path=audit_log_path,
+            username=_native_moderation_username(),
+            db_path=db_path,
+        )
+    except native_moderation.NativeModerationError as error:
+        raise click.ClickException(str(error)) from error
+    _echo_native_moderation_result(ctx, result)
 
 
 def _format_player_log_ingest_result(result) -> str:
