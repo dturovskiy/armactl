@@ -351,6 +351,7 @@ def _incident_signature(
     )
     has_stugna = "Stugna" in joined
     has_remote_turret = "CLBR_RemoteTurretDriveComponent" in joined
+    has_drone_bullet_class = "SAL_DroneBulletComponent" in joined
     has_mi24 = any(marker in joined for marker in ("Mi24", "Mi-24", "Mi_24"))
     has_persistence = "[PERSISTENCE] Save" in joined
     has_addon_resource_error = any(
@@ -377,6 +378,15 @@ def _incident_signature(
             "ATGM / CLBR weapon stack",
             "high",
             reason,
+        )
+
+    if runtime_crash and has_drone_bullet_class:
+        return (
+            "Realistic Combat Drones / FPV dependency stack",
+            "high",
+            "The Realistic Combat Drones class SAL_DroneBulletComponent was unresolved "
+            "immediately before the native crash. This strongly identifies the drone "
+            "dependency path; the final native fault may still be inside Enfusion.",
         )
 
     if runtime_crash and has_mi24:
@@ -438,6 +448,7 @@ def _incident_evidence(window: list[str], terminal_index: int) -> tuple[str, ...
             for marker in (
                 "Wrong GUID/name for resource",
                 "incompatible ammo",
+                "Unknown class",
                 "Unknown type",
                 "no function with this name",
                 "Addon loading failed",
@@ -538,6 +549,35 @@ def _collected_incident_from_metadata(path: Path) -> ServerIncident | None:
         for item in raw_evidence[:RECENT_INCIDENT_EVIDENCE_MAX_ITEMS]
         if isinstance(item, str) and safe(item)
     )
+    suspect = safe(value.get("suspect")) or "Unknown"
+    confidence = safe(value.get("confidence"), 24) or "low"
+    reason = safe(value.get("reason"), 500)
+    if suspect in {
+        "Enfusion runtime / active addon stack",
+        "Unknown native engine crash",
+        "Unknown",
+    }:
+        console_path = path.parent / "engine" / "console.log"
+        try:
+            inferred = (
+                None
+                if console_path.is_symlink()
+                else _incident_from_console_log(console_path)
+            )
+        except OSError:
+            inferred = None
+        if inferred is not None and inferred.suspect not in {
+            "Unknown native engine crash",
+            "Unknown",
+        }:
+            suspect = inferred.suspect
+            confidence = inferred.confidence
+            reason = inferred.reason
+            merged_evidence = list(evidence)
+            for item in inferred.evidence:
+                if item not in merged_evidence:
+                    merged_evidence.append(item)
+            evidence = tuple(merged_evidence[-RECENT_INCIDENT_EVIDENCE_MAX_ITEMS:])
     raw_artifacts = value.get("artifacts")
     if not isinstance(raw_artifacts, list):
         raw_artifacts = []
@@ -558,9 +598,9 @@ def _collected_incident_from_metadata(path: Path) -> ServerIncident | None:
         kind=safe(value.get("kind"), 80) or "runtime_crash",
         severity=severity,
         summary=safe(value.get("summary")) or "Captured server incident",
-        suspect=safe(value.get("suspect")) or "Unknown",
-        confidence=safe(value.get("confidence"), 24) or "low",
-        reason=safe(value.get("reason"), 500),
+        suspect=suspect,
+        confidence=confidence,
+        reason=reason,
         evidence=evidence,
         source="collector",
         incident_id=safe(value.get("id"), 160),

@@ -213,6 +213,50 @@ def test_collector_deduplicates_engine_signal_when_log_mtime_changes(tmp_path: P
     assert journal_text.count("Application crashed!") == 1
 
 
+def test_collector_attributes_unresolved_drone_class_before_native_crash(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 9, 12, 18, 0, 25, tzinfo=timezone.utc).timestamp()
+    log_dir = _runtime_files(tmp_path, mtime=now)
+    config_file = tmp_path / "default" / "config" / "config.json"
+    config = json.loads(config_file.read_text(encoding="utf-8"))
+    config["game"]["mods"].append(
+        {
+            "modId": "65B007413A813417",
+            "name": "Vampire UAV & FPV drones",
+            "version": "0.20.20",
+        }
+    )
+    config_file.write_text(json.dumps(config), encoding="utf-8")
+    console = log_dir / "console.log"
+    console.write_text(
+        "18:00:17.352 WORLD (E): Unknown class 'SAL_DroneBulletComponent' "
+        "at offset 101(0x65)\n"
+        "18:00:17.490 ENGINE (E): Application crashed! Generated memory dump\n",
+        encoding="utf-8",
+    )
+    os.utime(console, (now, now))
+
+    def runner(args):
+        if args[0] == "systemctl":
+            return incident_monitor.CommandOutput(0, _systemctl_output(pid=0))
+        return incident_monitor.CommandOutput(0, "")
+
+    result = incident_monitor.collect_incidents_once(
+        data_root=tmp_path,
+        runner=runner,
+        now=now,
+    )
+
+    assert result.captured == 1
+    bundle = tmp_path / "default" / "incidents" / result.incident_ids[0]
+    metadata = json.loads((bundle / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["suspect"] == "Realistic Combat Drones / FPV dependency stack"
+    assert metadata["confidence"] == "high"
+    assert "SAL_DroneBulletComponent" in metadata["reason"]
+    assert any("Unknown class" in item for item in metadata["evidence"])
+
+
 def test_correlated_pidless_signal_keeps_pid_and_process_artifact_links(
     tmp_path: Path,
     monkeypatch,

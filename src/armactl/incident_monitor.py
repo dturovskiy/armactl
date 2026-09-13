@@ -560,6 +560,18 @@ def _assessment(
                 "ATGM/CLBR prefab or script activity occurred in the captured failure window. "
                 "This is a strong trigger correlation; the native core remains authoritative.",
             )
+        if "sal_dronebulletcomponent" in joined:
+            known_drone_stack = active_mod_ids.intersection(
+                {"65AD60E204191D37", "65B007413A813417"}
+            )
+            return (
+                "Native game crash" if kind != "hang" else "Game thread hang confirmed",
+                "Realistic Combat Drones / FPV dependency stack",
+                "high" if known_drone_stack else "medium",
+                "The Realistic Combat Drones class SAL_DroneBulletComponent was unresolved "
+                "immediately before the native crash. This strongly identifies the drone "
+                "dependency path; the final native fault may still be inside Enfusion.",
+            )
         if (
             any(marker in joined for marker in ("game master", "gamemaster"))
             and active_mod_ids.intersection({"64F10E068D5880A6", "5AAAC70D754245DD"})
@@ -645,6 +657,7 @@ def _important_evidence(signal: IncidentSignal) -> list[str]:
         "CLBR_",
         "KORNET",
         "Stugna",
+        "Unknown class",
         "Addon loading failed",
         "Cannot create game",
         "Can't compile",

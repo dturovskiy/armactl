@@ -59,6 +59,12 @@ live-process artifacts while adding later confirmation evidence.
 `double free` followed by `Application hangs (force crash)` for the same PID is
 updated as one incident rather than two unrelated failures.
 
+Known high-signal failure windows are assigned a bounded likely-trigger label.
+For example, an unresolved `SAL_DroneBulletComponent` immediately before a
+native crash is attributed to the Realistic Combat Drones/FPV dependency path.
+This is a reproduction lead rather than proof that addon script code owns the
+final native Enfusion fault.
+
 ## Hang detection
 
 When the game service remains `active/running` but `console.log` has stopped

@@ -602,6 +602,33 @@ def test_query_recent_server_incidents_identifies_atgm_kornet_crash(
     assert any("Application crashed" in item for item in incidents[0].evidence)
 
 
+def test_query_recent_server_incidents_identifies_drone_dependency_crash(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-09-12_180015",
+        "\n".join(
+            [
+                "18:00:17.352 WORLD (E): Unknown class "
+                "'SAL_DroneBulletComponent' at offset 101(0x65)",
+                "18:00:17.490 ENGINE (E): Application crashed! Generated memory dump",
+            ]
+        ),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        incidents = metrics.query_recent_server_incidents(config_dir)
+
+    assert len(incidents) == 1
+    assert incidents[0].suspect == "Realistic Combat Drones / FPV dependency stack"
+    assert incidents[0].confidence == "high"
+    assert "SAL_DroneBulletComponent" in incidents[0].reason
+    assert any("Unknown class" in item for item in incidents[0].evidence)
+
+
 def test_query_recent_server_incidents_prefers_persistent_collector_bundle(
     tmp_path: Path,
 ) -> None:
@@ -643,6 +670,56 @@ def test_query_recent_server_incidents_prefers_persistent_collector_bundle(
     assert incidents[0].confirmed is True
     assert incidents[0].pid == 38222
     assert incidents[0].artifacts == ("journal.log", "runtime.json")
+
+
+def test_collected_incident_refines_generic_suspect_from_bounded_bundle_log(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "default" / "config"
+    config_dir.mkdir(parents=True)
+    metadata_dir = tmp_path / "default" / "incidents" / "20260912T180017Z-crash"
+    engine_dir = metadata_dir / "engine"
+    engine_dir.mkdir(parents=True)
+    (engine_dir / "console.log").write_text(
+        "18:00:17.352 WORLD (E): Unknown class 'SAL_DroneBulletComponent'\n"
+        "18:00:17.490 ENGINE (E): Application crashed! Generated memory dump\n",
+        encoding="utf-8",
+    )
+    (metadata_dir / "metadata.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "id": metadata_dir.name,
+                "occurred_at": "2026-09-12T18:00:17+00:00",
+                "captured_at": "2026-09-12T18:00:25+00:00",
+                "kind": "runtime_crash",
+                "severity": "error",
+                "summary": "Native game crash",
+                "suspect": "Enfusion runtime / active addon stack",
+                "confidence": "medium",
+                "reason": "Generic assessment.",
+                "evidence": ["Application crashed! Generated memory dump"],
+                "confirmed": True,
+                "pid": 0,
+                "artifacts": ["engine/console.log"],
+                "bundle": f"incidents/{metadata_dir.name}",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with patch(
+        "armactl.metrics.time.time",
+        return_value=datetime(2026, 9, 12, 18, 1, tzinfo=timezone.utc).timestamp(),
+    ):
+        incidents = metrics.query_recent_server_incidents(config_dir)
+
+    assert len(incidents) == 1
+    assert incidents[0].source == "collector"
+    assert incidents[0].suspect == "Realistic Combat Drones / FPV dependency stack"
+    assert incidents[0].confidence == "high"
+    assert "SAL_DroneBulletComponent" in incidents[0].reason
+    assert any("Unknown class" in item for item in incidents[0].evidence)
 
 
 def test_query_recent_server_incidents_ignores_early_game_destroyed_after_recovery(

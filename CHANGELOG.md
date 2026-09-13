@@ -16,6 +16,7 @@ Semantic Versioning once public releases begin.
 - Generated game-server services now allow native core dumps so the host core handler can retain an authoritative backtrace after a future native crash.
 
 ### Fixed
+- Attributed native crashes immediately preceded by an unresolved `SAL_DroneBulletComponent` to the Realistic Combat Drones/FPV dependency path and retained the exact unknown-class evidence instead of reporting only a generic active-addon suspect.
 - Allowed the generated privileged helper to manage the incident monitor service and timer after installation.
 - Prevented append-only engine logs from recreating the same incident as their mtime changes, preserved the original PID and early process-artifact links during correlation, deduplicated retained journal context, and recognized systemd `status=11/SEGV` exits directly.
 - Bounded stalled SteamCMD update attempts with a five-minute no-output watchdog, terminated the isolated process group before retry, kept failed candidate downloads from changing the active generation, and allowed the managed candidate directory to ignore unrelated parent Git markers without permitting Steam installs inside the source checkout.
