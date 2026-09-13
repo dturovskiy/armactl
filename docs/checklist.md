@@ -29,7 +29,7 @@ The document classification is maintained in
   all other active settings remain unchanged. Profile operations must never
   clone, move, or delete Workshop payloads; Enfusion may still update an active
   Workshop package in place when its modded stack starts.
-- [ ] Verify a failed modded canary leaves its profile parked and usable for a
+- [x] Verify a failed modded canary leaves its profile parked and usable for a
   later retry, while a failed vanilla canary leaves the active package/profile
   unchanged.
 - [ ] Verify dashboard startup state distinguishes service activation, telemetry

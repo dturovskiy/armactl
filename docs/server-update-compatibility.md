@@ -157,5 +157,9 @@ profile maintenance window; Chervonopilya was not changed.
   `ACMFlightCORE` 1.0.30 in place, increasing the pool by 7,507,741 bytes. This
   was runtime Workshop refresh, not a profile copy, move, or deletion.
 
-Automatic-fallback and forced canary-failure recovery remain separate open
-acceptance gates in the active checklist.
+The production policy toggle was also verified `off -> on -> off` without a
+game restart. Deterministic failure-injection tests proved modded rejection,
+vanilla promotion with a retryable parked profile, successful later retry,
+vanilla rejection with the old generation retained, and fallback-disabled
+behavior. Intentionally forcing an incompatible production update remains part
+of the combined current-build automatic-fallback gate in the active checklist.
