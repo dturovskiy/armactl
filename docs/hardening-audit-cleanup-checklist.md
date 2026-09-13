@@ -1,8 +1,14 @@
 # Hardening Audit Cleanup Checklist
 
+Status: historical completed audit reference. This file preserves the closed
+cleanup record; it is not an active checklist. All unfinished and
+decision-gated work is tracked only in [checklist.md](checklist.md).
+
 Цей документ фіксує cleanup-план після архітектурного аудиту `feat/web-interface`.
 
-Boundary note: this is an internal audit carryover checklist. Do not treat it as public release/user documentation or a public `main` merge signal; move or archive it in private planning docs during public docs cleanup.
+Boundary note: do not treat this internal audit carryover as public release/user
+documentation or a public `main` merge signal. Its final keep/archive decision
+belongs to the public documentation-boundary gate in the canonical checklist.
 
 Правило для виконання: працювати тільки у WSL checkout `/home/deus/projects/armactl` на `feat/web-interface`. Windows checkout не використовувати для repo edits.
 
@@ -102,8 +108,8 @@ Closed result:
 - Remaining audit/enqueue wrapper consolidation and compatibility removal are conditional P2 work, not current correctness or production blockers.
 Historical execution checklist (completed):
 
-- [x] Classified `web/facade.py`, `services/filesystem.py`, and `services/pending_restart.py` as tested compatibility surfaces rather than unproven dead code.
-- [x] Classified `/players/refresh` as a tested compatibility alias; removal remains conditional on the downstream compatibility window.
-- [x] Used existing ruff rules and targeted usage checks without adding noisy dead-code tooling.
-- [x] Added the shared recovery/rollback/pending-marker contract before later mutation features.
-- [x] Completed the safe file editor and TUI/Web parity classification; safe config field expansion remains separately gated.
+- Classified `web/facade.py`, `services/filesystem.py`, and `services/pending_restart.py` as tested compatibility surfaces rather than unproven dead code.
+- Classified `/players/refresh` as a tested compatibility alias; removal remains conditional on the downstream compatibility window.
+- Used existing ruff rules and targeted usage checks without adding noisy dead-code tooling.
+- Added the shared recovery/rollback/pending-marker contract before later mutation features.
+- Completed the safe file editor and TUI/Web parity classification; safe config field expansion remains separately gated.

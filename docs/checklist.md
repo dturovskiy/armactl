@@ -18,27 +18,28 @@ Rules for this file:
 The document classification is maintained in
 [plans-register.md](plans-register.md).
 
+## Closed Milestone Index
+
+This is a navigation index, not a second checklist. Completed implementation
+and acceptance detail remains in the linked historical records and Git history.
+
+| Milestone | Closed result | Record |
+| --- | --- | --- |
+| Update/profile safety foundation | Profile switching changes only scenario/mod selection, leaves Workshop payloads in place, preserves the rest of the active config, and parks failed canaries for retry. | [Server update compatibility](server-update-compatibility.md) |
+| Startup and incident diagnosis foundation | Startup states distinguish service, telemetry, failure, and crash states; retained incidents expose bounded evidence and suspects. | [Incident monitoring](incident-monitoring.md) |
+| P1 operator-critical parity | Critical web mutations have an intentional CLI or TUI recovery path backed by shared services; rich read-only presentation remains web-first where documented. | [Web dashboard parity matrix](web-interface-plan.md#7-clituiweb-operational-parity) |
+| Native moderation through Slice 7d | Typed native ban/unban service, authenticated mutation UI, and CLI fallback are implemented with authoritative verification and recovery records. | [Banlist and moderation contract](banlist-moderation-contract.md) |
+| P3 operator diagnostics | Bounded report download, incident CLI history, and active-log anomaly warnings are implemented. | [Changelog](../CHANGELOG.md#unreleased) |
+| Player/session foundation | Incremental ingest, supervised session processing, truth-gated stats, and authenticated session search/detail have completed implementation and staged acceptance. | [Plan register](plans-register.md#completed-implementation-references) |
+
 ## P0 - Stabilize The Current Update, Incident, And Admin Baseline
 
 - [ ] Run the full local validation suite for the current branch and resolve any
   remaining CI failure before production acceptance.
 - [ ] Verify profile create, rename, delete, compatibility check, manual switch,
-  and automatic vanilla fallback against the current server build.
-- [x] Verify profile switching changes only `game.scenarioId` and `game.mods`;
-  admins, passwords, player limits, ports, RCON, persistence, server name, and
-  all other active settings remain unchanged. Profile operations must never
-  clone, move, or delete Workshop payloads; Enfusion may still update an active
-  Workshop package in place when its modded stack starts.
-- [x] Verify a failed modded canary leaves its profile parked and usable for a
-  later retry, while a failed vanilla canary leaves the active package/profile
-  unchanged.
-- [x] Verify dashboard startup state distinguishes service activation, telemetry
-  readiness, controlled shutdown, startup failure, and native crash instead of
-  showing indefinite unexplained telemetry waiting.
-- [x] Verify retained incidents expose bounded evidence, confidence, and likely
-  mod/scenario suspects without claiming certainty or exposing raw paths,
-  secrets, or unbounded log output.
-- [ ] Complete Serhiivka-first and then approved Chervonopillia production
+  and automatic vanilla fallback against the exact currently deployed game
+  build and candidate armactl commit.
+- [ ] Complete Serhiivka-first and then approved Chervonopilya production
   acceptance of the persistent incident monitor defined in
   [incident-monitoring.md](incident-monitoring.md): verify its 15-second timer,
   journal access, redaction, early stale-telemetry capture, artifact links, and
@@ -47,43 +48,14 @@ The document classification is maintained in
   full Game Master access with a designated non-`deus` identity.
 - [ ] Complete staged acceptance on Serhiivka first and record the exact deployed
   commit and results.
-- [ ] Keep Chervonopilya read-only while players are present; deploy or restart
-  its game service only after explicit approval and a safe maintenance window.
 
 Detailed update behavior is defined in
 [server-update-compatibility.md](server-update-compatibility.md). Deployment
 acceptance must not copy runtime config, profiles, addons, or scenario payloads
 between the two servers.
 
-## P1 - Reopen And Finish Operator-Critical CLI/TUI/Web Parity
-
-- [x] Re-audit the actual current CLI commands, TUI screens, web routes, and
-  shared backend owners; the existing parity table predates the compatibility
-  profile and incident work.
-- [x] Approve one explicit operational-parity rule: every critical mutation and
-  recovery flow must use a shared backend and remain operable without a working
-  web process through CLI or, where appropriate to the interactive operator
-  workflow, TUI; headless update/recovery paths require CLI.
-- [x] Classify status/service controls, install/repair, config, mods, admins,
-  schedule, logs/report, update/check/rollback, compatibility profiles, vanilla
-  fallback, and incident diagnosis against that rule.
-- [x] Implement or explicitly document every critical gap found by the audit;
-  do not mark parity complete merely because a difference was classified.
-- [x] Keep rich player/session tables and other read-heavy presentation web-first
-  only where there is a deliberate operator decision and a reliable CLI/TUI
-  recovery path is not required.
-- [x] Add focused shared-backend and adapter tests for each parity gap closed.
-
 ## P2 - Finish Native Moderation
 
-- [x] Implement Slice 7d authenticated ban/unban mutation UI using the existing
-  typed native moderation service.
-- [x] Keep mutations POST-only, CSRF-protected, and gated by
-  `players:moderate`; require reliable identity and separate confirmations.
-- [x] Render bounded changed, no-op, failed, uncertain, and recovery outcomes
-  without IPs, raw commands/responses, secrets, paths, or tracebacks.
-- [x] Add focused permission, route, template, CSRF, read-only GET, and
-  sensitive-output regression coverage.
 - [ ] Complete Slice 7e Serhiivka-first read/mutation/retry/recovery acceptance
   with a designated test identity and audited action.
 - [ ] Review authoritative ban state, journals, audit, and recovery state before
@@ -91,17 +63,6 @@ between the two servers.
 
 The detailed contract remains
 [banlist-moderation-contract.md](banlist-moderation-contract.md).
-
-## P3 - Close Remaining Operator Diagnostics
-
-- [x] Add one authenticated, bounded, redacted diagnostic report download/export
-  response that reuses the existing report builder and keeps `armactl report` as
-  the CLI fallback.
-- [x] Add a bounded operator-visible warning when active `console.log`,
-  `error.log`, or `script.log` becomes anomalously large or matches the defined
-  spam signal.
-- [x] Keep log anomaly checks bounded and expose neither raw filesystem paths nor
-  unbounded raw log lines.
 
 ## P4 - Prepare `feat/web-interface` For Public `main`
 
@@ -120,16 +81,10 @@ The detailed contract remains
 
 ### 4.2 Documentation Boundary
 
-- [ ] Apply the keep/trim/move/archive classification to every public planning,
-  audit, handoff, deployment, player-data, and hardening document.
-- [ ] Move or archive internal implementation histories instead of leaving
-  completed plans mixed with active public work.
 - [ ] Sanitize public docs and examples for private hostnames, IPs, routes,
   provider details, topology, credentials, and operator-only identifiers.
 - [ ] Reduce `README.md`, architecture, roadmap, troubleshooting, and web
   deployment documentation to stable public/free behavior and links.
-- [ ] Confirm this file remains the only public unfinished-work checklist and
-  detailed contracts contain no competing task-status checkboxes.
 
 ### 4.3 Upgrade, Architecture, And Compatibility Review
 

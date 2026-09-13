@@ -1,5 +1,8 @@
 # Admin Permission Synchronization Contract
 
+Status: historical completed implementation reference. Remaining production
+identity acceptance is tracked only in [checklist.md](checklist.md).
+
 ## Purpose
 
 `game.admins` in the instance `config.json` is the canonical administrator list.

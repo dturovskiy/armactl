@@ -1,8 +1,14 @@
 # Player Session Detail And Search Contract
 
-Status: **Slices 6c and 6d complete. Authenticated UI and Serhiivka-first VM smoke are accepted on both target VMs.**
+Status: **Slices 6a-6d complete. Authenticated UI and Serhiivka-first VM smoke
+are accepted on both target VMs.** This is a historical completed reference;
+active work is tracked only in [checklist.md](checklist.md).
 
-This document is the source of truth for the next authenticated player-session read surface after F3-c production acceptance. It defines search, one-session detail, conflict semantics, reuse ownership, privacy, pagination, and implementation slices without adding a second player truth pipeline.
+This document preserves the source-of-truth contract for the implemented first
+authenticated player-session read surface after F3-c production acceptance. It
+defines search, one-session detail, conflict semantics, reuse ownership,
+privacy, pagination, and implementation slices without adding a second player
+truth pipeline.
 
 ## Decision Summary
 
@@ -169,35 +175,35 @@ Forbidden output:
 
 ### Slice 6a: Audit And Contract - complete
 
-- [x] Trace existing list route, page model, registry queries, current stats evaluator, event history, template, and tests.
-- [x] Record reuse owners and P1 gates.
-- [x] Decide server-rendered detail first; no new JSON API.
-- [x] Define query, pagination, identity conflict, privacy, and acceptance contracts.
+- Trace existing list route, page model, registry queries, current stats evaluator, event history, template, and tests.
+- Record reuse owners and P1 gates.
+- Decide server-rendered detail first; no new JSON API.
+- Define query, pagination, identity conflict, privacy, and acceptance contracts.
 
 ### Slice 6b: Query And DTO Foundation - complete
 
-- [x] Add query-only single-session read plus bounded keyset session-list and proven-window event queries; keep only timeline presentation/integration for Slice 6c.
-- [x] Add alias-aware session search without identity merging or duplicate rows.
-- [x] Extract/reuse one session-window stats evaluator for open and closed session detail.
-- [x] Add typed sanitized detail/search DTOs and missing-schema/unavailable behavior.
-- [x] Add focused service tests for query-only access, bounds, ordering, conflicts, freshness, lifecycle, and no fake zeroes.
+- Add query-only single-session read plus bounded keyset session-list and proven-window event queries; keep only timeline presentation/integration for Slice 6c.
+- Add alias-aware session search without identity merging or duplicate rows.
+- Extract/reuse one session-window stats evaluator for open and closed session detail.
+- Add typed sanitized detail/search DTOs and missing-schema/unavailable behavior.
+- Add focused service tests for query-only access, bounds, ordering, conflicts, freshness, lifecycle, and no fake zeroes.
 
 Stop after Slice 6b if a route/template would need duplicated SQL or if closed-session coverage cannot be proven truthfully.
 
 ### Slice 6c: Authenticated UI - complete
 
-- [x] Add the thin authenticated detail route and server-rendered template.
-- [x] Add list keyset navigation, alias/time filters, preserved back-link state, and browser-local time inputs/display.
-- [x] Keep details responsive and closed/secondary by default; do not widen the compact table.
-- [x] Add EN/UK labels and route/template/i18n/read-only regression tests.
-- [x] Keep the stored-session list primary, collapse manual recovery tools and advanced search by default, and explain that page refresh only rereads storage while the configured supervised pipeline performs automatic updates.
+- Add the thin authenticated detail route and server-rendered template.
+- Add list keyset navigation, alias/time filters, preserved back-link state, and browser-local time inputs/display.
+- Keep details responsive and closed/secondary by default; do not widen the compact table.
+- Add EN/UK labels and route/template/i18n/read-only regression tests.
+- Keep the stored-session list primary, collapse manual recovery tools and advanced search by default, and explain that page refresh only rereads storage while the configured supervised pipeline performs automatic updates.
 
 ### Slice 6d: VM Smoke
 
-- [x] Deploy to Serhiivka first without restarting the game server.
-- [x] Verify list filters, aliases, pagination, detail, nullable stats, local time, not-found, and no sensitive output with a normal authenticated session.
-- [x] Review web journal for 500/traceback and confirm GET causes no player DB/session/job writes.
-- [x] Proceed to Chervonopilya only after Serhiivka acceptance and explicit approval.
+- Deploy to Serhiivka first without restarting the game server.
+- Verify list filters, aliases, pagination, detail, nullable stats, local time, not-found, and no sensitive output with a normal authenticated session.
+- Review web journal for 500/traceback and confirm GET causes no player DB/session/job writes.
+- Proceed to Chervonopilya only after Serhiivka acceptance and explicit approval.
 
 Acceptance evidence from 2026-08-12:
 

@@ -3,7 +3,10 @@
 Status: historical/source-of-truth inventory. It does not track unfinished
 work; use [checklist.md](checklist.md) for current priorities.
 
-This inventory records the current implemented player-data flow before the players/history/banlist work. It is based on the current code in `src/armactl`, `src/armactl/web`, `src/armactl/tui`, `src/armactl/cli.py`, and the related tests.
+This inventory began before the players/history/banlist work and now preserves
+the resulting implemented source/storage map. It is based on the code in
+`src/armactl`, `src/armactl/web`, `src/armactl/tui`, `src/armactl/cli.py`, and
+the related tests at the recorded baseline.
 
 ## Current Implemented Sources
 
@@ -11,7 +14,7 @@ This inventory records the current implemented player-data flow before the playe
 | --- | --- | --- | --- | --- | --- |
 | `player_view.query_player_view` | A2S count via `query_player_status`; optional RCON roster via `query_player_roster` | None | Live per call, bounded by caller timeouts | Medium when roster is enabled, because names and GUID-like IDs may be observed | RCON roster wins for current count when available; A2S remains fallback for observed count and `maxPlayers`. RCON entries are identity rows; A2S count never creates synthetic rows. |
 | A2S status (`src/armactl/a2s.py`) | Steam A2S_INFO on configured local query host/port | None | Live per UDP query; returns zero when the server is stopped | Low | Count, max players, map/server strings only; no player identities. |
-| RCON roster (`src/armactl/rcon.py`) | BattlEye RCON commands `#players` then `players` | None | Live per RCON query | High/moderation data | Parses player name, slot ID, and GUID-like values. Uses the configured RCON password only for the session; no ban/kick commands are implemented. |
+| RCON roster and native moderation (`src/armactl/rcon.py`) | BattlEye RCON roster plus bounded `#ban list`, `#ban create`, and `#ban remove` commands | None | Live per RCON operation | High/moderation data | Parses player name, slot ID, and GUID-like values for roster reads; typed ban/unban commands require reliable identities and authoritative verification. Uses the configured RCON password only for the session. Kick remains separately gated and is not implemented. |
 | Dashboard player count (`/dashboard`) | Safe current-roster snapshot path from `player_current_cache.load_current_roster_snapshot`; bounded live fallback uses the same RCON/A2S source as `/players` | Safe `web.db` current-roster cache may be warmed; no `players.db` writes | Dashboard snapshot / poll; accepts a short-lived shared cache before live fallback | Low/public display, high/moderation source internally | Count-only dashboard view. It uses the RCON-backed current-roster snapshot for current count when available, keeps names/IDs out of the dashboard DTO, and avoids downgrading a recent RCON nonzero snapshot to an A2S-only zero when RCON is temporarily unavailable. |
 | Public website status (`/public/server-status.json`) | Dashboard snapshot transformed by `web/routes/public_status.py` | Safe `web.db` current-roster cache may be warmed through the dashboard snapshot; no `players.db` writes | Live per public request, with the same current-roster cache behavior as dashboard | Low/public | Publishes server status, scenario, player count/max text, performance and operational status. It does not publish player names, IDs, paths, sessions, or CSRF/session data, and fails closed on snapshot errors. |
 | Public stats / Discord (`public_stats.py`, `discord_stats.py`, CLI `stats public`) | Safe current-roster snapshot path for player count/names; direct A2S view only for map/max and count-only fallback when the snapshot path is unavailable; config summaries; FPS metrics | Safe `web.db` current-roster cache may be warmed; Discord config stores webhook/message metadata; no player history storage | On CLI request or Discord publisher interval | Medium/public | Discord/public text publishes sanitized current roster names, bounded only by Discord message safety with an explicit truncation marker. It uses the same cache protection against transient RCON roster loss; count-only output appears only when no reliable roster rows are available. Partial roster and stale-cache states are labeled explicitly. It does not include player IDs, IPs, admin actions, paths, or secrets. Mentions are neutralized. |
@@ -145,9 +148,9 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 - Public status fails closed with a generic error. Discord roster output labels count-only or partial-roster states explicitly instead of creating synthetic player rows. Unknown log sources and permission failures return controlled responses without tracebacks.
 - Player IDs/names are visible on authenticated moderation pages and stored in `players.db`; treat them as moderation data. Public website status does not publish names or IDs. Discord stats publishes sanitized current roster names by design, bounded only by Discord message safety with an explicit truncation marker.
 - No code currently adds IP storage for players. Tests assert player registry/event tables do not contain `ip`, `ip_address`, or raw-line columns, event ingest redacts address-like values before storage, and `/players/history` does not render raw source paths, IPs, or raw log lines.
-- RCON code reads the configured password transiently for roster queries and
-  the typed one-page native ban-list read. It persists neither the password nor
-  native response and implements no ban/unban/kick command.
+- RCON code reads the configured password transiently for roster and typed
+  native moderation operations. It persists neither the password nor native
+  responses. Bounded ban/unban is implemented; kick remains separately gated.
 - The earlier admin/mod post-mutation pending-work gap is closed for current admin/mod/config/file-replacement/editor/profile-cleanup flows through shared or covered recovery paths. Future moderation, banlist, broader config, and broader file mutations still need explicit rollback/recovery boundaries before implementation.
 
 ## Current Player History Status And Remaining Gaps
@@ -158,8 +161,9 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 - The supervised player-log ingest and synchronous ordered player-session pipeline are installed, explicitly enabled, and accepted on both target VMs. They remain independent of browser GET/JS/app-start triggers and do not treat legacy queued web scheduler metadata as execution truth.
 - `/players`, `/players/history`, `/players/sessions`, and `/players/sessions/{session_id}` provide authenticated current/history/list/search/detail views with truth-labelled nullable stats, alias/exact-ID filters, bounded keyset pagination, and sanitized evidence. No separate JSON session API or bulk export is planned without an operator need.
 - A2S remains count-only and cannot identify players. RCON may identify reliable players but can be unavailable; stale/current roster cache state is observation truth, not stored session truth.
-- Native moderation Slices 7a-7c are implemented. Current moderation and
-  separately truth-gated Discord work are tracked only in the active checklist.
+- Native moderation Slices 7a-7d are implemented. Slice 7e production
+  acceptance and separately truth-gated kick/Discord work are tracked only in
+  the active checklist.
 - Keep IP storage out unless there is a separate explicit product/security decision and migration.
 
 ### Search By Nickname / ID
@@ -170,7 +174,7 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
 
 ### Banlist Manager
 
-- Slices 7a-7c are documented in
+- Slices 7a-7d are documented in
   [banlist-moderation-contract.md](banlist-moderation-contract.md).
 - The native Reforger server ban list accessed through typed admin RCON operations is the sole runtime source of truth. `config.json`, SAT `bans`, `players.db`, `web.db`, sidecars, and audit records must not become mirrored or shadow ban registries.
 - Slice 7b reads only one requested native page (`1..100`, at most 25 rows)
@@ -178,9 +182,8 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
   complete/partial/unavailable DTOs. It creates no table, cache, mirror,
   sidecar, audit/job/recovery record, or player-storage write.
 - Ban/unban targets use normalized reliable identities. Nicknames are search/display context only; kick uses a freshly re-resolved transient player ID matched to the reliable identity.
-- The remaining runtime contract is Slice 7d mutation UI integration followed by
-  Slice 7e staged production acceptance; status and ordering live only in the
-  active checklist.
+- The remaining runtime contract is Slice 7e staged production acceptance;
+  status and ordering live only in the active checklist.
 - The runtime workflow requires a dedicated `players:moderate` permission, POST-only CSRF-protected mutations, intent audit, authoritative read-before/read-after verification, bounded typed RCON commands, and explicit uncertainty/recovery without blind inverse commands.
 - IP storage, IP bans, SAT/WCS mirroring, nickname-only targeting, arbitrary RCON commands, public/Discord moderation data, and automatic moderation remain out of scope.
 

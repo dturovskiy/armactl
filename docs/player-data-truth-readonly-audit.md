@@ -227,8 +227,9 @@ collectors derive safe event times without storing raw paths or raw lines;
 sessionization uses trusted ordering; UI labels distinguish evidence semantics;
 and focused tests cover delayed collection and legacy/ambiguous rows. Legacy
 rows remain truthfully labelled rather than being rewritten from unavailable
-evidence. The current remaining player work is moderation Slices 7c-7e and
-separately truth-gated Discord enrichment.
+evidence. Native moderation implementation through Slice 7d is now complete;
+Slice 7e production acceptance and separately truth-gated kick/Discord work are
+routed only through [checklist.md](checklist.md).
 
 ## Explicit Out Of Scope
 

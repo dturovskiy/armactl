@@ -1,5 +1,8 @@
 # Safe Config Controls Plan
 
+Status: historical completed reference for the current safe field set. Any
+field expansion is decision-gated only in [checklist.md](checklist.md).
+
 This plan started as a docs-only audit/design slice. Runtime grouping, helper
 text, impact labels, and restart labels are now implemented for the existing
 safe field set. Future expansion must extend the existing config editor instead

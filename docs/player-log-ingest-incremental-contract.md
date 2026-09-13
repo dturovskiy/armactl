@@ -1,5 +1,8 @@
 # Player Log Incremental Ingest Contract
 
+Status: historical completed implementation and production-acceptance
+reference. Active work is tracked only in [checklist.md](checklist.md).
+
 This document defines Slice F2-c, the bounded incremental-ingest contract used
 to accept the supervised player-log timer on a busy server.
 
@@ -73,20 +76,20 @@ Raising the whole-file limit would only postpone the failure and increase I/O.
 - Lock contention remains a controlled skipped cycle; no overlapping writer is
   introduced.
 
-## Acceptance Checklist
+## Acceptance Record
 
-- [x] Bounded active-log tail bootstrap without raising the whole-file cap.
-- [x] Incremental append reads with stable byte references and no duplicate count.
-- [x] Incomplete-line continuation and line-limit catch-up behavior.
-- [x] Rotation/truncation detection including a larger replacement file.
-- [x] Non-blocking counts for oversized historical logs.
-- [x] Persisted v11 offset, parser-state, file-identity, and coverage metadata.
-- [x] Read-only compatibility with legacy ingest metadata.
-- [x] Session-stat coverage gate prevents partial-window zeroes.
-- [x] Busy-VM deployment: an explicit foreground pass hit the bounded line-limit
+- Bounded active-log tail bootstrap without raising the whole-file cap.
+- Incremental append reads with stable byte references and no duplicate count.
+- Incomplete-line continuation and line-limit catch-up behavior.
+- Rotation/truncation detection including a larger replacement file.
+- Non-blocking counts for oversized historical logs.
+- Persisted v11 offset, parser-state, file-identity, and coverage metadata.
+- Read-only compatibility with legacy ingest metadata.
+- Session-stat coverage gate prevents partial-window zeroes.
+- Busy-VM deployment: an explicit foreground pass hit the bounded line-limit
   backlog, the next pass caught up to fresh coverage, and the timer was installed
   disabled before explicit operator enablement.
-- [x] Repeated successful timer cycles advanced freshness without overlap,
+- Repeated successful timer cycles advanced freshness without overlap,
   duplicate growth, raw-data journal output, or game/web process changes.
 
 ## Production Acceptance

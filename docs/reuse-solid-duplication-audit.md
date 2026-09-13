@@ -1,5 +1,8 @@
 # Reuse, SOLID, And Duplication Audit
 
+Status: historical completed audit reference. Conditional follow-ups are
+tracked only in [checklist.md](checklist.md).
+
 This audit was run before runtime safe file editor work and before broader
 feature expansion. It is a historical architecture baseline; later closure
 status is recorded below so its original recommendations are not mistaken for

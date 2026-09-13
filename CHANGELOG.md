@@ -26,6 +26,9 @@ Semantic Versioning once public releases begin.
 - Added `armactl update profile check <name>` as a CLI fallback for the web profile compatibility canary without activating the tested profile.
 
 ### Changed
+- Consolidated unfinished project work into `docs/checklist.md`, converted
+  completed plan checkboxes into historical acceptance records, and corrected
+  stale player/moderation documentation after Slice 7d completion.
 - Generated game-server services now allow native core dumps so the host core handler can retain an authoritative backtrace after a future native crash.
 
 ### Fixed

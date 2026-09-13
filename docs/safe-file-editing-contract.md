@@ -1,5 +1,8 @@
 # Safe File Editing Contract
 
+Status: historical completed reference for the current narrow editor. Any
+broader file mutation is decision-gated only in [checklist.md](checklist.md).
+
 This is the current narrow safe file editing contract. It began as the Slice 1
 read-only design and now also records the implemented runtime editor contract.
 

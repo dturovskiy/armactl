@@ -1,5 +1,8 @@
 # Persistent Incident Monitoring
 
+Status: active detailed contract. The Serhiivka baseline is accepted; remaining
+production acceptance is tracked only in [checklist.md](checklist.md).
+
 `armactl` can run a supervised, read-only evidence collector every 15 seconds.
 It records evidence but never stops, starts, or restarts the game server and
 never changes the active config, profile, scenario, or Workshop files.

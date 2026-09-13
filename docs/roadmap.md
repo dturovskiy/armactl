@@ -29,9 +29,10 @@
 
 The ordered and decision-gated public backlog is maintained only in
 [checklist.md](checklist.md). It includes stabilization of the current
-update/profile/incident/admin baseline, a renewed operator-critical CLI/TUI/Web
-parity audit, native moderation completion, remaining diagnostics, the complete
-public-main preparation gate, and post-merge release work.
+update/profile/incident/admin baseline, native moderation production
+acceptance, the complete public-main preparation gate, and post-merge release
+work. Operator-critical CLI/TUI/Web parity and the current diagnostic slice are
+already closed and indexed from that checklist.
 
 Detailed contracts define behavior but do not maintain competing progress
 lists. Private/commercial dashboard planning remains outside this public

@@ -1,5 +1,9 @@
 # Player Data Truth And VM Smoke Remediation Plan
 
+Status: historical completed remediation reference. Later player/session and
+native moderation work is recorded in the completed contracts and the active
+[checklist.md](checklist.md).
+
 This plan tracks the player-data correctness and operator-UX issues found after the Phase 4 player/session foundation and the latest VM smoke. It is intentionally separate from feature work: first make the existing player data truthful, explainable, and stable.
 
 Do not put private production hostnames, public IPs, provider details, or gateway rules in this public document. Production evidence belongs in private ops notes.
@@ -331,7 +335,9 @@ Acceptance criteria:
 
 ## Out Of Scope For This Plan
 
-- Ban/kick/banlist mutations.
+- Ban/kick/banlist mutations. Native ban/unban was implemented later under
+  [banlist-moderation-contract.md](banlist-moderation-contract.md); kick remains
+  separately gated.
 - Player IP storage.
 - Current-session K/D, role, exact joined time, or exact faction truth unless a reliable source is explicitly added.
 - Automatic player-session daemon/timer enablement.

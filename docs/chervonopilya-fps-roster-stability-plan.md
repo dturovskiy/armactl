@@ -1,6 +1,9 @@
 # Chervonopilya FPS And Current-Roster Stability Plan
 
-Status: infrastructure investigation and production validation complete on 2026-08-12; mod-level remediation remains out of scope unless the exception spam recurs
+Status: historical completed implementation reference. Infrastructure
+investigation and production validation completed on 2026-08-12; mod-level
+remediation remains out of scope unless the exception spam recurs. Active work
+is tracked only in [checklist.md](checklist.md).
 Scope: Chervonopilya production infrastructure validation; exact mod-level root cause remains outside this plan unless the signature recurs
 Safety rule: do not restart or mutate the game server while players are online unless an operator explicitly approves a maintenance action
 
@@ -61,16 +64,16 @@ Initial conclusion: when the web roster briefly disappears while public player c
 
 Goal: capture enough evidence to distinguish a transient broken medical state from a persistent mod/config/version issue.
 
-Checklist:
+Historical investigation record:
 
-- [x] Record current mod list and ACE-related mod IDs/names from `config.json`.
-- [x] Record disabled-mod sidecar state and verify no disabled ACE-related mod remains active in `game.mods`.
-- [x] Capture bounded tails from `console.log`, `error.log`, and `script.log` without scanning entire 400+ MiB files.
-- [x] Estimate exception rate from a bounded recent log window.
-- [x] Capture current player count and FPS from public status at least 3 times over 2-5 minutes.
-- [x] Determine persistence: the exception did not remain continuous after the supported restart, and no recurrence was present in the current logs.
-- [x] Check profile/settings files for ACE Medical or stale module references.
-- [x] Document exact ACE Medical stack frames and class/function names.
+- Record current mod list and ACE-related mod IDs/names from `config.json`.
+- Record disabled-mod sidecar state and verify no disabled ACE-related mod remains active in `game.mods`.
+- Capture bounded tails from `console.log`, `error.log`, and `script.log` without scanning entire 400+ MiB files.
+- Estimate exception rate from a bounded recent log window.
+- Capture current player count and FPS from public status at least 3 times over 2-5 minutes.
+- Determine persistence: the exception did not remain continuous after the supported restart, and no recurrence was present in the current logs.
+- Check profile/settings files for ACE Medical or stale module references.
+- Document exact ACE Medical stack frames and class/function names.
 
 Acceptance criteria:
 
@@ -121,12 +124,12 @@ Acceptance criteria:
 
 After applying a chosen mitigation during a safe window:
 
-- [x] Restart game server through the supported safe restart path.
-- [x] Confirm `-maxFPS 120` remains in the generated start script.
-- [x] Confirm public status returns `ready` and telemetry is fresh.
-- [x] Confirm error/script/console tails no longer spam `ACE_Medical_StableState.UpdatePerfusion`.
-- [x] Confirm FPS stabilizes close to expected values for current player count.
-- [x] Keep rollback instructions ready if the server fails to become ready or spam continues.
+- Restart game server through the supported safe restart path.
+- Confirm `-maxFPS 120` remains in the generated start script.
+- Confirm public status returns `ready` and telemetry is fresh.
+- Confirm error/script/console tails no longer spam `ACE_Medical_StableState.UpdatePerfusion`.
+- Confirm FPS stabilizes close to expected values for current player count.
+- Keep rollback instructions ready if the server fails to become ready or spam continues.
 
 ## 4. Investigation Plan: Current Roster Flicker
 
@@ -134,16 +137,16 @@ After applying a chosen mitigation during a safe window:
 
 Goal: prove whether players are actually leaving or whether named roster reads are intermittently unavailable.
 
-Checklist:
+Historical investigation record:
 
-- [x] Sample public `/public/server-status.json` count every 10-15 seconds for several minutes.
-- [x] Sample named roster from the same source family, preferably Discord preview or a safe current-roster diagnostic, at the same cadence.
-- [x] Compare these states:
+- Sample public `/public/server-status.json` count every 10-15 seconds for several minutes.
+- Sample named roster from the same source family, preferably Discord preview or a safe current-roster diagnostic, at the same cadence.
+- Compare these states:
   - A2S/public count remains > 0 but named roster disappears: read/cache/RCON issue.
   - A2S/public count and named roster both drop: possible real disconnect or server telemetry issue.
   - Named roster changes by a few names while count changes similarly: likely real player joins/leaves.
-- [x] Check web journal around `/players/current.json` for controlled stale/unavailable states.
-- [x] Check whether `armactl players current-cache run` is deployed/running anywhere for this instance.
+- Check web journal around `/players/current.json` for controlled stale/unavailable states.
+- Check whether `armactl players current-cache run` is deployed/running anywhere for this instance.
 
 Current evidence points to read/cache/RCON availability because public count and Discord preview remained healthy while the web roster had previously flickered.
 
@@ -190,11 +193,11 @@ Operational decision from 2026-08-12: do not enable a separate current-cache upd
 
 After any roster-flow change:
 
-- [x] Confirm the roster-stabilization code is already deployed on Serhiivka and perform the closure smoke there before Chervonopilya.
-- [x] Confirm the prior Chervonopilya deployment was web-only and did not restart the game for the roster change.
-- [x] Watch authenticated `/players` and `/players/current.json`, then sample their roster backend, public status, and Discord source for at least 5-10 minutes.
-- [x] Confirm no web traceback/500 in recent journal.
-- [x] Confirm roster flicker is replaced by stable rows/empty state or explicit stale/unavailable status.
+- Confirm the roster-stabilization code is already deployed on Serhiivka and perform the closure smoke there before Chervonopilya.
+- Confirm the prior Chervonopilya deployment was web-only and did not restart the game for the roster change.
+- Watch authenticated `/players` and `/players/current.json`, then sample their roster backend, public status, and Discord source for at least 5-10 minutes.
+- Confirm no web traceback/500 in recent journal.
+- Confirm roster flicker is replaced by stable rows/empty state or explicit stale/unavailable status.
 
 Production validation result from 2026-08-12:
 
@@ -208,11 +211,11 @@ Production validation result from 2026-08-12:
 - Add an operator-visible, bounded log-spam/size warning for very large active
   `console/error/script` logs without exposing raw paths or reading the files
   unbounded. Track status only in [checklist.md](checklist.md).
-- [x] Keep player-log ingest bounded for huge active logs and keep skip/backlog
+- Keep player-log ingest bounded for huge active logs and keep skip/backlog
   reasons counts-only and sanitized.
 - Conditional: add a safe CLI current-roster cache status command only if the
   existing authenticated web diagnostics are insufficient for operators.
-- [x] Document A2S count, RCON roster rows, current-roster cache, Discord stats,
+- Document A2S count, RCON roster rows, current-roster cache, Discord stats,
   and the web current-player table as related but distinct truth surfaces.
 
 ## 6. Immediate Recommendation

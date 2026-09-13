@@ -1,6 +1,6 @@
 # Web Dashboard
 
-Status: implemented-baseline and historical design reference. All unfinished
+Status: historical implemented-baseline and design reference. All unfinished
 work, including parity and public-main preparation, is tracked only in
 [checklist.md](checklist.md).
 
@@ -208,20 +208,42 @@ F3-c production acceptance is complete: only the reviewed generated units were e
 
 Future player history/session implementation must follow the Phase 4a truth rules and the F3 supervised pipeline contract before adding richer session/history semantics or public/Discord enrichment. Automatic mutation remains limited to the explicit F3-b oneshot/timer architecture; browser, GET, app-start, JS, hidden-thread, and queue-only triggers remain forbidden.
 
-Next player slices should remain public/free/local core scope:
+Historical player-slice record and remaining gates:
 
-- slice 2: read-only players page / improved players view from existing sources and stored event/session history;
-- slice 3: initial web-only current-player enrichment from existing player_log_events / player_sessions, with read-only aggregation, labels, placeholders, no schema migration, no K/D, Role still placeholder, and no Discord/public enrichment; this is not final session-stat truth until [player-session-stats-contract.md](player-session-stats-contract.md) is implemented;
+- slice 2: complete — read-only players page / improved players view from
+  existing sources and stored event/session history;
+- slice 3: complete — initial web-only current-player enrichment from existing
+  `player_log_events` / `player_sessions`, with read-only aggregation, labels,
+  placeholders, no schema migration, no K/D, Role still placeholder, and no
+  Discord/public enrichment; the final truth contract was implemented later in
+  [player-session-stats-contract.md](player-session-stats-contract.md);
 - slice 4: complete — F2-a/F2-b/F2-c supervised ingest deployment/observation proves automatic fresh bounded log coverage on both target VMs, and F3-a now documents the enqueue-only session scheduler gap plus one supervised correction;
 - slice 5: complete — F3-b synchronous ordered player-session oneshot/timer and F3-c Serhiivka-first, approval-gated Chervonopilya production acceptance; authenticated detail/search is also complete through Slices 6c-6d, while a JSON API remains conditional later work;
 - slice 6a: complete — audit/design for query-only session detail, alias-aware search, keyset pagination, shared session-window stats, and conflict/privacy rules in [player-session-detail-search-contract.md](player-session-detail-search-contract.md);
 - slice 6b: complete — query-only detail/search DTO foundation, alias-safe search, fail-closed time/source filters, bounded session/event keyset pagination, shared open/closed session stats, and focused regressions;
 - slice 6c: complete — thin authenticated list/detail UI, preserved filters, browser-local time controls/display, responsive EN/UK presentation, bounded timeline, nullable shared stats, and read-only/privacy regressions;
 - slice 6d: complete — Serhiivka-first authenticated VM smoke followed by approved Chervonopilya acceptance, with real list/detail/filter/current-roster requests, sanitized not-found handling, no player DB/session/job writes, no web 500/traceback, and no game restart;
-- slice 7: audited native banlist/moderation manager. Slices 7a-7c design, typed read-only native list, and verified backend ban/unban service are complete; mutation UI Slice 7d and staged acceptance Slice 7e remain open in [banlist-moderation-contract.md](banlist-moderation-contract.md), while kick is separately fixture-gated;
+- slice 7: audited native banlist/moderation manager. Slices 7a-7d design,
+  typed read-only native list, verified backend ban/unban service, authenticated
+  mutation UI, and CLI fallback are complete; staged acceptance Slice 7e
+  remains open in
+  [banlist-moderation-contract.md](banlist-moderation-contract.md), while kick
+  is separately fixture-gated;
 - slice 8: Discord stats enrichment after stable authenticated web player truth exists.
 
-Do not add ban/kick browser mutations, materialized aggregate counters, IP tracking, live journal readers, browser/GET/app-start/JS/hidden-thread session triggers, a public session surface/JSON API, or Discord enrichment until later slices explicitly choose those sources and truth labels. Manual operator-triggered log collection remains the allowlisted background job; F2 supervised ingest remains the explicit synchronous service/timer; current-roster registry refresh remains `players:refresh-current`; and automatic current-roster cache refresh remains the safe snapshot-only `players current-cache run`. F3-b automates only those existing session services through the documented synchronous ordered oneshot/timer; legacy scheduler rows remain compatibility diagnostics rather than execution truth. F3-c production enablement and staged acceptance are complete on both target VMs.
+Do not add kick, materialized aggregate counters, IP tracking, live journal
+readers, browser/GET/app-start/JS/hidden-thread session triggers, a public
+session surface/JSON API, or Discord enrichment until a later slice explicitly
+chooses those sources and truth labels. Native ban/unban is the implemented
+exception governed by the typed moderation contract. Manual operator-triggered
+log collection remains the allowlisted background job; F2 supervised ingest
+remains the explicit synchronous service/timer; current-roster registry refresh
+remains `players:refresh-current`; and automatic current-roster cache refresh
+remains the safe snapshot-only `players current-cache run`. F3-b automates only
+those existing session services through the documented synchronous ordered
+oneshot/timer; legacy scheduler rows remain compatibility diagnostics rather
+than execution truth. F3-c production enablement and staged acceptance are
+complete on both target VMs.
 
 ## Deployment
 
@@ -245,12 +267,12 @@ public merge; the extraction/docs-boundary gate above remains open.
 
 Review status:
 
-- [x] VM smoke for login, dashboard, config, mods, admins, files, logs, jobs, updates, and service controls.
-- [x] TUI/Web parity decisions for install, repair, update, config, mods, cleanup, logs/report, bot, ports, and host-test workflows.
-- [x] Config and file-editor scope, including safe fields, raw JSON boundaries, backups, audit, pending restart, and recovery.
-- [x] Schedule timezone UX with browser-local display/input and UTC backend normalization.
-- [x] Player history/session/moderation/banlist scope with reliable identity rules.
-- [x] Architecture, security, compatibility/dead-code, and source-of-truth review.
+- VM smoke for login, dashboard, config, mods, admins, files, logs, jobs, updates, and service controls.
+- TUI/Web parity decisions for install, repair, update, config, mods, cleanup, logs/report, bot, ports, and host-test workflows.
+- Config and file-editor scope, including safe fields, raw JSON boundaries, backups, audit, pending restart, and recovery.
+- Schedule timezone UX with browser-local display/input and UTC backend normalization.
+- Player history/session/moderation/banlist scope with reliable identity rules.
+- Architecture, security, compatibility/dead-code, and source-of-truth review.
 - Public/private extraction and documentation boundary cleanup remains required;
   track and close it only in the active checklist.
 
@@ -288,8 +310,12 @@ P1 status and remaining gated work:
 P2 later:
 
 - Authenticated richer session list/detail/search UI is complete; a separate JSON API or bulk export remains conditional on operator need.
-- Native moderation Slices 7d-7e after the completed typed read-only Slice 7b and verified backend Slice 7c: mutation UI integration and Serhiivka-first production acceptance. Kick remains a separate fixture-gated follow-up; SAT ban mirroring, IP moderation, nickname-only actions, and arbitrary RCON remain out of scope.
-- TUI/Web parity classification is complete; only the separately tracked web report export gap remains web-primary.
+- Native moderation Slice 7e Serhiivka-first production acceptance after the
+  completed Slices 7a-7d implementation. Kick remains a separate fixture-gated
+  follow-up; SAT ban mirroring, IP moderation, nickname-only actions, and
+  arbitrary RCON remain out of scope.
+- TUI/Web parity classification and the bounded web report export with CLI
+  fallback are complete.
 - Low-noise dead-code audit tooling after an allowlist exists.
 - Rich Discord/player statistics after reliable player history/session data is stable enough.
 
@@ -298,7 +324,8 @@ Out of scope:
 - Direct public dashboard exposure without VPN, firewall, identity-aware proxy, or HTTPS reverse proxy.
 - General-purpose web file manager, recursive delete/move, overwrite upload, or arbitrary path editing.
 - Web editing for secrets, RCON exposure policy, game/public/RCON bind/port changes, or network/firewall changes without dedicated recovery.
-- Ban/kick/banlist mutations, Discord K/D enrichment, and current-session K/D, role, faction, or playtime truth claims.
+- Kick, IP/SAT ban mirroring, Discord K/D enrichment, and unsupported
+  current-session K/D, role, exact faction, or playtime truth claims.
 - Pulling web-primary player/session views back into TUI before an operator need is demonstrated.
 
 ### Findings
@@ -442,7 +469,7 @@ updated units.
 #### 9. Rollback And Transaction Boundaries For Future Mutation Flows
 
 - Current state: config saves and guarded raw-config saves use intent audit, backup, apply, outcome audit, and shared restart-pending recovery marker handling with fallback sidecar. Allowlisted file replacement stages bytes, validates content, audits intent before publish, creates backup, atomically publishes, records restart-pending recovery through the same helper, and returns controlled post-mutation failures if outcome audit or restart tracking fails. Admin and mod mutation actions also route restart-pending recovery through the shared helper, while destructive mod cleanup/remove paths leave safe manifests or controlled recovery handles. Server job enqueue audits intent before queueing and cancels a newly created job if outcome audit fails. Service/schedule/player-session actions audit intent before mutation and outcome after mutation, but not every flow needs or uses restart-pending recovery markers. Player registry writes use SQLite transactions and idempotent helpers, but job outcome audit happens after DB mutation.
-- Risk: a backend mutation can still happen before an exception returns to the route or job runner. The shared mutation_recovery.RestartPendingRecovery helper now covers restart-pending marker fallback for config/raw-config, file replacement/editor, admin actions, mod actions, and mod profile-settings cleanup, including controlled error text when both primary and fallback marker writes fail. Future moderation UI and kick, broader config, and broader file-mutation flows still need to adopt the pattern explicitly before adding new mutation surface.
+- Risk: a backend mutation can still happen before an exception returns to the route or job runner. The shared mutation_recovery.RestartPendingRecovery helper now covers restart-pending marker fallback for config/raw-config, file replacement/editor, admin actions, mod actions, and mod profile-settings cleanup, including controlled error text when both primary and fallback marker writes fail. Native ban/unban uses its separate verified RCON uncertainty/recovery contract. Future kick, broader config, and broader file-mutation flows still need to adopt the applicable recovery pattern before adding new mutation surface.
 - Foundation added: use the mutation recovery checklist for future user-affecting mutations. Required pattern: validate request/permissions/CSRF/allowlist/size; write intent audit; create backup/snapshot/stage/manifest; apply through one narrow service-layer API; verify from disk/DB/service; mark pending work when restart/review/retry/recovery is required; write outcome audit with recovery identifiers; rollback when safe or leave a visible recovery marker with a controlled message.
 - Files/modules touched by the foundation and cleanup pass: src/armactl/web/services/mutation_recovery.py, src/armactl/web/services/config_edit.py, src/armactl/web/services/file_replacements.py, src/armactl/web/services/admin_actions.py, src/armactl/web/services/mod_actions.py, tests/test_web_config_edit.py, tests/test_web_mutation_recovery.py, tests/test_web_admin_actions.py, and tests/test_web_mod_actions.py.
 - Flows connected now: config save, raw config save, allowlisted file replacement/editor post-publish restart tracking, admin actions, mod actions, and mod profile-settings cleanup, plus the backend-only native ban/unban service with its dedicated non-restart recovery record. Service/schedule/job actions remain future candidates only where a restart/review marker actually applies.
@@ -451,7 +478,8 @@ updated units.
 
 Flows that must use the pattern before implementation:
 
-- Slice 7d moderation UI and the separate kick follow-up must use the established typed, audited, verified recovery pattern before implementation.
+- The separate kick follow-up must use the established typed, audited, verified
+  recovery pattern before implementation.
 - Any config expansion beyond the current safe field set and guarded raw editor.
 - Any file mutation beyond the current allowlisted replacement/editor contract, including rename, delete, or bulk upload.
 - Any future player identity merge/split or moderation state attached to player records.

@@ -7,6 +7,9 @@ ban/unban service, and the authenticated mutation UI. Staged production
 acceptance remains open as Slice 7e. Kick remains deferred until fresh-roster
 target resolution and native response fixtures are proven.
 
+This document defines behavior and preserves implementation evidence. The only
+project-status checklist is [checklist.md](checklist.md).
+
 ## Authoritative Backend Decision
 
 The Arma Reforger dedicated server's native ban list, queried and mutated
@@ -316,41 +319,41 @@ part of the completed Slice 7c ban/unban backend.
 - Do not create a generic arbitrary RCON command endpoint or generic remote
   mutation framework.
 
-## Slice Plan
+## Slice Record And Remaining Contract
 
 Implementation status is tracked only in [checklist.md](checklist.md). The
-requirements below preserve the contract order and completed foundation, but
-they are not a second active checklist.
+bullets below preserve the completed foundation and the Slice 7e acceptance
+contract, but they are not a second active checklist.
 
-- [x] Slice 7a: audit sources, choose native RCON truth, settle identity/IP,
+- Slice 7a: audit sources, choose native RCON truth, settle identity/IP,
   permission, recovery, UX, and architecture contracts.
-- [x] Slice 7b: typed read-only native ban adapter, fixtures, permission, and
+- Slice 7b: typed read-only native ban adapter, fixtures, permission, and
   authenticated read-only list.
-- [x] Slice 7c: implement typed ban/unban mutations.
-  - [x] Add bounded typed `#ban create` and `#ban remove` commands plus
+- Slice 7c: implement typed ban/unban mutations.
+  - Add bounded typed `#ban create` and `#ban remove` commands plus
     fixture-proven response classification in `rcon.py`.
-  - [x] Normalize and validate reliable identity, duration, and bounded reason.
-  - [x] Add one per-instance moderation lock.
-  - [x] Read and classify the complete authoritative native baseline.
-  - [x] Write redacted intent audit before any RCON mutation.
-  - [x] Execute only the typed native command.
-  - [x] Re-read the authoritative list after the command.
-  - [x] Classify changed, idempotent no-op, unchanged failure, or uncertain.
-  - [x] Write bounded outcome audit without raw command/response data.
-  - [x] Add a dedicated operator-visible moderation-verification record and
+  - Normalize and validate reliable identity, duration, and bounded reason.
+  - Add one per-instance moderation lock.
+  - Read and classify the complete authoritative native baseline.
+  - Write redacted intent audit before any RCON mutation.
+  - Execute only the typed native command.
+  - Re-read the authoritative list after the command.
+  - Classify changed, idempotent no-op, unchanged failure, or uncertain.
+  - Write bounded outcome audit without raw command/response data.
+  - Add a dedicated operator-visible moderation-verification record and
     read-first retry path; do not reuse restart-pending recovery.
   - Deferred follow-up: add kick only with a fresh reliable roster, exact
     identity plus current player ID, immediate re-resolution, and
     fixture-proven response handling.
-- [x] Slice 7d: implement the mutation UI.
-  - [x] Keep all mutations POST-only, CSRF-protected, and gated by
+- Slice 7d: implement the mutation UI.
+  - Keep all mutations POST-only, CSRF-protected, and gated by
     `players:moderate`.
-  - [x] Add separate explicit confirmations for supported ban and unban actions.
-  - [x] Submit normalized reliable identity, bounded duration, and sanitized
+  - Add separate explicit confirmations for supported ban and unban actions.
+  - Submit normalized reliable identity, bounded duration, and sanitized
     optional reason; nickname remains search/display-only.
-  - [x] Render controlled changed/no-op/failed/uncertain/recovery notices with no
+  - Render controlled changed/no-op/failed/uncertain/recovery notices with no
     IP, raw command/response, secret, path, or traceback exposure.
-  - [x] Add focused permission, route, template, CSRF, read-only GET, and
+  - Add focused permission, route, template, CSRF, read-only GET, and
     sensitive-output regression coverage.
 - Slice 7e: complete staged production acceptance.
   - Run Serhiivka-first read/mutation/retry/recovery smoke with a designated

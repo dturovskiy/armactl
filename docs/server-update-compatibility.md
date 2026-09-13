@@ -1,5 +1,8 @@
 # Server Update Compatibility
 
+Status: active detailed contract. Remaining exact-build profile/fallback
+acceptance is tracked only in [checklist.md](checklist.md).
+
 armactl treats the game package and the configured mod stack as two separate
 compatibility concerns. An update never edits or selectively deletes Workshop
 addons to make a server boot.

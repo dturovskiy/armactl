@@ -1,5 +1,8 @@
 # Player Session Stats Contract
 
+Status: historical completed implementation and production-acceptance
+reference. Active work is tracked only in [checklist.md](checklist.md).
+
 This document is the source of truth for current-player combat, faction, and session columns without heuristic shortcuts. Slices C, D, and E provide checkpointed ingest freshness metadata, explicit reconnect-aware play-session windows, and read-only session-scoped aggregation. Slice F2-a provides the systemd oneshot/timer foundation for the shared F1 ingest path, F2-c provides bounded incremental active-log coverage, and F2-b production acceptance is complete on Serhiivka and Chervonopilya. F3-b now implements the supervised player-session contract in [player-session-supervised-pipeline-contract.md](player-session-supervised-pipeline-contract.md): one synchronous ordered orchestrator consumes proven ingest generations and records durable terminal state without automatic `web_jobs` or web-thread execution. F3-c production acceptance is complete on Serhiivka and Chervonopilya: the units were explicitly enabled, automatic terminal cycles were observed, rollback disable/enable was proven, and game/web PID continuity was preserved. No app-start worker, browser poller, hidden GET-side ingest, or automatic web-service dependency was added.
 
 Busy-server acceptance also requires the bounded incremental contract in [player-log-ingest-incremental-contract.md](player-log-ingest-incremental-contract.md). An oversized active log is tailed once and then read from persisted append offsets; active-source coverage start is stored explicitly, and statistics stay unavailable for any session that began before that proven coverage.
@@ -214,90 +217,90 @@ Before adding Discord player columns, require:
 
 ### Slice A: Contract And Current UI Guard — implemented
 
-- [x] Document this contract and wire it into checklist/plans.
-- [x] Mark the previous authenticated web-only enrichment as insufficient for final session-stat truth.
-- [x] Ensure current UI never shows fake zeroes when no proven session/log freshness exists.
-- [x] Keep stats placeholders if the contract is not satisfied.
+- Document this contract and wire it into checklist/plans.
+- Mark the previous authenticated web-only enrichment as insufficient for final session-stat truth.
+- Ensure current UI never shows fake zeroes when no proven session/log freshness exists.
+- Keep stats placeholders if the contract is not satisfied.
 
 ### Slice B: Parser Fixture Audit - implemented
 
-- [x] Audit existing parser, collector, storage, sessionization, and current-enrichment evidence paths.
-- [x] Document supported stable parsed patterns, blocked/diagnostic-only patterns, and required fields per future stat event type.
-- [x] Confirm event occurrence time comes from caller/collector log evidence, not ingest time.
-- [x] Add focused collector fixtures for all supported parsed event families under dated log context and exact absolute timestamp prefixes.
-- [x] Confirm duplicate ingest and ambiguous timestamp behavior remain covered.
+- Audit existing parser, collector, storage, sessionization, and current-enrichment evidence paths.
+- Document supported stable parsed patterns, blocked/diagnostic-only patterns, and required fields per future stat event type.
+- Confirm event occurrence time comes from caller/collector log evidence, not ingest time.
+- Add focused collector fixtures for all supported parsed event families under dated log context and exact absolute timestamp prefixes.
+- Confirm duplicate ingest and ambiguous timestamp behavior remain covered.
 
 ### Slice C: Automatic Log Ingest Foundation - implemented
 
-- [x] Reuse the current allowlisted discovery and `collect_player_log_events` -> parser -> `player_registry.ingest_player_log_events` storage path without a second parser, collector, SQL, checkpoint, or freshness pipeline.
-- [x] Add per-log checkpoint metadata in players.db using safe source hashes, sanitized labels, bounded file fingerprints, size/mtime, and last scanned status.
-- [x] Skip unchanged files by checkpoint, rescan changed files, and treat missing, rotated, truncated, and oversized logs as controlled counts instead of raw-path failures.
-- [x] Add counts-only freshness metadata with fresh, no_logs, partial, failed, run timestamps, scanned/parsed/stored/skipped counts, skip reasons, and checkpoint-updated status.
-- [x] Expose freshness only as safe status/counts on the player history surface; no raw paths, raw lines, IPs, secrets, or source refs are rendered.
-- [x] Keep `/players`, `/players/current.json`, `/players/history`, and `/players/sessions` from starting ingest or creating `players.db`; only explicit manual POST job execution or explicit foreground CLI execution mutates ingest metadata.
-- [x] Do not enable a daemon, timer, app-start worker, broad scheduler, session aggregation, current-roster cache stats, Discord/public enrichment, or fake zeroes.
+- Reuse the current allowlisted discovery and `collect_player_log_events` -> parser -> `player_registry.ingest_player_log_events` storage path without a second parser, collector, SQL, checkpoint, or freshness pipeline.
+- Add per-log checkpoint metadata in players.db using safe source hashes, sanitized labels, bounded file fingerprints, size/mtime, and last scanned status.
+- Skip unchanged files by checkpoint, rescan changed files, and treat missing, rotated, truncated, and oversized logs as controlled counts instead of raw-path failures.
+- Add counts-only freshness metadata with fresh, no_logs, partial, failed, run timestamps, scanned/parsed/stored/skipped counts, skip reasons, and checkpoint-updated status.
+- Expose freshness only as safe status/counts on the player history surface; no raw paths, raw lines, IPs, secrets, or source refs are rendered.
+- Keep `/players`, `/players/current.json`, `/players/history`, and `/players/sessions` from starting ingest or creating `players.db`; only explicit manual POST job execution or explicit foreground CLI execution mutates ingest metadata.
+- Do not enable a daemon, timer, app-start worker, broad scheduler, session aggregation, current-roster cache stats, Discord/public enrichment, or fake zeroes.
 
 ### Slice F1: Shared One-Shot And Foreground CLI — implemented locally
 
-- [x] Complete the one-shot orchestration audit/design and record the manual-only root cause, job/service boundary, daemon-thread limitation, persistence, audit, and source-of-truth decisions.
-- [x] Move allowlisted discovery, checkpoint planning, existing collector invocation, checkpoint/freshness persistence, and typed counts-only outcome into one synchronous service.
-- [x] Keep `players:collect-log-events` as a thin adapter with existing active-job dedupe and manual intent/outcome audit semantics.
-- [x] Add blocking `armactl players log-ingest run --once` and read-only `armactl players log-ingest status`, with instance/data-root support and sanitized output.
-- [x] Prevent manual/CLI overlap with one shared nonblocking instance/scope lock whose kernel ownership is released on process death; do not add a second dedupe ledger or fake cancellation.
-- [x] Hand the foreground runner to a separate explicit supervised service/timer slice rather than adding a hidden thread or GET trigger.
+- Complete the one-shot orchestration audit/design and record the manual-only root cause, job/service boundary, daemon-thread limitation, persistence, audit, and source-of-truth decisions.
+- Move allowlisted discovery, checkpoint planning, existing collector invocation, checkpoint/freshness persistence, and typed counts-only outcome into one synchronous service.
+- Keep `players:collect-log-events` as a thin adapter with existing active-job dedupe and manual intent/outcome audit semantics.
+- Add blocking `armactl players log-ingest run --once` and read-only `armactl players log-ingest status`, with instance/data-root support and sanitized output.
+- Prevent manual/CLI overlap with one shared nonblocking instance/scope lock whose kernel ownership is released on process death; do not add a second dedupe ledger or fake cancellation.
+- Hand the foreground runner to a separate explicit supervised service/timer slice rather than adding a hidden thread or GET trigger.
 
 ### Slice F2-a: Explicit Supervised Ingest Service/Timer Foundation — implemented locally
 
-- [x] Generate one `Type=oneshot` `armactl-player-log-ingest.service` and one explicit `armactl-player-log-ingest.timer` through the established service-manager/template ownership model.
-- [x] Keep installation idempotent and disabled by default; require `players log-ingest enable` to enable and activate the timer, and provide explicit disable/status operations.
-- [x] Use one 120-second source-of-truth cadence with `OnUnitInactiveSec`, so the next run is scheduled after the prior oneshot finishes and timer-driven runs do not overlap.
-- [x] Keep the F1 cross-process lock authoritative; scheduled `already_running` is a controlled zero-exit skipped cycle, while real ingest failures stay nonzero and do not manufacture fresh success.
-- [x] Run through the generated direct project `.venv` path as the resolved armactl instance owner with `UMask=0077`, a bounded 360-second failure guard derived from the 32-file workload bound, and restrained CPU/I/O priority.
-- [x] Keep scheduled journald output counts-only. Preserve manual foreground outcome audit, suppress unchanged successful scheduled audit, and persist only bounded sanitized failure/freshness-transition/recovery events.
-- [x] Keep status read-only and controlled for missing units or missing `players.db`; report unit existence, enabled/active/failed/result state, timer next trigger, and stored freshness.
-- [x] Do not restart or mutate `armareforger.service`, start work from GET/browser/app startup, couple to the player-session scheduler, or add a daemon/background thread.
+- Generate one `Type=oneshot` `armactl-player-log-ingest.service` and one explicit `armactl-player-log-ingest.timer` through the established service-manager/template ownership model.
+- Keep installation idempotent and disabled by default; require `players log-ingest enable` to enable and activate the timer, and provide explicit disable/status operations.
+- Use one 120-second source-of-truth cadence with `OnUnitInactiveSec`, so the next run is scheduled after the prior oneshot finishes and timer-driven runs do not overlap.
+- Keep the F1 cross-process lock authoritative; scheduled `already_running` is a controlled zero-exit skipped cycle, while real ingest failures stay nonzero and do not manufacture fresh success.
+- Run through the generated direct project `.venv` path as the resolved armactl instance owner with `UMask=0077`, a bounded 360-second failure guard derived from the 32-file workload bound, and restrained CPU/I/O priority.
+- Keep scheduled journald output counts-only. Preserve manual foreground outcome audit, suppress unchanged successful scheduled audit, and persist only bounded sanitized failure/freshness-transition/recovery events.
+- Keep status read-only and controlled for missing units or missing `players.db`; report unit existence, enabled/active/failed/result state, timer next trigger, and stored freshness.
+- Do not restart or mutate `armareforger.service`, start work from GET/browser/app startup, couple to the player-session scheduler, or add a daemon/background thread.
 
 The ingest acceptance criteria “freshness updates without the manual button” and “manual collection is not the only freshness path” are complete after F2-b VM observation. Stats still remain unavailable without a proven open play session covered from its opening; F2-a does not silently enable the separate player-session scheduler.
 
 ### Slice F3-a: Supervised Player-Session Pipeline Audit/Design — complete
 
-- [x] Trace the real session scheduler, job store, worker, lease, dedupe, recovery, sessionizer, live scanner, maintenance, registry, CLI, and service-unit paths.
-- [x] Confirm that `armactl players sessions scheduler run --once` only creates/reuses queued `web_jobs` metadata and records enqueue as scheduler success; it does not dispatch, start, wait for, or verify session work.
-- [x] Confirm that no generic web worker drains those queued rows, web restart does not resume them, and an orphaned queued row can remain active indefinitely and block later requests.
-- [x] Define one F3-b architecture: a disabled-by-default systemd oneshot/timer calling a synchronous ordered orchestrator that gates on a completed fresh ingest generation, then runs stored-log sessionization, reliable live scan, and due maintenance under one shared lock.
-- [x] Preserve read-only current stats, reconnect/lifecycle gates, repeated reliable absence, nullable unavailable results, and counts-only privacy constraints.
-- [x] Implement F3-b runtime code and generated units.
-- [x] Complete F3-c Serhiivka-first, approval-gated Chervonopilya production acceptance.
+- Trace the real session scheduler, job store, worker, lease, dedupe, recovery, sessionizer, live scanner, maintenance, registry, CLI, and service-unit paths.
+- Confirm that `armactl players sessions scheduler run --once` only creates/reuses queued `web_jobs` metadata and records enqueue as scheduler success; it does not dispatch, start, wait for, or verify session work.
+- Confirm that no generic web worker drains those queued rows, web restart does not resume them, and an orphaned queued row can remain active indefinitely and block later requests.
+- Define one F3-b architecture: a disabled-by-default systemd oneshot/timer calling a synchronous ordered orchestrator that gates on a completed fresh ingest generation, then runs stored-log sessionization, reliable live scan, and due maintenance under one shared lock.
+- Preserve read-only current stats, reconnect/lifecycle gates, repeated reliable absence, nullable unavailable results, and counts-only privacy constraints.
+- Implement F3-b runtime code and generated units.
+- Complete F3-c Serhiivka-first, approval-gated Chervonopilya production acceptance.
 
 The full execution, ordering, failure/recovery, cadence, status, privacy, rollout, and stop-condition contract is [player-session-supervised-pipeline-contract.md](player-session-supervised-pipeline-contract.md).
 
 ### Slice D: Play-Session/Reconnect Model - implemented
 
-- [x] Treat player_sessions.session_id as the durable play-session window key, with explicit play_session_id, server_run_key, reconnect merge count, last reconnect metadata, and last gameplay evidence metadata consumed by Slice E aggregation.
-- [x] Reopen the same play-session window when reliable evidence for the same reliable player ID returns within the default 10 minute reconnect grace and all merge gates pass.
-- [x] Block reconnect merges across lifecycle boundaries, incompatible close reasons, identity/correlation conflicts, overlapping conflicting open sessions, and gaps beyond the grace window.
-- [x] Record lifecycle boundary markers even when no session is open, so disconnect-before-shutdown gaps cannot merge into the next server run.
-- [x] Keep roster-only evidence as presence/session evidence and gameplay evidence as explicit last-gameplay metadata; neither claims exact joined time or current combat stats.
-- [x] Keep current players page Kills, Deaths, TK, Faction, and Role placeholder-safe until Slice E proof gates are satisfied.
-- [x] Add tests for reconnect grace, reconnect after grace, lifecycle boundaries, stale absence, identity conflicts, sessionizer idempotence, and gameplay evidence metadata.
+- Treat player_sessions.session_id as the durable play-session window key, with explicit play_session_id, server_run_key, reconnect merge count, last reconnect metadata, and last gameplay evidence metadata consumed by Slice E aggregation.
+- Reopen the same play-session window when reliable evidence for the same reliable player ID returns within the default 10 minute reconnect grace and all merge gates pass.
+- Block reconnect merges across lifecycle boundaries, incompatible close reasons, identity/correlation conflicts, overlapping conflicting open sessions, and gaps beyond the grace window.
+- Record lifecycle boundary markers even when no session is open, so disconnect-before-shutdown gaps cannot merge into the next server run.
+- Keep roster-only evidence as presence/session evidence and gameplay evidence as explicit last-gameplay metadata; neither claims exact joined time or current combat stats.
+- Keep current players page Kills, Deaths, TK, Faction, and Role placeholder-safe until Slice E proof gates are satisfied.
+- Add tests for reconnect grace, reconnect after grace, lifecycle boundaries, stale absence, identity conflicts, sessionizer idempotence, and gameplay evidence metadata.
 
 ### Slice E: Session-Scoped Stats Aggregation — implemented
 
-- [x] Count Kills, Deaths, and TK only inside the proven current play-session window capped by fresh ingest coverage.
-- [x] Require normalized reliable IDs, stable event types, exact/derived occurrence times, same server-run proof, and no lifecycle boundary in the window.
-- [x] Keep teamkills out of Kills, count deaths by matching victim only, and ignore AI/unknown instigators for Kills/TK.
-- [x] Preserve reconnect-merged windows within grace and start new windows after grace or lifecycle boundaries.
-- [x] Return nullable values and controlled unavailable reasons; permit `0` only when a complete fresh scoped query proves zero.
-- [x] Return last-known Faction as session evidence, keep Role as `—`, and add no K/D column.
-- [x] Keep `/players` and `/players/current.json` read-only: no ingest, scanner, sessionizer, maintenance, counter persistence, or `players.db` creation from GET.
-- [x] Expose only safe source/freshness/window terms; no raw log lines, paths, IPs, secrets, raw correlation IDs, Discord/public enrichment, daemon, or timer.
+- Count Kills, Deaths, and TK only inside the proven current play-session window capped by fresh ingest coverage.
+- Require normalized reliable IDs, stable event types, exact/derived occurrence times, same server-run proof, and no lifecycle boundary in the window.
+- Keep teamkills out of Kills, count deaths by matching victim only, and ignore AI/unknown instigators for Kills/TK.
+- Preserve reconnect-merged windows within grace and start new windows after grace or lifecycle boundaries.
+- Return nullable values and controlled unavailable reasons; permit `0` only when a complete fresh scoped query proves zero.
+- Return last-known Faction as session evidence, keep Role as `—`, and add no K/D column.
+- Keep `/players` and `/players/current.json` read-only: no ingest, scanner, sessionizer, maintenance, counter persistence, or `players.db` creation from GET.
+- Expose only safe source/freshness/window terms; no raw log lines, paths, IPs, secrets, raw correlation IDs, Discord/public enrichment, daemon, or timer.
 
 ### Slice F: UI Smoke And Cleanup - complete
 
-- [x] Verify the implemented `/players` details, nullable rendering, safe unavailable wording, and browser polling behavior in an approved environment.
-- [x] Complete F2-b VM acceptance on Serhiivka and Chervonopilya: the timer was explicitly enabled, repeated cycles stayed fresh/non-overlapping, and the separate player-session scheduler remained disabled.
-- [x] Verify no fake zeroes and no accumulation across real new sessions; stats still require a proven open play session.
-- [x] Deploy to Chervonopilya only after successful Serhiivka evidence and explicit approval.
+- Verify the implemented `/players` details, nullable rendering, safe unavailable wording, and browser polling behavior in an approved environment.
+- Complete F2-b VM acceptance on Serhiivka and Chervonopilya: the timer was explicitly enabled, repeated cycles stayed fresh/non-overlapping, and the separate player-session scheduler remained disabled.
+- Verify no fake zeroes and no accumulation across real new sessions; stats still require a proven open play session.
+- Deploy to Chervonopilya only after successful Serhiivka evidence and explicit approval.
 
 ### Slice G: Discord/Public Evaluation - gated
 
@@ -308,27 +311,36 @@ Status for this gated decision is tracked only in
 - if enrichment is chosen, align/reuse the authenticated truth owners before adding columns and label every value by scope;
 - keep role blocked unless a reliable source is added.
 
-## Acceptance Checklist
+## Acceptance Record
 
-- [x] Ingest foundation has checkpoint/freshness metadata and no longer requires rescanning unchanged logs from the manual button.
-- [x] Log freshness does not require manual Update events from logs.
-- [x] Manual log collection remains available but is not the only freshness path.
-- [x] A player reconnecting within 10 minutes after a compatible network/drop absence continues the same play session.
-- [x] A player reconnecting after the grace window starts a new play session.
-- [x] Server lifecycle boundary always starts a new play session.
-- [x] Reliable ID conflict blocks session merge.
-- [x] Kills, deaths, and TK are counted only inside the current proven play-session window.
-- [x] Teamkills do not increment Kills.
-- [x] AI/unknown instigator does not increment a player kill/TK.
-- [x] Faction is labelled as last-known session evidence.
-- [x] Role remains placeholder-only unless a reliable source is added.
-- [x] No fake zeroes when stats freshness/session binding is missing.
-- [x] Re-running ingest/session jobs does not duplicate stats because stored events are deduped and counters are recomputed read-only.
-- [x] /players and /players/current.json stay GET-read-only for players.db and session/stat state.
-- [x] Job output and audit details are counts-only and sanitized.
-- [x] No raw log lines, raw paths, raw RCON rows, IPs, secrets, public player IDs, or Discord enrichment are introduced.
-- [x] Serhiivka VM smoke passed before Chervonopilya deployment and observation.
+- Ingest foundation has checkpoint/freshness metadata and no longer requires rescanning unchanged logs from the manual button.
+- Log freshness does not require manual Update events from logs.
+- Manual log collection remains available but is not the only freshness path.
+- A player reconnecting within 10 minutes after a compatible network/drop absence continues the same play session.
+- A player reconnecting after the grace window starts a new play session.
+- Server lifecycle boundary always starts a new play session.
+- Reliable ID conflict blocks session merge.
+- Kills, deaths, and TK are counted only inside the current proven play-session window.
+- Teamkills do not increment Kills.
+- AI/unknown instigator does not increment a player kill/TK.
+- Faction is labelled as last-known session evidence.
+- Role remains placeholder-only unless a reliable source is added.
+- No fake zeroes when stats freshness/session binding is missing.
+- Re-running ingest/session jobs does not duplicate stats because stored events are deduped and counters are recomputed read-only.
+- /players and /players/current.json stay GET-read-only for players.db and session/stat state.
+- Job output and audit details are counts-only and sanitized.
+- No raw log lines, raw paths, raw RCON rows, IPs, secrets, public player IDs, or Discord enrichment are introduced.
+- Serhiivka VM smoke passed before Chervonopilya deployment and observation.
 
 ## Follow-Up Status
 
-F2 automatic log freshness and F3 supervised player-session execution are accepted on both target VMs. Session Slices 6a-6d are complete through the reusable query/DTO foundation, authenticated search/detail UI, and staged production acceptance documented in [player-session-detail-search-contract.md](player-session-detail-search-contract.md). The next player implementation work is native moderation Slice 7c; Discord/public enrichment remains later and requires an explicit truth/scope decision. Fake zeroes, hidden threads, raw sensitive evidence, and historical oversized-log backfill remain forbidden or separate decisions.
+F2 automatic log freshness and F3 supervised player-session execution are
+accepted on both target VMs. Session Slices 6a-6d are complete through the
+reusable query/DTO foundation, authenticated search/detail UI, and staged
+production acceptance documented in
+[player-session-detail-search-contract.md](player-session-detail-search-contract.md).
+Native moderation implementation through Slice 7d is complete; Slice 7e
+production acceptance and separately gated kick/Discord work are tracked only
+in [checklist.md](checklist.md). Fake zeroes, hidden threads, raw sensitive
+evidence, and historical oversized-log backfill remain forbidden or separate
+decisions.
