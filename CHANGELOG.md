@@ -25,6 +25,7 @@ Semantic Versioning once public releases begin.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
+- Serhiivka retained-incident acceptance on `32ec2e9` kept the game process untouched while the 15-second monitor and web view surfaced the bounded `SAL_DroneBulletComponent` evidence as a Realistic Combat Drones/FPV trigger correlation without claiming the final native owner.
 - GitHub Actions passed Ruff, all 1572 pytest cases, and package build for the CLI profile-check head.
 - Serhiivka current-build acceptance passed named profile create, rename, delete, check, vanilla switch, and modded switch-back while preserving every non-profile config setting and leaving Workshop storage shared.
 - Focused fallback, parked-profile retry, and failed-canary recovery pytest coverage (`6 passed`) in WSL; the Serhiivka policy toggle was also verified on/off without a game restart.

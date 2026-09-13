@@ -84,6 +84,32 @@ It takes effect for the next game process after the systemd units are
 installed/reloaded; the monitor does not restart a running server merely to
 apply it.
 
+## Serhiivka acceptance evidence
+
+On 2026-09-13, commit `32ec2e9` was deployed through Git and only the web
+service was restarted. The game PID and restart counter remained unchanged;
+the public status stayed ready at 120 FPS. The 15-second monitor timer remained
+active, its journal probe succeeded, and its heartbeat was current.
+
+The retained 2026-09-12 startup crash was re-evaluated from its bounded bundle
+without rewriting the stored metadata. The operator view reported
+`Realistic Combat Drones / FPV dependency stack` with high trigger-correlation
+confidence and retained the immediately preceding
+`Unknown class 'SAL_DroneBulletComponent'` line. An unrelated obsolete
+`CLBR_PlayerController` warning was excluded. The assessment still states that
+the final native fault may be inside Enfusion until a core or backtrace proves
+the owning native function.
+
+All captured files in that bundle were below 100 KiB, sensitive values were
+redacted, and the runtime snapshot contained only the allowlisted profile
+summary. `LimitCORE` was unlimited, while `coredumpctl` and `gdb` were not
+available in that VM; the capability report exposes this limitation instead of
+claiming that a native backtrace was captured.
+
+This completes retained-incident presentation acceptance on Serhiivka. A
+deliberately induced live stale-telemetry event was not performed, and
+Chervonopilya remains a separate approval-gated production acceptance step.
+
 A journal message such as `double free or corruption` proves the native memory
 failure mechanism, but it does not by itself prove which mod triggered the
 engine path. Exact native-function attribution still requires a core or

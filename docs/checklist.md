@@ -35,7 +35,7 @@ The document classification is maintained in
 - [ ] Verify dashboard startup state distinguishes service activation, telemetry
   readiness, controlled shutdown, startup failure, and native crash instead of
   showing indefinite unexplained telemetry waiting.
-- [ ] Verify retained incidents expose bounded evidence, confidence, and likely
+- [x] Verify retained incidents expose bounded evidence, confidence, and likely
   mod/scenario suspects without claiming certainty or exposing raw paths,
   secrets, or unbounded log output.
 - [ ] Complete Serhiivka-first and then approved Chervonopillia production
