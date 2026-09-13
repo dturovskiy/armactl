@@ -57,21 +57,22 @@ between the two servers.
 
 ## P1 - Reopen And Finish Operator-Critical CLI/TUI/Web Parity
 
-- [ ] Re-audit the actual current CLI commands, TUI screens, web routes, and
+- [x] Re-audit the actual current CLI commands, TUI screens, web routes, and
   shared backend owners; the existing parity table predates the compatibility
   profile and incident work.
-- [ ] Approve one explicit operational-parity rule: every critical mutation and
+- [x] Approve one explicit operational-parity rule: every critical mutation and
   recovery flow must use a shared backend and remain operable without a working
-  web process through CLI and, where required by the operator workflow, TUI.
-- [ ] Classify status/service controls, install/repair, config, mods, admins,
+  web process through CLI or, where appropriate to the interactive operator
+  workflow, TUI; headless update/recovery paths require CLI.
+- [x] Classify status/service controls, install/repair, config, mods, admins,
   schedule, logs/report, update/check/rollback, compatibility profiles, vanilla
   fallback, and incident diagnosis against that rule.
-- [ ] Implement or explicitly document every critical gap found by the audit;
+- [x] Implement or explicitly document every critical gap found by the audit;
   do not mark parity complete merely because a difference was classified.
-- [ ] Keep rich player/session tables and other read-heavy presentation web-first
+- [x] Keep rich player/session tables and other read-heavy presentation web-first
   only where there is a deliberate operator decision and a reliable CLI/TUI
   recovery path is not required.
-- [ ] Add focused shared-backend and adapter tests for each parity gap closed.
+- [x] Add focused shared-backend and adapter tests for each parity gap closed.
 
 ## P2 - Finish Native Moderation
 
@@ -93,7 +94,7 @@ The detailed contract remains
 
 ## P3 - Close Remaining Operator Diagnostics
 
-- [ ] Add one authenticated, bounded, redacted diagnostic report download/export
+- [x] Add one authenticated, bounded, redacted diagnostic report download/export
   response that reuses the existing report builder and keeps `armactl report` as
   the CLI fallback.
 - [ ] Add a bounded operator-visible warning when active `console.log`,

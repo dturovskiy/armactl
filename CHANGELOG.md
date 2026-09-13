@@ -8,6 +8,13 @@ Semantic Versioning once public releases begin.
 ## [Unreleased]
 
 ### Added
+- Added `armactl players bans` list/ban/unban/pending/retry commands as a
+  confirmation-gated non-web adapter over the same typed native moderation
+  service and recovery records used by the dashboard.
+- Added `armactl incidents list/show` as a bounded, path-free CLI view of the
+  same retained/inferred crash explanations used by the incidents page.
+- Added an authenticated, bounded, redacted diagnostic-report download that
+  reuses the existing web preview and `armactl report` builder.
 - Added authenticated native ban/unban controls with reliable-identity targets,
   fixed duration choices, explicit confirmations, authoritative read-before-write
   verification, and operator-visible read-first recovery for uncertain outcomes.
@@ -29,6 +36,8 @@ Semantic Versioning once public releases begin.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
+- GitHub Actions passed Ruff, all `1608` tests, and package build for the
+  non-web incident-history and native-moderation recovery adapters.
 - Typed native moderation service, RCON, and localization coverage passed locally
   (`75 passed`); GitHub Actions passed Ruff, all `1591` tests, and package build
   for the authenticated native-moderation UI head.

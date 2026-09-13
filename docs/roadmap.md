@@ -18,9 +18,12 @@
 - Server update checks and update-job UX with controlled retry/failure guidance.
 - The current safe config field set, guarded raw config editing, and narrow safe config/profile file editing.
 - Mod add/bulk/import/export/dedupe flows, bounded cleanup manifests, and shared mutation recovery for current mod/profile cleanup paths.
-- Player history, supervised log/session pipelines, current-session truth guards, session search/detail UI, and read-only native ban-list viewing.
+- Player history, supervised log/session pipelines, current-session truth guards,
+  session search/detail UI, and verified native ban/unban management.
 - Browser-local schedule timezone input/display with UTC backend normalization.
-- Operator-critical TUI/Web parity classification; full feature-for-feature parity is intentionally not a goal.
+- Renewed operator-critical CLI/TUI/Web parity with non-web update/profile,
+  moderation, incident, and report recovery paths; full feature-for-feature
+  parity is intentionally not a goal.
 
 ## Remaining Planned Work
 

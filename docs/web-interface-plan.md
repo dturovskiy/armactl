@@ -157,10 +157,12 @@ audit/job/recovery writes, mutation command, POST route, IP/name enrichment, or 
 Slice 7c adds typed bounded `#ban create`/`#ban remove` operations plus one shared
 per-instance moderation lock, complete authoritative read-before/read-after,
 redacted intent/outcome audit, idempotent/no-op/failure/uncertain classification,
-and schema-v16 recovery metadata with read-first retry. It adds no POST route,
-mutation control, kick, ban cache, or production deployment. Slices 7d-7e remain
-the mutation-UI and staged production gates; kick is a separate
-fixture-gated follow-up.
+and schema-v16 recovery metadata with read-first retry. Slice 7d adds
+authenticated, permission-gated, CSRF-protected web ban/unban controls and
+operator-visible recovery retry, plus `armactl players bans` as the non-web CLI
+fallback over the same service. Slice 7e staged production acceptance remains
+open; kick is a separate fixture-gated follow-up. No slice adds a local ban
+cache or arbitrary RCON command surface.
 
 See [player-log-event-inventory.md](player-log-event-inventory.md) for the real log-event inventory before adding player history/statistics. Combat statistics are feasible from the observed script-emitted `INFO: KILL ...` lines, but remain source/capability-dependent rather than vanilla/no-mod.
 
@@ -358,26 +360,45 @@ Out of scope:
 - Validation/smoke needed: `rg` usage checks for duplicate helpers and compatibility facades, import/static smoke, `ruff`, focused tests for any touched shared helper, and full pytest if a shared service contract changes.
 - Stop condition: completed by [reuse-solid-duplication-audit.md](reuse-solid-duplication-audit.md). Future slices must keep an explicit reuse contract, and no new route/service should duplicate existing validation, audit, recovery, path containment, secret handling, or source-of-truth behavior without a documented reason.
 
-#### 7. TUI/Web Parity Gaps
+#### 7. CLI/TUI/Web Operational Parity
 
-- Current state: TUI covers install, repair, structured/raw config, mods, schedule, logs, cleanup, bot settings/service, host tests, and some port workflows. Web covers authenticated dashboard, config, mods, admins, schedule, files, logs/report, jobs, updates, public status, bot, and player/session surfaces.
-- Risk: chasing full parity can bloat the merge and duplicate workflows that should remain CLI/TUI fallback. Some web-primary features, especially player/session views, should not be pulled into TUI without operator demand.
-- Classification status: complete. Full feature-for-feature parity is intentionally not a goal.
+- Operational rule: every critical mutation and recovery workflow must use one
+  shared backend and have a usable non-web adapter. CLI is required for
+  headless update/recovery/diagnostic workflows; TUI is sufficient for
+  interactive workflows it already owns, such as admin ACL management. Rich
+  read-heavy views may stay web-first when they are not needed to recover or
+  safely operate the server.
+- Current state: CLI covers service lifecycle, update/profile recovery, config,
+  mods, schedules, logs/report, incidents, and native moderation. TUI covers
+  install, repair, lifecycle, structured/raw config, mods, admins, schedule,
+  logs, cleanup, bot settings/service, host tests, and ports. Web covers the
+  authenticated dashboard and its richer job, update, profile, diagnostic,
+  moderation, and player/session views.
+- Classification status: renewed against the current command/route/screen
+  inventory. Full feature-for-feature parity is intentionally not a goal.
 
 | Workflow | Decision | Current result | Remaining work |
 | --- | --- | --- | --- |
-| Install and repair | TUI and web needed | TUI has direct install/repair screens; web queues authenticated install/repair jobs and reports bounded job state. | None. |
-| Update check/update | Web-primary | Web has cached checks, safe update jobs, running-server blocks, job links, and recovery guidance. TUI repair remains a recovery workflow, not an equivalent update UI; there is no dedicated armactl CLI/TUI update command. | Keep web-primary unless operator demand justifies another adapter. Live worker cancellation remains a separate conditional design, not parity work. |
-| Config and mods | TUI and web needed | Both reuse shared config/mod backends; web adds guarded raw config, backups, pending work, and narrow file editing. | Safe-field expansion is separate field-by-field work. |
-| Logs | TUI and web needed | TUI has live journal output; web has authenticated bounded/redacted allowlisted sources. | None. |
-| Diagnostic report | Web-primary preview, CLI export fallback | Web preview and `armactl report` use the existing report builder. | Add a bounded/redacted authenticated web download/export response; do not add another report builder or require a TUI report screen. |
+| Status and service lifecycle | CLI/TUI/Web | All adapters use shared discovery, metrics, and service-manager/platform boundaries; CLI/TUI remain available if web is down. | None. |
+| Install and repair | CLI/TUI/Web | CLI and TUI run the shared install/repair generators; web queues the same backend work and reports bounded job state. | None. |
+| Update check/update/rollback | CLI/Web, TUI not required | Web provides cached latest-build checks and safe background jobs. CLI provides `update server`, `status`, and `rollback` over `safe_update`, so recovery does not depend on web. | Remote latest-build preview remains web-rich; direct safe update/recovery is available in CLI. Live worker cancellation remains separately decision-gated. |
+| Compatibility profiles and vanilla fallback | CLI/Web, compact dashboard selector | Both adapters use `safe_update` for list/create/rename/delete/reconcile/check/switch, vanilla, retry-modded, and automatic-fallback policy. | Do not duplicate this long-running recovery flow in TUI unless operators require it. |
+| Config and mods | CLI/TUI/Web | All use shared config/mod backends; web adds guarded raw config, backups, pending work, and narrow file editing. | Safe-field expansion is separate field-by-field work. |
+| Admin ACLs | TUI/Web | Both use transactional `admin_acl_sync`; TUI is the non-web interactive fallback. | A separate CLI adapter is not required by the current operator workflow. |
+| Restart schedule | CLI/TUI/Web | All use the shared restart-timer normalization and service adapter. | None. |
+| Logs | CLI/TUI/Web | CLI/TUI provide live journal access; web provides authenticated bounded/redacted allowlisted sources. | None. |
+| Diagnostic report | CLI/Web | `armactl report`, web preview, and authenticated bounded download reuse the same redacted report builder. | None. |
+| Incident diagnosis | CLI/Web | `armactl incidents list/show` and the web history use the same bounded incident DTO; CLI also manages the supervised monitor. | Artifact browsing remains authenticated web-only; summary diagnosis and monitor recovery do not require web. |
+| Native ban/unban | CLI/Web | Both adapters use the same typed, audited, read-before/read-after moderation service and read-first recovery records. | Production acceptance remains Slice 7e; kick remains separately gated. |
 | Telegram bot | TUI/CLI management, web status | TUI owns token/admin-chat/service configuration; web shows secret-safe Telegram status. | No web mutation parity unless an operator need and a separate secret/recovery contract are approved. |
 | Discord publisher | Web-primary | Web owns secret-safe settings, publish-now, and service actions. | Rich player columns remain separately truth-gated. |
 | Ports/exposure | Web visibility, TUI/CLI mutation | Dashboard exposes read-only port health; config metadata intentionally excludes normal web bind/public/RCON port controls. | Firewall/exposure mutation stays CLI/TUI-only until a dedicated reachability/rollback contract exists. |
 | Host tests | CLI/TUI-only fallback | `./scripts/run-host-tests` and the TUI host-test screen produce the operator diagnostics. | Do not add a web execution route; docs remain the web/operator guidance. |
-| Player/session views | Web-primary | Authenticated current/history/session/search/detail and read-only ban-list surfaces are implemented. | Do not duplicate them in TUI without operator demand. |
+| Player/session views | Web-primary with CLI pipeline recovery | Authenticated current/history/session/search/detail views stay web-rich; CLI owns supervised ingest/session pipeline status and recovery. | Do not duplicate rich tables in TUI without operator demand. |
 
-- Stop condition: met for classification. The confirmed web-primary report export gap is tracked separately in [checklist.md](checklist.md); other differences are deliberate adapter boundaries or separately gated features.
+- Stop condition: met for the renewed inventory, shared-backend audit, and
+  non-web recovery rule. Remaining differences are deliberate presentation
+  boundaries or separately gated production/features work.
 
 #### 8. Final VM Smoke And Merge Review
 
