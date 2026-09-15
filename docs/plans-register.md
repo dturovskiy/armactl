@@ -9,7 +9,9 @@ completion. All unfinished public/free work is tracked only in
 Project-status checkboxes are reserved for `checklist.md`. Detailed contracts
 use requirement bullets, completed references preserve outcome/evidence bullets,
 and recurring runbooks describe reusable procedures. None of those forms is a
-second project backlog.
+second project backlog. The repository PR template is the only explicit
+checkbox exception: it is a per-PR validation/risk form, not persistent project
+status.
 
 Private/commercial dashboard planning stays in the private documentation
 repository. It must not be copied into this public register or used as an
@@ -17,24 +19,26 @@ implicit public-main merge instruction.
 
 ## Active Detailed Contracts
 
-These documents define requirements for work that still has an active or gated
-entry in the single checklist. They are not secondary status trackers and do
-not carry project-status checkboxes.
+These documents define requirements for work currently active in P0/P2 of the
+single checklist, not work that is merely parked in the decision-gated backlog.
+They are not secondary status trackers and do not carry project-status
+checkboxes.
 
 | Document | Contract scope |
 | --- | --- |
 | [banlist-moderation-contract.md](banlist-moderation-contract.md) | Native ban source, typed mutation, identity, privacy, recovery, UI, and staged acceptance requirements. |
 | [server-update-compatibility.md](server-update-compatibility.md) | Update baselines, isolated candidate build, modded/vanilla canaries, named profiles, addon preservation, and rollback behavior. |
 | [incident-monitoring.md](incident-monitoring.md) | Persistent incident capture, evidence bounds, redaction, core capability, service/timer lifecycle, and staged acceptance requirements. |
+| [admin-permissions-contract.md](admin-permissions-contract.md) | Canonical admin/GM synchronization, supported mod ACLs, rollback, and remaining non-`deus` production identity acceptance. |
 
 ## Completed Implementation References
 
 These documents describe implemented foundations or closed audits. Their
 historical acceptance records are reference material, not open work. Any
 genuine follow-up extracted from them belongs only in
-[checklist.md](checklist.md).
+[checklist.md](checklist.md). A separately decision-gated extension does not
+reopen the completed baseline document until that work is explicitly activated.
 
-- [admin-permissions-contract.md](admin-permissions-contract.md)
 - [safe-config-controls-plan.md](safe-config-controls-plan.md)
 - [player-session-stats-contract.md](player-session-stats-contract.md)
 - [chervonopilya-fps-roster-stability-plan.md](chervonopilya-fps-roster-stability-plan.md)
@@ -46,6 +50,15 @@ genuine follow-up extracted from them belongs only in
 - [player-data-truth-remediation-plan.md](player-data-truth-remediation-plan.md)
 - [reuse-solid-duplication-audit.md](reuse-solid-duplication-audit.md)
 - [hardening-audit-cleanup-checklist.md](hardening-audit-cleanup-checklist.md)
+
+## Archived In Git History
+
+The twelve internal audit/inventory/plan/handoff files removed by commit `8582e8a`
+during the public/internal documentation split remain available in Git history.
+They were already closed or superseded, are intentionally absent from the
+working tree, and must not be restored as active checklists or copied back from
+private planning. The original root project checklist and project plan were
+renamed into `docs/checklist.md` and `docs/roadmap.md`; they were not lost.
 
 ## Historical Inventories And Evidence
 

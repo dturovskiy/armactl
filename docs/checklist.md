@@ -25,9 +25,10 @@ and acceptance detail remains in the linked historical records and Git history.
 
 | Milestone | Closed result | Record |
 | --- | --- | --- |
-| Update/profile safety foundation | Profile switching changes only scenario/mod selection, leaves Workshop payloads in place, preserves the rest of the active config, and parks failed canaries for retry. | [Server update compatibility](server-update-compatibility.md) |
-| Startup and incident diagnosis foundation | Startup states distinguish service, telemetry, failure, and crash states; retained incidents expose bounded evidence and suspects. | [Incident monitoring](incident-monitoring.md) |
+| Update/profile safety foundation | Profile create/rename/delete and manual switching were accepted on Serhiivka; switching changes only scenario/mod selection, leaves Workshop payloads in place, and deterministic recovery tests park failed canaries for retry. | [Server update compatibility](server-update-compatibility.md) |
+| Startup and incident diagnosis foundation | Startup states distinguish service, telemetry, failure, and crash states; retained incidents expose bounded evidence and suspects. The Serhiivka timer and retained-incident presentation baseline are accepted. | [Incident monitoring](incident-monitoring.md) |
 | P1 operator-critical parity | Critical web mutations have an intentional CLI or TUI recovery path backed by shared services; rich read-only presentation remains web-first where documented. | [Web dashboard parity matrix](web-interface-plan.md#7-clituiweb-operational-parity) |
+| Admin/GM synchronization implementation | Web and TUI use one transactional synchronization service for `game.admins` and supported SAT/WCS roles with backup and rollback. | [Admin permission contract](admin-permissions-contract.md) |
 | Native moderation through Slice 7d | Typed native ban/unban service, authenticated mutation UI, and CLI fallback are implemented with authoritative verification and recovery records. | [Banlist and moderation contract](banlist-moderation-contract.md) |
 | P3 operator diagnostics | Bounded report download, incident CLI history, and active-log anomaly warnings are implemented. | [Changelog](../CHANGELOG.md#unreleased) |
 | Player/session foundation | Incremental ingest, supervised session processing, truth-gated stats, and authenticated session search/detail have completed implementation and staged acceptance. | [Plan register](plans-register.md#completed-implementation-references) |
@@ -36,14 +37,17 @@ and acceptance detail remains in the linked historical records and Git history.
 
 - [ ] Run the full local validation suite for the current branch and resolve any
   remaining CI failure before production acceptance.
-- [ ] Verify profile create, rename, delete, compatibility check, manual switch,
-  and automatic vanilla fallback against the exact currently deployed game
-  build and candidate armactl commit.
-- [ ] Complete Serhiivka-first and then approved Chervonopilya production
-  acceptance of the persistent incident monitor defined in
-  [incident-monitoring.md](incident-monitoring.md): verify its 15-second timer,
-  journal access, redaction, early stale-telemetry capture, artifact links, and
-  core-capture capability report without restarting an occupied game server.
+- [ ] Complete the remaining current-build automatic-fallback production gate on
+  Serhiivka: with the policy enabled, prove that a genuinely incompatible
+  modded canary promotes vanilla, preserves the parked modded profile for retry,
+  and records the exact game build and deployed armactl commit.
+- [ ] Complete the remaining persistent-incident-monitor acceptance defined in
+  [incident-monitoring.md](incident-monitoring.md): exercise early live
+  stale-telemetry capture during an approved safe Serhiivka window, then perform
+  the separately approved Chervonopilya acceptance without restarting an
+  occupied game server. The Serhiivka 15-second timer, journal access,
+  redaction, retained artifact links, and core-capability report are already
+  accepted.
 - [ ] Verify an existing game admin is not offered the add-admin action and test
   full Game Master access with a designated non-`deus` identity.
 - [ ] Complete staged acceptance on Serhiivka first and record the exact deployed

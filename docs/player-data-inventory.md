@@ -153,7 +153,7 @@ Optional evidence/link tables can map session rows back to stored `player_log_ev
   responses. Bounded ban/unban is implemented; kick remains separately gated.
 - The earlier admin/mod post-mutation pending-work gap is closed for current admin/mod/config/file-replacement/editor/profile-cleanup flows through shared or covered recovery paths. Future moderation, banlist, broader config, and broader file mutations still need explicit rollback/recovery boundaries before implementation.
 
-## Current Player History Status And Remaining Gaps
+## Current Player History Status And Routed Gaps
 
 ### Sessions / History
 

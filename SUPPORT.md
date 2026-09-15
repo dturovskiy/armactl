@@ -13,8 +13,9 @@ Before opening an issue, check:
 - [README.md](README.md)
 - [docs/troubleshooting.md](docs/troubleshooting.md)
 - [docs/telegram-bot.md](docs/telegram-bot.md)
-- [docs/web-interface-plan.md](docs/web-interface-plan.md), for web dashboard
-  behavior and remaining work
+- [docs/web-interface-plan.md](docs/web-interface-plan.md), for the historical
+  web dashboard design and implemented baseline
+- [docs/checklist.md](docs/checklist.md), for current and decision-gated work
 
 ## What to include
 

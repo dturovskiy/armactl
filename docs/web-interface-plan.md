@@ -404,7 +404,7 @@ Out of scope:
 - Classification status: renewed against the current command/route/screen
   inventory. Full feature-for-feature parity is intentionally not a goal.
 
-| Workflow | Decision | Current result | Remaining work |
+| Workflow | Decision | Current result | Boundary or separate gate |
 | --- | --- | --- | --- |
 | Status and service lifecycle | CLI/TUI/Web | All adapters use shared discovery, metrics, and service-manager/platform boundaries; CLI/TUI remain available if web is down. | None. |
 | Install and repair | CLI/TUI/Web | CLI and TUI run the shared install/repair generators; web queues the same backend work and reports bounded job state. | None. |
@@ -485,7 +485,7 @@ Flows that must use the pattern before implementation:
 - Any future player identity merge/split or moderation state attached to player records.
 - Any mod cleanup behavior that moves beyond current confirmed cleanup or starts deleting outside the instance `config/addons` scope.
 
-### Recommended Next Implementation Slice
+### Active Work Routing
 
 This historical plan no longer selects the next slice. Use the priority order in
 [checklist.md](checklist.md).

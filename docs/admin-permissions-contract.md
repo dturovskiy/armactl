@@ -1,7 +1,8 @@
 # Admin Permission Synchronization Contract
 
-Status: historical completed implementation reference. Remaining production
-identity acceptance is tracked only in [checklist.md](checklist.md).
+Status: active detailed contract. Implementation is complete; remaining
+non-`deus` production identity acceptance is tracked only in
+[checklist.md](checklist.md).
 
 ## Purpose
 

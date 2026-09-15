@@ -252,18 +252,18 @@ Unsafe to touch before merge:
   current docs gate.
 - Production, SSH, deploy, restart, or service state.
 
-## Remaining Conditional Follow-Ups
+## Conditional Follow-Up Record
 
 The file editor reuse helper, thin runtime editor, and profile-cleanup recovery
 refactor are complete. No P0/P1 architecture blocker remains from this audit.
 
-The remaining items are conditional P2 work, not current correctness blockers:
+Discord/public stats alignment with the shared dashboard/public snapshot was
+completed after this audit. The remaining items are conditional P2 work tracked
+only in [checklist.md](checklist.md), not current correctness blockers:
 
 - consolidate repeated action audit boilerplate only when another multi-service
   mutation slice needs the same semantics;
 - reduce background-job enqueue wrapper repetition after job behavior settles;
-- align Discord/public stats with the shared dashboard/public snapshot before
-  richer player enrichment;
 - add low-noise dead-code tooling only after an allowlist exists;
 - retire tested compatibility facades and `/players/refresh` only after the
   downstream compatibility window and public-merge decision permit it.

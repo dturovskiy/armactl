@@ -28,7 +28,9 @@ Semantic Versioning once public releases begin.
 ### Changed
 - Consolidated unfinished project work into `docs/checklist.md`, converted
   completed plan checkboxes into historical acceptance records, and corrected
-  stale player/moderation documentation after Slice 7d completion.
+  stale player/moderation documentation after Slice 7d completion. A regression
+  check now covers every public Markdown path and requires every current docs
+  file to remain classified in the plan register.
 - Generated game-server services now allow native core dumps so the host core handler can retain an authoritative backtrace after a future native crash.
 
 ### Fixed

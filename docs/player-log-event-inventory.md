@@ -262,6 +262,7 @@ Keep nullable or future-only:
 ## Result And Status Routing
 
 - Completed after this inventory: bounded parser/storage, automatic incremental log ingest, supervised sessionization/live-scan/maintenance, retention, authenticated current/history/session/search/detail views, and staged production acceptance on both target VMs. See [player-session-stats-contract.md](player-session-stats-contract.md), [player-session-supervised-pipeline-contract.md](player-session-supervised-pipeline-contract.md), and [player-session-detail-search-contract.md](player-session-detail-search-contract.md).
-- Native moderation Slice 7c is complete. Remaining moderation and truth-gated
-  Discord work is tracked only in the active checklist.
+- Native moderation implementation through Slice 7d is complete. Slice 7e
+  production acceptance and truth-gated kick/Discord work are tracked only in
+  the active checklist.
 - Do not ship kill/death/KD claims as generic vanilla/no-mod truth. Current combat evidence remains source/capability-dependent, and player network-address storage remains out of scope without a separate explicit decision.

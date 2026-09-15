@@ -206,17 +206,20 @@ Production validation result from 2026-08-12:
 - The observation window had no players online, so the expected stable result was an empty named roster rather than fabricated rows. Unit coverage continues to prove controlled stale/unavailable transitions under simulated RCON failures.
 - Web journal review found no traceback, HTTP 500, exception, or error during the window. `systemctl --failed` was empty.
 
-## 5. Web/armactl Hardening Follow-ups
+## 5. Web/armactl Hardening Outcome And Gated Follow-up
 
-- Add an operator-visible, bounded log-spam/size warning for very large active
+- Added an operator-visible, bounded log-spam/size warning for very large active
   `console/error/script` logs without exposing raw paths or reading the files
-  unbounded. Track status only in [checklist.md](checklist.md).
-- Keep player-log ingest bounded for huge active logs and keep skip/backlog
+  unbounded.
+- Kept player-log ingest bounded for huge active logs and kept skip/backlog
   reasons counts-only and sanitized.
 - Conditional: add a safe CLI current-roster cache status command only if the
   existing authenticated web diagnostics are insufficient for operators.
-- Document A2S count, RCON roster rows, current-roster cache, Discord stats,
+- Documented A2S count, RCON roster rows, current-roster cache, Discord stats,
   and the web current-player table as related but distinct truth surfaces.
+
+Only the conditional CLI decision remains open, and it is tracked in
+[checklist.md](checklist.md).
 
 ## 6. Immediate Recommendation
 
