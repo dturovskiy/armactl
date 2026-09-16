@@ -34,6 +34,13 @@ Semantic Versioning once public releases begin.
 - Generated game-server services now allow native core dumps so the host core handler can retain an authoritative backtrace after a future native crash.
 
 ### Fixed
+- Installation now stops with the real error when it cannot enable or start
+  the generated game service, instead of reporting a false success.
+- Rejected out-of-range friendly restart times before they reach systemd.
+- Masked game, admin, and RCON passwords in `armactl config show` by default;
+  operators can request the raw values explicitly with `--show-secrets`.
+- Rejected malformed `game`/`game.mods` shapes with a controlled config error
+  across list, add, remove, dedupe, and import workflows.
 - Prevented fresh repeated startup log lines from leaving the dashboard in `Starting` indefinitely after telemetry failed to appear, and prevented a stale `Starting` marker from hiding a systemd auto-restart loop.
 - Attributed native crashes immediately preceded by an unresolved `SAL_DroneBulletComponent` to the Realistic Combat Drones/FPV dependency path and retained the exact unknown-class evidence instead of reporting only a generic active-addon suspect.
 - Allowed the generated privileged helper to manage the incident monitor service and timer after installation.

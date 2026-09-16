@@ -215,7 +215,8 @@ armactl status
 armactl logs
 armactl ports
 
-armactl config show
+armactl config show                  # passwords are masked
+armactl config show --show-secrets   # explicit local raw output
 armactl config validate
 
 armactl mods list

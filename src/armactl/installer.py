@@ -622,8 +622,25 @@ def run_install(instance: str) -> Iterator[str]:
     service_name = (
         f"armareforger@{instance}.service" if instance != "default" else paths.SERVICE_NAME
     )
-    enable_service(service_name)
-    restart_service(service_name)  # Ensure clean start.
+    enable_result = enable_service(service_name)
+    if not enable_result.success:
+        raise InstallError(
+            tr(
+                "Failed to enable server service {service}: {error}",
+                service=service_name,
+                error=redact_sensitive_text(enable_result.message),
+            )
+        )
+
+    restart_result = restart_service(service_name)  # Ensure clean start.
+    if not restart_result.success:
+        raise InstallError(
+            tr(
+                "Failed to start server service {service}: {error}",
+                service=service_name,
+                error=redact_sensitive_text(restart_result.message),
+            )
+        )
 
     yield _("Saving state.json...")
     discover(instance=instance)

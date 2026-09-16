@@ -34,3 +34,18 @@ def test_stop_calls_systemd_even_when_discovery_reports_not_running(monkeypatch)
     assert result.exit_code == 0
     assert calls == ["armareforger.service"]
     assert "Server stopped successfully" in result.output
+
+
+def test_schedule_set_rejects_out_of_range_time_before_systemd(monkeypatch):
+    def unexpected_update(*args, **kwargs):
+        raise AssertionError("invalid time must not reach systemd")
+
+    monkeypatch.setattr(
+        "armactl.service_manager.update_restart_timer_schedule",
+        unexpected_update,
+    )
+
+    result = CliRunner().invoke(main, ["schedule", "set", "24:00"])
+
+    assert result.exit_code == 1
+    assert "Invalid restart time" in result.output

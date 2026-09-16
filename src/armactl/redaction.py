@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+import copy
 import re
+from collections.abc import Mapping
+from typing import Any
 
 REDACTED = "***"
+
+CONFIG_SECRET_PATHS = (
+    ("game", "password"),
+    ("game", "passwordAdmin"),
+    ("rcon", "password"),
+)
 
 _ASSIGNMENT_PATTERNS = [
     re.compile(r'(?im)\b(ARMACTL_BOT_TOKEN\s*=\s*)([^\r\n#]+)'),
@@ -66,6 +75,16 @@ def redact_sensitive_text(value: object | None) -> str:
     text = _POSIX_ABSOLUTE_PATH_RE.sub(REDACTED, text)
     text = _IPV4_ADDRESS_RE.sub(REDACTED, text)
     return _BRACKETED_IPV6_ADDRESS_RE.sub(REDACTED, text)
+
+
+def redact_config_secrets(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a structured config copy with server credentials masked."""
+    redacted = copy.deepcopy(dict(config))
+    for section_name, key in CONFIG_SECRET_PATHS:
+        section = redacted.get(section_name)
+        if isinstance(section, dict) and key in section:
+            section[key] = REDACTED
+    return redacted
 
 
 def safe_subprocess_error(stderr: str | None, stdout: str | None = None) -> str:

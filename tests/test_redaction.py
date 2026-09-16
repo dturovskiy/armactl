@@ -46,3 +46,27 @@ def test_redact_sensitive_text_masks_absolute_paths_and_ip_addresses() -> None:
     assert "198.51.100.77" not in redacted
     assert "2001:db8::1" not in redacted
     assert redaction.REDACTED in redacted
+
+
+def test_redact_config_secrets_masks_structured_credentials_without_mutation() -> None:
+    config = {
+        "game": {
+            "name": "Visible server name",
+            "password": "game-secret",
+            "passwordAdmin": "admin-secret",
+        },
+        "rcon": {"address": "127.0.0.1", "password": "rcon-secret"},
+    }
+
+    masked = redaction.redact_config_secrets(config)
+
+    assert masked == {
+        "game": {
+            "name": "Visible server name",
+            "password": "***",
+            "passwordAdmin": "***",
+        },
+        "rcon": {"address": "127.0.0.1", "password": "***"},
+    }
+    assert config["game"]["password"] == "game-secret"
+    assert config["rcon"]["password"] == "rcon-secret"

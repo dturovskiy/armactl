@@ -2887,10 +2887,17 @@ def config() -> None:
 
 
 @config.command("show")
+@click.option(
+    "--show-secrets",
+    is_flag=True,
+    default=False,
+    help="Show server and RCON passwords instead of masking them.",
+)
 @click.pass_context
-def config_show(ctx: click.Context) -> None:
+def config_show(ctx: click.Context, show_secrets: bool) -> None:
     """Show current configuration."""
     from armactl.config_manager import ConfigError, load_config
+    from armactl.redaction import redact_config_secrets
 
     instance = ctx.obj["instance"]
     state = _get_state(ctx)
@@ -2901,6 +2908,8 @@ def config_show(ctx: click.Context) -> None:
 
     try:
         data = load_config(state.config_path)
+        if not show_secrets:
+            data = redact_config_secrets(data)
         click.echo(json.dumps(data, indent=4))
     except ConfigError as e:
         click.echo(f"[{instance}] {e}", err=True)
@@ -3248,8 +3257,11 @@ def schedule_set(ctx: click.Context, cron_expr: str) -> None:
     instance = ctx.obj["instance"]
     schedule_entries = normalize_on_calendar_entries(cron_expr)
     if not schedule_entries:
-        click.echo(f"[{instance}] No valid restart time provided.")
-        return
+        click.echo(
+            f"[{instance}] Invalid restart time. Use HH:MM values from 00:00 to 23:59.",
+            err=True,
+        )
+        raise click.exceptions.Exit(1)
 
     display_value = format_schedule_for_input(schedule_entries)
     click.echo(f"[{instance}] Updating schedule to '{display_value}'...")

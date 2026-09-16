@@ -44,8 +44,14 @@ def test_run_install_orchestrates_default_instance_flow() -> None:
             "armactl.installer.install_privileged_systemctl_channel",
             return_value=privileged_results,
         ),
-        patch("armactl.installer.enable_service") as enable_service_mock,
-        patch("armactl.installer.restart_service") as restart_service_mock,
+        patch(
+            "armactl.installer.enable_service",
+            return_value=service_manager.ServiceResult(True, "enabled"),
+        ) as enable_service_mock,
+        patch(
+            "armactl.installer.restart_service",
+            return_value=service_manager.ServiceResult(True, "started"),
+        ) as restart_service_mock,
         patch("armactl.installer.discover") as discover_mock,
     ):
         messages = list(installer.run_install("default"))
@@ -100,14 +106,80 @@ def test_run_install_uses_instance_specific_service_name() -> None:
             "armactl.installer.install_privileged_systemctl_channel",
             return_value=[service_manager.ServiceResult(True, "installed helper")],
         ),
-        patch("armactl.installer.enable_service") as enable_service_mock,
-        patch("armactl.installer.restart_service") as restart_service_mock,
+        patch(
+            "armactl.installer.enable_service",
+            return_value=service_manager.ServiceResult(True, "enabled"),
+        ) as enable_service_mock,
+        patch(
+            "armactl.installer.restart_service",
+            return_value=service_manager.ServiceResult(True, "started"),
+        ) as restart_service_mock,
         patch("armactl.installer.discover"),
     ):
         list(installer.run_install("alpha"))
 
     enable_service_mock.assert_called_once_with("armareforger@alpha.service")
     restart_service_mock.assert_called_once_with("armareforger@alpha.service")
+
+
+@pytest.mark.parametrize(
+    ("enable_result", "restart_result", "expected_error", "restart_called"),
+    [
+        (
+            service_manager.ServiceResult(False, "enable permission denied", 1),
+            service_manager.ServiceResult(True, "started"),
+            "enable permission denied",
+            False,
+        ),
+        (
+            service_manager.ServiceResult(True, "enabled"),
+            service_manager.ServiceResult(False, "start operation failed", 1),
+            "start operation failed",
+            True,
+        ),
+    ],
+)
+def test_run_install_fails_when_server_service_setup_fails(
+    enable_result,
+    restart_result,
+    expected_error,
+    restart_called,
+) -> None:
+    with (
+        patch("armactl.installer.check_os"),
+        patch("armactl.installer.check_sudo"),
+        patch("armactl.installer.install_steamcmd"),
+        patch("armactl.installer.create_install_dir"),
+        patch(
+            "armactl.installer.check_package_integrity",
+            return_value=types.SimpleNamespace(complete=False),
+        ),
+        patch("armactl.installer.mark_install_started"),
+        patch("armactl.installer.download_server", return_value=iter(())),
+        patch("armactl.installer.record_package_manifest"),
+        patch("armactl.installer.clear_install_marker"),
+        patch("armactl.installer.smoke_check"),
+        patch("armactl.installer.generate_default_config"),
+        patch("armactl.installer.generate_services", return_value=[]),
+        patch(
+            "armactl.installer.install_privileged_systemctl_channel",
+            return_value=[],
+        ),
+        patch(
+            "armactl.installer.enable_service",
+            return_value=enable_result,
+        ),
+        patch(
+            "armactl.installer.restart_service",
+            return_value=restart_result,
+        ) as restart_service_mock,
+        patch("armactl.installer.discover") as discover_mock,
+    ):
+        with pytest.raises(installer.InstallError, match=expected_error):
+            list(installer.run_install("default"))
+
+    assert restart_service_mock.called is restart_called
+    discover_mock.assert_not_called()
 
 
 def test_download_server_includes_steamcmd_details_in_error() -> None:

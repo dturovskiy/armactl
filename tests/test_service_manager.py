@@ -5,6 +5,8 @@ from subprocess import CompletedProcess, TimeoutExpired
 from types import SimpleNamespace
 from unittest.mock import call, patch
 
+import pytest
+
 from armactl import paths
 from armactl.restart_timing import RESTART_TIMING
 from armactl.sat_admin_guard import SatAdminGuardError
@@ -22,6 +24,7 @@ from armactl.service_manager import (
     has_privileged_systemctl_channel,
     normalize_on_calendar,
     normalize_on_calendar_entries,
+    render_restart_timer_unit,
     resolve_linux_user,
     restart_service,
     restart_service_unit_name,
@@ -54,6 +57,22 @@ def test_normalize_on_calendar_entries_accepts_space_separated_times() -> None:
         "*-*-* 06:00:00",
         "*-*-* 18:00:00",
     ]
+
+
+def test_normalize_on_calendar_rejects_out_of_range_time_parts() -> None:
+    """Friendly time input must be valid before reaching systemd."""
+    for value in ("24:00", "99:99", "08:60", "08:30:60"):
+        assert normalize_on_calendar(value) == ""
+        assert normalize_on_calendar_entries(value) == []
+
+
+def test_normalize_on_calendar_entries_rejects_mixed_invalid_times() -> None:
+    assert normalize_on_calendar_entries("08:00, 24:00") == []
+
+
+def test_render_restart_timer_rejects_invalid_nonempty_time() -> None:
+    with pytest.raises(ValueError, match="hours 0-23"):
+        render_restart_timer_unit("24:00")
 
 
 def test_format_schedule_for_input_compacts_daily_times() -> None:
@@ -555,6 +574,20 @@ def test_update_restart_timer_schedule_uses_secure_helper_channel() -> None:
         capture_output=True,
         text=True,
     )
+
+
+def test_update_restart_timer_schedule_rejects_invalid_time_before_systemd() -> None:
+    with (
+        patch("armactl.service_manager.is_active") as active_mock,
+        patch("armactl.service_manager._run_systemctl") as systemctl_mock,
+    ):
+        results = update_restart_timer_schedule("default", "24:00")
+
+    assert len(results) == 1
+    assert results[0].success is False
+    assert "hours 0-23" in results[0].message
+    active_mock.assert_not_called()
+    systemctl_mock.assert_not_called()
 
 
 def test_run_systemctl_rewrites_noninteractive_sudo_error() -> None:

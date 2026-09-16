@@ -5,13 +5,13 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from armactl.config_manager import load_config, save_config
+from armactl.config_manager import load_config, require_mods_list, save_config
 
 
 def list_mods(config_path: str | Any) -> list[dict[str, str]]:
     """Return the configured mod list."""
     conf = load_config(config_path)
-    return conf.get("game", {}).get("mods", [])
+    return require_mods_list(conf)
 
 
 def add_mod(
@@ -22,8 +22,9 @@ def add_mod(
 ) -> bool:
     """Add or update a mod. Returns True when added, False when updated."""
     conf = load_config(config_path)
+    mods = require_mods_list(conf)
     game = conf.setdefault("game", {})
-    mods: list[dict[str, str]] = game.setdefault("mods", [])
+    game.setdefault("mods", mods)
 
     for mod in mods:
         if mod.get("modId") == mod_id:
@@ -52,8 +53,8 @@ def remove_mod_detailed(config_path: str | Any, mod_id: str):
 def dedupe_mods(config_path: str | Any) -> int:
     """Remove duplicate mods and return the number removed."""
     conf = load_config(config_path)
+    mods = require_mods_list(conf)
     game = conf.get("game", {})
-    mods: list[dict[str, str]] = game.get("mods", [])
 
     seen: set[str | None] = set()
     deduped: list[dict[str, str]] = []
@@ -79,8 +80,9 @@ def export_mods(config_path: str | Any) -> str:
 def import_mods(config_path: str | Any, mod_list_str: str) -> int:
     """Import mods from a comma, space, or newline separated string."""
     conf = load_config(config_path)
+    mods = require_mods_list(conf)
     game = conf.setdefault("game", {})
-    mods: list[dict[str, str]] = game.setdefault("mods", [])
+    game.setdefault("mods", mods)
 
     raw_ids = re.split(r"[,;|\s]+", mod_list_str)
     raw_ids = [item.strip() for item in raw_ids if item.strip()]

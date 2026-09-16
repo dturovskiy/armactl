@@ -448,6 +448,11 @@ def test_parse_friendly_schedule_input_rejects_non_time_text():
     assert telegram_bot.parse_friendly_schedule_input("tomorrow at six") == []
 
 
+def test_parse_friendly_schedule_input_rejects_out_of_range_times():
+    for value in ("24:00", "99:99", "08:60", "08:30:60", "08:00, 24:00"):
+        assert telegram_bot.parse_friendly_schedule_input(value) == []
+
+
 def _test_bot() -> telegram_bot.ArmaCtlTelegramBot:
     config = types.SimpleNamespace(
         instance="default",
@@ -774,4 +779,3 @@ def test_render_bot_players_text_handles_available_empty_roster() -> None:
     assert "RCON roster returned no player names yet." in text
     assert "Player roster unavailable" not in text
     assert "Check local RCON address, port, and password." not in text
-

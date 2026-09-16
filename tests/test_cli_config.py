@@ -65,3 +65,36 @@ def test_cli_config_set_name_rejects_invalid_registered_string(
     assert "game.name is required" in result.output
     payload = json.loads(config_path.read_text(encoding="utf-8"))
     assert payload["game"]["name"] == "Arma Reforger Server"
+
+
+def test_cli_config_show_masks_secrets_by_default(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    _write_default_config(config_path)
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    payload["game"]["password"] = "game-password-secret"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+    _patch_config_state(monkeypatch, config_path)
+
+    result = CliRunner().invoke(main, ["config", "show"])
+
+    assert result.exit_code == 0
+    shown = json.loads(result.output)
+    assert shown["game"]["password"] == "***"
+    assert shown["game"]["passwordAdmin"] == "***"
+    assert shown["rcon"]["password"] == "***"
+    assert "game-password-secret" not in result.output
+    assert "generated-admin-secret" not in result.output
+    assert "generated-rcon-secret" not in result.output
+
+
+def test_cli_config_show_secrets_requires_explicit_flag(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    _write_default_config(config_path)
+    _patch_config_state(monkeypatch, config_path)
+
+    result = CliRunner().invoke(main, ["config", "show", "--show-secrets"])
+
+    assert result.exit_code == 0
+    shown = json.loads(result.output)
+    assert shown["game"]["passwordAdmin"] == "generated-admin-secret"
+    assert shown["rcon"]["password"] == "generated-rcon-secret"

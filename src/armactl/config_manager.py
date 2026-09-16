@@ -40,6 +40,25 @@ def load_config(config_path: Path | str) -> dict[str, Any]:
         raise ConfigError(tr("Failed to read config file: {error}", error=e))
 
 
+def require_mods_list(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return ``game.mods`` after validating the shape used by mod workflows."""
+    if "game" not in data:
+        return []
+    game = data["game"]
+    if not isinstance(game, dict):
+        raise ConfigError(_("'game' section must be an object."))
+
+    mods = game.get("mods", [])
+    if not isinstance(mods, list):
+        raise ConfigError(_("'game.mods' must be a list."))
+    for index, mod in enumerate(mods):
+        if not isinstance(mod, dict):
+            raise ConfigError(
+                tr("'game.mods[{index}]' must be an object.", index=index)
+            )
+    return mods
+
+
 def save_config(
     config_path: Path | str,
     data: dict[str, Any],

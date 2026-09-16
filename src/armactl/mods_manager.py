@@ -16,7 +16,12 @@ from armactl.addon_cleanup import (
     is_enospc,
     normalize_mod_id,
 )
-from armactl.config_manager import ConfigError, load_config, save_config
+from armactl.config_manager import (
+    ConfigError,
+    load_config,
+    require_mods_list,
+    save_config,
+)
 from armactl.i18n import _, tr
 from armactl.mods_state import (
     load_disabled_mods,
@@ -159,8 +164,7 @@ def _pop_mod_by_id(
 def get_mods(config_path: Path | str) -> list[dict[str, Any]]:
     """Return the list of mods from config."""
     config = load_config(config_path)
-    game = config.get("game", {})
-    return game.get("mods", [])
+    return require_mods_list(config)
 
 
 def get_disabled_mods(config_path: Path | str) -> list[dict[str, Any]]:
@@ -288,6 +292,7 @@ def save_mods_with_removed_addon_cleanup(
     old_ids = _mod_ids(old_mods)
     new_ids = _mod_ids(new_mods)
 
+    require_mods_list(config)
     game = config.setdefault("game", {})
     game.pop("disabledMods", None)
     disabled_ids = _mod_ids(load_disabled_mods(config_path))
@@ -366,7 +371,7 @@ def set_mods_detailed(
     """Save a new active list and return cleanup metadata."""
     migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
-    old_mods = list(config.get("game", {}).get("mods", []))
+    old_mods = list(require_mods_list(config))
     return save_mods_with_removed_addon_cleanup(
         config_path,
         config,
@@ -413,8 +418,8 @@ def add_mods_detailed(
     migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
     original_config = copy.deepcopy(config)
+    mods = list(require_mods_list(config))
     game = config.setdefault("game", {})
-    mods = list(game.get("mods", []))
     disabled_mods = load_disabled_mods(config_path)
     active_index = _active_index_by_key(mods)
     results: list[ModAddResult] = []
@@ -485,8 +490,8 @@ def disable_mod(config_path: Path | str, mod_id: str) -> bool:
     migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
     original_disabled_mods = copy.deepcopy(load_disabled_mods(config_path))
+    active_mods = list(require_mods_list(config))
     game = config.setdefault("game", {})
-    active_mods = list(game.get("mods", []))
     disabled_mods = copy.deepcopy(original_disabled_mods)
 
     active_mods, removed = _pop_mod_by_id(active_mods, mod_id)
@@ -514,8 +519,8 @@ def enable_mod(config_path: Path | str, mod_id: str) -> bool:
     migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
     original_config = copy.deepcopy(config)
+    active_mods = list(require_mods_list(config))
     game = config.setdefault("game", {})
-    active_mods = list(game.get("mods", []))
     disabled_mods = load_disabled_mods(config_path)
 
     disabled_mods, restored = _pop_mod_by_id(disabled_mods, mod_id)
@@ -554,8 +559,7 @@ def remove_mod_detailed(
     """Remove an active or disabled mod and clean up its local addon directory."""
     migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
-    game = config.setdefault("game", {})
-    mods = list(game.get("mods", []))
+    mods = list(require_mods_list(config))
     disabled_mods = load_disabled_mods(config_path)
     original_disabled_mods = copy.deepcopy(disabled_mods)
     target_id = normalize_mod_id(mod_id)
@@ -615,8 +619,7 @@ def clear_mods_detailed(config_path: Path | str) -> ModUpdateResult:
     """Remove all mods and return cleanup metadata."""
     migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
-    game = config.setdefault("game", {})
-    mods = list(game.get("mods", []))
+    mods = list(require_mods_list(config))
     disabled_mods = load_disabled_mods(config_path)
     original_disabled_mods = copy.deepcopy(disabled_mods)
     if not mods and not disabled_mods:
@@ -646,8 +649,8 @@ def dedupe_mods(config_path: Path | str) -> int:
     migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
     original_config = copy.deepcopy(config)
+    mods = list(require_mods_list(config))
     game = config.setdefault("game", {})
-    mods = list(game.get("mods", []))
     disabled_mods = load_disabled_mods(config_path)
     seen: set[str] = set()
     deduped_mods: list[dict[str, Any]] = []
@@ -699,7 +702,8 @@ def export_mods(config_path: Path | str, export_file: Path | str) -> int:
 def _extract_import_mods(payload: Any) -> list[dict[str, str]]:
     """Normalize imported payload to a list of mod objects."""
     if isinstance(payload, dict):
-        payload = payload.get("game", {}).get("mods")
+        game = payload.get("game")
+        payload = game.get("mods") if isinstance(game, dict) else None
 
     if not isinstance(payload, list):
         raise ConfigError(
@@ -770,8 +774,7 @@ def import_mods_detailed(
     imported_mods = _load_import_mods(import_file)
     migrate_legacy_disabled_mods(config_path)
     config = load_config(config_path)
-    game = config.setdefault("game", {})
-    old_mods = list(game.get("mods", []))
+    old_mods = list(require_mods_list(config))
     disabled_mods = load_disabled_mods(config_path)
     original_disabled_mods = copy.deepcopy(disabled_mods)
     current_mods = list(old_mods) if append else []

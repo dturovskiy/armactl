@@ -8,11 +8,13 @@ import pytest
 from armactl.config_manager import ConfigError, validate_config
 from armactl.mods_manager import (
     add_mods_detailed,
+    dedupe_mods,
     export_mods,
     extract_mod_ids,
     get_mods,
     import_mods,
     preview_import_mods,
+    remove_mod_detailed,
 )
 from armactl.mods_state import load_disabled_mods, save_disabled_mods
 
@@ -127,6 +129,75 @@ def test_import_mods_rejects_invalid_mod_id(tmp_path: Path) -> None:
 
     with pytest.raises(ConfigError, match="16 hexadecimal"):
         import_mods(target_config, import_file, append=True)
+
+
+def test_import_mods_rejects_non_object_game_section(tmp_path: Path) -> None:
+    target_config = tmp_path / "target" / "config.json"
+    import_file = tmp_path / "source" / "config.json"
+    _write_config(target_config, [])
+    import_file.parent.mkdir(parents=True)
+    import_file.write_text(json.dumps({"game": "bad"}), encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="JSON array of mod objects"):
+        import_mods(target_config, import_file, append=True)
+
+
+@pytest.mark.parametrize("malformed_mods", [{"bad": "shape"}, "bad", None])
+@pytest.mark.parametrize("operation", ["list", "add", "remove", "dedupe", "import"])
+def test_mod_operations_reject_non_list_game_mods(
+    tmp_path: Path,
+    malformed_mods,
+    operation: str,
+) -> None:
+    config_path = tmp_path / operation / "config.json"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({"game": {"mods": malformed_mods}}),
+        encoding="utf-8",
+    )
+    import_file = tmp_path / "mods.json"
+    import_file.write_text(
+        json.dumps([{"modId": "AAAAAAAAAAAAAAAA", "name": "Alpha"}]),
+        encoding="utf-8",
+    )
+    operations = {
+        "list": lambda: get_mods(config_path),
+        "add": lambda: add_mods_detailed(config_path, ["AAAAAAAAAAAAAAAA"]),
+        "remove": lambda: remove_mod_detailed(config_path, "AAAAAAAAAAAAAAAA"),
+        "dedupe": lambda: dedupe_mods(config_path),
+        "import": lambda: import_mods(config_path, import_file, append=True),
+    }
+
+    with pytest.raises(ConfigError, match=r"game\.mods.*list"):
+        operations[operation]()
+
+
+def test_mod_operations_reject_non_object_mod_entries(tmp_path: Path) -> None:
+    config_path = tmp_path / "config" / "config.json"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({"game": {"mods": ["AAAAAAAAAAAAAAAA"]}}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match=r"game\.mods\[0\].*object"):
+        get_mods(config_path)
+
+
+@pytest.mark.parametrize("malformed_game", ["bad", None, []])
+def test_mod_operations_reject_non_object_game_section(
+    tmp_path: Path,
+    malformed_game,
+) -> None:
+    config_path = tmp_path / "config" / "config.json"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({"game": malformed_game}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match=r"'game' section must be an object"):
+        get_mods(config_path)
 
 
 def test_config_validation_rejects_non_workshop_mod_ids(tmp_path: Path) -> None:

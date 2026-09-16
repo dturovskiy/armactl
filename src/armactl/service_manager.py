@@ -34,6 +34,10 @@ from armactl.runtime_settings import (
 
 TIME_ONLY_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 DAILY_TIME_RE = re.compile(r"^\*-\*-\* (\d{1,2}:\d{2}:\d{2})$")
+INVALID_RESTART_TIME_MESSAGE = (
+    "Restart times must use HH:MM[:SS] with hours 0-23 and "
+    "minutes/seconds 0-59."
+)
 SUDO_AUTH_ERROR_MARKERS = (
     "a terminal is required to read the password",
     "a password is required",
@@ -834,6 +838,8 @@ def render_restart_timer_unit(on_calendar: str | list[str]) -> str:
     """Render the restart timer unit with one or more OnCalendar entries."""
     on_calendar_entries = normalize_on_calendar_entries(on_calendar)
     if not on_calendar_entries:
+        if _has_schedule_input(on_calendar):
+            raise ValueError(_(INVALID_RESTART_TIME_MESSAGE))
         on_calendar_entries = [normalize_on_calendar("*-*-* 06:00:00")]
 
     env = _template_environment()
@@ -852,7 +858,12 @@ def update_restart_timer_schedule(
     timer_path = paths.SYSTEMD_DIR / timer_name
     schedule_entries = normalize_on_calendar_entries(on_calendar)
     if not schedule_entries:
-        return [ServiceResult(False, _("At least one restart time is required."), 1)]
+        message = (
+            _(INVALID_RESTART_TIME_MESSAGE)
+            if _has_schedule_input(on_calendar)
+            else _("At least one restart time is required.")
+        )
+        return [ServiceResult(False, message, 1)]
 
     timer_was_active = is_active(timer_name)
     if timer_was_active:
@@ -1310,11 +1321,13 @@ def timer_unit_name(instance: str = paths.DEFAULT_INSTANCE_NAME) -> str:
 def normalize_on_calendar(on_calendar: str) -> str:
     """Normalize friendly time-only input into a full systemd OnCalendar value."""
     value = on_calendar.strip()
-    if TIME_ONLY_RE.match(value):
+    if TIME_ONLY_RE.fullmatch(value):
         parts = value.split(":")
         hour = int(parts[0])
         minute = int(parts[1])
         second = int(parts[2]) if len(parts) == 3 else 0
+        if hour > 23 or minute > 59 or second > 59:
+            return ""
         return f"*-*-* {hour:02d}:{minute:02d}:{second:02d}"
     return value
 
@@ -1353,11 +1366,19 @@ def normalize_on_calendar_entries(on_calendar: str | list[str]) -> list[str]:
         if not cleaned:
             continue
         normalized_entry = normalize_on_calendar(cleaned)
+        if not normalized_entry:
+            return []
         if normalized_entry in seen:
             continue
         seen.add(normalized_entry)
         normalized.append(normalized_entry)
     return normalized
+
+
+def _has_schedule_input(on_calendar: str | list[str]) -> bool:
+    if isinstance(on_calendar, list):
+        return any(str(entry).strip() for entry in on_calendar)
+    return bool(str(on_calendar).strip())
 
 
 def format_schedule_for_input(schedule_entries: list[str]) -> str:
@@ -1496,6 +1517,8 @@ def generate_services(
     timer_name = timer_unit_name(instance)
     on_calendar_entries = normalize_on_calendar_entries(on_calendar)
     if not on_calendar_entries:
+        if _has_schedule_input(on_calendar):
+            return [ServiceResult(False, _(INVALID_RESTART_TIME_MESSAGE), 1)]
         on_calendar_entries = [normalize_on_calendar("*-*-* 06:00:00")]
 
     service_path = paths.SYSTEMD_DIR / service_name
