@@ -240,6 +240,29 @@ def _fresh_fps_available(fps_metrics: dict[str, Any]) -> bool:
     return bool(fps_metrics.get("available")) and not bool(fps_metrics.get("stale"))
 
 
+def _fresh_fps_operational_status(
+    fps_metrics: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Never turn a fresh but unusably low FPS sample into a Ready state."""
+    if not _fresh_fps_available(fps_metrics):
+        return None
+    value = fps_metrics.get("fps")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    fps = float(value)
+    if fps >= metrics.SERVER_FPS_DEGRADED_THRESHOLD:
+        return None
+    critical = fps <= metrics.SERVER_FPS_CRITICAL_THRESHOLD
+    return _operational_status_dict(
+        state="fps_critical" if critical else "fps_degraded",
+        severity="error" if critical else "warning",
+        message="Critical server FPS" if critical else "Low server FPS",
+        details=(f"Latest server telemetry reports {fps:.1f} FPS.",),
+        age_seconds=fps_metrics.get("age_seconds"),
+        source="fps_metrics",
+    )
+
+
 def _resolve_operational_status(
     *,
     lifecycle: str,
@@ -263,6 +286,9 @@ def _resolve_operational_status(
         "telemetry_stale",
         "unknown",
     }:
+        fps_override = _fresh_fps_operational_status(fps_metrics)
+        if fps_override is not None:
+            return fps_override
         return _operational_status_dict(
             state="ready",
             severity="success",

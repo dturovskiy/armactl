@@ -268,6 +268,10 @@ OPERATIONAL_STATUS_TAIL_LINES = 300
 CONSOLE_LOG_TAIL_BYTES = 512 * 1024
 OPERATIONAL_STATUS_DETAIL_MAX_CHARS = 180
 OPERATIONAL_STATUS_DETAIL_MAX_ITEMS = 4
+SERVER_FPS_CRITICAL_THRESHOLD = 10.0
+SERVER_FPS_DEGRADED_THRESHOLD = 30.0
+SERVER_FPS_CRITICAL_SAMPLE_COUNT = 3
+SERVER_FPS_SAMPLE_LIMIT = 36
 RECENT_INCIDENT_LOG_LIMIT = 12
 RECENT_INCIDENT_MAX_ITEMS = 5
 RECENT_INCIDENT_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
@@ -325,6 +329,183 @@ def _safe_operational_details(lines: list[str] | tuple[str, ...]) -> tuple[str, 
         if detail
     ]
     return tuple(details)
+
+
+@dataclass(frozen=True)
+class _OperationalFpsSample:
+    """One bounded telemetry sample used to classify live server health."""
+
+    index: int
+    fps: float
+    players: int
+    ai: int
+    ai_char: int
+    second_of_day: float | None
+
+
+_ENGINE_TIME_OF_DAY_RE = re.compile(
+    r"^\s*(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})"
+    r"(?:\.(?P<fraction>\d{1,6}))?"
+)
+
+
+def _engine_second_of_day(line: str) -> float | None:
+    match = _ENGINE_TIME_OF_DAY_RE.match(line)
+    if match is None:
+        return None
+    try:
+        fraction = float(f"0.{match.group('fraction') or '0'}")
+        return (
+            int(match.group("hour")) * 3600
+            + int(match.group("minute")) * 60
+            + int(match.group("second"))
+            + fraction
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _operational_fps_samples(lines: list[str]) -> list[_OperationalFpsSample]:
+    samples: list[_OperationalFpsSample] = []
+    for index, line in enumerate(lines):
+        match = FPS_STATS_RE.search(line)
+        if match is None:
+            continue
+        try:
+            samples.append(
+                _OperationalFpsSample(
+                    index=index,
+                    fps=float(match.group("fps")),
+                    players=int(match.group("players")),
+                    ai=int(match.group("ai")),
+                    ai_char=int(match.group("ai_char")),
+                    second_of_day=_engine_second_of_day(line),
+                )
+            )
+        except (IndexError, ValueError):
+            continue
+    return samples[-SERVER_FPS_SAMPLE_LIMIT:]
+
+
+def _consecutive_samples_at_or_below(
+    samples: list[_OperationalFpsSample],
+    threshold: float,
+) -> list[_OperationalFpsSample]:
+    consecutive: list[_OperationalFpsSample] = []
+    for sample in reversed(samples):
+        if sample.fps > threshold:
+            break
+        consecutive.append(sample)
+    consecutive.reverse()
+    return consecutive
+
+
+def _sample_duration_seconds(samples: list[_OperationalFpsSample]) -> float | None:
+    if len(samples) < 2:
+        return None
+    start = samples[0].second_of_day
+    end = samples[-1].second_of_day
+    if start is None or end is None:
+        return None
+    if end < start:
+        end += 24 * 60 * 60
+    return max(end - start, 0.0)
+
+
+def _low_fps_signals(lines: list[str], *, start_index: int) -> str:
+    """Summarize bounded correlation signals without exposing arbitrary log text."""
+    window = lines[max(start_index - 80, 0) :]
+    resource_failures = sum(
+        "RESOURCES" in line and "Failed to open" in line for line in window
+    )
+    has_gm_activity = any(
+        (
+            "Editor EDIT:" in line
+            and any(marker in line.lower() for marker in ("spawned", "waypoint"))
+        )
+        or "Game Master" in line
+        for line in window
+    )
+    has_loadout_errors = any(
+        "WCS_LoadoutEditor" in line
+        and any(marker in line for marker in ("Skipping item", "not found", "missing"))
+        for line in window
+    )
+    has_fortex_references = any(
+        marker in line for line in window for marker in ("FRTX_", "/FRTX", "FORTEX")
+    )
+
+    signals: list[str] = []
+    if resource_failures:
+        signals.append(f"resource load failures ({resource_failures})")
+    if has_fortex_references:
+        signals.append("FORTEX resource references")
+    if has_gm_activity:
+        signals.append("Game Master spawn/waypoint activity")
+    if has_loadout_errors:
+        signals.append("loadout/prefab compatibility errors")
+    if not signals:
+        return ""
+    return f"Correlated signals: {'; '.join(signals)}."
+
+
+def _fps_operational_status(
+    lines: list[str],
+    *,
+    age_seconds: float,
+    source: str,
+) -> ServerOperationalStatus | None:
+    """Classify fresh telemetry without calling every FPS sample healthy."""
+    samples = _operational_fps_samples(lines)
+    if not samples:
+        return None
+    latest = samples[-1]
+    if latest.fps >= SERVER_FPS_DEGRADED_THRESHOLD:
+        return None
+
+    critical_samples = _consecutive_samples_at_or_below(
+        samples,
+        SERVER_FPS_CRITICAL_THRESHOLD,
+    )
+    degraded_samples = _consecutive_samples_at_or_below(
+        samples,
+        SERVER_FPS_DEGRADED_THRESHOLD,
+    )
+    is_critical = latest.fps <= 1.0 or (
+        latest.fps <= SERVER_FPS_CRITICAL_THRESHOLD
+        and len(critical_samples) >= SERVER_FPS_CRITICAL_SAMPLE_COUNT
+    )
+    relevant = critical_samples if is_critical else degraded_samples
+    threshold = (
+        SERVER_FPS_CRITICAL_THRESHOLD if is_critical else SERVER_FPS_DEGRADED_THRESHOLD
+    )
+    minimum = min(sample.fps for sample in relevant)
+    duration = _sample_duration_seconds(relevant)
+    duration_text = (
+        f" over {format_duration(duration)}" if duration is not None else ""
+    )
+    details = [
+        (
+            f"FPS {latest.fps:.1f}; {len(relevant)} consecutive sample(s) at or below "
+            f"{threshold:.1f} FPS{duration_text}; minimum {minimum:.1f} FPS."
+        ),
+        (
+            f"Telemetry at detection: {latest.players} player(s), {latest.ai} AI, "
+            f"{latest.ai_char} AI character(s)."
+        ),
+    ]
+    signal = _low_fps_signals(lines, start_index=relevant[0].index)
+    if signal:
+        details.append(signal)
+    return ServerOperationalStatus(
+        True,
+        state="fps_critical" if is_critical else "fps_degraded",
+        severity="error" if is_critical else "warning",
+        message="Critical server FPS" if is_critical else "Low server FPS",
+        details=_safe_operational_details(details),
+        age_seconds=age_seconds,
+        source=source,
+    )
 
 
 def _incident_timestamp(path: Path) -> str:
@@ -1126,9 +1307,17 @@ def query_server_operational_status(
             error="server console log is stale",
         )
 
+    fps_status = _fps_operational_status(
+        all_lines,
+        age_seconds=age_seconds,
+        source=source,
+    )
+
     for index in range(len(lines) - 1, -1, -1):
         line = lines[index]
         if FPS_STATS_RE.search(line):
+            if fps_status is not None:
+                return fps_status
             return ServerOperationalStatus(
                 True,
                 state="ready",
@@ -1185,6 +1374,8 @@ def query_server_operational_status(
 
     for line in reversed(all_lines):
         if FPS_STATS_RE.search(line):
+            if fps_status is not None:
+                return fps_status
             return ServerOperationalStatus(
                 True,
                 state="ready",

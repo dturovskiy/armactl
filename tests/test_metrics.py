@@ -820,6 +820,88 @@ def test_query_server_operational_status_reports_ready_from_fps(
     assert result.message == "Ready"
 
 
+def test_query_server_operational_status_reports_sustained_critical_fps(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    lines = [
+        SAMPLE_FPS_LINE.replace("17:45:09.973", "17:45:00.000").replace(
+            "FPS: 60.0", "FPS: 120.0"
+        ),
+        "17:45:05.000 RESOURCES (E): Failed to open resource",
+        "17:45:06.000 SCRIPT : Editor EDIT: Player hidden spawned waypoint",
+        SAMPLE_FPS_LINE.replace("17:45:09.973", "17:45:10.000").replace(
+            "FPS: 60.0", "FPS: 4.0"
+        ),
+        "17:45:15.000 RESOURCES (E): Failed to open resource",
+        SAMPLE_FPS_LINE.replace("17:45:09.973", "17:45:20.000").replace(
+            "FPS: 60.0", "FPS: 5.0"
+        ),
+        SAMPLE_FPS_LINE.replace("17:45:09.973", "17:45:30.000").replace(
+            "FPS: 60.0", "FPS: 3.0"
+        ),
+    ]
+    _write_console_log(
+        config_dir,
+        "2026-05-18_230000",
+        "\n".join(lines),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.available is True
+    assert result.state == "fps_critical"
+    assert result.severity == "error"
+    assert result.message == "Critical server FPS"
+    assert "3 consecutive sample(s)" in result.details[0]
+    assert "over 20s" in result.details[0]
+    assert "resource load failures (2)" in result.details[2]
+    assert "Game Master spawn/waypoint activity" in result.details[2]
+    assert "hidden" not in " ".join(result.details)
+
+
+def test_query_server_operational_status_reports_single_low_fps_as_degraded(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    low_fps = SAMPLE_FPS_LINE.replace("FPS: 60.0", "FPS: 4.0")
+    _write_console_log(
+        config_dir,
+        "2026-05-18_230000",
+        low_fps,
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.state == "fps_degraded"
+    assert result.severity == "warning"
+    assert result.message == "Low server FPS"
+
+
+def test_query_server_operational_status_recovers_after_low_fps(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    low_fps = SAMPLE_FPS_LINE.replace("FPS: 60.0", "FPS: 4.0")
+    recovered = SAMPLE_FPS_LINE.replace("17:45:09.973", "17:45:19.973")
+    _write_console_log(
+        config_dir,
+        "2026-05-18_230000",
+        f"{low_fps}\n{recovered}",
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.state == "ready"
+    assert result.severity == "success"
+
+
 def test_query_server_operational_status_reports_ready_when_rcon_noise_is_latest(
     tmp_path: Path,
 ) -> None:

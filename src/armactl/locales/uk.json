@@ -1897,6 +1897,8 @@
     "Stored {count} event(s)": "Збережено {count} подій",
     "Backend heartbeat failure": "Збій heartbeat backend",
     "Backend connectivity issue": "Проблема зв'язку з backend",
+    "Critical server FPS": "Критично низький FPS сервера",
+    "Low server FPS": "Низький FPS сервера",
     "Server is starting; restart and stop are unavailable until systemd leaves startup.": "Сервер запускається; перезапуск і зупинка недоступні, доки systemd не вийде зі старту.",
     "{message}:\n{details}": "{message}:\n{details}",
     "Apply the filters again to start from the newest sessions.": "Застосуйте фільтри знову, щоб почати з найновіших сесій.",

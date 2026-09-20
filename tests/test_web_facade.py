@@ -1188,6 +1188,26 @@ def test_dashboard_snapshot_fresh_fps_overrides_false_waiting_status(monkeypatch
     assert snapshot["operational_status"]["message"] == "Ready"
 
 
+def test_dashboard_operational_status_does_not_call_low_fps_ready():
+    facade = _import_dashboard_model()
+
+    result = facade._resolve_operational_status(
+        lifecycle="running",
+        service={"active": True, "active_state": "active", "sub_state": "running"},
+        fps_metrics={"available": True, "stale": False, "fps": 4.0, "age_seconds": 3},
+        log_status={
+            "state": "waiting_for_telemetry",
+            "severity": "warning",
+            "message": "Waiting for server telemetry",
+        },
+    )
+
+    assert result["state"] == "fps_critical"
+    assert result["severity"] == "error"
+    assert result["message"] == "Critical server FPS"
+    assert result["details"] == ["Latest server telemetry reports 4.0 FPS."]
+
+
 def test_dashboard_snapshot_keeps_blocking_status_above_fresh_fps(monkeypatch):
     server_state = _state(installed=True, running=True)
     facade = _install_common_fakes(monkeypatch, server_state, service_active=True)

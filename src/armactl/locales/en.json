@@ -1311,6 +1311,8 @@
     "Stored {count} event(s)": "Stored {count} event(s)",
     "Backend heartbeat failure": "Backend heartbeat failure",
     "Backend connectivity issue": "Backend connectivity issue",
+    "Critical server FPS": "Critical server FPS",
+    "Low server FPS": "Low server FPS",
     "Server is starting; restart and stop are unavailable until systemd leaves startup.": "Server is starting; restart and stop are unavailable until systemd leaves startup.",
     "Apply the filters again to start from the newest sessions.": "Apply the filters again to start from the newest sessions.",
     "Back to sessions": "Back to sessions",
