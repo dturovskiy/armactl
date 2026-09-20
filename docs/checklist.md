@@ -43,11 +43,11 @@ and acceptance detail remains in the linked historical records and Git history.
   and records the exact game build and deployed armactl commit.
 - [ ] Complete the remaining persistent-incident-monitor acceptance defined in
   [incident-monitoring.md](incident-monitoring.md): exercise early live
-  stale-telemetry capture during an approved safe Serhiivka window, then perform
-  the separately approved Chervonopilya acceptance without restarting an
-  occupied game server. The Serhiivka 15-second timer, journal access,
-  redaction, retained artifact links, and core-capability report are already
-  accepted.
+  stale-telemetry and sustained-critical-FPS capture during an approved safe
+  Serhiivka window, then perform the separately approved Chervonopilya
+  acceptance without restarting an occupied game server. The Serhiivka
+  15-second timer, journal access, redaction, retained artifact links, and
+  core-capability report are already accepted.
 - [ ] Verify an existing game admin is not offered the add-admin action and test
   full Game Master access with a designated non-`deus` identity.
 - [ ] Complete staged acceptance on Serhiivka first and record the exact deployed

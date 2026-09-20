@@ -57,9 +57,7 @@ def _runtime_files(data_root: Path, *, mtime: float) -> Path:
                     "scenarioId": "{MISSION}Missions/TestScenario.conf",
                     "maxPlayers": 128,
                     "password": "do-not-store",
-                    "mods": [
-                        {"modId": "64F10E068D5880A6", "name": "GM Tools", "version": "2.2.0"}
-                    ],
+                    "mods": [{"modId": "64F10E068D5880A6", "name": "GM Tools", "version": "2.2.0"}],
                 },
                 "rcon": {"password": "also-do-not-store"},
             }
@@ -101,9 +99,7 @@ def test_collector_correlates_double_free_and_hang_and_redacts_bundle(tmp_path: 
                 cursor="c1",
                 timestamp=now - 420,
             ),
-            _journal_record(
-                "double free or corruption (!prev)", cursor="c2", timestamp=now - 419
-            ),
+            _journal_record("double free or corruption (!prev)", cursor="c2", timestamp=now - 419),
             _journal_record(
                 "Application hangs (force crash) 301 s", cursor="c3", timestamp=now - 118
             ),
@@ -152,18 +148,14 @@ def test_collector_correlates_double_free_and_hang_and_redacts_bundle(tmp_path: 
 def test_collector_deduplicates_already_seen_journal_signal(tmp_path: Path) -> None:
     now = datetime(2026, 9, 9, 14, 20, tzinfo=timezone.utc).timestamp()
     _runtime_files(tmp_path, mtime=now)
-    journal = _journal_record(
-        "double free or corruption (!prev)", cursor="c1", timestamp=now - 1
-    )
+    journal = _journal_record("double free or corruption (!prev)", cursor="c1", timestamp=now - 1)
 
     def runner(args):
         if args[0] == "systemctl":
             return incident_monitor.CommandOutput(0, _systemctl_output())
         return incident_monitor.CommandOutput(0, journal)
 
-    first = incident_monitor.collect_incidents_once(
-        data_root=tmp_path, runner=runner, now=now
-    )
+    first = incident_monitor.collect_incidents_once(data_root=tmp_path, runner=runner, now=now)
     second = incident_monitor.collect_incidents_once(
         data_root=tmp_path, runner=runner, now=now + 10
     )
@@ -190,9 +182,7 @@ def test_collector_deduplicates_engine_signal_when_log_mtime_changes(tmp_path: P
             return incident_monitor.CommandOutput(0, _systemctl_output())
         return incident_monitor.CommandOutput(0, "")
 
-    first = incident_monitor.collect_incidents_once(
-        data_root=tmp_path, runner=runner, now=now
-    )
+    first = incident_monitor.collect_incidents_once(data_root=tmp_path, runner=runner, now=now)
     with console.open("a", encoding="utf-8") as handle:
         handle.write("14:20:10.000 DEFAULT : FPS: 120.0\n")
     os.utime(console, (now + 20, now + 20))
@@ -297,15 +287,11 @@ def test_correlated_pidless_signal_keeps_pid_and_process_artifact_links(
         ),
     )
 
-    first = incident_monitor.collect_incidents_once(
-        data_root=tmp_path, runner=runner, now=now
-    )
+    first = incident_monitor.collect_incidents_once(data_root=tmp_path, runner=runner, now=now)
     with console.open("a", encoding="utf-8") as handle:
         handle.write("14:19:59.000 ENGINE (F): Application crashed!\n")
     os.utime(console, (now, now))
-    second = incident_monitor.collect_incidents_once(
-        data_root=tmp_path, runner=runner, now=now + 1
-    )
+    second = incident_monitor.collect_incidents_once(data_root=tmp_path, runner=runner, now=now + 1)
 
     assert first.captured == 1
     assert second.captured == 0
@@ -329,9 +315,7 @@ def test_collector_captures_stale_live_process_before_restart(tmp_path: Path) ->
             return incident_monitor.CommandOutput(0, _systemctl_output(pid=999999))
         return incident_monitor.CommandOutput(0, "")
 
-    first = incident_monitor.collect_incidents_once(
-        data_root=tmp_path, runner=runner, now=now
-    )
+    first = incident_monitor.collect_incidents_once(data_root=tmp_path, runner=runner, now=now)
     second = incident_monitor.collect_incidents_once(
         data_root=tmp_path,
         runner=runner,
@@ -345,3 +329,107 @@ def test_collector_captures_stale_live_process_before_restart(tmp_path: Path) ->
     assert metadata["kind"] == "telemetry_hang_suspected"
     assert metadata["confirmed"] is False
     assert metadata["pid"] == 999999
+
+
+def _fps_line(
+    clock: str,
+    fps: float,
+    *,
+    players: int = 1,
+    ai: int = 85,
+    ai_char: int = 0,
+) -> str:
+    return (
+        f"{clock} DEFAULT : FPS: {fps:.1f}, frame time (avg: 8 ms, min: 1 ms, "
+        f"max: 12 ms), Mem: 100 kB, Player: {players}, AI: {ai}, "
+        f"AIChar: {ai_char}"
+    )
+
+
+def test_collector_captures_one_fortex_correlated_low_fps_episode(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 9, 20, 12, 17, 40, tzinfo=timezone.utc).timestamp()
+    log_dir = _runtime_files(tmp_path, mtime=now)
+    console = log_dir / "console.log"
+    console.write_text(
+        "\n".join(
+            (
+                _fps_line("12:16:58.000", 115.5, players=6, ai=96),
+                "12:17:05.000 SCRIPT : Editor EDIT: Player spawned Campaign_US_Base.et",
+                "12:17:05.100 RESOURCES (E): Failed to open "
+                "Assets/FRTX_Patches/Rectangle/RecPatch.xob",
+                _fps_line("12:17:08.000", 8.9, players=6, ai=96),
+                _fps_line("12:17:18.000", 8.4, players=6, ai=96),
+                _fps_line("12:17:29.000", 7.9, players=6, ai=96),
+            )
+        ),
+        encoding="utf-8",
+    )
+    os.utime(console, (now, now))
+
+    def runner(args):
+        if args[0] == "systemctl":
+            return incident_monitor.CommandOutput(0, _systemctl_output(pid=999999))
+        return incident_monitor.CommandOutput(0, "")
+
+    first = incident_monitor.collect_incidents_once(
+        data_root=tmp_path,
+        runner=runner,
+        now=now,
+    )
+    second = incident_monitor.collect_incidents_once(
+        data_root=tmp_path,
+        runner=runner,
+        now=now + 10,
+    )
+
+    assert first.captured == 1
+    assert second.captured == 0
+    assert second.updated == 0
+    bundle = tmp_path / "default" / "incidents" / first.incident_ids[0]
+    metadata = json.loads((bundle / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["kind"] == "low_fps"
+    assert metadata["summary"] == "Sustained critical server FPS"
+    assert metadata["suspect"] == "FORTEX prefab/resource path during Game Master activity"
+    assert metadata["confidence"] == "high"
+    assert metadata["pid"] == 999999
+    assert any("RecPatch.xob" in item for item in metadata["evidence"])
+    assert any("FPS: 7.9" in item for item in metadata["evidence"])
+
+
+def test_collector_does_not_capture_unconfirmed_or_recovered_low_fps(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 9, 20, 12, 17, 40, tzinfo=timezone.utc).timestamp()
+    log_dir = _runtime_files(tmp_path, mtime=now)
+    console = log_dir / "console.log"
+    console.write_text(
+        "\n".join(
+            (
+                _fps_line("12:17:08.000", 8.9),
+                _fps_line("12:17:18.000", 8.4),
+                _fps_line("12:17:29.000", 120.0),
+            )
+        ),
+        encoding="utf-8",
+    )
+    os.utime(console, (now, now))
+
+    def runner(args):
+        if args[0] == "systemctl":
+            return incident_monitor.CommandOutput(0, _systemctl_output(pid=999999))
+        return incident_monitor.CommandOutput(0, "")
+
+    result = incident_monitor.collect_incidents_once(
+        data_root=tmp_path,
+        runner=runner,
+        now=now,
+    )
+
+    assert result.captured == 0
+    status = json.loads(
+        (tmp_path / "default" / "incidents" / "monitor-status.json").read_text(encoding="utf-8")
+    )
+    assert status["low_fps_episode"]["active"] is False
+    assert status["low_fps_episode"]["last_fps"] == 120.0

@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Final
 
-from armactl import paths
+from armactl import metrics, paths
 from armactl.redaction import redact_sensitive_text
 from armactl.service_manager import service_unit_name
 
@@ -36,6 +36,7 @@ MONITOR_MAX_LOG_TAIL_BYTES: Final = 256 * 1024
 MONITOR_MAX_RECENT_FINGERPRINTS: Final = 512
 MONITOR_MAX_INCIDENTS: Final = 200
 MONITOR_CORRELATION_SECONDS: Final = 10 * 60
+MONITOR_LOW_FPS_FRESH_SECONDS: Final = 45
 
 _FAILURE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -77,6 +78,7 @@ _KIND_PRIORITY: Final = {
     "runtime_crash": 3,
     "hang": 2,
     "startup_failure": 1,
+    "low_fps": 1,
     "telemetry_hang_suspected": 0,
 }
 
@@ -431,9 +433,7 @@ def _signal_fingerprint(signal: IncidentSignal) -> str:
 
 def _profile_snapshot(config_file: Path, log_dir: Path | None) -> dict[str, Any]:
     config = _read_json_object(config_file)
-    update_state = _read_json_object(
-        config_file.parent.parent / "server-update" / "state.json"
-    )
+    update_state = _read_json_object(config_file.parent.parent / "server-update" / "state.json")
     game = config.get("game") if isinstance(config.get("game"), dict) else {}
     mods = game.get("mods") if isinstance(game.get("mods"), list) else []
     safe_mods: list[dict[str, str]] = []
@@ -512,9 +512,7 @@ def _process_snapshot(pid: int) -> tuple[dict[str, Any], dict[str, str]]:
                 except OSError as error:
                     row[name] = f"unavailable: {_safe_line(error)}"
             thread_rows.append(row)
-        artifacts["process/threads.json"] = json.dumps(
-            thread_rows, ensure_ascii=False, indent=2
-        )
+        artifacts["process/threads.json"] = json.dumps(thread_rows, ensure_ascii=False, indent=2)
         summary["thread_count"] = len(thread_rows)
     except OSError as error:
         summary["error"] = _safe_line(error)
@@ -546,11 +544,53 @@ def _assessment(
 ) -> tuple[str, str, str, str]:
     joined = "\n".join(context).lower()
     active_mods = (runtime or {}).get("mods")
-    active_mod_ids = {
-        str(item.get("modId") or "").upper()
-        for item in active_mods
-        if isinstance(item, dict)
-    } if isinstance(active_mods, list) else set()
+    active_mod_ids = (
+        {str(item.get("modId") or "").upper() for item in active_mods if isinstance(item, dict)}
+        if isinstance(active_mods, list)
+        else set()
+    )
+    if kind == "low_fps":
+        has_fortex_failure = (
+            any(
+                marker in joined
+                for marker in (
+                    "frtx_patches",
+                    "fortex",
+                    "campaign_us_base",
+                )
+            )
+            and "failed to open" in joined
+        )
+        has_gm_activity = any(
+            marker in joined for marker in ("game master", "gamemaster", "editor edit:")
+        )
+        if has_fortex_failure:
+            return (
+                "Sustained critical server FPS",
+                "FORTEX prefab/resource path during Game Master activity"
+                if has_gm_activity
+                else "FORTEX prefab/resource path",
+                "high",
+                "The FPS collapse immediately followed unresolved FORTEX prefab/resource "
+                "activity. This is a strong trigger correlation; a controlled canary is "
+                "still required to distinguish the addon, scenario, and Enfusion owner.",
+            )
+        if has_gm_activity:
+            return (
+                "Sustained critical server FPS",
+                "Game Master spawn / active addon interaction",
+                "medium",
+                "The FPS collapse followed Game Master activity. The evidence identifies "
+                "a reproduction path but does not yet prove which addon or engine component "
+                "owns the stall.",
+            )
+        return (
+            "Sustained critical server FPS",
+            "Active scenario / addon runtime workload",
+            "medium",
+            "Multiple fresh engine samples confirmed unusably low server FPS. The retained "
+            "runtime and process evidence is intended for controlled profile comparison.",
+        )
     if kind in {"memory_corruption", "segmentation_fault", "runtime_crash", "hang"}:
         if any(
             marker in joined
@@ -580,10 +620,9 @@ def _assessment(
                 "immediately before the native crash. This strongly identifies the drone "
                 "dependency path; the final native fault may still be inside Enfusion.",
             )
-        if (
-            any(marker in joined for marker in ("game master", "gamemaster"))
-            and active_mod_ids.intersection({"64F10E068D5880A6", "5AAAC70D754245DD"})
-        ):
+        if any(
+            marker in joined for marker in ("game master", "gamemaster")
+        ) and active_mod_ids.intersection({"64F10E068D5880A6", "5AAAC70D754245DD"}):
             return (
                 "Native memory corruption" if kind == "memory_corruption" else "Native game crash",
                 "Game Master cleanup / admin-mod interaction",
@@ -670,11 +709,16 @@ def _important_evidence(signal: IncidentSignal) -> list[str]:
         "Addon loading failed",
         "Cannot create game",
         "Can't compile",
+        "FPS:",
+        "Failed to open",
+        "Wrong GUID/name for resource",
+        "FRTX_Patches",
+        "FORTEX",
+        "Campaign_US_Base",
+        "Editor EDIT:",
     )
     selected = [
-        line
-        for line in signal.context
-        if any(marker.lower() in line.lower() for marker in markers)
+        line for line in signal.context if any(marker.lower() in line.lower() for marker in markers)
     ]
     selected.append(signal.message)
     result: list[str] = []
@@ -885,11 +929,7 @@ def _capture_bundle(
         ),
         "signal_sources": sorted(
             set(
-                [
-                    str(item)
-                    for item in previous.get("signal_sources", [])
-                    if isinstance(item, str)
-                ]
+                [str(item) for item in previous.get("signal_sources", []) if isinstance(item, str)]
                 + [signal.source]
             )
         ),
@@ -909,6 +949,166 @@ def _latest_console_mtime(config_dir: Path) -> float | None:
         return (log_dir / "console.log").stat().st_mtime
     except OSError:
         return None
+
+
+def _low_fps_evidence_context(
+    lines: Sequence[tuple[int, str]],
+    *,
+    first_index: int,
+    qualifying_index: int,
+) -> tuple[str, ...]:
+    """Select bounded trigger evidence without retaining unrelated player chat."""
+    start = max(first_index - 160, 0)
+    end = min(qualifying_index + 7, len(lines))
+    markers = (
+        "FPS:",
+        "Failed to open",
+        "Wrong GUID/name for resource",
+        "FRTX_Patches",
+        "FORTEX",
+        "Campaign_US_Base",
+        "Game Master",
+        "GameMaster",
+        "Editor EDIT:",
+        "WCS_LoadoutEditor",
+    )
+    selected: list[str] = []
+    for _offset, line in lines[start:end]:
+        if not any(marker.lower() in line.lower() for marker in markers):
+            continue
+        safe = _safe_line(line)
+        if safe and safe not in selected:
+            selected.append(safe)
+    return tuple(selected[-30:])
+
+
+def _low_fps_signal(
+    *,
+    service: Mapping[str, Any],
+    log_dir: Path | None,
+    state: dict[str, Any],
+    now: float,
+) -> IncidentSignal | None:
+    """Capture one incident per live critical-FPS episode without recovery action."""
+    previous = state.get("low_fps_episode")
+    episode = dict(previous) if isinstance(previous, dict) else {}
+    try:
+        pid = int(service.get("MainPID") or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    if (
+        service.get("ActiveState") != "active"
+        or service.get("SubState") != "running"
+        or pid <= 0
+        or log_dir is None
+    ):
+        state["low_fps_episode"] = {"active": False}
+        return None
+
+    generation = log_dir.name
+    try:
+        previous_pid = int(episode.get("pid") or 0)
+    except (TypeError, ValueError):
+        previous_pid = 0
+    key_matches = previous_pid == pid and str(episode.get("log_generation") or "") == generation
+    if not key_matches:
+        episode = {"pid": pid, "log_generation": generation, "active": False}
+
+    console = log_dir / "console.log"
+    try:
+        lines = _tail_lines_with_offsets(console, MONITOR_MAX_LOG_TAIL_BYTES)
+        file_mtime = console.stat().st_mtime
+    except OSError:
+        state["low_fps_episode"] = episode
+        return None
+
+    samples: list[tuple[int, int, str, re.Match[str], float]] = []
+    for index, (offset, line) in enumerate(lines):
+        match = metrics.FPS_STATS_RE.search(line)
+        if match is None:
+            continue
+        try:
+            fps = float(match.group("fps"))
+        except (IndexError, ValueError):
+            continue
+        samples.append((index, offset, line, match, fps))
+    if not samples:
+        state["low_fps_episode"] = episode
+        return None
+
+    latest = samples[-1]
+    latest_at = _engine_line_occurred_at(latest[2], file_mtime=file_mtime)
+    latest_timestamp = _parse_timestamp(latest_at)
+    if latest_timestamp is None or now - latest_timestamp > MONITOR_LOW_FPS_FRESH_SECONDS:
+        state["low_fps_episode"] = episode
+        return None
+
+    critical: list[tuple[int, int, str, re.Match[str], float]] = []
+    for sample in reversed(samples):
+        if sample[4] > metrics.SERVER_FPS_CRITICAL_THRESHOLD:
+            break
+        critical.append(sample)
+    critical.reverse()
+    if not critical:
+        episode.update(
+            {
+                "active": False,
+                "last_fps": latest[4],
+                "last_sample_at": latest_at,
+            }
+        )
+        state["low_fps_episode"] = episode
+        return None
+
+    qualifies = len(critical) >= metrics.SERVER_FPS_CRITICAL_SAMPLE_COUNT or latest[4] <= 1.0
+    episode.update(
+        {
+            "pid": pid,
+            "log_generation": generation,
+            "last_fps": latest[4],
+            "last_sample_at": latest_at,
+            "consecutive_samples": len(critical),
+        }
+    )
+    if not qualifies or bool(episode.get("active")):
+        state["low_fps_episode"] = episode
+        return None
+
+    qualifying = critical[0 if latest[4] <= 1.0 else metrics.SERVER_FPS_CRITICAL_SAMPLE_COUNT - 1]
+    first = critical[0]
+    values = [sample[4] for sample in critical]
+    try:
+        players = int(latest[3].group("players"))
+        ai = int(latest[3].group("ai"))
+        ai_char = int(latest[3].group("ai_char"))
+    except (IndexError, ValueError):
+        players = ai = ai_char = 0
+    context = _low_fps_evidence_context(
+        lines,
+        first_index=first[0],
+        qualifying_index=qualifying[0],
+    )
+    episode.update(
+        {
+            "active": True,
+            "started_at": _engine_line_occurred_at(first[2], file_mtime=file_mtime),
+            "minimum_fps": min(values),
+        }
+    )
+    state["low_fps_episode"] = episode
+    return IncidentSignal(
+        kind="low_fps",
+        occurred_at=str(episode["started_at"]),
+        message=(
+            f"Server FPS remained at or below {metrics.SERVER_FPS_CRITICAL_THRESHOLD:.0f} "
+            f"for {len(critical)} consecutive samples (latest {latest[4]:.1f}, "
+            f"minimum {min(values):.1f}, players {players}, AI {ai}, AIChar {ai_char})."
+        ),
+        pid=pid,
+        cursor=f"{generation}/console.log:{first[1]}:low-fps",
+        source="monitor:low-fps",
+        context=(*context, _safe_line(latest[2])),
+    )
 
 
 def _stale_signal(
@@ -943,8 +1143,7 @@ def _stale_signal(
         kind="telemetry_hang_suspected",
         occurred_at=_utc_now(mtime + MONITOR_STALE_TELEMETRY_SECONDS),
         message=(
-            f"Engine telemetry stopped updating {age} seconds ago while PID {pid} "
-            "remained active."
+            f"Engine telemetry stopped updating {age} seconds ago while PID {pid} remained active."
         ),
         pid=pid,
         source="monitor:stale-telemetry",
@@ -1010,6 +1209,14 @@ def collect_incidents_once(
     signals = _signals_from_journal(records)
     log_dir = _latest_log_directory(paths.config_dir(normalized, data_root))
     signals.extend(_signals_from_engine_logs(log_dir))
+    low_fps = _low_fps_signal(
+        service=service,
+        log_dir=log_dir,
+        state=state,
+        now=timestamp,
+    )
+    if low_fps is not None:
+        signals.append(low_fps)
     stale = _stale_signal(
         service=service,
         config_dir=paths.config_dir(normalized, data_root),
@@ -1071,6 +1278,7 @@ def collect_incidents_once(
         "ignored": ignored,
         "storage": str(root),
         "core_capture": _core_capture_status(service),
+        "low_fps_episode": state.get("low_fps_episode", {}),
     }
     _atomic_write_json(status_path, status)
     return IncidentMonitorResult(

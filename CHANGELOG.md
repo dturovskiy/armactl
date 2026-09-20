@@ -22,6 +22,10 @@ Semantic Versioning once public releases begin.
   fixed duration choices, explicit confirmations, authoritative read-before-write
   verification, and operator-visible read-first recovery for uncertain outcomes.
 - Added a supervised 15-second incident monitor that persistently captures bounded journal, engine-log, systemd, active-profile, and live-process evidence without restarting the game.
+- Added deduplicated incident capture for sustained critical server FPS,
+  including the healthy-to-critical transition, bounded Game Master/resource
+  correlation, active profile, and live process evidence without automatic
+  recovery.
 - Added authenticated incident artifact viewing and explicit monitor health/storage status to the incident page and dashboard card.
 - Added `armactl update profile check <name>` as a CLI fallback for the web profile compatibility canary without activating the tested profile.
 

@@ -9,8 +9,8 @@ never changes the active config, profile, scenario, or Workshop files.
 
 ## What is captured
 
-For a native crash, allocator failure, engine watchdog hang, or terminal startup
-failure, one correlated bundle contains:
+For a native crash, allocator failure, engine watchdog hang, sustained critical
+FPS episode, or terminal startup failure, one correlated bundle contains:
 
 - `metadata.json` with the UTC event/capture times, PID, classification,
   confidence, selected evidence, and artifact manifest;
@@ -78,6 +78,21 @@ the confirmed evidence.
 
 The monitor intentionally does not perform automatic recovery. Recovery policy
 and profile fallback remain separate operator-controlled mechanisms.
+
+## Critical FPS detection
+
+The collector opens one incident when fresh engine telemetry remains at or
+below 10 FPS for three consecutive samples, or immediately reaches 1 FPS or
+less. The incident retains the healthy-to-critical transition, bounded resource
+and Game Master correlation signals, the active profile/mod snapshot, and the
+live process state. It is deduplicated until telemetry recovers, so the
+15-second timer does not create a new incident on every pass.
+
+This detection records evidence but does not restart the game or disable a mod.
+An operator should compare controlled canary profiles before attributing the
+engine stall to a specific addon. In particular, a missing resource directly
+before an FPS collapse is strong trigger correlation, not proof that the addon
+rather than Enfusion owns the final stalled code path.
 
 ## Active log health warning
 
