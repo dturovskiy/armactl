@@ -152,8 +152,8 @@ def test_root_repair_restores_only_bounded_root_owned_runtime_files(
     original_lstat = Path.lstat
 
     def root_owned_lstat(path: Path):
-        original_lstat(path)
-        return SimpleNamespace(st_uid=0)
+        stat = original_lstat(path)
+        return SimpleNamespace(st_uid=0, st_mode=stat.st_mode)
 
     with (
         patch("armactl.repair.os.geteuid", return_value=0),
