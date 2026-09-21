@@ -7,7 +7,7 @@ import os
 import re
 import shutil
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -95,6 +95,9 @@ class ServerIncident:
     confirmed: bool = False
     pid: int = 0
     artifacts: tuple[str, ...] = ()
+    first_seen_at: str = ""
+    last_seen_at: str = ""
+    occurrence_count: int = 1
 
 
 FPS_STATS_RE = re.compile(
@@ -106,6 +109,12 @@ FPS_STATS_RE = re.compile(
     r"Player:\s*(?P<players>\d+),\s*"
     r"AI:\s*(?P<ai>\d+),\s*"
     r"AIChar:\s*(?P<ai_char>\d+)"
+)
+
+WORKSHOP_ADDON_NOT_FOUND_RE = re.compile(
+    r"\bAddon\s+(?P<mod_id>[0-9A-Fa-f]{16})\s*-\s*"
+    r"Addon was not found on workshop\b",
+    re.IGNORECASE,
 )
 
 
@@ -277,6 +286,7 @@ RECENT_INCIDENT_MAX_ITEMS = 5
 RECENT_INCIDENT_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 RECENT_INCIDENT_CONTEXT_LINES = 240
 RECENT_INCIDENT_EVIDENCE_MAX_ITEMS = 6
+RECENT_INCIDENT_REPEAT_WINDOW_SECONDS = 24 * 60 * 60
 
 
 def _read_tail_text_file(
@@ -526,6 +536,7 @@ def _incident_signature(
     runtime_crash: bool,
 ) -> tuple[str, str, str]:
     joined = "\n".join(window)
+    missing_addon = WORKSHOP_ADDON_NOT_FOUND_RE.search(joined)
     has_kornet = any(
         marker in joined
         for marker in ("Tripod_KORNET", "CLBR_KORNET", "Pod_Kornet", "KORNETNOOPTIC")
@@ -544,6 +555,15 @@ def _incident_signature(
             "no function with this name",
         )
     )
+
+    if not runtime_crash and missing_addon is not None:
+        mod_id = missing_addon.group("mod_id").upper()
+        return (
+            f"Workshop addon {mod_id}",
+            "high",
+            "The active profile requires this addon, but the Workshop reported it as "
+            "unavailable. Keep the profile inactive until the addon is restored or replaced.",
+        )
 
     if runtime_crash and (has_kornet or has_stugna or has_remote_turret):
         reason = (
@@ -639,6 +659,7 @@ def _incident_evidence(window: list[str], terminal_index: int) -> tuple[str, ...
                 "Unknown type",
                 "no function with this name",
                 "Addon loading failed",
+                "Addon was not found on workshop",
                 "Cannot create game",
             )
         ),
@@ -777,6 +798,10 @@ def _collected_incident_from_metadata(path: Path) -> ServerIncident | None:
         pid = max(int(value.get("pid") or 0), 0)
     except (TypeError, ValueError):
         pid = 0
+    try:
+        occurrence_count = max(int(value.get("occurrence_count") or 1), 1)
+    except (TypeError, ValueError):
+        occurrence_count = 1
     severity = safe(value.get("severity"), 24)
     if severity not in {"error", "warning", "info", "success"}:
         severity = "error"
@@ -796,6 +821,9 @@ def _collected_incident_from_metadata(path: Path) -> ServerIncident | None:
         confirmed=bool(value.get("confirmed")),
         pid=pid,
         artifacts=artifacts,
+        first_seen_at=safe(value.get("first_seen_at"), 80) or occurred_at,
+        last_seen_at=safe(value.get("last_seen_at"), 80) or occurred_at,
+        occurrence_count=occurrence_count,
     )
 
 
@@ -844,6 +872,88 @@ def _incident_duplicates_collected(
     return any(inferred_evidence.intersection(item.evidence) for item in collected)
 
 
+def _missing_workshop_addon_id(incident: ServerIncident) -> str:
+    if incident.kind != "startup_failure":
+        return ""
+    text = "\n".join((incident.suspect, incident.reason, *incident.evidence))
+    match = WORKSHOP_ADDON_NOT_FOUND_RE.search(text)
+    if match is not None:
+        return match.group("mod_id").upper()
+    if "workshop addon" not in incident.suspect.casefold():
+        return ""
+    fallback = re.search(r"\b[0-9A-Fa-f]{16}\b", incident.suspect)
+    return fallback.group(0).upper() if fallback is not None else ""
+
+
+def _coalesce_repeated_startup_incidents(
+    incidents: list[ServerIncident],
+) -> list[ServerIncident]:
+    """Collapse one deterministic Workshop outage without deleting evidence bundles."""
+    result: list[ServerIncident] = []
+    grouped: dict[str, int] = {}
+    for incident in incidents:
+        mod_id = _missing_workshop_addon_id(incident)
+        if not mod_id or mod_id not in grouped:
+            if mod_id:
+                grouped[mod_id] = len(result)
+            result.append(incident)
+            continue
+
+        index = grouped[mod_id]
+        current = result[index]
+        current_latest = _parse_incident_time(current.last_seen_at or current.occurred_at)
+        candidate_latest = _parse_incident_time(incident.last_seen_at or incident.occurred_at)
+        if (
+            current_latest is None
+            or candidate_latest is None
+            or abs(current_latest - candidate_latest)
+            > RECENT_INCIDENT_REPEAT_WINDOW_SECONDS
+        ):
+            grouped[mod_id] = len(result)
+            result.append(incident)
+            continue
+
+        timestamps = [
+            value
+            for value in (
+                current.first_seen_at or current.occurred_at,
+                current.last_seen_at or current.occurred_at,
+                incident.first_seen_at or incident.occurred_at,
+                incident.last_seen_at or incident.occurred_at,
+            )
+            if _parse_incident_time(value) is not None
+        ]
+        first_seen = min(timestamps, key=lambda value: _parse_incident_time(value) or 0.0)
+        last_seen = max(timestamps, key=lambda value: _parse_incident_time(value) or 0.0)
+        evidence = tuple(dict.fromkeys((*current.evidence, *incident.evidence)))[
+            -RECENT_INCIDENT_EVIDENCE_MAX_ITEMS:
+        ]
+        suspect = (
+            current.suspect
+            if not current.suspect.startswith("Workshop addon ")
+            else incident.suspect
+        )
+        result[index] = replace(
+            current,
+            occurred_at=first_seen,
+            first_seen_at=first_seen,
+            last_seen_at=last_seen,
+            occurrence_count=current.occurrence_count + incident.occurrence_count,
+            summary="Workshop addon unavailable",
+            suspect=suspect,
+            confidence="high",
+            evidence=evidence,
+        )
+    return result
+
+
+def _parse_incident_time(value: str) -> float | None:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except (AttributeError, ValueError):
+        return None
+
+
 def query_recent_server_incidents(
     config_dir: str | Path,
     *,
@@ -879,6 +989,7 @@ def query_recent_server_incidents(
             break
     incidents = collected + inferred
     incidents.sort(key=lambda item: item.occurred_at, reverse=True)
+    incidents = _coalesce_repeated_startup_incidents(incidents)
     return tuple(incidents[: max(max_incidents, 0)])
 
 
@@ -917,6 +1028,7 @@ def _line_has_startup_failure(line: str) -> bool:
             'Can\'t compile "Game" script module',
             "Cannot create game",
             "Addon loading failed",
+            "Addon was not found on workshop",
         )
     )
 
@@ -928,6 +1040,7 @@ def _line_has_workshop_metadata_error(line: str) -> bool:
             "Failed to fetch addon details from workshop API",
             "WorkshopApi/GetDownloadListS2S",
             "SSL connect error",
+            "Addon was not found on workshop",
         )
     )
 
@@ -1237,11 +1350,20 @@ def query_server_operational_status(
     )
     if startup_failure_index is not None:
         details = _startup_failure_details(lines, startup_failure_index)
-        message = (
-            "Workshop addon metadata error"
-            if any(_line_has_workshop_metadata_error(item) for item in details)
-            else "Server startup failed"
+        missing_addon = next(
+            (
+                match
+                for item in details
+                if (match := WORKSHOP_ADDON_NOT_FOUND_RE.search(item)) is not None
+            ),
+            None,
         )
+        if missing_addon is not None:
+            message = f"Workshop addon unavailable: {missing_addon.group('mod_id').upper()}"
+        elif any(_line_has_workshop_metadata_error(item) for item in details):
+            message = "Workshop addon metadata error"
+        else:
+            message = "Server startup failed"
         return ServerOperationalStatus(
             True,
             state="startup_failed",

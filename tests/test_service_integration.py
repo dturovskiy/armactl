@@ -76,6 +76,8 @@ def test_generate_services_writes_expected_units_and_restarts_timer(tmp_path: Pa
     assert f"WorkingDirectory={server_dir}" in service_text
     assert f"ExecStart={start_script_path}" in service_text
     assert "TimeoutStopSec=90s" in service_text
+    assert "StartLimitIntervalSec=10min" in service_text
+    assert "StartLimitBurst=5" in service_text
     assert "KillMode=mixed" in service_text
     assert "SendSIGKILL=yes" in service_text
     assert "LimitCORE=infinity" in service_text

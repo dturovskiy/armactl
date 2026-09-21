@@ -30,6 +30,8 @@ Semantic Versioning once public releases begin.
 - Added `armactl update profile check <name>` as a CLI fallback for the web profile compatibility canary without activating the tested profile.
 
 ### Changed
+- Generated game-server units now stop retrying after five failed starts within
+  ten minutes instead of allowing an unbounded deterministic restart storm.
 - Consolidated unfinished project work into `docs/checklist.md`, converted
   completed plan checkboxes into historical acceptance records, and corrected
   stale player/moderation documentation after Slice 7d completion. A regression
@@ -38,6 +40,11 @@ Semantic Versioning once public releases begin.
 - Generated game-server services now allow native core dumps so the host core handler can retain an authoritative backtrace after a future native crash.
 
 ### Fixed
+- Identified missing Workshop addons by exact ID in startup status and incident
+  evidence, correlated the ID back to the configured mod name, and collapsed a
+  repeated outage into one incident with first/last-seen times and a counter.
+- Reported systemd `auto-restart` as a restart loop in CLI status instead of
+  calling the server stopped.
 - Installation now stops with the real error when it cannot enable or start
   the generated game service, instead of reporting a false success.
 - Rejected out-of-range friendly restart times before they reach systemd.
@@ -75,6 +82,9 @@ Semantic Versioning once public releases begin.
 - `python3 -m ruff check .` in WSL.
 
 ### Operational notes
+- Existing installations must regenerate the game-service unit with
+  `armactl service install` to apply the bounded startup retry policy; this does
+  not restart the running game service.
 - Game-package updates use SteamCMD and isolated runtime directories; they do not run or depend on Git repository operations.
 - Updating a restart schedule now preserves whether the timer was active and clears only its persistent trigger timestamp before rearming it.
 - Incident evidence is stored per instance under `<data-root>/<instance>/incidents/`; the monitor records evidence only and never performs automatic game recovery.

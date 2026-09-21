@@ -166,6 +166,62 @@ def test_collector_deduplicates_already_seen_journal_signal(tmp_path: Path) -> N
     assert second.ignored >= 1
 
 
+def test_collector_groups_repeated_missing_workshop_addon_across_pids(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 9, 21, 12, 0, tzinfo=timezone.utc).timestamp()
+    _runtime_files(tmp_path, mtime=now)
+    config_file = tmp_path / "default" / "config" / "config.json"
+    config = json.loads(config_file.read_text(encoding="utf-8"))
+    config["game"]["mods"].append(
+        {
+            "modId": "6A1CDDF9F42476EC",
+            "name": "BLKO-RUSCAM",
+            "version": "1.0.0",
+        }
+    )
+    config_file.write_text(json.dumps(config), encoding="utf-8")
+    journal_calls = 0
+
+    def runner(args):
+        nonlocal journal_calls
+        if args[0] == "systemctl":
+            return incident_monitor.CommandOutput(
+                0,
+                _systemctl_output(pid=5000 + journal_calls),
+            )
+        journal_calls += 1
+        return incident_monitor.CommandOutput(
+            0,
+            _journal_record(
+                "Addon 6A1CDDF9F42476EC - Addon was not found on workshop.",
+                cursor=f"missing-addon-{journal_calls}",
+                timestamp=now + journal_calls * 60,
+                pid=5000 + journal_calls,
+            ),
+        )
+
+    first = incident_monitor.collect_incidents_once(data_root=tmp_path, runner=runner, now=now)
+    second = incident_monitor.collect_incidents_once(
+        data_root=tmp_path,
+        runner=runner,
+        now=now + 60,
+    )
+
+    assert first.captured == 1
+    assert second.captured == 0
+    assert second.updated == 1
+    root = tmp_path / "default" / "incidents"
+    bundles = [item for item in root.iterdir() if item.is_dir()]
+    assert len(bundles) == 1
+    metadata = json.loads((bundles[0] / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["summary"] == "Workshop addon unavailable"
+    assert metadata["suspect"] == "BLKO-RUSCAM (6A1CDDF9F42476EC)"
+    assert metadata["confidence"] == "high"
+    assert metadata["occurrence_count"] == 2
+    assert metadata["correlation_key"].endswith("6A1CDDF9F42476EC")
+
+
 def test_collector_deduplicates_engine_signal_when_log_mtime_changes(tmp_path: Path) -> None:
     now = datetime(2026, 9, 9, 14, 20, tzinfo=timezone.utc).timestamp()
     log_dir = _runtime_files(tmp_path, mtime=now)

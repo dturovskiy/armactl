@@ -481,6 +481,33 @@ def test_query_server_operational_status_prefers_terminal_failure_over_timeout(
     assert any("Unable to initialize the game" in item for item in result.details)
 
 
+def test_query_server_operational_status_exposes_missing_workshop_addon_id(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    _write_console_log(
+        config_dir,
+        "2026-09-21_120000",
+        "\n".join(
+            [
+                "12:00:01 BACKEND (E): Addon 6A1CDDF9F42476EC - "
+                "Addon was not found on workshop.",
+                "12:00:02 BACKEND (E): Failed to fetch addon details from workshop API!",
+                "12:00:03 ENGINE (E): Unable to initialize the game",
+                "12:00:03 ENGINE : Game destroyed.",
+            ]
+        ),
+        mtime=1000.0,
+    )
+
+    with patch("armactl.metrics.time.time", return_value=1005.0):
+        result = metrics.query_server_operational_status(config_dir)
+
+    assert result.state == "startup_failed"
+    assert result.message == "Workshop addon unavailable: 6A1CDDF9F42476EC"
+    assert any("6A1CDDF9F42476EC" in item for item in result.details)
+
+
 def test_query_server_operational_status_exposes_failing_mod_script(tmp_path: Path) -> None:
     config_dir = tmp_path / "config"
     _write_console_log(
@@ -670,6 +697,56 @@ def test_query_recent_server_incidents_prefers_persistent_collector_bundle(
     assert incidents[0].confirmed is True
     assert incidents[0].pid == 38222
     assert incidents[0].artifacts == ("journal.log", "runtime.json")
+
+
+def test_query_recent_server_incidents_coalesces_repeated_missing_addon(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "default" / "config"
+    config_dir.mkdir(parents=True)
+    incidents_root = tmp_path / "default" / "incidents"
+    for index, occurred_at in enumerate(
+        ("2026-09-21T12:00:00+00:00", "2026-09-21T12:01:00+00:00"),
+        start=1,
+    ):
+        metadata_dir = incidents_root / f"20260921T120{index - 1}00Z-startup-{index}"
+        metadata_dir.mkdir(parents=True)
+        (metadata_dir / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "id": metadata_dir.name,
+                    "occurred_at": occurred_at,
+                    "captured_at": occurred_at,
+                    "kind": "startup_failure",
+                    "severity": "error",
+                    "summary": "Server startup failed",
+                    "suspect": "Workshop addon 6A1CDDF9F42476EC",
+                    "confidence": "high",
+                    "reason": "Workshop addon unavailable.",
+                    "evidence": [
+                        "Addon 6A1CDDF9F42476EC - Addon was not found on workshop."
+                    ],
+                    "confirmed": True,
+                    "pid": 5000 + index,
+                    "artifacts": ["journal.log"],
+                    "bundle": f"incidents/{metadata_dir.name}",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    with patch(
+        "armactl.metrics.time.time",
+        return_value=datetime(2026, 9, 21, 12, 2, tzinfo=timezone.utc).timestamp(),
+    ):
+        incidents = metrics.query_recent_server_incidents(config_dir)
+
+    assert len(incidents) == 1
+    assert incidents[0].summary == "Workshop addon unavailable"
+    assert incidents[0].occurrence_count == 2
+    assert incidents[0].first_seen_at == "2026-09-21T12:00:00+00:00"
+    assert incidents[0].last_seen_at == "2026-09-21T12:01:00+00:00"
 
 
 def test_collected_incident_refines_generic_suspect_from_bounded_bundle_log(

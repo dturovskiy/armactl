@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from click.testing import CliRunner
 
-from armactl.cli import main
+from armactl.cli import _service_status_label, main
 from armactl.service_manager import ServiceResult
 
 
@@ -49,3 +49,11 @@ def test_schedule_set_rejects_out_of_range_time_before_systemd(monkeypatch):
 
     assert result.exit_code == 1
     assert "Invalid restart time" in result.output
+
+
+def test_service_status_label_exposes_auto_restart_loop() -> None:
+    assert _service_status_label(
+        discovered_running=False,
+        active_state="activating",
+        sub_state="auto-restart",
+    ) == ("🔴", "restart loop")

@@ -36,6 +36,7 @@ MONITOR_MAX_LOG_TAIL_BYTES: Final = 256 * 1024
 MONITOR_MAX_RECENT_FINGERPRINTS: Final = 512
 MONITOR_MAX_INCIDENTS: Final = 200
 MONITOR_CORRELATION_SECONDS: Final = 10 * 60
+MONITOR_REPEAT_CORRELATION_SECONDS: Final = 24 * 60 * 60
 MONITOR_LOW_FPS_FRESH_SECONDS: Final = 45
 
 _FAILURE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -66,7 +67,8 @@ _FAILURE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         "startup_failure",
         re.compile(
             r"Unable to initialize the game|Cannot create game|Addon loading failed|"
-            r"Can't compile [\"']Game[\"'] script module",
+            r"Can't compile [\"']Game[\"'] script module|"
+            r"Addon\s+[0-9A-F]{16}\s*-\s*Addon was not found on workshop",
             re.IGNORECASE,
         ),
     ),
@@ -85,6 +87,12 @@ _KIND_PRIORITY: Final = {
 _ENGINE_LINE_TIME_RE: Final = re.compile(
     r"^\s*(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})"
     r"(?:\.(?P<fraction>\d{1,6}))?"
+)
+
+_WORKSHOP_ADDON_NOT_FOUND_RE: Final = re.compile(
+    r"\bAddon\s+(?P<mod_id>[0-9A-Fa-f]{16})\s*-\s*"
+    r"Addon was not found on workshop\b",
+    re.IGNORECASE,
 )
 
 
@@ -549,6 +557,26 @@ def _assessment(
         if isinstance(active_mods, list)
         else set()
     )
+    missing_addon = _WORKSHOP_ADDON_NOT_FOUND_RE.search("\n".join(context))
+    if kind == "startup_failure" and missing_addon is not None:
+        mod_id = missing_addon.group("mod_id").upper()
+        mod_name = ""
+        if isinstance(active_mods, list):
+            for item in active_mods:
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("modId") or "").upper() == mod_id:
+                    mod_name = _safe_line(item.get("name"), limit=160)
+                    break
+        suspect = f"{mod_name} ({mod_id})" if mod_name else f"Workshop addon {mod_id}"
+        return (
+            "Workshop addon unavailable",
+            suspect,
+            "high",
+            "The active profile requires this addon, but the Workshop API reported that "
+            "it no longer exists or is unavailable. Keep the profile parked and use a "
+            "known-good profile until the addon is restored or replaced.",
+        )
     if kind == "low_fps":
         has_fortex_failure = (
             any(
@@ -707,6 +735,8 @@ def _important_evidence(signal: IncidentSignal) -> list[str]:
         "Stugna",
         "Unknown class",
         "Addon loading failed",
+        "Addon was not found on workshop",
+        "Failed to fetch addon details from workshop API",
         "Cannot create game",
         "Can't compile",
         "FPS:",
@@ -737,6 +767,17 @@ def _incident_id(signal: IncidentSignal) -> str:
     return f"{stamp}-{signal.kind}-{pid}-{digest}"
 
 
+def _signal_correlation_key(signal: IncidentSignal) -> str:
+    """Identify deterministic failures that may recur under a new process PID."""
+    if signal.kind != "startup_failure":
+        return ""
+    text = "\n".join((*signal.context, signal.message))
+    missing_addon = _WORKSHOP_ADDON_NOT_FOUND_RE.search(text)
+    if missing_addon is None:
+        return ""
+    return f"startup_failure:workshop-addon-missing:{missing_addon.group('mod_id').upper()}"
+
+
 def _incident_directories(root: Path) -> Iterable[Path]:
     try:
         candidates = [item for item in root.iterdir() if item.is_dir() and not item.is_symlink()]
@@ -749,8 +790,21 @@ def _correlatable_bundle(root: Path, signal: IncidentSignal) -> Path | None:
     signal_time = _parse_timestamp(signal.occurred_at)
     if signal_time is None:
         return None
+    correlation_key = _signal_correlation_key(signal)
     for candidate in _incident_directories(root):
         metadata = _read_json_object(candidate / "metadata.json")
+        if correlation_key:
+            if metadata.get("correlation_key") != correlation_key:
+                continue
+            last_seen = _parse_timestamp(
+                str(metadata.get("last_seen_at") or metadata.get("occurred_at") or "")
+            )
+            if (
+                last_seen is not None
+                and abs(signal_time - last_seen) <= MONITOR_REPEAT_CORRELATION_SECONDS
+            ):
+                return candidate
+            continue
         if signal.pid:
             if metadata.get("pid") != signal.pid:
                 continue
@@ -905,12 +959,31 @@ def _capture_bundle(
     artifact_names.append("runtime.json")
 
     captured_at = str(previous.get("captured_at") or _utc_now(now))
+    correlation_key = _signal_correlation_key(signal)
+    try:
+        occurrence_count = max(int(previous.get("occurrence_count") or 0), 0) + 1
+    except (TypeError, ValueError):
+        occurrence_count = 1
+    previous_last_seen = str(previous.get("last_seen_at") or "")
+    previous_last_timestamp = _parse_timestamp(previous_last_seen)
+    signal_timestamp = _parse_timestamp(signal.occurred_at)
+    last_seen_at = (
+        previous_last_seen
+        if previous_last_timestamp is not None
+        and signal_timestamp is not None
+        and previous_last_timestamp > signal_timestamp
+        else signal.occurred_at
+    )
     metadata = {
         "schema_version": MONITOR_SCHEMA_VERSION,
         "id": incident_id,
         "occurred_at": str(previous.get("occurred_at") or signal.occurred_at),
         "captured_at": captured_at,
         "updated_at": _utc_now(now),
+        "first_seen_at": str(previous.get("first_seen_at") or signal.occurred_at),
+        "last_seen_at": last_seen_at,
+        "occurrence_count": occurrence_count,
+        "correlation_key": correlation_key or str(previous.get("correlation_key") or ""),
         "kind": kind,
         "severity": "error",
         "summary": summary,

@@ -95,6 +95,26 @@ def _get_state(ctx: click.Context):
 # ---------------------------------------------------------------------------
 
 
+def _service_status_label(
+    *,
+    discovered_running: bool,
+    active_state: object,
+    sub_state: object,
+) -> tuple[str, str]:
+    """Return an operator-facing state without hiding systemd restart loops."""
+    active = str(active_state or "").strip().lower()
+    sub = str(sub_state or "").strip().lower()
+    if sub == "auto-restart":
+        return "🔴", "restart loop"
+    if active == "activating" or sub.startswith("start"):
+        return "🟡", "starting"
+    if active == "failed" or sub == "failed":
+        return "🔴", "failed"
+    if active == "active" or sub == "running" or discovered_running:
+        return "🟢", "running"
+    return "🔴", "stopped"
+
+
 @main.command()
 @click.pass_context
 def status(ctx: click.Context) -> None:
@@ -145,8 +165,12 @@ def status(ctx: click.Context) -> None:
         click.echo(json.dumps(payload, indent=2))
         return
 
-    icon = "🟢" if state.server_running else "🔴"
-    click.echo(f"[{instance}] Server: {icon} {'running' if state.server_running else 'stopped'}")
+    icon, service_label = _service_status_label(
+        discovered_running=state.server_running,
+        active_state=svc.get("active_state"),
+        sub_state=svc.get("sub_state"),
+    )
+    click.echo(f"[{instance}] Server: {icon} {service_label}")
     click.echo(f"  Install dir: {state.install_dir}")
     click.echo(f"  Config:      {state.config_path}")
     click.echo(f"  Service:     {'✓' if state.service_exists else '✗'} {state.service_name}")
@@ -155,6 +179,8 @@ def status(ctx: click.Context) -> None:
     click.echo(f"  Timer:       {'✓' if state.timer_exists else '✗'} {state.timer_name}")
     if svc["main_pid"]:
         click.echo(f"  PID:         {svc['main_pid']}")
+    if service_label == "restart loop" and svc.get("n_restarts"):
+        click.echo(f"  Restarts:    {svc['n_restarts']} (systemd is retrying startup)")
     fps_metrics = metrics.query_server_fps_metrics(paths.config_dir(instance))
     if fps_metrics.available:
         click.echo(f"  Server FPS:  {metrics.format_fps(fps_metrics.fps)}")
@@ -2507,6 +2533,9 @@ def _incident_history_payload(incident) -> dict[str, object]:
         "confirmed": incident.confirmed,
         "pid": incident.pid,
         "artifacts": list(incident.artifacts),
+        "first_seen_at": incident.first_seen_at,
+        "last_seen_at": incident.last_seen_at,
+        "occurrence_count": incident.occurrence_count,
     }
 
 
@@ -2573,6 +2602,8 @@ def incidents_list(
         )
         click.echo(f"    {item.summary}")
         click.echo(f"    Suspect: {item.suspect}")
+        if item.occurrence_count > 1:
+            click.echo(f"    Repeated: {item.occurrence_count} signals; last {item.last_seen_at}")
 
 
 @incidents.command("show")
@@ -2615,6 +2646,9 @@ def incidents_show(
     click.echo(f"  Suspect:    {incident.suspect}")
     click.echo(f"  Confidence: {incident.confidence}")
     click.echo(f"  Assessment: {incident.reason}")
+    if incident.occurrence_count > 1:
+        click.echo(f"  Repeated:    {incident.occurrence_count} signals")
+        click.echo(f"  Last seen:   {incident.last_seen_at}")
     if incident.pid:
         click.echo(f"  PID:        {incident.pid}")
     if incident.evidence:

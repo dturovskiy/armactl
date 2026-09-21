@@ -49,6 +49,8 @@
             <dt>{{ t("Likely trigger") }}</dt><dd>{{ incident.suspect }}</dd>
             <dt>{{ t("Assessment") }}</dt><dd>{{ t(incident.reason) }}</dd>
             <dt>{{ t("Evidence source") }}</dt><dd>{{ t(incident.source) }}</dd>
+            {% if incident.occurrence_count > 1 %}<dt>{{ t("Occurrences") }}</dt><dd>{{ incident.occurrence_count }}</dd>{% endif %}
+            {% if incident.last_seen_at and incident.last_seen_at != incident.occurred_at %}<dt>{{ t("Last seen") }}</dt><dd>{{ format_web_timestamp(incident.last_seen_at) }}</dd>{% endif %}
             {% if incident.pid %}<dt>PID</dt><dd>{{ incident.pid }}</dd>{% endif %}
             {% if incident.captured_at %}<dt>{{ t("Captured") }}</dt><dd>{{ format_web_timestamp(incident.captured_at) }}</dd>{% endif %}
           </dl>
