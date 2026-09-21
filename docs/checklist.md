@@ -37,10 +37,6 @@ and acceptance detail remains in the linked historical records and Git history.
 
 - [ ] Run the full local validation suite for the current branch and resolve any
   remaining CI failure before production acceptance.
-- [ ] Complete the remaining current-build automatic-fallback production gate on
-  Serhiivka: with the policy enabled, prove that a genuinely incompatible
-  modded canary promotes vanilla, preserves the parked modded profile for retry,
-  and records the exact game build and deployed armactl commit.
 - [ ] Complete the remaining persistent-incident-monitor acceptance defined in
   [incident-monitoring.md](incident-monitoring.md): exercise early live
   stale-telemetry and sustained-critical-FPS capture during an approved safe

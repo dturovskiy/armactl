@@ -2,7 +2,8 @@
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import call, patch
 
 import pytest
 
@@ -15,7 +16,11 @@ from armactl.integrity import (
     mark_install_started,
     write_package_manifest,
 )
-from armactl.repair import RepairError, run_repair
+from armactl.repair import (
+    RepairError,
+    _restore_root_repair_file_ownership,
+    run_repair,
+)
 from armactl.server_config_schema import generated_default_config_values
 from armactl.state import ServerState
 
@@ -71,6 +76,110 @@ def test_run_repair_defaults_empty_paths_and_refreshes_package_manifest(
     )
     assert check_package_integrity(server_dir).complete is True
     assert i18n._("  OK Package integrity manifest refreshed") in messages
+
+
+def test_run_repair_installs_privileged_helper_before_systemd_units(
+    tmp_path: Path,
+) -> None:
+    instance_root = tmp_path / "default"
+    server_dir = instance_root / "server"
+    config_path = instance_root / "config" / "config.json"
+    start_script = instance_root / "start-armareforger.sh"
+    server_dir.mkdir(parents=True)
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps(
+            generated_default_config_values(
+                rcon_password="repair-rcon-secret",
+                password_admin="repair-admin-secret",
+            )
+        ),
+        encoding="utf-8",
+    )
+    start_script.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    (server_dir / "ArmaReforgerServer").write_text("fake binary", encoding="utf-8")
+    state = ServerState(
+        server_running=False,
+        service_name="armareforger.service",
+        install_dir=str(server_dir),
+        config_path=str(config_path),
+    )
+    order: list[str] = []
+
+    with (
+        patch("armactl.repair.paths._containing_git_marker", return_value=None),
+        patch("armactl.repair.paths.start_script", return_value=start_script),
+        patch("armactl.repair.discover_manual", return_value=state),
+        patch("armactl.repair.stream_server_update", return_value=iter(())),
+        patch(
+            "armactl.repair.install_privileged_systemctl_channel",
+            side_effect=lambda: (
+                order.append("helper")
+                or [service_manager.ServiceResult(True, "installed helper")]
+            ),
+        ),
+        patch(
+            "armactl.repair.generate_services",
+            side_effect=lambda **kwargs: (
+                order.append("units")
+                or [service_manager.ServiceResult(True, "generated service")]
+            ),
+        ),
+    ):
+        list(run_repair("default", server_dir, config_path))
+
+    assert order == ["helper", "units"]
+
+
+def test_root_repair_restores_only_bounded_root_owned_runtime_files(
+    tmp_path: Path,
+) -> None:
+    instance_root = tmp_path / "default"
+    server_dir = instance_root / "server"
+    config_path = instance_root / "config" / "config.json"
+    backup = instance_root / "backups" / "start-armareforger.sh.test.bak"
+    files = [
+        server_dir / ".armactl-package-manifest.json",
+        config_path,
+        instance_root / "admins-state.json",
+        instance_root / "state.json",
+        instance_root / "start-armareforger.sh",
+        backup,
+    ]
+    for path in files:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+    original_lstat = Path.lstat
+
+    def root_owned_lstat(path: Path):
+        original_lstat(path)
+        return SimpleNamespace(st_uid=0)
+
+    with (
+        patch("armactl.repair.os.geteuid", return_value=0),
+        patch("armactl.repair.resolve_linux_user", return_value="operator"),
+        patch(
+            "armactl.repair.pwd.getpwnam",
+            return_value=SimpleNamespace(pw_uid=1234, pw_gid=1234),
+        ),
+        patch(
+            "armactl.repair.Path.lstat",
+            autospec=True,
+            side_effect=root_owned_lstat,
+        ),
+        patch("armactl.repair.os.chown") as chown_mock,
+    ):
+        owner, changed = _restore_root_repair_file_ownership(
+            instance_root,
+            server_dir,
+            config_path,
+        )
+
+    assert owner == "operator"
+    assert changed == len(files)
+    assert chown_mock.call_args_list == [
+        call(path, 1234, 1234, follow_symlinks=False) for path in files
+    ]
 
 
 def test_run_repair_refuses_project_root_install_dir(tmp_path: Path) -> None:

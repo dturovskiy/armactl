@@ -1,7 +1,8 @@
 # Server Update Compatibility
 
-Status: active detailed contract. Remaining exact-build profile/fallback
-acceptance is tracked only in [checklist.md](checklist.md).
+Status: active detailed contract. Exact-build profile and automatic-fallback
+acceptance history is recorded below; remaining operational gates are tracked
+only in [checklist.md](checklist.md).
 
 armactl treats the game package and the configured mod stack as two separate
 compatibility concerns. An update never edits or selectively deletes Workshop
@@ -164,5 +165,29 @@ The production policy toggle was also verified `off -> on -> off` without a
 game restart. Deterministic failure-injection tests proved modded rejection,
 vanilla promotion with a retryable parked profile, successful later retry,
 vanilla rejection with the old generation retained, and fallback-disabled
-behavior. Intentionally forcing an incompatible production update remains part
-of the combined current-build automatic-fallback gate in the active checklist.
+behavior. The production failure path was subsequently accepted as recorded
+below.
+
+## Serhiivka automatic-fallback acceptance evidence (2026-09-21 UTC)
+
+Commit `db2e0082b7bf04f4c84b8962628aee4e8ad1d2f7` was deployed Git-only.
+Serhiivka had zero players before the maintenance window and 107 GiB available;
+Chervonopilya's game process was not restarted during its non-disruptive code
+deployment.
+
+- Automatic fallback was enabled and canonical `vanilla` was deliberately
+  modified with the known unavailable Workshop addon `6A1CDDF9F42476EC`
+  (`BLKO-RUSCAM`). Reconciliation immediately preserved clean `vanilla` and
+  named the controlled incompatible selection `vanilla-modded-2`.
+- The transactional update created baseline
+  `<data-root>/default/backups/update-baselines/20260921T174643Z/` and tested
+  installed/candidate build `24870635`. The modded canary recorded the exact
+  Workshop line `Addon 6A1CDDF9F42476EC - Addon was not found on workshop`,
+  then failed before promotion.
+- Policy advanced to `vanilla-canary`, disabled one configured mod as a unit,
+  and the addon-free Conflict Everon canary passed. The transaction committed
+  active mode/profile `vanilla` and parked `vanilla-modded-2` at
+  `<instance>/server-update/parked-modded-profile/` for a later retry.
+- The promoted production service reached `Ready` with fresh telemetry,
+  approximately 118-120 server FPS, zero players, and `NRestarts=0`. Rollback
+  remained available and the active game build stayed `24870635`.

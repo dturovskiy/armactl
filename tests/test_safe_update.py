@@ -396,6 +396,57 @@ def test_compatibility_canary_rejects_fatal_compile_output(tmp_path: Path, monke
     assert "AAAAAAAAAAAAAAAA" in diagnostic.read_text(encoding="utf-8")
 
 
+def test_compatibility_canary_surfaces_missing_workshop_addon_before_generic_fatal(
+    tmp_path: Path, monkeypatch
+):
+    server, config_path = _layout(tmp_path)
+    update_paths = safe_update.resolve_update_paths(server, config_path)
+    update_paths.update_root.mkdir(mode=0o700)
+    _write_server(update_paths.candidate_server, "200", "new server")
+    safe_update._copy_profile_bundle(
+        update_paths,
+        update_paths.profile,
+        update_paths.candidate_profile,
+    )
+    update_paths.candidate_logs.mkdir()
+
+    class FakeProcess:
+        pid = 12345
+        stdout = iter(
+            [
+                "SCRIPT : harmless startup warning\n",
+                "BACKEND (E): Addon 6A1CDDF9F42476EC - "
+                "Addon was not found on workshop.\n",
+                "BACKEND (E): Failed to fetch addon details from workshop API!\n",
+                "ENGINE (E): Unable to initialize the game\n",
+            ]
+        )
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(safe_update, "_terminate_process", lambda process: None)
+
+    with pytest.raises(
+        safe_update.CanaryRejectedError,
+        match="6A1CDDF9F42476EC.*not found on workshop",
+    ):
+        safe_update.run_compatibility_canary(
+            update_paths,
+            timeout_seconds=1.0,
+            stability_seconds=0.5,
+            poll_interval_seconds=0.01,
+            popen=lambda *args, **kwargs: FakeProcess(),
+            status_probe=lambda path: safe_update.a2s.PlayerStatus(
+                available=False,
+                host="127.0.0.1",
+                port=17777,
+                error="not ready",
+            ),
+            sleep=time.sleep,
+        )
+
+
 def test_vanilla_canary_cannot_see_shared_workshop_addons(tmp_path: Path):
     server, config_path = _layout(tmp_path)
     update_paths = safe_update.resolve_update_paths(server, config_path)

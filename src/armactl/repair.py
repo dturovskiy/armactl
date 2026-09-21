@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import pwd
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -18,18 +20,67 @@ from armactl.integrity import (
     clear_install_marker,
     install_marker_path,
     mark_install_started,
+    package_manifest_path,
     write_package_manifest,
 )
 from armactl.mods_state import migrate_legacy_disabled_mods
 from armactl.service_manager import (
     generate_services,
     install_privileged_systemctl_channel,
+    resolve_linux_user,
     stop_service,
 )
 
 
 class RepairError(Exception):
     """Raised when repair fails fatally."""
+
+
+def _restore_root_repair_file_ownership(
+    instance_root: Path,
+    install_dir: Path,
+    config_path: Path,
+) -> tuple[str, int]:
+    """Restore armactl-written runtime files after an explicit root bootstrap.
+
+    Normal operation runs repair as the instance owner and uses sudo only for
+    root-owned system files.  A recovery bootstrap may still be invoked by root
+    with ``SUDO_USER`` set; keep those bounded armactl outputs writable by the
+    actual service account instead of leaving a partially root-owned instance.
+    """
+    if os.geteuid() != 0:
+        return "", 0
+    user = resolve_linux_user()
+    if not user or user == "root":
+        return "", 0
+    try:
+        account = pwd.getpwnam(user)
+    except KeyError:
+        return "", 0
+
+    candidates = [
+        package_manifest_path(install_dir),
+        config_path,
+        instance_root / "mods-state.json",
+        instance_root / "admins-state.json",
+        instance_root / "state.json",
+        instance_root / "start-armareforger.sh",
+    ]
+    backups_dir = instance_root / "backups"
+    if backups_dir.is_dir() and not backups_dir.is_symlink():
+        candidates.extend(backups_dir.glob("start-armareforger.sh.*.bak"))
+
+    changed = 0
+    for path in candidates:
+        try:
+            stat = path.lstat()
+        except OSError:
+            continue
+        if path.is_symlink() or stat.st_uid != 0:
+            continue
+        os.chown(path, account.pw_uid, account.pw_gid, follow_symlinks=False)
+        changed += 1
+    return user, changed
 
 
 def _repair_failure_should_clear_marker(
@@ -75,6 +126,7 @@ def run_repair(
     if state.server_running:
         stop_service(state.service_name)
         yield _("  OK Server stopped")
+        yield _("  - Repair intentionally leaves the game server stopped until completion.")
     else:
         yield _("  - Server is already stopped")
 
@@ -164,17 +216,10 @@ def run_repair(
         )
     yield _("  OK Config validation passed")
 
-    yield tr("[{instance}] Step 4: Repairing systemd services...", instance=instance)
-    results = generate_services(instance=instance)
-    for result in results:
-        if result.success:
-            yield tr("  OK {message}", message=result.message)
-        else:
-            raise RepairError(
-                tr("Failed to generate systemd units: {message}", message=result.message)
-            )
-
-    yield tr("[{instance}] Step 5: Installing secure privileged control...", instance=instance)
+    yield tr(
+        "[{instance}] Step 4: Installing secure privileged control...",
+        instance=instance,
+    )
     privileged_results = install_privileged_systemctl_channel()
     for result in privileged_results:
         if result.success:
@@ -185,6 +230,16 @@ def run_repair(
                     "Failed to install secure privileged control: {message}",
                     message=result.message,
                 )
+            )
+
+    yield tr("[{instance}] Step 5: Repairing systemd services...", instance=instance)
+    results = generate_services(instance=instance)
+    for result in results:
+        if result.success:
+            yield tr("  OK {message}", message=result.message)
+        else:
+            raise RepairError(
+                tr("Failed to generate systemd units: {message}", message=result.message)
             )
 
     yield tr("[{instance}] Step 6: Fixing permissions...", instance=instance)
@@ -199,7 +254,20 @@ def run_repair(
     discover_manual(install_dir, config_path, instance=instance, save=True)
     yield _("  OK Server state synchronized")
 
+    owner, ownership_changes = _restore_root_repair_file_ownership(
+        install_dir.parent,
+        install_dir,
+        config_path,
+    )
+    if ownership_changes:
+        yield tr(
+            "  OK Restored ownership of {count} runtime file(s) to {user}",
+            count=ownership_changes,
+            user=owner,
+        )
+
     yield tr(
-        "[{instance}] Repair complete! Run 'start' to boot the server.",
+        "[{instance}] Repair complete. The game server remains stopped; "
+        "run 'start' after reviewing the result.",
         instance=instance,
     )

@@ -30,6 +30,10 @@ Semantic Versioning once public releases begin.
 - Added `armactl update profile check <name>` as a CLI fallback for the web profile compatibility canary without activating the tested profile.
 
 ### Changed
+- Repair now refreshes the secure privileged helper before replacing systemd
+  units, explicitly reports that the game remains stopped, and restores the
+  bounded runtime files it writes to the instance owner after an intentional
+  root bootstrap.
 - Generated game-server units now stop retrying after five failed starts within
   ten minutes instead of allowing an unbounded deterministic restart storm.
 - Consolidated unfinished project work into `docs/checklist.md`, converted
@@ -40,6 +44,10 @@ Semantic Versioning once public releases begin.
 - Generated game-server services now allow native core dumps so the host core handler can retain an authoritative backtrace after a future native crash.
 
 ### Fixed
+- Preserved the actionable pre-fatal canary lines in update failures, so a
+  missing Workshop addon is reported by exact ID instead of being reduced to a
+  generic `Unable to initialize the game` message; that ID can now drive
+  per-mod incompatibility evidence.
 - Identified missing Workshop addons by exact ID in startup status and incident
   evidence, correlated the ID back to the configured mod name, and collapsed a
   repeated outage into one incident with first/last-seen times and a counter.

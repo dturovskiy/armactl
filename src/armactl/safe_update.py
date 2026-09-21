@@ -99,17 +99,36 @@ FATAL_CANARY_MARKERS = (
     "Cannot create game",
 )
 
+ACTIONABLE_CANARY_MARKERS = (
+    "Addon was not found on workshop",
+    "addons are not downloadable",
+    "Failed to fetch addon details from workshop API",
+    'Can\'t compile "Game" script module',
+    "Missing required API symbol",
+    "Addon loading failed",
+    "Cannot create game",
+)
+
 _BUILD_ID_RE = re.compile(r'"buildid"\s+"(?P<build>\d+)"', re.IGNORECASE)
 
 
 def _summarize_canary_failure(lines: Iterable[str]) -> str:
     """Keep the operator error useful without embedding an unbounded addon list."""
+    normalized = [raw_line.strip() for raw_line in lines if raw_line.strip()]
+    actionable_at = next(
+        (
+            index
+            for index, line in enumerate(normalized)
+            if any(marker.casefold() in line.casefold() for marker in ACTIONABLE_CANARY_MARKERS)
+        ),
+        None,
+    )
+    if actionable_at is not None:
+        normalized = normalized[actionable_at:]
+
     summarized: list[str] = []
     addon_marker = "Addon loading failed"
-    for raw_line in lines:
-        line = raw_line.strip()
-        if not line:
-            continue
+    for line in normalized:
         marker_at = line.casefold().find(addon_marker.casefold())
         stop_after_line = marker_at >= 0
         if marker_at >= 0:
@@ -663,7 +682,6 @@ def run_compatibility_canary(
     last_status: a2s.PlayerStatus | None = None
     fatal_line = ""
     fatal_seen_at: float | None = None
-    fatal_context: list[str] = []
 
     try:
         while monotonic() - started_at < timeout_seconds:
@@ -674,15 +692,12 @@ def run_compatibility_canary(
                     break
                 if line:
                     output_tail.append(line)
-                    if fatal_line:
-                        fatal_context.append(line)
                 if not fatal_line and any(
                     marker.casefold() in line.casefold()
                     for marker in FATAL_CANARY_MARKERS
                 ):
                     fatal_line = line
                     fatal_seen_at = monotonic()
-                    fatal_context = [line]
 
             return_code = process.poll()
             if fatal_line and (
@@ -697,7 +712,10 @@ def run_compatibility_canary(
                     update_paths,
                     output_tail,
                 )
-                tail = _summarize_canary_failure(fatal_context)
+                # Include the bounded pre-fatal tail so an actionable Workshop
+                # or script error immediately preceding a generic engine fatal
+                # is not replaced by "Unable to initialize the game".
+                tail = _summarize_canary_failure(output_tail)
                 raise CanaryRejectedError(
                     "Candidate rejected by scenario/mod compilation: "
                     + (tail or fatal_line)
