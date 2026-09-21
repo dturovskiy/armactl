@@ -70,6 +70,12 @@ Semantic Versioning once public releases begin.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
+- GitHub Actions run `35636874913` passed Ruff, all 1662 pytest cases, and
+  package build for the actionable-canary and repair-bootstrap fixes.
+- Serhiivka live monitor acceptance retained bounded stale-telemetry and
+  sustained-critical-FPS evidence on the same PID and recovered to fresh 120
+  FPS with zero restarts; a Chervonopilya read-only pass captured no false
+  incident and left its game PID untouched.
 - Active-log anomaly checks passed bounded-tail, allowlist, symlink, path
   redaction, permission, and localization coverage; GitHub Actions passed Ruff,
   all `1616` tests, and package build for commit `c3c3816`.

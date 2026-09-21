@@ -1,7 +1,8 @@
 # Persistent Incident Monitoring
 
-Status: active detailed contract. The Serhiivka baseline is accepted; remaining
-production acceptance is tracked only in [checklist.md](checklist.md).
+Status: active detailed contract. Serhiivka live-signal and Chervonopilya
+non-disruptive production acceptance are recorded below; remaining work is
+tracked only in [checklist.md](checklist.md).
 
 `armactl` can run a supervised, read-only evidence collector every 15 seconds.
 It records evidence but never stops, starts, or restarts the game server and
@@ -142,9 +143,39 @@ summary. `LimitCORE` was unlimited, while `coredumpctl` and `gdb` were not
 available in that VM; the capability report exposes this limitation instead of
 claiming that a native backtrace was captured.
 
-This completes retained-incident presentation acceptance on Serhiivka. A
-deliberately induced live stale-telemetry event was not performed, and
-Chervonopilya remains a separate approval-gated production acceptance step.
+This completed the initial retained-incident presentation acceptance on
+Serhiivka. Live-signal and Chervonopilya acceptance followed as recorded below.
+
+## Live monitor acceptance evidence (2026-09-21 UTC)
+
+Commit `0d642f3b1ea9b459ccfff189e4b7db15b87eca92` was deployed Git-only to
+both VMs after GitHub Actions run `35636874913` passed Ruff, all 1662 pytest
+cases, and package build. Both game processes remained on their existing PID
+during that deployment; only the web services were restarted.
+
+Serhiivka had zero players before two controlled, automatically bounded signal
+tests. Neither test changed the game config, profile, scenario, or Workshop
+files, and each installed an independent transient systemd safety timer before
+applying the signal:
+
+- A temporary `SIGSTOP` produced 90 seconds of stale engine telemetry while
+  systemd still reported PID `201805` active. The monitor retained incident
+  `20260921T182204Z-telemetry_hang_suspected-201805-b15359f929` with the exact
+  PID, early process state, service/runtime snapshots, and bounded engine and
+  journal artifacts. `SIGCONT` restored fresh telemetry on the same PID with
+  `NRestarts=0`.
+- A temporary 5% runtime CPU quota produced three consecutive fresh telemetry
+  samples at 1.1, 1.4, and 1.1 FPS after a healthy approximately 120 FPS
+  history. The monitor correlated the sustained `low_fps` confirmation into
+  the existing live-process bundle and retained player count zero plus the
+  healthy-to-critical transition. The quota was reset to `infinity`; the same
+  PID returned to `Ready`, fresh 120 FPS operation with `NRestarts=0`.
+
+Chervonopilya then completed a read-only foreground monitor pass with
+`success=1`, `captured=0`, `updated=0`, and `ignored=0`. Its timer heartbeat
+advanced while game PID `281696`, `NRestarts=0`, fresh 120 FPS telemetry, and
+the ready public status remained unchanged. No game restart or profile/config
+mutation was performed.
 
 A journal message such as `double free or corruption` proves the native memory
 failure mechanism, but it does not by itself prove which mod triggered the
