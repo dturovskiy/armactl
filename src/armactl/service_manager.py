@@ -13,7 +13,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,6 +29,28 @@ from armactl.platform.restart_timer import (
 )
 from armactl.platform.restart_timer import (
     has_schedule_input as _has_schedule_input,
+)
+from armactl.platform.systemd_execution import (
+    SUDO_AUTH_ERROR_MARKERS as SUDO_AUTH_ERROR_MARKERS,
+)
+from armactl.platform.systemd_execution import (
+    SYSTEMCTL_TIMEOUT_SECONDS as SYSTEMCTL_TIMEOUT_SECONDS,
+)
+from armactl.platform.systemd_execution import ServiceResult as ServiceResult
+from armactl.platform.systemd_execution import (
+    build_systemctl_command as _build_systemctl_command_impl,
+)
+from armactl.platform.systemd_execution import (
+    execute_systemctl_command as _execute_systemctl_command,
+)
+from armactl.platform.systemd_execution import (
+    looks_like_sudo_auth_error as _looks_like_sudo_auth_error_impl,
+)
+from armactl.platform.systemd_execution import (
+    resolve_systemctl_binary as _resolve_systemctl_binary_impl,
+)
+from armactl.platform.systemd_execution import (
+    secure_privileged_channel_message as _secure_privileged_channel_message_impl,
 )
 from armactl.platform.systemd_status import (
     SYSTEMD_EXEC_MAIN_CODE_LABELS as SYSTEMD_EXEC_MAIN_CODE_LABELS,
@@ -59,35 +80,14 @@ from armactl.runtime_settings import (
     save_max_fps_profile,
 )
 
-SUDO_AUTH_ERROR_MARKERS = (
-    "a terminal is required to read the password",
-    "a password is required",
-)
 SUDOERS_USER_RE = re.compile(r"^\s*([A-Za-z0-9._-]+)\s+ALL=\(root\)\s+NOPASSWD:")
 INSTANCE_SERVICE_RE = re.compile(r"^armareforger@([A-Za-z0-9_.-]+)\.service$")
 RESTART_INSTANCE_SERVICE_RE = re.compile(
     r"^armareforger-restart@([A-Za-z0-9_.-]+)\.service$"
 )
-SYSTEMCTL_TIMEOUT_SECONDS = 30
-@dataclass
-class ServiceResult:
-    """Result of a systemctl operation."""
-
-    success: bool
-    message: str
-    exit_code: int = 0
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"success": self.success, "message": self.message, "exit_code": self.exit_code}
-
-
 def _secure_privileged_channel_message() -> str:
     """Return the user-facing guidance for missing or stale sudo-helper access."""
-    return _(
-        "Secure privileged control is not configured for this Linux user yet. "
-        "Install/update the bot service or re-run install/repair from the TUI "
-        "to refresh the secure sudo helper."
-    )
+    return _secure_privileged_channel_message_impl()
 
 
 def _run_systemctl(
@@ -97,85 +97,25 @@ def _run_systemctl(
     timeout_seconds: int = SYSTEMCTL_TIMEOUT_SECONDS,
 ) -> ServiceResult:
     """Run a systemctl command and return the result."""
-    action_label = {
-        "start": _("Systemctl action: start"),
-        "stop": _("Systemctl action: stop"),
-        "restart": _("Systemctl action: restart"),
-        "enable": _("Systemctl action: enable"),
-        "disable": _("Systemctl action: disable"),
-        "daemon-reload": _("Systemctl action: daemon-reload"),
-        "clean-timer-state": _("Systemctl action: clear timer state"),
-    }.get(action, action)
-    cmd = _build_systemctl_command(action, service_name=service_name, use_sudo=use_sudo)
-
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-        )
-        if result.returncode == 0:
-            return ServiceResult(
-                success=True,
-                message=tr(
-                    "{action} {service_name}: ok",
-                    action=action_label,
-                    service_name=service_name,
-                ),
-                exit_code=0,
-            )
-        else:
-            stderr = safe_subprocess_error(result.stderr, result.stdout)
-            if use_sudo and _looks_like_sudo_auth_error(stderr):
-                return ServiceResult(
-                    success=False,
-                    message=_secure_privileged_channel_message(),
-                    exit_code=result.returncode,
-                )
-            return ServiceResult(
-                success=False,
-                message=tr(
-                    "{action} {service_name} failed: {stderr}",
-                    action=action_label,
-                    service_name=service_name,
-                    stderr=stderr,
-                ),
-                exit_code=result.returncode,
-            )
-    except subprocess.TimeoutExpired:
-        return ServiceResult(
-            success=False,
-            message=tr(
-                "{action} {service_name}: timed out after {timeout_seconds}s",
-                action=action_label,
-                service_name=service_name,
-                timeout_seconds=timeout_seconds,
-            ),
-            exit_code=1,
-        )
-    except FileNotFoundError:
-        return ServiceResult(
-            success=False,
-            message=_("systemctl not found - is systemd installed?"),
-            exit_code=1,
-        )
-    except OSError as e:
-        return ServiceResult(
-            success=False,
-            message=tr(
-                "{action} {service_name}: {error}",
-                action=action_label,
-                service_name=service_name,
-                error=redact_sensitive_text(e),
-            ),
-            exit_code=1,
-        )
+    command = _build_systemctl_command(
+        action,
+        service_name=service_name,
+        use_sudo=use_sudo,
+    )
+    return _execute_systemctl_command(
+        action,
+        service_name,
+        command=command,
+        use_sudo=use_sudo,
+        timeout_seconds=timeout_seconds,
+        run=subprocess.run,
+        privileged_channel_message=_secure_privileged_channel_message,
+    )
 
 
 def _resolve_systemctl_binary() -> str:
     """Return the systemctl binary path used by the privileged helper."""
-    return shutil.which("systemctl") or "/usr/bin/systemctl"
+    return _resolve_systemctl_binary_impl(which=shutil.which)
 
 
 def _resolve_install_binary() -> str:
@@ -217,8 +157,7 @@ def get_privileged_channel_user() -> str | None:
 
 def _looks_like_sudo_auth_error(stderr: str) -> bool:
     """Detect sudo failures caused by non-interactive password prompts."""
-    lowered = stderr.lower()
-    return any(marker in lowered for marker in SUDO_AUTH_ERROR_MARKERS)
+    return _looks_like_sudo_auth_error_impl(stderr)
 
 
 def _build_systemctl_command(
@@ -229,32 +168,30 @@ def _build_systemctl_command(
 ) -> list[str]:
     """Build the safest available systemctl invocation for the current context."""
     if not use_sudo:
-        cmd = [_resolve_systemctl_binary()]
-        if action == "clean-timer-state":
-            cmd.extend(["clean", "--what=state"])
-        else:
-            cmd.append(action)
-        if service_name:
-            cmd.append(service_name)
-        return cmd
+        return _build_systemctl_command_impl(
+            action,
+            service_name,
+            use_sudo=False,
+            systemctl_binary=_resolve_systemctl_binary(),
+            privileged_helper=None,
+            stdin_isatty=True,
+        )
 
-    if has_privileged_systemctl_channel():
-        cmd = ["sudo", "-n", str(paths.privileged_helper_file()), action]
-        if service_name:
-            cmd.append(service_name)
-        return cmd
-
-    cmd = ["sudo"]
-    if not sys.stdin.isatty():
-        cmd.append("-n")
-    cmd.append(_resolve_systemctl_binary())
-    if action == "clean-timer-state":
-        cmd.extend(["clean", "--what=state"])
-    else:
-        cmd.append(action)
-    if service_name:
-        cmd.append(service_name)
-    return cmd
+    privileged_helper = (
+        paths.privileged_helper_file()
+        if has_privileged_systemctl_channel()
+        else None
+    )
+    return _build_systemctl_command_impl(
+        action,
+        service_name,
+        use_sudo=True,
+        systemctl_binary=(
+            "" if privileged_helper is not None else _resolve_systemctl_binary()
+        ),
+        privileged_helper=privileged_helper,
+        stdin_isatty=True if privileged_helper is not None else sys.stdin.isatty(),
+    )
 
 
 def _systemctl_helper_user() -> str:
