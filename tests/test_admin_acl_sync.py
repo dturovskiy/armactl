@@ -105,6 +105,29 @@ def test_add_admin_exactly_syncs_sat_and_wcs_roles_and_preserves_other_fields(
     assert len(tuple(backups.glob("*.bak"))) == 2
 
 
+def test_mapped_rcon_uuid_updates_existing_steam_admin_without_duplicate(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "instance" / "config" / "config.json"
+    _write_config(config_path, [STEAM_ID])
+    sat_path, wcs_path = _write_mod_acls(
+        config_path,
+        sat_admins=[ADMIN_UUID],
+        wcs_admins=[ADMIN_UUID],
+    )
+    (tmp_path / "instance" / "sat-admin-uuid-map.json").write_text(
+        json.dumps({"identities": {STEAM_ID: ADMIN_UUID}}),
+        encoding="utf-8",
+    )
+
+    result = admin_acl_sync.add_admin_and_sync(config_path, ADMIN_UUID, "Updated label")
+
+    assert result.created is False
+    assert _game_admins(config_path) == [STEAM_ID]
+    assert json.loads(sat_path.read_text(encoding="utf-8"))["admins"] == [ADMIN_UUID]
+    assert json.loads(wcs_path.read_text(encoding="utf-8"))["gameMaster"] == [ADMIN_UUID]
+
+
 def test_inspection_reports_every_full_admin_role_as_synchronized(
     tmp_path: Path,
 ) -> None:

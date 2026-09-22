@@ -610,6 +610,38 @@ def _run_mutation(
     )
 
 
+def _existing_mapped_steam_admin(config_path: Path, reference: str) -> str:
+    """Keep the official SteamID when its mapped UUID is added again via RCON."""
+    candidate = str(reference or "").strip()
+    if not admins_manager.IDENTITY_ID_RE.fullmatch(candidate):
+        return reference
+
+    official = admins_manager.get_admins(config_path)
+    normalized_uuid = candidate.casefold()
+    if any(str(item.get("identityId") or "").casefold() == normalized_uuid for item in official):
+        return reference
+    steam_ids = [
+        str(item.get("identityId") or "")
+        for item in official
+        if admins_manager.STEAM_ID64_RE.fullmatch(str(item.get("identityId") or ""))
+    ]
+    if not steam_ids:
+        return reference
+    try:
+        uuid_map = sat_admin_guard.load_sat_uuid_map(config_path)
+    except sat_admin_guard.SatAdminGuardError as exc:
+        raise AdminAclSyncError(
+            "Admin identity mapping is unavailable; the admin change was not applied."
+        ) from exc
+
+    matches = [steam_id for steam_id in steam_ids if uuid_map.get(steam_id) == normalized_uuid]
+    if len(matches) > 1:
+        raise AdminAclSyncError(
+            "Admin identity mapping is ambiguous; the admin change was not applied."
+        )
+    return matches[0] if matches else reference
+
+
 def add_admin_and_sync(
     config_path: Path | str,
     admin_reference: str,
@@ -619,7 +651,9 @@ def add_admin_and_sync(
     path = Path(config_path)
     return _run_mutation(
         path,
-        lambda: admins_manager.add_admin(path, admin_reference, name),
+        lambda: admins_manager.add_admin(
+            path, _existing_mapped_steam_admin(path, admin_reference), name
+        ),
         is_remove=False,
     )
 
