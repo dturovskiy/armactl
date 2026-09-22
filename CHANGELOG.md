@@ -30,6 +30,10 @@ Semantic Versioning once public releases begin.
 - Added `armactl update profile check <name>` as a CLI fallback for the web profile compatibility canary without activating the tested profile.
 
 ### Changed
+- Defined the public `main` integration as the sanitized local/free dashboard
+  plus shared core, kept the separately maintained marketing website outside
+  this repository, and removed deployment-specific VM names and local paths
+  from public planning and acceptance documentation.
 - Repair now refreshes the secure privileged helper before replacing systemd
   units, explicitly reports that the game remains stopped, and restores the
   bounded runtime files it writes to the instance owner after an intentional

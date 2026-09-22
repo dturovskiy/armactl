@@ -42,7 +42,7 @@ The current `feat/web-interface` branch is a web-dashboard baseline, not an auto
 - Manual player log collector/import foundation through CLI for explicitly supplied bounded text log files, with dry-run/write modes and safe basename+file-marker+line source refs.
 - Read-only player history web view for already stored player log events, with bounded filters and no web-request log reads or mutations.
 - Manual player log collection web job from allowlisted instance config profile logs, with background-job dedupe, audit counts, and no arbitrary path input or GET-side poller; the manual path remains available and keeps its existing outcome audit.
-- Slice F2-a explicit supervised player-log ingest foundation with generated `armactl-player-log-ingest.service`/`.timer` units, a 120-second completion-relative cadence, direct project `.venv` execution, restrained CPU/I/O priority, a bounded hard runtime guard, controlled lock-collision skips, counts-only journald output, and explicit install/enable/disable/status commands. Installation never enables or starts the timer and preserves any existing enablement state. F2-b production acceptance explicitly enabled and observed it on Serhiivka and Chervonopilya, with repeated fresh non-overlapping cycles and no game/web restart or player-session scheduler enablement.
+- Slice F2-a explicit supervised player-log ingest foundation with generated `armactl-player-log-ingest.service`/`.timer` units, a 120-second completion-relative cadence, direct project `.venv` execution, restrained CPU/I/O priority, a bounded hard runtime guard, controlled lock-collision skips, counts-only journald output, and explicit install/enable/disable/status commands. Installation never enables or starts the timer and preserves any existing enablement state. F2-b production acceptance explicitly enabled and observed it on canary server and primary server, with repeated fresh non-overlapping cycles and no game/web restart or player-session scheduler enablement.
 - Slice F2-c bounded incremental active-log support from [player-log-ingest-incremental-contract.md](player-log-ingest-incremental-contract.md), so a busy server does not require unbounded whole-file reads: the newest oversized log receives a bounded tail bootstrap, later passes read only append ranges, coverage start gates session statistics, and oversized historical logs remain explicit non-blocking counts rather than current-freshness blockers.
 - Current-roster refresh foundation through an explicit `players:refresh-current` background job, with active-job dedupe, audit/job counts, no GET writes, and no session/K/D/role claims.
 - Current players table on `/players`, with compact Player/Status/Kills/Deaths/TK/Faction/Role/Available actions rows, sanitized identity/source/freshness fields hidden behind closed Details actions, and authenticated web-only read-only enrichment from existing `player_log_events` and open `player_sessions`. Missing DB/session/evidence renders `—`; `Kills` excludes teamkills, `TK` is separate, `Faction` is last-known evidence, `Session first observed` is not exact joined time, and `Role` remains `—`. There is no DB migration/materialized counter/job, no GET player DB/session writes, no K/D, no public player IDs, and no Discord/public enrichment.
@@ -218,11 +218,11 @@ Historical player-slice record and remaining gates:
   Discord/public enrichment; the final truth contract was implemented later in
   [player-session-stats-contract.md](player-session-stats-contract.md);
 - slice 4: complete — F2-a/F2-b/F2-c supervised ingest deployment/observation proves automatic fresh bounded log coverage on both target VMs, and F3-a now documents the enqueue-only session scheduler gap plus one supervised correction;
-- slice 5: complete — F3-b synchronous ordered player-session oneshot/timer and F3-c Serhiivka-first, approval-gated Chervonopilya production acceptance; authenticated detail/search is also complete through Slices 6c-6d, while a JSON API remains conditional later work;
+- slice 5: complete — F3-b synchronous ordered player-session oneshot/timer and F3-c canary-first, approval-gated primary server production acceptance; authenticated detail/search is also complete through Slices 6c-6d, while a JSON API remains conditional later work;
 - slice 6a: complete — audit/design for query-only session detail, alias-aware search, keyset pagination, shared session-window stats, and conflict/privacy rules in [player-session-detail-search-contract.md](player-session-detail-search-contract.md);
 - slice 6b: complete — query-only detail/search DTO foundation, alias-safe search, fail-closed time/source filters, bounded session/event keyset pagination, shared open/closed session stats, and focused regressions;
 - slice 6c: complete — thin authenticated list/detail UI, preserved filters, browser-local time controls/display, responsive EN/UK presentation, bounded timeline, nullable shared stats, and read-only/privacy regressions;
-- slice 6d: complete — Serhiivka-first authenticated VM smoke followed by approved Chervonopilya acceptance, with real list/detail/filter/current-roster requests, sanitized not-found handling, no player DB/session/job writes, no web 500/traceback, and no game restart;
+- slice 6d: complete — canary-first authenticated VM smoke followed by approved primary server acceptance, with real list/detail/filter/current-roster requests, sanitized not-found handling, no player DB/session/job writes, no web 500/traceback, and no game restart;
 - slice 7: audited native banlist/moderation manager. Slices 7a-7d design,
   typed read-only native list, verified backend ban/unban service, authenticated
   mutation UI, and CLI fallback are complete; staged acceptance Slice 7e
@@ -310,7 +310,7 @@ P1 status and remaining gated work:
 P2 later:
 
 - Authenticated richer session list/detail/search UI is complete; a separate JSON API or bulk export remains conditional on operator need.
-- Native moderation Slice 7e Serhiivka-first production acceptance after the
+- Native moderation Slice 7e canary-first production acceptance after the
   completed Slices 7a-7d implementation. Kick remains a separate fixture-gated
   follow-up; SAT ban mirroring, IP moderation, nickname-only actions, and
   arbitrary RCON remain out of scope.

@@ -356,10 +356,10 @@ contract, but they are not a second active checklist.
   - Add focused permission, route, template, CSRF, read-only GET, and
     sensitive-output regression coverage.
 - Slice 7e: complete staged production acceptance.
-  - Run Serhiivka-first read/mutation/retry/recovery smoke with a designated
+  - Run canary-first read/mutation/retry/recovery smoke with a designated
     test identity and audited action.
   - Review journals, audit, authoritative state, and recovery state.
-  - Roll out to Chervonopilya only after explicit approval.
+  - Roll out to primary server only after explicit approval.
 - Future separate decision: IP moderation/privacy contract.
 
 ## Global Acceptance Gate
@@ -377,7 +377,7 @@ Slice 7 is not complete until all of the following are true:
 - no IP storage/exposure and no raw command/password/response/path leakage;
 - GET pages remain free of armactl mutation;
 - focused and full regression suites pass;
-- staged Serhiivka acceptance precedes any Chervonopilya rollout.
+- staged canary server acceptance precedes any primary server rollout.
 
 ## Out Of Scope
 

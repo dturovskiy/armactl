@@ -4,7 +4,7 @@ Status: **F3-b implementation and F3-c staged production acceptance are
 complete.** This is a historical completed reference; active work is tracked
 only in [checklist.md](checklist.md).
 
-This document is the source of truth for the supervised automatic player-session pipeline. It records the F3-a call-graph audit and the implemented F3-b correction for the enqueue-versus-execution gap, including ownership boundaries, durable state, failure behavior, generated units, and explicit lifecycle controls. The implementation itself remains disabled by default; F3-c explicitly installed/enabled it on Serhiivka first and then Chervonopilya without restarting the game or web service.
+This document is the source of truth for the supervised automatic player-session pipeline. It records the F3-a call-graph audit and the implemented F3-b correction for the enqueue-versus-execution gap, including ownership boundaries, durable state, failure behavior, generated units, and explicit lifecycle controls. The implementation itself remains disabled by default; F3-c explicitly installed/enabled it on canary server first and then primary server without restarting the game or web service.
 
 ## Decision Summary
 
@@ -791,9 +791,9 @@ Before any production rollout, focused tests must prove at least:
 
 ## F3-c Production Rollout Plan
 
-F3-c completed staged production observation on Serhiivka first and then Chervonopilya after explicit approval.
+F3-c completed staged production observation on canary server first and then primary server after explicit approval.
 
-### Stage 1: Serhiivka Only
+### Stage 1: Canary server Only
 
 1. Confirm F3-b tests and local service rendering/status checks pass.
 2. Fast-forward/deploy only with separate explicit approval.
@@ -807,9 +807,9 @@ F3-c completed staged production observation on Serhiivka first and then Chervon
 
 Do not restart a game server merely to manufacture a lifecycle boundary while players are present. Use a naturally occurring approved lifecycle boundary or a separate maintenance window with no player-impact conflict.
 
-### Stage 2: Chervonopilya Only After Approval
+### Stage 2: Primary server Only After Approval
 
-Proceed only after Serhiivka has passed every required scenario, evidence has been reviewed, and explicit approval is given. Repeat install-disabled verification, explicit enablement, cycle observation, privacy review, and all applicable acceptance scenarios. Do not infer acceptance from Serhiivka alone.
+Proceed only after canary server has passed every required scenario, evidence has been reviewed, and explicit approval is given. Repeat install-disabled verification, explicit enablement, cycle observation, privacy review, and all applicable acceptance scenarios. Do not infer acceptance from canary server alone.
 
 ## Explicit Production Acceptance Record
 
@@ -853,9 +853,9 @@ Proceed only after Serhiivka has passed every required scenario, evidence has be
 
 ### Rollout Sequence
 
-- Serhiivka passes first.
-- Serhiivka evidence is reviewed before Chervonopilya approval.
-- Chervonopilya is enabled only after explicit approval.
+- canary server passes first.
+- canary server evidence is reviewed before primary server approval.
+- primary server is enabled only after explicit approval.
 - No game server with active players is restarted merely for acceptance.
 
 ## Stop Conditions
@@ -899,4 +899,4 @@ Stop F3-b implementation or F3-c rollout and leave/return the timer disabled whe
 
 - **F3-a:** trace real execution paths, answer enqueue-versus-execution, assign source-of-truth ownership, define ordering/recovery, and select one supervised architecture.
 - **F3-b:** implement and locally validate the synchronous supervised player-session service/timer, atomic ingest generations, bounded cursor, exact live-roster gate, shared mutation lock, and disabled-by-default lifecycle controls.
-- **F3-c:** complete staged Serhiivka-first, approval-gated Chervonopilya production acceptance.
+- **F3-c:** complete staged canary-first, approval-gated primary server production acceptance.

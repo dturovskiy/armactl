@@ -25,8 +25,8 @@ and acceptance detail remains in the linked historical records and Git history.
 
 | Milestone | Closed result | Record |
 | --- | --- | --- |
-| Update/profile safety foundation | Profile create/rename/delete and manual switching were accepted on Serhiivka; switching changes only scenario/mod selection, leaves Workshop payloads in place, and deterministic recovery tests park failed canaries for retry. | [Server update compatibility](server-update-compatibility.md) |
-| Startup and incident diagnosis foundation | Startup states distinguish service, telemetry, failure, and crash states; retained incidents expose bounded evidence and suspects. The Serhiivka timer and retained-incident presentation baseline are accepted. | [Incident monitoring](incident-monitoring.md) |
+| Update/profile safety foundation | Profile create/rename/delete and manual switching were accepted on canary server; switching changes only scenario/mod selection, leaves Workshop payloads in place, and deterministic recovery tests park failed canaries for retry. | [Server update compatibility](server-update-compatibility.md) |
+| Startup and incident diagnosis foundation | Startup states distinguish service, telemetry, failure, and crash states; retained incidents expose bounded evidence and suspects. The canary server timer and retained-incident presentation baseline are accepted. | [Incident monitoring](incident-monitoring.md) |
 | P1 operator-critical parity | Critical web mutations have an intentional CLI or TUI recovery path backed by shared services; rich read-only presentation remains web-first where documented. | [Web dashboard parity matrix](web-interface-plan.md#7-clituiweb-operational-parity) |
 | Admin/GM synchronization implementation | Web and TUI use one transactional synchronization service for `game.admins` and supported SAT/WCS roles with backup and rollback. | [Admin permission contract](admin-permissions-contract.md) |
 | Native moderation through Slice 7d | Typed native ban/unban service, authenticated mutation UI, and CLI fallback are implemented with authoritative verification and recovery records. | [Banlist and moderation contract](banlist-moderation-contract.md) |
@@ -35,8 +35,8 @@ and acceptance detail remains in the linked historical records and Git history.
 
 ## P0 - Stabilize The Current Update, Incident, And Admin Baseline
 
-- [ ] Complete Serhiivka-first live Game Master acceptance with a designated
-  non-`deus` identity while the relevant mods are safely loaded; verify the
+- [ ] Complete canary-first live Game Master acceptance with a designated
+  designated non-owner identity while the relevant mods are safely loaded; verify the
   intended in-game privileges and record the result. The existing-admin UI
   and shared Web/TUI identity-mapping fixes are implemented; see the
   [admin permission contract](admin-permissions-contract.md).
@@ -48,10 +48,10 @@ between the two servers.
 
 ## P2 - Finish Native Moderation
 
-- [ ] Complete Slice 7e Serhiivka-first read/mutation/retry/recovery acceptance
+- [ ] Complete Slice 7e canary-first read/mutation/retry/recovery acceptance
   with a designated test identity and audited action.
 - [ ] Review authoritative ban state, journals, audit, and recovery state before
-  any explicitly approved Chervonopilya rollout.
+  any explicitly approved primary server rollout.
 
 The detailed contract remains
 [banlist-moderation-contract.md](banlist-moderation-contract.md).
@@ -60,16 +60,9 @@ The detailed contract remains
 
 ### 4.1 Public Scope And Integration Decision
 
-- [ ] Decide explicitly whether public `main` receives a sanitized local/free
-  dashboard merge or selected public-core backports; do not merge the current
-  branch as-is by default.
-- [ ] Confirm the public boundary contains only the free/local Arma-specific
-  core, CLI/TUI, local backend, and approved local dashboard surfaces.
-- [ ] Confirm billing, subscriptions, tenants, organizations, hosted identity,
-  hub orchestration, provisioning, commercial entitlements, and private
-  infrastructure remain outside the public repository.
-- [ ] Keep any future private dashboard snapshot/extraction decision independent
-  from the public merge and tracked only in private documentation.
+The selected integration is the sanitized local/free dashboard plus its shared
+core. Its public boundary and the separate website/private-dashboard decisions
+are recorded in [roadmap.md](roadmap.md#public-main-integration).
 
 ### 4.2 Documentation Boundary
 
@@ -127,8 +120,8 @@ The detailed contract remains
 - [ ] Smoke authenticated web login, dashboard, config, mods, admins, schedule,
   files, logs, report, jobs, updates, profiles, incidents, players, sessions,
   moderation, bot, service controls, health, readiness, and public status.
-- [ ] Re-run Serhiivka-first production acceptance on the exact merge candidate;
-  keep Chervonopilya changes approval-gated and non-disruptive while occupied.
+- [ ] Re-run canary-first production acceptance on the exact merge candidate;
+  keep primary server changes approval-gated and non-disruptive while occupied.
 - [ ] Confirm no new traceback, HTTP 500, failed unit, restart loop, stale worker,
   secret exposure, or unexplained telemetry state appears during the observation
   window.
@@ -186,13 +179,13 @@ is explicitly satisfied.
 These are rules, not checklist items:
 
 - production deployment is Git-only;
-- never copy runtime payloads or configuration from Serhiivka to Chervonopilya
+- never copy runtime payloads or configuration from canary server to primary server
   or in the opposite direction;
 - profile switching ignores inactive Workshop addons; it never clones, moves, or
   deletes their files;
 - preserve per-instance configuration and use its own update baselines and
   infrastructure snapshots;
-- do not restart Chervonopilya while players are present without explicit
+- do not restart primary server while players are present without explicit
   approval;
-- use Serhiivka-first rollout whenever a change can affect the game process,
+- use canary-first rollout whenever a change can affect the game process,
   configuration, mods, profiles, permissions, or persistent data.

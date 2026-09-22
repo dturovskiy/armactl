@@ -3,7 +3,7 @@
 Status: historical completed implementation and production-acceptance
 reference. Active work is tracked only in [checklist.md](checklist.md).
 
-This document is the source of truth for current-player combat, faction, and session columns without heuristic shortcuts. Slices C, D, and E provide checkpointed ingest freshness metadata, explicit reconnect-aware play-session windows, and read-only session-scoped aggregation. Slice F2-a provides the systemd oneshot/timer foundation for the shared F1 ingest path, F2-c provides bounded incremental active-log coverage, and F2-b production acceptance is complete on Serhiivka and Chervonopilya. F3-b now implements the supervised player-session contract in [player-session-supervised-pipeline-contract.md](player-session-supervised-pipeline-contract.md): one synchronous ordered orchestrator consumes proven ingest generations and records durable terminal state without automatic `web_jobs` or web-thread execution. F3-c production acceptance is complete on Serhiivka and Chervonopilya: the units were explicitly enabled, automatic terminal cycles were observed, rollback disable/enable was proven, and game/web PID continuity was preserved. No app-start worker, browser poller, hidden GET-side ingest, or automatic web-service dependency was added.
+This document is the source of truth for current-player combat, faction, and session columns without heuristic shortcuts. Slices C, D, and E provide checkpointed ingest freshness metadata, explicit reconnect-aware play-session windows, and read-only session-scoped aggregation. Slice F2-a provides the systemd oneshot/timer foundation for the shared F1 ingest path, F2-c provides bounded incremental active-log coverage, and F2-b production acceptance is complete on canary server and primary server. F3-b now implements the supervised player-session contract in [player-session-supervised-pipeline-contract.md](player-session-supervised-pipeline-contract.md): one synchronous ordered orchestrator consumes proven ingest generations and records durable terminal state without automatic `web_jobs` or web-thread execution. F3-c production acceptance is complete on canary server and primary server: the units were explicitly enabled, automatic terminal cycles were observed, rollback disable/enable was proven, and game/web PID continuity was preserved. No app-start worker, browser poller, hidden GET-side ingest, or automatic web-service dependency was added.
 
 Busy-server acceptance also requires the bounded incremental contract in [player-log-ingest-incremental-contract.md](player-log-ingest-incremental-contract.md). An oversized active log is tailed once and then read from persisted append offsets; active-source coverage start is stored explicitly, and statistics stay unavailable for any session that began before that proven coverage.
 
@@ -270,7 +270,7 @@ The ingest acceptance criteria “freshness updates without the manual button”
 - Define one F3-b architecture: a disabled-by-default systemd oneshot/timer calling a synchronous ordered orchestrator that gates on a completed fresh ingest generation, then runs stored-log sessionization, reliable live scan, and due maintenance under one shared lock.
 - Preserve read-only current stats, reconnect/lifecycle gates, repeated reliable absence, nullable unavailable results, and counts-only privacy constraints.
 - Implement F3-b runtime code and generated units.
-- Complete F3-c Serhiivka-first, approval-gated Chervonopilya production acceptance.
+- Complete F3-c canary-first, approval-gated primary server production acceptance.
 
 The full execution, ordering, failure/recovery, cadence, status, privacy, rollout, and stop-condition contract is [player-session-supervised-pipeline-contract.md](player-session-supervised-pipeline-contract.md).
 
@@ -298,9 +298,9 @@ The full execution, ordering, failure/recovery, cadence, status, privacy, rollou
 ### Slice F: UI Smoke And Cleanup - complete
 
 - Verify the implemented `/players` details, nullable rendering, safe unavailable wording, and browser polling behavior in an approved environment.
-- Complete F2-b VM acceptance on Serhiivka and Chervonopilya: the timer was explicitly enabled, repeated cycles stayed fresh/non-overlapping, and the separate player-session scheduler remained disabled.
+- Complete F2-b VM acceptance on canary server and primary server: the timer was explicitly enabled, repeated cycles stayed fresh/non-overlapping, and the separate player-session scheduler remained disabled.
 - Verify no fake zeroes and no accumulation across real new sessions; stats still require a proven open play session.
-- Deploy to Chervonopilya only after successful Serhiivka evidence and explicit approval.
+- Deploy to primary server only after successful canary server evidence and explicit approval.
 
 ### Slice G: Discord/Public Evaluation - gated
 
@@ -330,7 +330,7 @@ Status for this gated decision is tracked only in
 - /players and /players/current.json stay GET-read-only for players.db and session/stat state.
 - Job output and audit details are counts-only and sanitized.
 - No raw log lines, raw paths, raw RCON rows, IPs, secrets, public player IDs, or Discord enrichment are introduced.
-- Serhiivka VM smoke passed before Chervonopilya deployment and observation.
+- canary server VM smoke passed before primary server deployment and observation.
 
 ## Follow-Up Status
 

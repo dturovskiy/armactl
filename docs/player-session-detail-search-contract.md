@@ -1,6 +1,6 @@
 # Player Session Detail And Search Contract
 
-Status: **Slices 6a-6d complete. Authenticated UI and Serhiivka-first VM smoke
+Status: **Slices 6a-6d complete. Authenticated UI and canary-first VM smoke
 are accepted on both target VMs.** This is a historical completed reference;
 active work is tracked only in [checklist.md](checklist.md).
 
@@ -46,7 +46,7 @@ Slice 6c UI now implemented:
 - List state is preserved across detail/back and pagination links, human timestamps use the shared browser-local renderer, and local datetime inputs convert explicitly to UTC without guessing when JavaScript is unavailable.
 - EN/UK, auth/permission, query-only/no-write, missing/legacy storage, conflict, pagination, responsive presentation, nullable-stat, and sensitive-output regressions cover the surface.
 
-Slice 6d runtime acceptance completed on 2026-08-12 with Serhiivka first and Chervonopilya second. No game restart was required.
+Slice 6d runtime acceptance completed on 2026-08-12 with canary server first and primary server second. No game restart was required.
 
 ## P1 Gates Before Runtime UI - closed by Slice 6b
 
@@ -200,14 +200,14 @@ Stop after Slice 6b if a route/template would need duplicated SQL or if closed-s
 
 ### Slice 6d: VM Smoke
 
-- Deploy to Serhiivka first without restarting the game server.
+- Deploy to canary server first without restarting the game server.
 - Verify list filters, aliases, pagination, detail, nullable stats, local time, not-found, and no sensitive output with a normal authenticated session.
 - Review web journal for 500/traceback and confirm GET causes no player DB/session/job writes.
-- Proceed to Chervonopilya only after Serhiivka acceptance and explicit approval.
+- Proceed to primary server only after canary server acceptance and explicit approval.
 
 Acceptance evidence from 2026-08-12:
 
-- Serhiivka passed first with 26 stored sessions; Chervonopilya then passed with 374 stored sessions.
+- canary server passed first with 26 stored sessions; primary server then passed with 374 stored sessions.
 - Login, list, limit/pagination, open-state, alias, exact reliable-ID, UTC-range, real detail, and current-roster JSON requests succeeded; a missing detail returned the controlled `404` response.
 - Both list and detail output contained browser-local time markers and none of the checked internal/sensitive field markers.
 - Before/after checks kept `web_jobs` and `player_sessions` counts unchanged and kept the `players.db` SHA-256 unchanged on both VMs.

@@ -10,7 +10,8 @@ Boundary note: do not treat this internal audit carryover as public release/user
 documentation or a public `main` merge signal. Its final keep/archive decision
 belongs to the public documentation-boundary gate in the canonical checklist.
 
-Правило для виконання: працювати тільки у WSL checkout `/home/deus/projects/armactl` на `feat/web-interface`. Windows checkout не використовувати для repo edits.
+Historical execution note: the audit used one Linux/WSL checkout on
+`feat/web-interface`; concurrent edits from a second checkout were avoided.
 
 ## P1: Stale Running Job Recovery (Closed)
 

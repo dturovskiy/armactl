@@ -1,10 +1,10 @@
-# Chervonopilya FPS And Current-Roster Stability Plan
+# Production FPS And Current-Roster Stability Plan
 
 Status: historical completed implementation reference. Infrastructure
 investigation and production validation completed on 2026-08-12; mod-level
 remediation remains out of scope unless the exception spam recurs. Active work
 is tracked only in [checklist.md](checklist.md).
-Scope: Chervonopilya production infrastructure validation; exact mod-level root cause remains outside this plan unless the signature recurs
+Scope: primary server production infrastructure validation; exact mod-level root cause remains outside this plan unless the signature recurs
 Safety rule: do not restart or mutate the game server while players are online unless an operator explicitly approves a maintenance action
 
 ## 1. Observed Symptoms
@@ -154,7 +154,7 @@ Current evidence points to read/cache/RCON availability because public count and
 
 Options, in preferred order:
 
-1. Enable or install the existing safe current-roster cache updater for Chervonopilya at the documented 60-second interval, if operators approve a background service.
+1. Enable or install the existing safe current-roster cache updater for primary server at the documented 60-second interval, if operators approve a background service.
 2. Make the web current-roster page prefer acceptable stale named roster rows when live RCON is unavailable and A2S count still reports players, with an explicit stale label.
 3. Add a read-only current-roster diagnostic block showing:
    - source
@@ -193,8 +193,8 @@ Operational decision from 2026-08-12: do not enable a separate current-cache upd
 
 After any roster-flow change:
 
-- Confirm the roster-stabilization code is already deployed on Serhiivka and perform the closure smoke there before Chervonopilya.
-- Confirm the prior Chervonopilya deployment was web-only and did not restart the game for the roster change.
+- Confirm the roster-stabilization code is already deployed on canary server and perform the closure smoke there before primary server.
+- Confirm the prior primary server deployment was web-only and did not restart the game for the roster change.
 - Watch authenticated `/players` and `/players/current.json`, then sample their roster backend, public status, and Discord source for at least 5-10 minutes.
 - Confirm no web traceback/500 in recent journal.
 - Confirm roster flicker is replaced by stable rows/empty state or explicit stale/unavailable status.
@@ -227,7 +227,7 @@ No additional restart or cache-updater deployment is recommended while the curre
 
 ## 7. Evidence From 2026-07-10 Read-only Check
 
-- Web deploy to Chervonopilya was web-only; `armareforger.service` remained active.
+- Web deploy to primary server was web-only; `armareforger.service` remained active.
 - Public status after deploy stayed healthy with player counts around 7-9 and fresh telemetry.
 - Discord preview rendered the named roster twice with 8 named players.
 - `players current-cache run` was not present as a process/service.

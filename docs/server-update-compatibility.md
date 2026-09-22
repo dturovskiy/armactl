@@ -133,11 +133,11 @@ does not claim that every member of a failed stack is broken, and does not
 blindly enable a mod whose dependencies or scenario requirements were not
 verified together.
 
-## Serhiivka acceptance evidence (2026-09-12 UTC)
+## Canary server acceptance evidence (2026-09-12 UTC)
 
 Commit `b06380f` was deployed Git-only after GitHub Actions passed Ruff, 1572
 pytest cases, and package build. The game had zero players before the controlled
-profile maintenance window; Chervonopilya was not changed.
+profile maintenance window; primary server was not changed.
 
 - A private pre-test copy of `config.json` and update state was stored under
   `<data-root>/default/backups/profile-acceptance/20260912T222046Z/`. The
@@ -168,11 +168,11 @@ vanilla rejection with the old generation retained, and fallback-disabled
 behavior. The production failure path was subsequently accepted as recorded
 below.
 
-## Serhiivka automatic-fallback acceptance evidence (2026-09-21 UTC)
+## Canary server automatic-fallback acceptance evidence (2026-09-21 UTC)
 
 Commit `db2e0082b7bf04f4c84b8962628aee4e8ad1d2f7` was deployed Git-only.
-Serhiivka had zero players before the maintenance window and 107 GiB available;
-Chervonopilya's game process was not restarted during its non-disruptive code
+Canary server had zero players before the maintenance window and 107 GiB available;
+Primary server's game process was not restarted during its non-disruptive code
 deployment.
 
 - Automatic fallback was enabled and canonical `vanilla` was deliberately

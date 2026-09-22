@@ -94,9 +94,9 @@ Raising the whole-file limit would only postpone the failure and increase I/O.
 
 ## Production Acceptance
 
-- Serhiivka accepted the supervised completion-relative timer on the quiet-log
+- canary server accepted the supervised completion-relative timer on the quiet-log
   path and remained fresh across scheduled cycles.
-- Chervonopilya proved the busy-log path: the first bounded pass reported a
+- primary server proved the busy-log path: the first bounded pass reported a
   controlled line-limit backlog, the second pass caught up, and later scheduled
   cycles remained fresh while reading only appended data.
 - Oversized historical logs remained sanitized non-blocking counts. They were

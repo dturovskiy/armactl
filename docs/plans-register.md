@@ -29,7 +29,7 @@ checkboxes.
 | [banlist-moderation-contract.md](banlist-moderation-contract.md) | Native ban source, typed mutation, identity, privacy, recovery, UI, and staged acceptance requirements. |
 | [server-update-compatibility.md](server-update-compatibility.md) | Update baselines, isolated candidate build, modded/vanilla canaries, named profiles, addon preservation, and rollback behavior. |
 | [incident-monitoring.md](incident-monitoring.md) | Persistent incident capture, evidence bounds, redaction, core capability, service/timer lifecycle, and staged acceptance requirements. |
-| [admin-permissions-contract.md](admin-permissions-contract.md) | Canonical admin/GM synchronization, supported mod ACLs, rollback, and remaining non-`deus` production identity acceptance. |
+| [admin-permissions-contract.md](admin-permissions-contract.md) | Canonical admin/GM synchronization, supported mod ACLs, rollback, and remaining designated non-owner production identity acceptance. |
 
 ## Completed Implementation References
 
@@ -41,7 +41,7 @@ reopen the completed baseline document until that work is explicitly activated.
 
 - [safe-config-controls-plan.md](safe-config-controls-plan.md)
 - [player-session-stats-contract.md](player-session-stats-contract.md)
-- [chervonopilya-fps-roster-stability-plan.md](chervonopilya-fps-roster-stability-plan.md)
+- [production-fps-roster-stability-plan.md](production-fps-roster-stability-plan.md)
 - [web-interface-plan.md](web-interface-plan.md)
 - [safe-file-editing-contract.md](safe-file-editing-contract.md)
 - [player-log-ingest-incremental-contract.md](player-log-ingest-incremental-contract.md)

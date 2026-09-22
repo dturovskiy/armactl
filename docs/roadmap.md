@@ -12,6 +12,19 @@
 - Local browser dashboard.
 - Public release notes and operator-focused troubleshooting.
 
+## Public Main Integration
+
+The current web branch is being prepared for `main` as one sanitized,
+local/free dashboard and core integration. The public boundary includes the
+Arma-specific CLI, TUI, shared backend, local web dashboard, and their local
+services. Billing, subscriptions, tenants, hosted identity, commercial
+entitlements, private infrastructure, and private dashboard planning remain
+outside this repository.
+
+The public marketing website is maintained in its separate repository. The
+retired `website/` tree and GitHub Pages workflow are intentionally not part of
+this integration.
+
 ## Completed On The Current Web Branch
 
 - Production dashboard hardening, bounded readiness checks, stale-job metadata recovery, and current VM smoke.
@@ -36,7 +49,7 @@ already closed and indexed from that checklist.
 
 Detailed contracts define behavior but do not maintain competing progress
 lists. Private/commercial dashboard planning remains outside this public
-roadmap.
+roadmap and is independent of this integration.
 
 ## Contributor Priorities
 

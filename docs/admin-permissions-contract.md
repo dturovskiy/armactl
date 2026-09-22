@@ -1,7 +1,7 @@
 # Admin Permission Synchronization Contract
 
 Status: active detailed contract. Implementation is complete; remaining
-non-`deus` production identity acceptance is tracked only in
+designated non-owner production identity acceptance is tracked only in
 [checklist.md](checklist.md).
 
 ## Purpose

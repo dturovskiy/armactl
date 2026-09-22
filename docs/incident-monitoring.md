@@ -1,6 +1,6 @@
 # Persistent Incident Monitoring
 
-Status: active detailed contract. Serhiivka live-signal and Chervonopilya
+Status: active detailed contract. Canary server live-signal and primary server
 non-disruptive production acceptance are recorded below; remaining work is
 tracked only in [checklist.md](checklist.md).
 
@@ -121,7 +121,7 @@ It takes effect for the next game process after the systemd units are
 installed/reloaded; the monitor does not restart a running server merely to
 apply it.
 
-## Serhiivka acceptance evidence
+## Canary server acceptance evidence
 
 On 2026-09-13, commit `32ec2e9` was deployed through Git and only the web
 service was restarted. The game PID and restart counter remained unchanged;
@@ -144,7 +144,7 @@ available in that VM; the capability report exposes this limitation instead of
 claiming that a native backtrace was captured.
 
 This completed the initial retained-incident presentation acceptance on
-Serhiivka. Live-signal and Chervonopilya acceptance followed as recorded below.
+Canary server. Live-signal and primary server acceptance followed as recorded below.
 
 ## Live monitor acceptance evidence (2026-09-21 UTC)
 
@@ -153,7 +153,7 @@ both VMs after GitHub Actions run `35636874913` passed Ruff, all 1662 pytest
 cases, and package build. Both game processes remained on their existing PID
 during that deployment; only the web services were restarted.
 
-Serhiivka had zero players before two controlled, automatically bounded signal
+Canary server had zero players before two controlled, automatically bounded signal
 tests. Neither test changed the game config, profile, scenario, or Workshop
 files, and each installed an independent transient systemd safety timer before
 applying the signal:
@@ -171,7 +171,7 @@ applying the signal:
   healthy-to-critical transition. The quota was reset to `infinity`; the same
   PID returned to `Ready`, fresh 120 FPS operation with `NRestarts=0`.
 
-Chervonopilya then completed a read-only foreground monitor pass with
+Primary server then completed a read-only foreground monitor pass with
 `success=1`, `captured=0`, `updated=0`, and `ignored=0`. Its timer heartbeat
 advanced while game PID `281696`, `NRestarts=0`, fresh 120 FPS telemetry, and
 the ready public status remained unchanged. No game restart or profile/config
