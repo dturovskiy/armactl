@@ -38,15 +38,13 @@ and acceptance detail remains in the linked historical records and Git history.
 - [ ] Complete Serhiivka-first live Game Master acceptance with a designated
   non-`deus` identity while the relevant mods are safely loaded; verify the
   intended in-game privileges and record the result. The existing-admin UI
-  regression and web-only deployment are accepted in the
-  [admin permission contract](admin-permissions-contract.md#staged-roster-acceptance-2026-09-22-utc).
+  and shared Web/TUI identity-mapping fixes are implemented; see the
+  [admin permission contract](admin-permissions-contract.md).
 
 Detailed update behavior is defined in
 [server-update-compatibility.md](server-update-compatibility.md). Deployment
 acceptance must not copy runtime config, profiles, addons, or scenario payloads
 between the two servers.
-The latest staged web-deployment evidence is in the
-[2026-09-22 operational validation report](production-validation-report-2026-09-22.md).
 
 ## P2 - Finish Native Moderation
 

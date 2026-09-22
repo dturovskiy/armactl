@@ -48,6 +48,11 @@ An administrator is therefore not left with only some supported rights. If a
 Steam admin has no reliable UUID mapping while SAT/WCS is installed, the change
 fails and the canonical mutation is rolled back.
 
+When RCON reports a player's UUID but `game.admins` contains the mapped
+SteamID64, the roster and shared Web/TUI mutation treat them as one admin.
+Only an explicit instance-local SteamID64-to-UUID mapping qualifies; names
+alone must not establish identity or create a second admin entry.
+
 Raw `config.json` editing cannot change `game.admins`; operators must use the
 Admins workflow so synchronization, backup, audit, and restart tracking cannot
 be bypassed.
@@ -72,43 +77,3 @@ not created from guessed defaults.
 - Symlinked or out-of-bound mod ACL files are rejected.
 - Direct manual edits outside armactl can still create drift; use the supported
   Admins workflow for routine changes.
-
-## Staged Roster Acceptance (2026-09-22 UTC)
-
-Commit `1a4cd4a8a6195336681983955fa39b4cd58537aa` fixes the remaining
-existing-admin roster mismatch: `game.admins` may contain a SteamID64 while
-RCON reports that same player's IdentityId. The Admins page now uses only the
-explicit instance-local SteamID64-to-UUID mapping already used for supported
-mod ACL synchronization. A matching player is shown as an existing admin
-rather than offered the add action. A name-only mapping does not qualify as
-proof.
-
-GitHub Actions run `35694522416` passed Ruff, 1664 tests, and package build.
-Serhiivka was fast-forwarded from `0d642f3` to `1a4cd4a` first, with a web-only
-restart and successful `/healthz` and `/readyz`. The game stayed on PID `238219`
-with zero systemd restarts. Chervonopilya followed after a zero-player preflight
-with no queued or running web jobs; its web restart passed both checks, and the
-game stayed on PID `396612` with zero systemd restarts and fresh 120 FPS
-telemetry. Neither deployment changed game config, profiles, mods, or Workshop
-payloads.
-
-Read-only production ACL checks found all configured identities aligned across
-`game.admins`, SAT `admins`, SAT `gameMasters`, and WCS `gameMaster`: seven on
-Serhiivka and six on Chervonopilya. Serhiivka's one SteamID64 admin has an
-explicit UUID mapping; Chervonopilya's six native entries are already UUIDs.
-This proves configuration consistency and the UI regression, not effective
-in-game Game Master or rank-changing behavior. A designated non-`deus` player
-must still perform the live acceptance while the relevant mods are loaded;
-Serhiivka is currently on vanilla, so the mod-side runtime check remains open.
-
-Follow-up commit `4f9dde1` adds the same exact-match guard to the shared
-Web/TUI mutation: submitting the mapped RCON UUID updates the existing
-SteamID64 admin instead of creating a second `game.admins` entry. An invalid
-or ambiguous mapping fails closed. The corrected test head `3ea668f` passed
-GitHub Actions run `35695653132` (Ruff, 1665 tests, package build). Both VMs
-were then fast-forwarded through Git to `3ea668f`, Serhiivka first, and only
-their web services were restarted. `/healthz` and `/readyz` passed on both;
-Serhiivka kept game PID `238219`, Chervonopilya kept `396612`, and each retained
-`NRestarts=0`. Chervonopilya remained Ready with fresh 120 FPS telemetry.
-No live admin mutation was used for this acceptance; the non-`deus` in-game
-Game Master check remains open.
