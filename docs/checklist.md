@@ -35,8 +35,6 @@ and acceptance detail remains in the linked historical records and Git history.
 
 ## P0 - Stabilize The Current Update, Incident, And Admin Baseline
 
-- [ ] Run the full local validation suite for the current branch and resolve any
-  remaining CI failure before production acceptance.
 - [ ] Complete Serhiivka-first live Game Master acceptance with a designated
   non-`deus` identity while the relevant mods are safely loaded; verify the
   intended in-game privileges and record the result. The existing-admin UI
@@ -47,6 +45,8 @@ Detailed update behavior is defined in
 [server-update-compatibility.md](server-update-compatibility.md). Deployment
 acceptance must not copy runtime config, profiles, addons, or scenario payloads
 between the two servers.
+The latest staged web-deployment evidence is in the
+[2026-09-22 operational validation report](production-validation-report-2026-09-22.md).
 
 ## P2 - Finish Native Moderation
 

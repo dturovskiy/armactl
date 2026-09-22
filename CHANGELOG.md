@@ -44,6 +44,9 @@ Semantic Versioning once public releases begin.
 - Generated game-server services now allow native core dumps so the host core handler can retain an authoritative backtrace after a future native crash.
 
 ### Fixed
+- Made the local host-test runner fail fast when a restricted sandbox blocks
+  local socketpair communication needed by web `TestClient` tests, instead of
+  appearing to hang on Python 3.14.
 - Recognized an existing SteamID64 game admin by the explicitly mapped RCON
   IdentityId on the Admins player roster, so the add-admin button is not offered
   for that person; player names are never treated as identity proof.
@@ -75,6 +78,9 @@ Semantic Versioning once public releases begin.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
+- The full local suite on CPython 3.14.4 passed all 1665 tests with one
+  non-fatal `fork()` deprecation warning once local socket I/O was permitted;
+  the blocked-socket preflight failed fast as intended.
 - GitHub Actions run `35694522416` passed Ruff, all 1664 pytest cases, and
   package build for the mapped-admin roster fix.
 - GitHub Actions run `35695653132` passed Ruff, all 1665 pytest cases, and

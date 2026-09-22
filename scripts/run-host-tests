@@ -76,6 +76,25 @@ if [ ! -x "$RUFF_BIN" ] && ! "$TEST_PY" -c "import ruff" >/dev/null 2>&1; then
     fi
 fi
 
+# Starlette's TestClient schedules work across threads. In a network-restricted
+# sandbox where a local socketpair can be created but not written to, its AnyIO
+# event loop never wakes and pytest appears to hang without a useful error.
+if ! "$TEST_PY" -c '
+import socket
+
+reader, writer = socket.socketpair()
+try:
+    reader.settimeout(2)
+    writer.sendall(b"x")
+    if reader.recv(1) != b"x":
+        raise RuntimeError("local socketpair did not deliver data")
+finally:
+    reader.close()
+    writer.close()
+' >/dev/null 2>&1; then
+    fail "Local socketpair communication is blocked. Web TestClient tests can hang here; run host checks with local socket access (or use GitHub CI)."
+fi
+
 log "==> Running pytest..."
 "$TEST_PY" -m pytest "$@"
 

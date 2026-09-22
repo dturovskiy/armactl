@@ -25,6 +25,17 @@ Keep the Windows checkout clean unless it is intentionally being used for a sepa
 
 `scripts/run-host-tests` owns the test/lint workflow. It bootstraps the repo-local dev environment by default, runs pytest, and then runs ruff.
 
+The runner first verifies that the host permits communication over a local
+socketpair. FastAPI/Starlette `TestClient` needs this for AnyIO's cross-thread
+event loop. A restrictive network sandbox may allow creating the socketpair
+but deny sending data (`EPERM`); direct pytest then appears to hang even on a
+minimal app. The runner fails fast with a specific message instead. Re-run the
+suite where local socket communication is permitted, or use CI. This failure
+does not by itself indicate a Python-version incompatibility. CI currently
+validates Python 3.12, while the package classifiers list 3.10-3.12; aligning
+those claims with `requires-python` remains a separate compatibility gate in
+[checklist.md](checklist.md).
+
 To reproduce GitHub Actions' Python 3.12 runtime locally without changing the host venv, use the disposable Docker check:
 
 ```bash

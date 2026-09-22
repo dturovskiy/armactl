@@ -1,6 +1,6 @@
 # Plan Document Register
 
-Audit date: 2026-09-14
+Audit date: 2026-09-22
 
 This file classifies public `armactl` planning documents. It does not track task
 completion. All unfinished public/free work is tracked only in
@@ -68,6 +68,7 @@ implementation order or as a competing backlog.
 - [player-data-inventory.md](player-data-inventory.md)
 - [player-log-event-inventory.md](player-log-event-inventory.md)
 - [player-data-truth-readonly-audit.md](player-data-truth-readonly-audit.md)
+- [production-validation-report-2026-09-22.md](production-validation-report-2026-09-22.md)
 
 ## Recurring Runbooks
 
