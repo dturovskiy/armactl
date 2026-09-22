@@ -44,6 +44,8 @@ Semantic Versioning once public releases begin.
 - Generated game-server services now allow native core dumps so the host core handler can retain an authoritative backtrace after a future native crash.
 
 ### Fixed
+- Kept web login throttling compatible with Python 3.10 by using
+  `timezone.utc` instead of the Python 3.11-only `datetime.UTC` constant.
 - Made the local host-test runner fail fast when a restricted sandbox blocks
   local socketpair communication needed by web `TestClient` tests, instead of
   appearing to hang on Python 3.14.
@@ -78,6 +80,8 @@ Semantic Versioning once public releases begin.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
+- GitHub Actions run `35737242232` passed Ruff, all 1665 tests, and package
+  build independently on Python 3.10, 3.11, and 3.12.
 - The full local suite on CPython 3.14.4 passed all 1665 tests with one
   non-fatal `fork()` deprecation warning once local socket I/O was permitted;
   the blocked-socket preflight failed fast as intended.

@@ -111,9 +111,6 @@ The detailed contract remains
 
 - [ ] Run `git diff --check`, Ruff, the full pytest suite, wrapper/bootstrap
   checks, and package build/install smoke.
-- [ ] Run the test suite in GitHub Actions on every explicitly supported Python
-  runtime, including 3.10, 3.11, and 3.12 while those classifiers remain
-  published.
 - [ ] Add a gradual `mypy` or `pyright` check with an explicit initial scope,
   checked configuration, and no blanket suppression of existing errors; expand
   the enforced surface as module boundaries are stabilized.

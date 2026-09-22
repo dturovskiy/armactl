@@ -159,4 +159,3 @@ def mark_stale_running_job_abandoned_for_operator(
         raise JobRecoveryAuditError(JOB_RECOVERY_AUDIT_FAILED_MESSAGE) from exc
 
     return StaleRunningJobRecoveryResult(marked=marked, message=message, job=job)
-

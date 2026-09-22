@@ -107,5 +107,3 @@ def _login_action_csrf_token(client, username: str, password: str) -> str:
     csrf_token = login_response.cookies.get(_csrf_cookie_name(client))
     assert csrf_token
     return csrf_token
-
-
