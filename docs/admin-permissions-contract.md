@@ -100,3 +100,15 @@ This proves configuration consistency and the UI regression, not effective
 in-game Game Master or rank-changing behavior. A designated non-`deus` player
 must still perform the live acceptance while the relevant mods are loaded;
 Serhiivka is currently on vanilla, so the mod-side runtime check remains open.
+
+Follow-up commit `4f9dde1` adds the same exact-match guard to the shared
+Web/TUI mutation: submitting the mapped RCON UUID updates the existing
+SteamID64 admin instead of creating a second `game.admins` entry. An invalid
+or ambiguous mapping fails closed. The corrected test head `3ea668f` passed
+GitHub Actions run `35695653132` (Ruff, 1665 tests, package build). Both VMs
+were then fast-forwarded through Git to `3ea668f`, Serhiivka first, and only
+their web services were restarted. `/healthz` and `/readyz` passed on both;
+Serhiivka kept game PID `238219`, Chervonopilya kept `396612`, and each retained
+`NRestarts=0`. Chervonopilya remained Ready with fresh 120 FPS telemetry.
+No live admin mutation was used for this acceptance; the non-`deus` in-game
+Game Master check remains open.

@@ -47,6 +47,8 @@ Semantic Versioning once public releases begin.
 - Recognized an existing SteamID64 game admin by the explicitly mapped RCON
   IdentityId on the Admins player roster, so the add-admin button is not offered
   for that person; player names are never treated as identity proof.
+- Reused an existing mapped SteamID64 in the shared Web/TUI admin mutation when
+  its RCON UUID is submitted, preventing a duplicate official admin entry.
 - Preserved the actionable pre-fatal canary lines in update failures, so a
   missing Workshop addon is reported by exact ID instead of being reduced to a
   generic `Unable to initialize the game` message; that ID can now drive
@@ -75,6 +77,8 @@ Semantic Versioning once public releases begin.
 ### Validation
 - GitHub Actions run `35694522416` passed Ruff, all 1664 pytest cases, and
   package build for the mapped-admin roster fix.
+- GitHub Actions run `35695653132` passed Ruff, all 1665 pytest cases, and
+  package build for the shared mapped-admin duplicate guard.
 - GitHub Actions run `35636874913` passed Ruff, all 1662 pytest cases, and
   package build for the actionable-canary and repair-bootstrap fixes.
 - Serhiivka live monitor acceptance retained bounded stale-telemetry and
