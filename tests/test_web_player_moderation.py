@@ -548,6 +548,7 @@ def test_add_admin_from_player_uses_existing_admin_action_flow(
         return True
 
     monkeypatch.setattr(admin_actions.admins_manager, "add_admin", add_admin)
+    monkeypatch.setattr(admin_actions.admins_manager, "get_admins", lambda path: [])
     csrf_token = _admins_csrf_token(client)
 
     response = client.post(
