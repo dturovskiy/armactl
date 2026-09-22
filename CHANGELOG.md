@@ -30,6 +30,9 @@ Semantic Versioning once public releases begin.
 - Added `armactl update profile check <name>` as a CLI fallback for the web profile compatibility canary without activating the tested profile.
 
 ### Changed
+- Began the behavior-preserving `service_manager.py` decomposition by moving
+  pure restart-schedule parsing into the platform layer and making platform
+  adapter exports lazy to remove an import cycle while preserving their API.
 - Defined the public `main` integration as the sanitized local/free dashboard
   plus shared core, kept the separately maintained marketing website outside
   this repository, and removed deployment-specific VM names and local paths

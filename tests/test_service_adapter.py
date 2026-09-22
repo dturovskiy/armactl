@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from armactl import paths
+from armactl import platform as platform_package
 from armactl.platform.service_adapter import LinuxSystemdServiceAdapter, get_service_adapter
 
 
 def test_default_service_adapter_is_linux_systemd_backend() -> None:
     assert isinstance(get_service_adapter(), LinuxSystemdServiceAdapter)
+
+
+def test_platform_package_preserves_lazy_service_adapter_exports() -> None:
+    assert platform_package.LinuxSystemdServiceAdapter is LinuxSystemdServiceAdapter
+    assert platform_package.get_service_adapter is get_service_adapter
 
 
 def test_linux_systemd_service_adapter_preserves_unit_names() -> None:
