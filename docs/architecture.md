@@ -77,6 +77,26 @@ Generated services include:
 
 `service_manager.py` owns Linux/systemd operations. Web service actions go through the platform service adapter so route handlers stay thin and tests can patch a stable seam.
 
+`service_manager.py` remains the public compatibility facade during the current
+merge window because CLI, TUI, installer, repair, bot, reporting, incident, and
+player-service callers import its established functions directly. Before the
+public-main merge, its Linux implementation is split behind that facade along
+these ownership boundaries:
+
+- systemd command execution and command construction;
+- privileged helper/sudo-channel discovery and installation;
+- unit/helper rendering and installation;
+- systemd service-status querying and parsing;
+- restart-timer normalization, rendering, mutation, and status.
+
+Higher-level instance orchestration, generated start-script synchronization,
+runtime FPS-profile updates, and the compatibility exports stay in
+`service_manager.py`. Existing callers keep their import contract while the
+facade delegates to the narrower modules. Replacing every caller with the
+platform adapter, adding a non-systemd backend, or removing compatibility
+exports is explicitly outside this merge and requires its own migration
+window.
+
 ## Web Dashboard Boundaries
 
 The web dashboard is a local server-management interface. Its main package structure is:

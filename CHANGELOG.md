@@ -84,6 +84,10 @@ Semantic Versioning once public releases begin.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
+- Public-boundary scans found no runtime databases, logs, backups, key files,
+  deployment identifiers, or recognized secret-token patterns in the merge
+  diff or built wheel/sdist; the tracked `.env.example` remains a placeholder
+  and is not packaged.
 - GitHub Actions run `35737242232` passed Ruff, all 1665 tests, and package
   build independently on Python 3.10, 3.11, and 3.12.
 - The full local suite on CPython 3.14.4 passed all 1665 tests with one

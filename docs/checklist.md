@@ -66,10 +66,10 @@ are recorded in [roadmap.md](roadmap.md#public-main-integration).
 
 ### 4.2 Documentation Boundary
 
-- [ ] Sanitize public docs and examples for private hostnames, IPs, routes,
-  provider details, topology, credentials, and operator-only identifiers.
-- [ ] Reduce `README.md`, architecture, roadmap, troubleshooting, and web
-  deployment documentation to stable public/free behavior and links.
+Public docs and examples use placeholders or generic canary/primary roles and
+contain no deployment-specific hostnames, external IPs, credentials, home
+paths, or VM names. `README.md`, architecture, roadmap, troubleshooting, and
+web deployment describe stable public/free behavior and reusable procedures.
 
 ### 4.3 Upgrade, Architecture, And Compatibility Review
 
@@ -79,16 +79,8 @@ are recorded in [roadmap.md](roadmap.md#public-main-integration).
   mods, profiles, admins, schedules, player data, or rollback state.
 - [ ] Verify a fresh install and existing-server discovery from a built release
   artifact on a clean supported Ubuntu environment.
-- [ ] Confirm runtime data, backups, logs, databases, secrets, VM-specific files,
-  and private operator notes are absent from the merge diff and package.
 - [ ] Review retained compatibility facades and alias routes; remove none solely
   from heuristic dead-code output before the downstream compatibility window.
-- [ ] Re-audit current module ownership and call sites, starting with
-  `service_manager.py`, and record which responsibilities belong to shared
-  platform contracts, Linux/systemd implementations, or compatibility facades.
-- [ ] Decide explicitly which `service_manager.py` extractions are public-main
-  merge requirements and which remain decision-gated; do not combine a
-  behavior-preserving decomposition with unrelated operator features.
 - [ ] For each approved extraction, separate systemd execution, privileged
   operations, unit rendering, service status, and restart-timer behavior behind
   tested boundaries while retaining `service_manager.py` as a compatibility
@@ -96,9 +88,6 @@ are recorded in [roadmap.md](roadmap.md#public-main-integration).
 - [ ] Prove CLI, TUI, web, bot, installer, and recovery callers retain the same
   operator behavior and use the intended shared backend or platform adapter
   after each extraction.
-- [ ] Define the supported-Python policy, then align `requires-python`, package
-  classifiers, development documentation, local validation, and CI with that
-  policy instead of implying untested runtime support.
 
 ### 4.4 Final Validation And Production Smoke
 

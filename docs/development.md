@@ -31,10 +31,13 @@ event loop. A restrictive network sandbox may allow creating the socketpair
 but deny sending data (`EPERM`); direct pytest then appears to hang even on a
 minimal app. The runner fails fast with a specific message instead. Re-run the
 suite where local socket communication is permitted, or use CI. This failure
-does not by itself indicate a Python-version incompatibility. CI currently
-validates Python 3.12, while the package classifiers list 3.10-3.12; aligning
-those claims with `requires-python` remains a separate compatibility gate in
-[checklist.md](checklist.md).
+does not by itself indicate a Python-version incompatibility.
+
+The package requires Python 3.10 or newer. Python 3.10, 3.11, and 3.12 are the
+explicitly classified and CI-tested runtimes. A newer interpreter may work,
+but it is best-effort until it is added to both the classifier list and CI
+matrix. The full suite has also passed locally on Python 3.14.4; that evidence
+does not expand the published support matrix by itself.
 
 To reproduce GitHub Actions' Python 3.12 runtime locally without changing the host venv, use the disposable Docker check:
 
