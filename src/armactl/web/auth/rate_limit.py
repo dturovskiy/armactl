@@ -6,7 +6,7 @@ import hashlib
 import hmac
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from armactl.web.auth.models import InvalidAuthInputError, WebAuthError
@@ -33,7 +33,7 @@ class LoginRateLimitStatus:
 
 
 def _utc_now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def _parse_timestamp(value: str | None) -> datetime | None:
@@ -44,12 +44,12 @@ def _parse_timestamp(value: str | None) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _format_timestamp(value: datetime) -> str:
-    return value.astimezone(UTC).isoformat()
+    return value.astimezone(timezone.utc).isoformat()
 
 
 def _retry_after(now: datetime, locked_until: datetime | None) -> int:

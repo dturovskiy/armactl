@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from armactl.web.auth.rate_limit import (
@@ -37,7 +37,7 @@ def _rate_limit_rows(db_path: Path) -> list[sqlite3.Row]:
 
 def test_failures_accumulate_and_lockout_after_threshold(tmp_path: Path):
     db_path = _db_path(tmp_path)
-    now = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
 
     initial = check_login_allowed(db_path, SECRET, CLIENT_IP, USERNAME, now=now)
     assert initial.allowed is True
@@ -60,7 +60,7 @@ def test_failures_accumulate_and_lockout_after_threshold(tmp_path: Path):
 
 def test_success_clears_throttle_state(tmp_path: Path):
     db_path = _db_path(tmp_path)
-    now = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
 
     record_login_failure(db_path, SECRET, CLIENT_IP, USERNAME, now=now)
     clear_login_failures(db_path, SECRET, CLIENT_IP, USERNAME)
@@ -71,7 +71,7 @@ def test_success_clears_throttle_state(tmp_path: Path):
 
 def test_expired_window_resets_failure_count(tmp_path: Path):
     db_path = _db_path(tmp_path)
-    now = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
     later = now + timedelta(seconds=WINDOW_SECONDS + 1)
 
     first = record_login_failure(db_path, SECRET, CLIENT_IP, USERNAME, now=now)
@@ -89,7 +89,7 @@ def test_database_stores_digest_only_not_raw_ip_or_username(tmp_path: Path):
     db_path = _db_path(tmp_path)
     raw_ip = "198.51.100.77"
     raw_username = "OwnerName"
-    now = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
 
     status = record_login_failure(db_path, SECRET, raw_ip, raw_username, now=now)
     rows = _rate_limit_rows(db_path)
@@ -104,7 +104,7 @@ def test_database_stores_digest_only_not_raw_ip_or_username(tmp_path: Path):
 
 def test_stale_rate_limit_rows_are_pruned_on_new_failure(tmp_path: Path):
     db_path = _db_path(tmp_path)
-    now = datetime(2026, 1, 2, 12, 0, tzinfo=UTC)
+    now = datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc)
     stale_time = now - timedelta(seconds=RETENTION_SECONDS + 1)
 
     record_login_failure(db_path, SECRET, CLIENT_IP, "old-owner", now=stale_time)
