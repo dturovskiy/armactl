@@ -44,6 +44,9 @@ Semantic Versioning once public releases begin.
 - Generated game-server services now allow native core dumps so the host core handler can retain an authoritative backtrace after a future native crash.
 
 ### Fixed
+- Recognized an existing SteamID64 game admin by the explicitly mapped RCON
+  IdentityId on the Admins player roster, so the add-admin button is not offered
+  for that person; player names are never treated as identity proof.
 - Preserved the actionable pre-fatal canary lines in update failures, so a
   missing Workshop addon is reported by exact ID instead of being reduced to a
   generic `Unable to initialize the game` message; that ID can now drive
@@ -70,6 +73,8 @@ Semantic Versioning once public releases begin.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
+- GitHub Actions run `35694522416` passed Ruff, all 1664 pytest cases, and
+  package build for the mapped-admin roster fix.
 - GitHub Actions run `35636874913` passed Ruff, all 1662 pytest cases, and
   package build for the actionable-canary and repair-bootstrap fixes.
 - Serhiivka live monitor acceptance retained bounded stale-telemetry and

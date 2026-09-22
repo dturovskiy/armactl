@@ -37,10 +37,11 @@ and acceptance detail remains in the linked historical records and Git history.
 
 - [ ] Run the full local validation suite for the current branch and resolve any
   remaining CI failure before production acceptance.
-- [ ] Verify an existing game admin is not offered the add-admin action and test
-  full Game Master access with a designated non-`deus` identity.
-- [ ] Complete staged acceptance on Serhiivka first and record the exact deployed
-  commit and results.
+- [ ] Complete Serhiivka-first live Game Master acceptance with a designated
+  non-`deus` identity while the relevant mods are safely loaded; verify the
+  intended in-game privileges and record the result. The existing-admin UI
+  regression and web-only deployment are accepted in the
+  [admin permission contract](admin-permissions-contract.md#staged-roster-acceptance-2026-09-22-utc).
 
 Detailed update behavior is defined in
 [server-update-compatibility.md](server-update-compatibility.md). Deployment

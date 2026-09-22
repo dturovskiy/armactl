@@ -72,3 +72,31 @@ not created from guessed defaults.
 - Symlinked or out-of-bound mod ACL files are rejected.
 - Direct manual edits outside armactl can still create drift; use the supported
   Admins workflow for routine changes.
+
+## Staged Roster Acceptance (2026-09-22 UTC)
+
+Commit `1a4cd4a8a6195336681983955fa39b4cd58537aa` fixes the remaining
+existing-admin roster mismatch: `game.admins` may contain a SteamID64 while
+RCON reports that same player's IdentityId. The Admins page now uses only the
+explicit instance-local SteamID64-to-UUID mapping already used for supported
+mod ACL synchronization. A matching player is shown as an existing admin
+rather than offered the add action. A name-only mapping does not qualify as
+proof.
+
+GitHub Actions run `35694522416` passed Ruff, 1664 tests, and package build.
+Serhiivka was fast-forwarded from `0d642f3` to `1a4cd4a` first, with a web-only
+restart and successful `/healthz` and `/readyz`. The game stayed on PID `238219`
+with zero systemd restarts. Chervonopilya followed after a zero-player preflight
+with no queued or running web jobs; its web restart passed both checks, and the
+game stayed on PID `396612` with zero systemd restarts and fresh 120 FPS
+telemetry. Neither deployment changed game config, profiles, mods, or Workshop
+payloads.
+
+Read-only production ACL checks found all configured identities aligned across
+`game.admins`, SAT `admins`, SAT `gameMasters`, and WCS `gameMaster`: seven on
+Serhiivka and six on Chervonopilya. Serhiivka's one SteamID64 admin has an
+explicit UUID mapping; Chervonopilya's six native entries are already UUIDs.
+This proves configuration consistency and the UI regression, not effective
+in-game Game Master or rank-changing behavior. A designated non-`deus` player
+must still perform the live acceptance while the relevant mods are loaded;
+Serhiivka is currently on vanilla, so the mod-side runtime check remains open.
