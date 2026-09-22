@@ -31,6 +31,24 @@ from armactl.platform.restart_timer import (
 from armactl.platform.restart_timer import (
     has_schedule_input as _has_schedule_input,
 )
+from armactl.platform.systemd_status import (
+    SYSTEMD_EXEC_MAIN_CODE_LABELS as SYSTEMD_EXEC_MAIN_CODE_LABELS,
+)
+from armactl.platform.systemd_status import (
+    get_service_status as _get_service_status,
+)
+from armactl.platform.systemd_status import (
+    get_systemd_unit_status as _get_systemd_unit_status,
+)
+from armactl.platform.systemd_status import (
+    is_active as _is_active,
+)
+from armactl.platform.systemd_status import (
+    is_enabled as _is_enabled,
+)
+from armactl.platform.systemd_status import (
+    parse_systemctl_show as _parse_systemctl_show,
+)
 from armactl.redaction import redact_sensitive_text, safe_subprocess_error
 from armactl.restart_timing import RESTART_TIMING
 from armactl.runtime_settings import (
@@ -51,17 +69,6 @@ RESTART_INSTANCE_SERVICE_RE = re.compile(
     r"^armareforger-restart@([A-Za-z0-9_.-]+)\.service$"
 )
 SYSTEMCTL_TIMEOUT_SECONDS = 30
-SYSTEMD_EXEC_MAIN_CODE_LABELS = {
-    "0": "none",
-    "1": "exited",
-    "2": "killed",
-    "3": "dumped",
-    "4": "trapped",
-    "5": "stopped",
-    "6": "continued",
-}
-
-
 @dataclass
 class ServiceResult:
     """Result of a systemctl operation."""
@@ -1013,30 +1020,12 @@ def restart_service(
 
 def is_active(service_name: str = "armareforger.service") -> bool:
     """Check if the service is currently active."""
-    try:
-        result = subprocess.run(
-            ["systemctl", "is-active", service_name],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return result.stdout.strip() == "active"
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return False
+    return _is_active(service_name, run=subprocess.run)
 
 
 def is_enabled(service_name: str = "armareforger.service") -> bool:
     """Check if the service is enabled (starts on boot)."""
-    try:
-        result = subprocess.run(
-            ["systemctl", "is-enabled", service_name],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return result.stdout.strip() == "enabled"
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return False
+    return _is_enabled(service_name, run=subprocess.run)
 
 
 def get_systemd_unit_status(
@@ -1045,102 +1034,11 @@ def get_systemd_unit_status(
     unit_path: Path | None = None,
 ) -> dict[str, Any]:
     """Return bounded read-only status for one generated systemd unit."""
-    path = unit_path or (paths.SYSTEMD_DIR / unit_name)
-    try:
-        exists = path.is_file()
-    except OSError:
-        exists = False
-
-    status: dict[str, Any] = {
-        "unit_name": unit_name,
-        "exists": exists,
-        "load_state": "unknown" if exists else "not-found",
-        "active": False,
-        "enabled": False,
-        "failed": False,
-        "active_state": "unknown" if exists else "missing",
-        "sub_state": "unknown" if exists else "missing",
-        "unit_file_state": "unknown" if exists else "missing",
-        "result": "",
-        "exec_main_code": "",
-        "exec_main_status": None,
-        "last_exit_at": "",
-        "next_trigger": "",
-        "next_trigger_kind": "",
-        "last_trigger": "",
-    }
-    if not exists:
-        return status
-
-    properties = (
-        "LoadState,ActiveState,SubState,UnitFileState,Result,ExecMainCode,"
-        "ExecMainStatus,ExecMainExitTimestamp,NextElapseUSecRealtime,"
-        "NextElapseUSecMonotonic,LastTriggerUSec"
+    return _get_systemd_unit_status(
+        unit_name,
+        unit_path=unit_path or (paths.SYSTEMD_DIR / unit_name),
+        run=subprocess.run,
     )
-    try:
-        result = subprocess.run(
-            ["systemctl", "show", unit_name, f"--property={properties}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return status
-
-    for line in result.stdout.strip().splitlines():
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        if key == "LoadState":
-            status["load_state"] = value or "unknown"
-        elif key == "ActiveState":
-            status["active_state"] = value or "unknown"
-        elif key == "SubState":
-            status["sub_state"] = value or "unknown"
-        elif key == "UnitFileState":
-            status["unit_file_state"] = value or "unknown"
-        elif key == "Result":
-            status["result"] = "" if value == "n/a" else value
-        elif key == "ExecMainCode":
-            if value == "n/a":
-                status["exec_main_code"] = ""
-            else:
-                status["exec_main_code"] = SYSTEMD_EXEC_MAIN_CODE_LABELS.get(
-                    value, value
-                )
-        elif key == "ExecMainStatus":
-            try:
-                status["exec_main_status"] = int(value)
-            except ValueError:
-                status["exec_main_status"] = None
-        elif key == "ExecMainExitTimestamp":
-            status["last_exit_at"] = "" if value == "n/a" else value
-        elif key == "NextElapseUSecRealtime":
-            status["next_trigger"] = "" if value in {"", "n/a"} else value
-            if status["next_trigger"]:
-                status["next_trigger_kind"] = "realtime"
-        elif key == "NextElapseUSecMonotonic":
-            if value not in {"", "n/a"} and not status["next_trigger"]:
-                status["next_trigger_kind"] = "monotonic"
-        elif key == "LastTriggerUSec":
-            status["last_trigger"] = "" if value == "n/a" else value
-
-    active_state = str(status["active_state"])
-    unit_file_state = str(status["unit_file_state"])
-    result_state = str(status["result"])
-    status["active"] = active_state == "active"
-    status["enabled"] = unit_file_state in {
-        "enabled",
-        "enabled-runtime",
-        "linked",
-        "linked-runtime",
-        "alias",
-    }
-    status["failed"] = active_state == "failed" or result_state not in {
-        "",
-        "success",
-    }
-    return status
 
 
 def get_service_status(service_name: str = "armareforger.service") -> dict[str, Any]:
@@ -1148,138 +1046,12 @@ def get_service_status(service_name: str = "armareforger.service") -> dict[str, 
 
     Returns a structured dict suitable for both human display and JSON output.
     """
-    active = is_active(service_name)
-    enabled = is_enabled(service_name)
-
-    # Get uptime / status line from systemctl
-    description = ""
-    active_state = "unknown"
-    sub_state = "unknown"
-    user = ""
-    main_pid = 0
-    exec_main_pid = 0
-    control_pid = 0
-    memory_current_bytes: int | None = None
-    cpu_usage_nsec: int | None = None
-    exec_main_start_usec: int | None = None
-    active_enter_usec: int | None = None
-    n_restarts = 0
-    result_state = ""
-    exec_main_code = ""
-    exec_main_status: int | None = None
-    try:
-        result = subprocess.run(
-            [
-                "systemctl",
-                "show",
-                service_name,
-                "--property=ActiveState,SubState,Description,User,MainPID,"
-                "ExecMainPID,ControlPID,MemoryCurrent,CPUUsageNSec,"
-                "ExecMainStartTimestampMonotonic,ActiveEnterTimestampMonotonic,"
-                "NRestarts,Result,ExecMainCode,ExecMainStatus",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        for line in result.stdout.strip().splitlines():
-            if "=" not in line:
-                continue
-            key, val = line.split("=", 1)
-            if key == "Description":
-                description = val
-            elif key == "ActiveState":
-                active_state = val
-            elif key == "SubState":
-                sub_state = val
-            elif key == "User":
-                user = val
-            elif key == "MainPID":
-                try:
-                    main_pid = int(val)
-                except ValueError:
-                    pass
-            elif key == "ExecMainPID":
-                try:
-                    exec_main_pid = int(val)
-                except ValueError:
-                    pass
-            elif key == "ControlPID":
-                try:
-                    control_pid = int(val)
-                except ValueError:
-                    pass
-            elif key == "MemoryCurrent":
-                try:
-                    parsed = int(val)
-                    if 0 <= parsed < 2**63:
-                        memory_current_bytes = parsed
-                except ValueError:
-                    pass
-            elif key == "CPUUsageNSec":
-                try:
-                    parsed = int(val)
-                    if parsed >= 0:
-                        cpu_usage_nsec = parsed
-                except ValueError:
-                    pass
-            elif key == "ExecMainStartTimestampMonotonic":
-                try:
-                    parsed = int(val)
-                    if parsed > 0:
-                        exec_main_start_usec = parsed
-                except ValueError:
-                    pass
-            elif key == "ActiveEnterTimestampMonotonic":
-                try:
-                    parsed = int(val)
-                    if parsed > 0:
-                        active_enter_usec = parsed
-                except ValueError:
-                    pass
-            elif key == "NRestarts":
-                try:
-                    n_restarts = max(int(val), 0)
-                except ValueError:
-                    pass
-            elif key == "Result":
-                result_state = "" if val == "n/a" else val
-            elif key == "ExecMainCode":
-                exec_main_code = "" if val == "n/a" else val
-            elif key == "ExecMainStatus":
-                try:
-                    exec_main_status = int(val)
-                except ValueError:
-                    pass
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
-
-    resolved_pid = next(
-        (pid for pid in (main_pid, exec_main_pid, control_pid) if pid > 0),
-        0,
+    return _get_service_status(
+        service_name,
+        run=subprocess.run,
+        active_probe=is_active,
+        enabled_probe=is_enabled,
     )
-
-    return {
-        "service_name": service_name,
-        "active": active,
-        "enabled": enabled,
-        "active_state": active_state,
-        "sub_state": sub_state,
-        "description": description,
-        "user": user,
-        "main_pid": resolved_pid,
-        "main_pid_raw": main_pid,
-        "exec_main_pid": exec_main_pid,
-        "control_pid": control_pid,
-        "memory_current_bytes": memory_current_bytes,
-        "cpu_usage_nsec": cpu_usage_nsec,
-        "exec_main_start_usec": exec_main_start_usec,
-        "active_enter_usec": active_enter_usec,
-        "n_restarts": n_restarts,
-        "result": result_state,
-        "exec_main_code": exec_main_code,
-        "exec_main_status": exec_main_status,
-    }
 
 
 def enable_service(service_name: str) -> ServiceResult:
@@ -1319,17 +1091,6 @@ def timer_unit_name(instance: str = paths.DEFAULT_INSTANCE_NAME) -> str:
     if instance != paths.DEFAULT_INSTANCE_NAME:
         return f"armareforger-restart@{instance}.timer"
     return paths.TIMER_NAME
-
-
-def _parse_systemctl_show(output: str) -> dict[str, str]:
-    """Parse `systemctl show` KEY=VALUE output into a dictionary."""
-    parsed: dict[str, str] = {}
-    for line in output.strip().splitlines():
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        parsed[key] = value.strip()
-    return parsed
 
 
 def _read_timer_schedule_entries(timer_path: Path) -> list[str]:
