@@ -205,7 +205,7 @@ class ModerationPlayer:
 
     @property
     def can_add_admin(self) -> bool:
-        return bool(self.admin_reference)
+        return bool(self.admin_reference) and not self.is_admin
 
 
 @dataclass(frozen=True)
@@ -232,8 +232,11 @@ def with_admin_membership(
     normalized_admins = {
         normalized
         for item in admin_references
-        if isinstance(item, dict)
-        and (normalized := normalize_admin_reference(item.get("identity_id")))
+        if (
+            normalized := normalize_admin_reference(
+                item.get("identity_id") if isinstance(item, dict) else item
+            )
+        )
     }
     return replace(
         panel,

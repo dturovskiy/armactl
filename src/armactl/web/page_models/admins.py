@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from armactl import admin_acl_sync, admins_manager, config_manager
+from armactl import admin_acl_sync, admins_manager, config_manager, sat_admin_guard
 from armactl.web.page_models.common import (
     UNAVAILABLE_LABEL,
     _basename_display,
@@ -93,6 +93,21 @@ def load_admins_page(instance: str) -> dict[str, Any]:
             }
         enriched.append(entry)
 
+    # RCON reports an IdentityId even when game.admins stores a SteamID64.
+    # Only the explicit SteamID -> UUID mapping is trusted for roster matching;
+    # display names are not stable or unique player identities.
+    official_admin_references = [entry["identity_id"] for entry in enriched]
+    try:
+        uuid_map = sat_admin_guard.load_sat_uuid_map(state.config_path)
+    except sat_admin_guard.SatAdminGuardError:
+        uuid_map = {}
+    for entry in enriched:
+        identity = entry["identity_id"]
+        if admins_manager.STEAM_ID64_RE.fullmatch(identity):
+            mapped_uuid = uuid_map.get(identity.casefold())
+            if mapped_uuid:
+                official_admin_references.append(mapped_uuid)
+
     permission_sync: dict[str, Any]
     try:
         permission_sync = admin_acl_sync.inspect_admin_acls(state.config_path).to_dict()
@@ -113,6 +128,7 @@ def load_admins_page(instance: str) -> dict[str, Any]:
         "status": _state_status(state),
         "paths": _paths(state),
         "official_admins": enriched,
+        "official_admin_references": official_admin_references,
         "official_count": len(enriched),
         "local_labels": local_labels,
         "local_label_count": len(local_labels),

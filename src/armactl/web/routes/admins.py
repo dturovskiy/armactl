@@ -44,7 +44,7 @@ def _render_admins_page(
     )
     player_panel = players_page_model.with_admin_membership(
         player_panel,
-        page.get("official_admins", ()),
+        page.get("official_admin_references", page.get("official_admins", ())),
     )
     response = request.app.state.templates.TemplateResponse(
         request=request,

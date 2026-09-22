@@ -346,6 +346,76 @@ def test_admins_page_marks_current_player_already_in_official_admins(
     assert "Grant full admin + GM" not in response.text
 
 
+def test_steam_admin_uuid_map_marks_rcon_identity_as_existing_admin(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.page_models import admins as admins_page_model
+    from armactl.web.page_models import players as players_page_model
+
+    steam_id = "76561198000000001"
+    player = _reliable_player()
+    config_path = tmp_path / "config.json"
+    (tmp_path / "sat-admin-uuid-map.json").write_text(
+        json.dumps({"identities": {steam_id: player.identity_id}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        admins_page_model,
+        "_discover_management_state",
+        lambda instance: (_state(config_path), None),
+    )
+    monkeypatch.setattr(
+        admins_page_model.config_manager,
+        "load_config",
+        lambda path: {"game": {"admins": [steam_id]}},
+    )
+    page = admins_page_model.load_admins_page("default")
+
+    assert page["official_admin_references"] == [steam_id, player.identity_id]
+    marked = players_page_model.with_admin_membership(
+        _panel(player), page["official_admin_references"]
+    )
+    assert marked.players[0].is_admin is True
+    assert marked.players[0].can_add_admin is False
+
+    client = _authed_client(tmp_path, monkeypatch, panel=_panel(player))
+    monkeypatch.setattr(admins_page_model, "load_admins_page", lambda instance: page)
+    response = client.get("/admins", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Grant full admin + GM" not in response.text
+
+
+def test_steam_admin_name_map_is_not_used_as_roster_identity(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from armactl.web.page_models import admins as admins_page_model
+
+    steam_id = "76561198000000001"
+    player = _reliable_player()
+    config_path = tmp_path / "config.json"
+    (tmp_path / "sat-admin-uuid-map.json").write_text(
+        json.dumps({"identities": {"Alpha": player.identity_id}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        admins_page_model,
+        "_discover_management_state",
+        lambda instance: (_state(config_path), None),
+    )
+    monkeypatch.setattr(
+        admins_page_model.config_manager,
+        "load_config",
+        lambda path: {"game": {"admins": [steam_id]}},
+    )
+
+    page = admins_page_model.load_admins_page("default")
+
+    assert page["official_admin_references"] == [steam_id]
+
+
 def test_admins_page_reports_verified_full_admin_and_mod_roles(
     tmp_path: Path,
     monkeypatch,
