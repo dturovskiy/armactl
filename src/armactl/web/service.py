@@ -76,8 +76,9 @@ def web_python_path(project_root: Path | None = None) -> Path:
 
 
 def _templates_dir(project_root: Path | None = None) -> Path:
-    root = project_root or paths.project_root()
-    return root / "templates"
+    if project_root is not None:
+        return project_root / "templates"
+    return paths.templates_dir()
 
 
 def _template_environment(project_root: Path | None = None) -> Environment:
@@ -282,7 +283,9 @@ def render_web_service_unit(
 ) -> str:
     _validate_web_service_config(config)
     root = project_root or paths.project_root()
-    service_template = _template_environment(root).get_template("armactl-web.service.j2")
+    service_template = _template_environment(project_root).get_template(
+        "armactl-web.service.j2"
+    )
     rendered = service_template.render(
         service_name=web_service_name(),
         user=user or resolve_linux_user(),

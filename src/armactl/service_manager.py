@@ -230,7 +230,7 @@ def resolve_linux_user(default: str = "root") -> str:
 
 def _templates_dir() -> Path:
     """Return the repo templates directory used for systemd/helper files."""
-    return Path(__file__).resolve().parents[2] / "templates"
+    return paths.templates_dir()
 
 
 def _template_environment() -> Environment:
@@ -1146,8 +1146,7 @@ def generate_services(
     timer_path = paths.SYSTEMD_DIR / timer_name
     safe_restart_helper_path = paths.safe_restart_helper_file()
 
-    project_root = Path(__file__).parent.parent.parent
-    templates_dir = project_root / "templates"
+    templates_dir = _templates_dir()
 
     if not templates_dir.exists():
         return [

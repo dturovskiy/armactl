@@ -41,3 +41,10 @@ jobs:
 
       - name: Build
         run: python -m build
+
+      - name: Installed wheel smoke
+        run: |
+          python -m pip install --force-reinstall --no-deps dist/*.whl
+          cd /tmp
+          armactl --help >/dev/null
+          python -c "import json; from armactl import installer, service_manager; assert json.loads(installer.render_default_config(rcon_password='test-rcon', password_admin='test-admin'))['game']['maxPlayers'] == 64; assert service_manager.render_start_script(instance_root='/srv/i', server_dir='/srv/i/server', config_dir='/srv/i/config', config_file='/srv/i/config/config.json').startswith('#!/usr/bin/env bash')"

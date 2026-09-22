@@ -71,7 +71,7 @@ include = [
 ]
 
 [tool.hatch.build.targets.wheel.force-include]
-"templates" = "templates"
+"templates" = "armactl/templates"
 "docs/examples" = "docs/examples"
 
 [tool.hatch.build.targets.sdist]

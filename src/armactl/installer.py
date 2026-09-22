@@ -493,7 +493,7 @@ def record_package_manifest(instance: str) -> None:
 
 
 def _templates_dir() -> Path:
-    return Path(__file__).parent.parent.parent / "templates"
+    return paths.templates_dir()
 
 
 def render_default_config(

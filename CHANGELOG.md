@@ -53,6 +53,9 @@ Semantic Versioning once public releases begin.
 - Generated game-server services now allow native core dumps so the host core handler can retain an authoritative backtrace after a future native crash.
 
 ### Fixed
+- Made shared service/config templates discoverable from an installed wheel as
+  well as a Git checkout, so release-artifact installs no longer look in the
+  Python standard-library directory and fail before rendering configuration.
 - Kept web login throttling compatible with Python 3.10 by using
   `timezone.utc` instead of the Python 3.11-only `datetime.UTC` constant.
 - Made the local host-test runner fail fast when a restricted sandbox blocks

@@ -495,7 +495,7 @@ def validate_discord_stats_service_config(instance: str) -> list[str]:
 def render_discord_stats_service_unit(instance: str) -> str:
     """Render the systemd unit text for the Discord stats publisher."""
     project_root = paths.project_root()
-    templates_dir = project_root / "templates"
+    templates_dir = paths.templates_dir()
     env = Environment(loader=FileSystemLoader(str(templates_dir)))
     home_dir = Path.home()
     user = resolve_linux_user()

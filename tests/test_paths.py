@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from armactl import paths
 from armactl.paths import (
     InvalidInstanceNameError,
     armactl_logs_dir,
@@ -22,12 +23,35 @@ from armactl.paths import (
     server_dir,
     start_script,
     state_file,
+    templates_dir,
     validate_instance_name,
     validate_server_install_dir,
     web_audit_log_file,
     web_logs_dir,
     web_runtime_log_file,
 )
+
+
+def test_templates_dir_prefers_source_checkout(tmp_path: Path, monkeypatch) -> None:
+    source_root = tmp_path / "checkout"
+    expected = source_root / "templates"
+    expected.mkdir(parents=True)
+    monkeypatch.setattr(paths, "project_root", lambda: source_root)
+
+    assert templates_dir() == expected
+
+
+def test_templates_dir_falls_back_to_installed_package(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    package_dir = tmp_path / "site-packages" / "armactl"
+    expected = package_dir / "templates"
+    expected.mkdir(parents=True)
+    monkeypatch.setattr(paths, "project_root", lambda: tmp_path / "python3.12")
+    monkeypatch.setattr(paths, "__file__", str(package_dir / "paths.py"))
+
+    assert templates_dir() == expected
 
 
 def test_instance_root_default():

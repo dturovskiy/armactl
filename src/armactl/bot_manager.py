@@ -93,7 +93,7 @@ def check_bot_runtime() -> ServiceResult:
 def render_bot_service_unit(instance: str) -> str:
     """Render the systemd unit text for the Telegram bot service."""
     project_root = Path(__file__).resolve().parents[2]
-    templates_dir = project_root / "templates"
+    templates_dir = paths.templates_dir()
     env = Environment(loader=FileSystemLoader(str(templates_dir)))
     home_dir = Path.home()
     user = resolve_linux_user()

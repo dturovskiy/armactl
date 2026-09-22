@@ -71,6 +71,19 @@ def project_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def templates_dir() -> Path:
+    """Return shared templates from a source checkout or installed wheel."""
+    source_templates = project_root() / "templates"
+    if source_templates.is_dir():
+        return source_templates
+
+    packaged_templates = Path(__file__).resolve().parent / "templates"
+    if packaged_templates.is_dir():
+        return packaged_templates
+
+    return source_templates
+
+
 def _is_path_inside_or_equal(child: Path, parent: Path) -> bool:
     """Return True when child resolves to parent or one of its descendants."""
     child_resolved = child.expanduser().resolve(strict=False)
