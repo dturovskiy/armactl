@@ -102,6 +102,13 @@ Semantic Versioning once public releases begin.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
+- Validated the Git-only bootstrap and real clean-system install on Ubuntu
+  24.04: Ruff, strict platform `mypy`, and all 1695 tests passed; SteamCMD
+  installed the current Arma Reforger dedicated-server build; the generated
+  systemd service reached fresh 60 FPS telemetry with all configured UDP ports
+  listening; and the service recovered automatically after a VM reboot without
+  a restart loop. A wheel installed into a separate environment outside the
+  source checkout then discovered and reported the same live server.
 - Added a byte-preserving v0.5.3 runtime-tree upgrade acceptance covering
   config, Workshop payloads, profiles, admins, schedules, player data,
   backups, legacy logs, and rollback state; installed-wheel CI now also proves

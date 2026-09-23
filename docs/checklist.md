@@ -36,7 +36,7 @@ and acceptance detail remains in the linked historical records and Git history.
 ## P0 - Stabilize The Current Update, Incident, And Admin Baseline
 
 - [ ] Complete canary-first live Game Master acceptance with a designated
-  designated non-owner identity while the relevant mods are safely loaded; verify the
+  non-owner identity while the relevant mods are safely loaded; verify the
   intended in-game privileges and record the result. The existing-admin UI
   and shared Web/TUI identity-mapping fixes are implemented; see the
   [admin permission contract](admin-permissions-contract.md).
@@ -73,9 +73,6 @@ web deployment describe stable public/free behavior and reusable procedures.
 
 ### 4.3 Upgrade, Architecture, And Compatibility Review
 
-- [ ] Verify a fresh install and existing-server discovery from a built release
-  artifact on a clean supported Ubuntu environment.
-
 Completed compatibility audit: all 48 baseline CLI command paths remain, the
 37 baseline Python modules have no removed owned public symbols, established
 systemd unit names remain stable, and the intentional secret masking on
@@ -88,7 +85,12 @@ including unknown operator fields and secrets, Workshop payloads, named
 profiles, admin sidecars, restart schedules, player data, backups, legacy logs,
 and update rollback state. Existing `web.db` and `players.db` migration suites,
 package build, and installed-wheel discovery smoke pass without source-tree
-imports. A real clean-Ubuntu system install remains explicitly open above.
+imports. The real-system gate also passed on a clean Ubuntu 24.04 VM: Git-only
+bootstrap installed SteamCMD and the current dedicated-server build, generated
+the package manifest, config, state, and systemd units, reached fresh 60 FPS
+telemetry with all configured UDP ports listening, and recovered automatically
+after a VM reboot with no service restart loop. A separately installed wheel,
+run outside the source checkout, discovered and reported the same live server.
 
 Completed compatibility-surface review: the legacy web facade, filesystem
 facade, pending-restart adapter, `/players/refresh` alias, lazy platform
@@ -106,8 +108,6 @@ smoke passed on the completed extraction head.
 
 ### 4.4 Final Validation And Production Smoke
 
-- [ ] Run `git diff --check`, Ruff, the full pytest suite, wrapper/bootstrap
-  checks, and package build/install smoke.
 - [ ] Require all GitHub Actions checks to pass on the exact proposed merge head.
 - [ ] Run secret, infrastructure-identifier, generated-file, and large-artifact
   scans over the complete merge diff and built artifacts.
@@ -128,6 +128,10 @@ smoke passed on the completed extraction head.
   window.
 - [ ] Refresh public screenshots after visible UI changes and verify that their
   text and capability claims match the merge candidate.
+
+Completed local validation gate: `git diff --check`, Ruff, strict platform
+`mypy`, all 1695 tests, wrapper/bootstrap checks, package build, clean wheel
+install, and installed-wheel discovery/status smoke passed on Ubuntu 24.04.
 
 Completed gradual type-check baseline: strict `mypy` now covers the complete
 seven-module `armactl.platform` package, runs in the Python 3.10-3.12 CI matrix,
