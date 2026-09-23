@@ -130,8 +130,16 @@ smoke passed on the completed extraction head.
   text and capability claims match the merge candidate.
 
 Completed local validation gate: `git diff --check`, Ruff, strict platform
-`mypy`, all 1697 tests, wrapper/bootstrap checks, package build, clean wheel
+`mypy`, all 1698 tests, wrapper/bootstrap checks, package build, clean wheel
 install, and installed-wheel discovery/status smoke passed on Ubuntu 24.04.
+
+Completed clean-canary update and authenticated-web evidence: the Git-only
+checkout downloaded the candidate Steam package into isolated storage, reached
+vanilla readiness in 75.4 seconds, atomically promoted it without changing the
+semantic operator config, retained rollback state, and returned to stable 60
+FPS with zero systemd restarts. Twenty private HTML/JSON routes returned HTTP
+200 after login; infrastructure snapshot rollback removed the temporary owner,
+and game/web auto-start recovered with health and readiness green.
 
 Completed gradual type-check baseline: strict `mypy` now covers the complete
 seven-module `armactl.platform` package, runs in the Python 3.10-3.12 CI matrix,

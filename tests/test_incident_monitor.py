@@ -454,6 +454,54 @@ def test_collector_captures_one_fortex_correlated_low_fps_episode(
     assert any("FPS: 7.9" in item for item in metadata["evidence"])
 
 
+def test_collector_aggregates_mass_gm_prefab_spawns_for_low_fps_attribution(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 9, 23, 9, 32, 20, tzinfo=timezone.utc).timestamp()
+    log_dir = _runtime_files(tmp_path, mtime=now)
+    console = log_dir / "console.log"
+    lines = [_fps_line("09:31:10.000", 120.0, ai=83)]
+    lines.extend(
+        f"09:31:{21 + index:02d}.000 SCRIPT : INFO: Editor EDIT: Player "
+        "spawned FA18A_GBU_CAS.et prefab at <100,20,100>"
+        for index in range(18)
+    )
+    lines.extend(
+        (
+            "09:31:45.000 SCRIPT : INFO: Editor EDIT: Player spawned "
+            "UMPK500_CAS.et prefab at <100,20,100>",
+            _fps_line("09:31:47.000", 9.6, ai=200, ai_char=94),
+            _fps_line("09:31:58.000", 4.0, ai=163, ai_char=60),
+            _fps_line("09:32:10.000", 4.1, ai=148, ai_char=47),
+        )
+    )
+    console.write_text("\n".join(lines), encoding="utf-8")
+    os.utime(console, (now, now))
+
+    def runner(args):
+        if args[0] == "systemctl":
+            return incident_monitor.CommandOutput(0, _systemctl_output(pid=593919))
+        return incident_monitor.CommandOutput(0, "")
+
+    result = incident_monitor.collect_incidents_once(
+        data_root=tmp_path,
+        runner=runner,
+        now=now,
+    )
+
+    assert result.captured == 1
+    bundle = tmp_path / "default" / "incidents" / result.incident_ids[0]
+    metadata = json.loads((bundle / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["kind"] == "low_fps"
+    assert metadata["suspect"] == "Game Master mass spawn: FA18A_GBU_CAS.et x18"
+    assert metadata["confidence"] == "high"
+    assert "19 Game Master prefab spawn(s)" in metadata["reason"]
+    assert any(
+        "Game Master spawn summary: 19 total; FA18A_GBU_CAS.et x18" in item
+        for item in metadata["evidence"]
+    )
+
+
 def test_collector_does_not_capture_unconfirmed_or_recovered_low_fps(
     tmp_path: Path,
 ) -> None:

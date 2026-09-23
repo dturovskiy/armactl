@@ -57,6 +57,10 @@ Semantic Versioning once public releases begin.
 - Generated game-server services now allow native core dumps so the host core handler can retain an authoritative backtrace after a future native crash.
 
 ### Fixed
+- Aggregated Game Master prefab spawn counts in sustained low-FPS incidents, so
+  the dashboard and incident page identify the dominant reproduction action
+  (for example, `FA18A_GBU_CAS.et x18`) instead of reporting only a generic
+  active-addon interaction.
 - Allowed a fresh official-vanilla installation with no parked modded profile
   to use the transactional server-update path. The update now runs one isolated
   vanilla canary, preserves the operator config and shared addon files, retains
@@ -107,6 +111,18 @@ Semantic Versioning once public releases begin.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
+- The current head passes Ruff, strict platform `mypy`, and all 1698 tests.
+  A clean canary VM then completed a real isolated Steam download, a 75.4-second
+  vanilla canary, atomic promotion, and production readiness with an unchanged
+  semantic config digest, a retained rollback generation, zero systemd
+  restarts, and stable 60 FPS telemetry. Authenticated smoke returned HTTP 200
+  for all 20 tested private HTML/JSON routes; snapshot rollback removed the
+  temporary owner and both services recovered automatically.
+- Reproduced the primary-server FPS collapse from retained evidence: a rapid
+  Game Master burst of CAS prefabs preceded a sustained 9.6-to-4.0 FPS episode,
+  which the 15-second incident monitor retained without restarting the game.
+  Regression coverage now verifies bounded per-prefab aggregation and exact
+  dominant-trigger presentation.
 - After the clean-VM update smoke exposed the fresh-vanilla profile bug, all
   1697 tests and Ruff passed on the fix. The exact wheel and sdist rebuilt; an
   installed-wheel import outside the source checkout passed; and scans of both

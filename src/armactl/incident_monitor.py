@@ -95,6 +95,11 @@ _WORKSHOP_ADDON_NOT_FOUND_RE: Final = re.compile(
     re.IGNORECASE,
 )
 
+_GAME_MASTER_PREFAB_SPAWN_RE: Final = re.compile(
+    r"\bEditor EDIT:.*?\bspawned\s+(?P<prefab>[^\s]+\.et)\s+prefab\b",
+    re.IGNORECASE,
+)
+
 
 @dataclass(frozen=True)
 class CommandOutput:
@@ -578,6 +583,7 @@ def _assessment(
             "known-good profile until the addon is restored or replaced.",
         )
     if kind == "low_fps":
+        spawn_counts = _game_master_spawn_counts(context)
         has_fortex_failure = (
             any(
                 marker in joined
@@ -602,6 +608,26 @@ def _assessment(
                 "The FPS collapse immediately followed unresolved FORTEX prefab/resource "
                 "activity. This is a strong trigger correlation; a controlled canary is "
                 "still required to distinguish the addon, scenario, and Enfusion owner.",
+            )
+        if spawn_counts:
+            dominant_prefab, dominant_count = spawn_counts[0]
+            total_spawns = sum(count for _prefab, count in spawn_counts)
+            mass_spawn = total_spawns >= 3
+            return (
+                "Sustained critical server FPS",
+                (
+                    f"Game Master mass spawn: {dominant_prefab} x{dominant_count}"
+                    if mass_spawn
+                    else f"Game Master spawn: {dominant_prefab}"
+                ),
+                "high" if mass_spawn else "medium",
+                (
+                    f"The retained trigger window contains {total_spawns} Game Master "
+                    f"prefab spawn(s); {dominant_prefab} appears {dominant_count} time(s). "
+                    "The timing strongly identifies the reproduction action, but a "
+                    "controlled profile comparison is still required to distinguish "
+                    "addon code from the Enfusion path it exercises."
+                ),
             )
         if has_gm_activity:
             return (
@@ -1024,6 +1050,29 @@ def _latest_console_mtime(config_dir: Path) -> float | None:
         return None
 
 
+def _game_master_spawn_counts(messages: Iterable[str]) -> list[tuple[str, int]]:
+    """Return deterministic prefab counts from bounded Game Master audit lines."""
+    counts: dict[str, int] = {}
+    for message in messages:
+        match = _GAME_MASTER_PREFAB_SPAWN_RE.search(message)
+        if match is None:
+            continue
+        prefab = _safe_line(match.group("prefab"), limit=180)
+        if prefab:
+            counts[prefab] = counts.get(prefab, 0) + 1
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0].casefold()))
+
+
+def _game_master_spawn_summary(messages: Iterable[str]) -> str:
+    """Build one bounded aggregate that survives evidence-line truncation."""
+    counts = _game_master_spawn_counts(messages)
+    if not counts:
+        return ""
+    total = sum(count for _prefab, count in counts)
+    detail = "; ".join(f"{prefab} x{count}" for prefab, count in counts[:5])
+    return _safe_line(f"Game Master spawn summary: {total} total; {detail}")
+
+
 def _low_fps_evidence_context(
     lines: Sequence[tuple[int, str]],
     *,
@@ -1045,13 +1094,17 @@ def _low_fps_evidence_context(
         "Editor EDIT:",
         "WCS_LoadoutEditor",
     )
+    window = lines[start:end]
     selected: list[str] = []
-    for _offset, line in lines[start:end]:
+    for _offset, line in window:
         if not any(marker.lower() in line.lower() for marker in markers):
             continue
         safe = _safe_line(line)
         if safe and safe not in selected:
             selected.append(safe)
+    spawn_summary = _game_master_spawn_summary(line for _offset, line in window)
+    if spawn_summary and spawn_summary not in selected:
+        selected.append(spawn_summary)
     return tuple(selected[-30:])
 
 
