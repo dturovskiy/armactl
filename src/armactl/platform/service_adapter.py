@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from armactl import paths, service_manager
-from armactl.service_manager import ServiceResult
+from armactl.service_manager import ServiceResult as ServiceResult
 
 
 class ServiceAdapter(Protocol):

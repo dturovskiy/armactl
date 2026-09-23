@@ -36,6 +36,9 @@ jobs:
       - name: Ruff
         run: ruff check src tests
 
+      - name: Mypy (platform boundary)
+        run: mypy
+
       - name: Pytest
         run: pytest
 

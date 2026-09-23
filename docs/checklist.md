@@ -108,9 +108,6 @@ smoke passed on the completed extraction head.
 
 - [ ] Run `git diff --check`, Ruff, the full pytest suite, wrapper/bootstrap
   checks, and package build/install smoke.
-- [ ] Add a gradual `mypy` or `pyright` check with an explicit initial scope,
-  checked configuration, and no blanket suppression of existing errors; expand
-  the enforced surface as module boundaries are stabilized.
 - [ ] Require all GitHub Actions checks to pass on the exact proposed merge head.
 - [ ] Run secret, infrastructure-identifier, generated-file, and large-artifact
   scans over the complete merge diff and built artifacts.
@@ -131,6 +128,11 @@ smoke passed on the completed extraction head.
   window.
 - [ ] Refresh public screenshots after visible UI changes and verify that their
   text and capability claims match the merge candidate.
+
+Completed gradual type-check baseline: strict `mypy` now covers the complete
+seven-module `armactl.platform` package, runs in the Python 3.10-3.12 CI matrix,
+and has no blanket error suppression. Future expansion follows stabilized
+module boundaries rather than weakening the initial gate.
 
 ### 4.5 Merge Gate
 

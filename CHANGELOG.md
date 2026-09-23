@@ -30,6 +30,9 @@ Semantic Versioning once public releases begin.
 - Added `armactl update profile check <name>` as a CLI fallback for the web profile compatibility canary without activating the tested profile.
 
 ### Changed
+- Added a strict gradual `mypy` gate for the extracted restart-timer and
+  systemd platform boundary, while leaving expansion into legacy modules as an
+  explicit follow-up rather than suppressing their errors globally.
 - Continued the behavior-preserving `service_manager.py` decomposition by
   moving pure restart-schedule parsing, systemctl command execution, generated
   unit/helper rendering, privileged file/timer operations, and read-only
@@ -108,6 +111,8 @@ Semantic Versioning once public releases begin.
   paths and all owned public symbols across 37 baseline Python modules remain
   available, including the explicitly retained web and systemd compatibility
   facades.
+- Strict `mypy` passes for all seven modules in `armactl.platform`, with the
+  check wired into every supported-Python CI job and no blanket suppression.
 - Completed the `service_manager.py` platform-boundary extraction with direct
   and caller integration coverage; Ruff, all 1692 local tests, package build,
   and an installed-wheel smoke outside the source checkout passed.
