@@ -231,8 +231,8 @@ def logs_dir(
     instance: str = DEFAULT_INSTANCE_NAME,
     data_root: Path = DEFAULT_DATA_ROOT,
 ) -> Path:
-    """Backward-compatible alias for centralized instance armactl logs."""
-    return instance_logs_dir(instance, data_root)
+    """Legacy per-instance log path retained for downstream compatibility."""
+    return instance_root(instance, data_root) / ARMACTL_LOGS_DIR_NAME
 
 
 def host_test_logs_dir(

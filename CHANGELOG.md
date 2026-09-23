@@ -54,6 +54,12 @@ Semantic Versioning once public releases begin.
 - Generated game-server services now allow native core dumps so the host core handler can retain an authoritative backtrace after a future native crash.
 
 ### Fixed
+- Preserved the public legacy `paths.logs_dir()` runtime location for existing
+  callers while keeping the web file browser on its explicit centralized log
+  root, avoiding a silent downstream path change during upgrade.
+- Preserved the restart-schedule regex exports on the legacy
+  `service_manager` facade after moving their implementation into the platform
+  layer.
 - Made shared service/config templates discoverable from an installed wheel as
   well as a Git checkout, so release-artifact installs no longer look in the
   Python standard-library directory and fail before rendering configuration.
@@ -93,6 +99,15 @@ Semantic Versioning once public releases begin.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
+- Added a byte-preserving v0.5.3 runtime-tree upgrade acceptance covering
+  config, Workshop payloads, profiles, admins, schedules, player data,
+  backups, legacy logs, and rollback state; installed-wheel CI now also proves
+  fresh runtime config generation and existing-server discovery outside the
+  source checkout. Ruff and all 1695 tests pass locally on the audited diff.
+- Audited the public merge delta against v0.5.3: all 48 baseline CLI command
+  paths and all owned public symbols across 37 baseline Python modules remain
+  available, including the explicitly retained web and systemd compatibility
+  facades.
 - Completed the `service_manager.py` platform-boundary extraction with direct
   and caller integration coverage; Ruff, all 1692 local tests, package build,
   and an installed-wheel smoke outside the source checkout passed.

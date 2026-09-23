@@ -291,6 +291,14 @@ def test_source_tree_roots_are_not_available():
     assert all(not root.available for root in roots)
 
 
+def test_file_browser_uses_new_centralized_instance_logs_root(tmp_path: Path):
+    from armactl.web.services.filesystem_roots import list_allowed_roots
+
+    roots = {root.root_id: root for root in list_allowed_roots(tmp_path, instance="alpha")}
+
+    assert roots["logs"].path == tmp_path / "logs" / "instances" / "alpha"
+
+
 def test_preview_redacts_secrets(tmp_path: Path):
     server = _server_root(tmp_path)
     (server / "secret.txt").write_text(

@@ -73,14 +73,29 @@ web deployment describe stable public/free behavior and reusable procedures.
 
 ### 4.3 Upgrade, Architecture, And Compatibility Review
 
-- [ ] Audit `main...feat/web-interface` for public API, CLI, config-schema,
-  runtime-layout, SQLite migration, systemd-unit, and packaging compatibility.
-- [ ] Verify an existing v0.5.3 installation can upgrade without losing config,
-  mods, profiles, admins, schedules, player data, or rollback state.
 - [ ] Verify a fresh install and existing-server discovery from a built release
   artifact on a clean supported Ubuntu environment.
-- [ ] Review retained compatibility facades and alias routes; remove none solely
-  from heuristic dead-code output before the downstream compatibility window.
+
+Completed compatibility audit: all 48 baseline CLI command paths remain, the
+37 baseline Python modules have no removed owned public symbols, established
+systemd unit names remain stable, and the intentional secret masking on
+`config show` is documented with `--show-secrets` as the explicit raw-value
+path. The audit caught and restored the legacy `paths.logs_dir()` location and
+the `service_manager` restart-schedule regex exports before merge.
+
+Completed v0.5.3 runtime acceptance: a byte-preserving fixture covers config
+including unknown operator fields and secrets, Workshop payloads, named
+profiles, admin sidecars, restart schedules, player data, backups, legacy logs,
+and update rollback state. Existing `web.db` and `players.db` migration suites,
+package build, and installed-wheel discovery smoke pass without source-tree
+imports. A real clean-Ubuntu system install remains explicitly open above.
+
+Completed compatibility-surface review: the legacy web facade, filesystem
+facade, pending-restart adapter, `/players/refresh` alias, lazy platform
+exports, and `service_manager` facade remain intentional and have direct
+identity or behavior regression tests. None were removed from heuristic
+dead-code output.
+
 Completed architecture boundary: systemd execution, privileged operations,
 unit rendering, service status, and restart-timer behavior now sit behind
 focused modules while `service_manager.py` remains the compatibility facade for

@@ -47,4 +47,50 @@ jobs:
           python -m pip install --force-reinstall --no-deps dist/*.whl
           cd /tmp
           armactl --help >/dev/null
-          python -c "import json; from armactl import installer, service_manager; assert json.loads(installer.render_default_config(rcon_password='test-rcon', password_admin='test-admin'))['game']['maxPlayers'] == 64; assert service_manager.render_start_script(instance_root='/srv/i', server_dir='/srv/i/server', config_dir='/srv/i/config', config_file='/srv/i/config/config.json').startswith('#!/usr/bin/env bash')"
+          python - <<'PY'
+          import json
+          import tempfile
+          from pathlib import Path
+          from unittest.mock import patch
+
+          from armactl import discovery, installer, service_manager
+          from armactl.platform import restart_timer
+
+          rendered = installer.render_default_config(
+              rcon_password="test-rcon",
+              password_admin="test-admin",
+          )
+          assert json.loads(rendered)["game"]["maxPlayers"] == 64
+          assert service_manager.render_start_script(
+              instance_root="/srv/i",
+              server_dir="/srv/i/server",
+              config_dir="/srv/i/config",
+              config_file="/srv/i/config/config.json",
+          ).startswith("#!/usr/bin/env bash")
+          assert service_manager.TIME_ONLY_RE is restart_timer.TIME_ONLY_RE
+          assert service_manager.DAILY_TIME_RE is restart_timer.DAILY_TIME_RE
+
+          with tempfile.TemporaryDirectory() as temporary_directory:
+              data_root = Path(temporary_directory) / "armactl-data"
+              server_dir = data_root / "default" / "server"
+              config_path = data_root / "default" / "config" / "config.json"
+              server_dir.mkdir(parents=True)
+              (server_dir / "ArmaReforgerServer").write_bytes(b"installed-wheel-smoke")
+              installer.write_default_config(
+                  config_path,
+                  rcon_password="preserved-rcon",
+                  password_admin="preserved-admin",
+              )
+              original = config_path.read_bytes()
+              with (
+                  patch.object(discovery, "_service_exists", return_value=False),
+                  patch.object(discovery, "_timer_exists", return_value=False),
+                  patch.object(discovery, "_is_service_active", return_value=False),
+                  patch.object(discovery, "_check_listening_ports", return_value={}),
+              ):
+                  state = discovery.discover(data_root=data_root, save=False)
+              assert state.server_installed is True
+              assert Path(state.install_dir) == server_dir
+              assert Path(state.config_path) == config_path
+              assert config_path.read_bytes() == original
+          PY

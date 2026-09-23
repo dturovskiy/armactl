@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import armactl.platform.restart_timer as restart_timer
 import armactl.platform.systemd_execution as systemd_execution
 import armactl.platform.systemd_privileged as systemd_privileged
 import armactl.platform.systemd_rendering as systemd_rendering
@@ -47,6 +48,8 @@ from armactl.runtime_settings import (
 SUDO_AUTH_ERROR_MARKERS = systemd_execution.SUDO_AUTH_ERROR_MARKERS
 SYSTEMCTL_TIMEOUT_SECONDS = systemd_execution.SYSTEMCTL_TIMEOUT_SECONDS
 ServiceResult = systemd_execution.ServiceResult
+DAILY_TIME_RE = restart_timer.DAILY_TIME_RE
+TIME_ONLY_RE = restart_timer.TIME_ONLY_RE
 SYSTEMD_EXEC_MAIN_CODE_LABELS = systemd_status.SYSTEMD_EXEC_MAIN_CODE_LABELS
 _parse_systemctl_show = systemd_status.parse_systemctl_show
 _read_timer_schedule_entries = systemd_status.read_timer_schedule_entries

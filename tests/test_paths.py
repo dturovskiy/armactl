@@ -111,7 +111,7 @@ def test_backups_dir():
 
 def test_logs_dir():
     path = logs_dir()
-    assert path == armactl_logs_dir() / "instances" / "default"
+    assert path == instance_root() / "logs"
 
 
 def test_centralized_armactl_log_dirs():

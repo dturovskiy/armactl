@@ -44,7 +44,7 @@ ROOT_DEFINITIONS: tuple[RootDefinition, ...] = (
     RootDefinition("server", "Server files", paths.server_dir),
     RootDefinition("config", "Config files", paths.config_dir),
     RootDefinition("backups", "Backups", paths.backups_dir),
-    RootDefinition("logs", "Logs", paths.logs_dir),
+    RootDefinition("logs", "Logs", paths.instance_logs_dir),
 )
 
 

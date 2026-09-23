@@ -8,9 +8,12 @@ from unittest.mock import call, patch
 import pytest
 
 from armactl import paths
+from armactl.platform import restart_timer
 from armactl.restart_timing import RESTART_TIMING
 from armactl.sat_admin_guard import SatAdminGuardError
 from armactl.service_manager import (
+    DAILY_TIME_RE,
+    TIME_ONLY_RE,
     ServiceResult,
     _build_systemctl_command,
     _render_privileged_helper_script,
@@ -33,6 +36,11 @@ from armactl.service_manager import (
     timer_unit_name,
     update_restart_timer_schedule,
 )
+
+
+def test_restart_timer_regexes_remain_available_from_legacy_facade() -> None:
+    assert TIME_ONLY_RE is restart_timer.TIME_ONLY_RE
+    assert DAILY_TIME_RE is restart_timer.DAILY_TIME_RE
 
 
 def test_normalize_on_calendar_accepts_time_only() -> None:
