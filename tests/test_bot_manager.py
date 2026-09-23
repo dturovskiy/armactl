@@ -51,12 +51,12 @@ def test_render_bot_service_unit_contains_instance_and_execstart(tmp_path: Path)
 
     with (
         patch("armactl.bot_manager.bot_python_path", return_value=python_bin),
-        patch("armactl.bot_manager.resolve_linux_user", return_value="defenders88"),
+        patch("armactl.bot_manager.resolve_linux_user", return_value="operator"),
     ):
         text = render_bot_service_unit("default")
 
     assert "Description=armactl Telegram Bot (default)" in text
-    assert "User=defenders88" in text
+    assert "User=operator" in text
     assert f"ExecStart={python_bin} -m armactl.telegram_bot --instance default" in text
     assert "Restart=always" in text
     assert "StartLimitIntervalSec=0" in text

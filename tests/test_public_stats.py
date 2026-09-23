@@ -352,8 +352,8 @@ def test_discord_stats_message_marks_count_only_without_roster_rows() -> None:
         running=True,
         service_state="active",
         server_name="Public Server",
-        scenario_id="{A72E000B7728A414}Missions/DOE_Chervonopilia.conf",
-        map_name="[S.G.L.] Chervonopilia - Conflict",
+        scenario_id="{A72E000B7728A414}Missions/DOE_ExampleValley.conf",
+        map_name="[EXAMPLE] Example Valley - Conflict",
         players_available=True,
         player_count=5,
         max_players=128,
@@ -385,8 +385,8 @@ def test_discord_stats_message_marks_count_mismatch_without_synthetic_rows() -> 
         running=True,
         service_state="active",
         server_name="Public Server",
-        scenario_id="{A72E000B7728A414}Missions/DOE_Chervonopilia.conf",
-        map_name="[S.G.L.] Chervonopilia - Conflict",
+        scenario_id="{A72E000B7728A414}Missions/DOE_ExampleValley.conf",
+        map_name="[EXAMPLE] Example Valley - Conflict",
         players_available=True,
         player_count=3,
         max_players=128,
@@ -434,7 +434,7 @@ def test_public_stats_marks_deactivating_service_as_stopping(monkeypatch) -> Non
             status_summary.ConfigSummary(
                 available=True,
                 server_name="Public Server",
-                scenario_id="{A72E000B7728A414}Missions/DOE_Chervonopilia.conf",
+                scenario_id="{A72E000B7728A414}Missions/DOE_ExampleValley.conf",
                 max_players=128,
             ),
             status_summary.ModsSummary(available=True, count=112),
@@ -600,7 +600,7 @@ def test_discord_stats_message_uses_singular_mod_label() -> None:
     assert "1 mods" not in text
 
 
-def test_discord_stats_message_uses_compact_chervonopilia_map_label() -> None:
+def test_discord_stats_message_uses_compact_example_valley_map_label() -> None:
     snapshot = public_stats.PublicStatsSnapshot(
         instance="default",
         generated_at="2026-06-26T10:00:00+00:00",
@@ -608,8 +608,8 @@ def test_discord_stats_message_uses_compact_chervonopilia_map_label() -> None:
         running=True,
         service_state="active",
         server_name="Public Server",
-        scenario_id="{A72E000B7728A414}Missions/DOE_Chervonopilia.conf",
-        map_name="[S.G.L.] Chervonopilia - Conflict",
+        scenario_id="{A72E000B7728A414}Missions/DOE_ExampleValley.conf",
+        map_name="[EXAMPLE] Example Valley - Conflict",
         players_available=True,
         player_count=3,
         max_players=128,
@@ -627,9 +627,9 @@ def test_discord_stats_message_uses_compact_chervonopilia_map_label() -> None:
 
     text = public_stats.render_discord_stats_message(snapshot)
 
-    assert "🗺️ Map: Chervonopilia" in text
+    assert "🗺️ Map: Example Valley" in text
     assert "[S.G.L.]" not in text
-    assert "Chervonopilia - Conflict" not in text
+    assert "Example Valley - Conflict" not in text
 
 
 def test_stats_public_cli_honors_global_json_output(monkeypatch) -> None:
@@ -997,12 +997,12 @@ def test_render_discord_stats_service_unit_contains_execstart(tmp_path: Path, mo
 
     python_bin = tmp_path / ".venv" / "bin" / "python"
     monkeypatch.setattr(discord_stats, "discord_stats_python_path", lambda: python_bin)
-    monkeypatch.setattr(discord_stats, "resolve_linux_user", lambda: "defenders88")
+    monkeypatch.setattr(discord_stats, "resolve_linux_user", lambda: "operator")
 
     text = discord_stats.render_discord_stats_service_unit("default")
 
     assert "Description=armactl Discord Statistics Publisher (default)" in text
-    assert "User=defenders88" in text
+    assert "User=operator" in text
     assert f"ExecStart={python_bin} -m armactl --instance default stats discord run" in text
     assert "Restart=always" in text
 

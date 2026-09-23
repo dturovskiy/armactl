@@ -63,14 +63,14 @@ def test_passed_profile_canary_marks_every_member_compatible(tmp_path: Path):
         state,
         profile,
         build_id="24501482",
-        profile_name="zakarpattia",
+        profile_name="night-ops",
         compatible=True,
     )
     result = mod_compatibility.compatibility_for_mods(
         state,
         _mods(),
         build_id="24501482",
-        profile_name="zakarpattia",
+        profile_name="night-ops",
     )
 
     assert {item.status for item in result.values()} == {mod_compatibility.COMPATIBLE}
@@ -85,7 +85,7 @@ def test_failed_canary_attributes_one_named_mod_without_guessing_others(tmp_path
         state,
         profile,
         build_id="24501482",
-        profile_name="zakarpattia",
+        profile_name="night-ops",
         compatible=False,
         reason='WCS Core: Can\'t compile "Game" script module',
     )
@@ -93,7 +93,7 @@ def test_failed_canary_attributes_one_named_mod_without_guessing_others(tmp_path
         state,
         _mods(),
         build_id="24501482",
-        profile_name="zakarpattia",
+        profile_name="night-ops",
     )
 
     assert result["0123456789ABCDEF"].status == mod_compatibility.INCOMPATIBLE
@@ -107,7 +107,7 @@ def test_evidence_is_not_reused_for_another_build_profile_or_mod_version(tmp_pat
         state,
         profile,
         build_id="24501482",
-        profile_name="zakarpattia",
+        profile_name="night-ops",
         compatible=True,
     )
 
@@ -117,19 +117,19 @@ def test_evidence_is_not_reused_for_another_build_profile_or_mod_version(tmp_pat
         state,
         changed,
         build_id="24501482",
-        profile_name="zakarpattia",
+        profile_name="night-ops",
     )
     other_build = mod_compatibility.compatibility_for_mods(
         state,
         _mods(),
         build_id="24599999",
-        profile_name="zakarpattia",
+        profile_name="night-ops",
     )
     other_profile = mod_compatibility.compatibility_for_mods(
         state,
         _mods(),
         build_id="24501482",
-        profile_name="chervonopillia",
+        profile_name="other-profile",
     )
 
     assert changed_result["0123456789ABCDEF"].status == mod_compatibility.NOT_TESTED
@@ -145,7 +145,7 @@ def test_profile_status_requires_exact_build_and_unchanged_selection(tmp_path: P
         state,
         profile,
         build_id="24501482",
-        profile_name="zakarpattia",
+        profile_name="night-ops",
         compatible=True,
     )
 
@@ -153,13 +153,13 @@ def test_profile_status_requires_exact_build_and_unchanged_selection(tmp_path: P
         state,
         profile,
         build_id="24501482",
-        profile_name="zakarpattia",
+        profile_name="night-ops",
     )
     newer_build = mod_compatibility.profile_compatibility(
         state,
         profile,
         build_id="24599999",
-        profile_name="zakarpattia",
+        profile_name="night-ops",
     )
     config = json.loads((profile / "config.json").read_text(encoding="utf-8"))
     config["game"]["mods"][0]["version"] = "2.0.0"
@@ -168,7 +168,7 @@ def test_profile_status_requires_exact_build_and_unchanged_selection(tmp_path: P
         state,
         profile,
         build_id="24501482",
-        profile_name="zakarpattia",
+        profile_name="night-ops",
     )
 
     assert current.status == mod_compatibility.COMPATIBLE
@@ -212,7 +212,7 @@ def test_profile_status_expires_when_installed_addon_metadata_changes(tmp_path: 
         state,
         profile,
         build_id="24501482",
-        profile_name="zakarpattia",
+        profile_name="night-ops",
         compatible=True,
     )
     metadata = profile / "addons" / "WCS_Core_0123456789ABCDEF" / "addon.gproj"
@@ -225,13 +225,13 @@ def test_profile_status_expires_when_installed_addon_metadata_changes(tmp_path: 
         state,
         profile,
         build_id="24501482",
-        profile_name="zakarpattia",
+        profile_name="night-ops",
     )
     mods = mod_compatibility.compatibility_for_mods(
         state,
         _mods(),
         build_id="24501482",
-        profile_name="zakarpattia",
+        profile_name="night-ops",
         addons_path=profile / "addons",
     )
 

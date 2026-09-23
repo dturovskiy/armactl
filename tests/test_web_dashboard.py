@@ -913,7 +913,7 @@ def test_dashboard_shows_compact_profile_selector_and_links_to_full_controls(
                 "available": True,
                 "active_mode": "vanilla",
                 "parked_modded_available": True,
-                "parked_profile_name": "serhiivka-modded",
+                "parked_profile_name": "canary-modded",
                 "parked_profile_compatibility": {
                     "status": "compatible",
                     "label": "Ready for current build",
@@ -929,10 +929,10 @@ def test_dashboard_shows_compact_profile_selector_and_links_to_full_controls(
                     "mod_count": 0,
                 },
                 {
-                    "name": "serhiivka-modded",
+                    "name": "canary-modded",
                     "active": False,
                     "mode": "modded",
-                    "scenario_id": "Serhiivka.conf",
+                    "scenario_id": "Canary.conf",
                     "mod_count": 35,
                 },
             ],
@@ -951,7 +951,7 @@ def test_dashboard_shows_compact_profile_selector_and_links_to_full_controls(
     assert 'name="profile_selection"' in response.text
     assert '<option value="" selected disabled>vanilla · Active</option>' in response.text
     assert (
-        '<option value="retry-modded">serhiivka-modded · Ready for current build</option>'
+        '<option value="retry-modded">canary-modded · Ready for current build</option>'
         in response.text
     )
     assert "Parked modded profile" not in response.text

@@ -95,7 +95,7 @@ operator is never told that an already-written config was not saved.
 
 ```text
 armactl update profile list
-armactl update profile rename-active zakarpattia
+armactl update profile rename-active night-ops
 armactl update profile create vanilla-everon --vanilla
 armactl update profile create test-current
 armactl update profile check vanilla-everon

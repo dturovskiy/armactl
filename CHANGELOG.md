@@ -131,9 +131,9 @@ Semantic Versioning once public releases begin.
   package build for the shared mapped-admin duplicate guard.
 - GitHub Actions run `35636874913` passed Ruff, all 1662 pytest cases, and
   package build for the actionable-canary and repair-bootstrap fixes.
-- Serhiivka live monitor acceptance retained bounded stale-telemetry and
+- Canary-server live monitor acceptance retained bounded stale-telemetry and
   sustained-critical-FPS evidence on the same PID and recovered to fresh 120
-  FPS with zero restarts; a Chervonopilya read-only pass captured no false
+  FPS with zero restarts; a primary server read-only pass captured no false
   incident and left its game PID untouched.
 - Active-log anomaly checks passed bounded-tail, allowlist, symlink, path
   redaction, permission, and localization coverage; GitHub Actions passed Ruff,
@@ -144,10 +144,10 @@ Semantic Versioning once public releases begin.
   (`75 passed`); GitHub Actions passed Ruff, all `1591` tests, and package build
   for the authenticated native-moderation UI head.
 - Focused lifecycle, telemetry, incident, and i18n coverage passed (`75 passed`), including prolonged startup telemetry timeout and systemd auto-restart precedence.
-- Serhiivka retained-incident acceptance on `32ec2e9` kept the game process untouched while the 15-second monitor and web view surfaced the bounded `SAL_DroneBulletComponent` evidence as a Realistic Combat Drones/FPV trigger correlation without claiming the final native owner.
+- Canary-server retained-incident acceptance on `32ec2e9` kept the game process untouched while the 15-second monitor and web view surfaced the bounded `SAL_DroneBulletComponent` evidence as a Realistic Combat Drones/FPV trigger correlation without claiming the final native owner.
 - GitHub Actions passed Ruff, all 1572 pytest cases, and package build for the CLI profile-check head.
-- Serhiivka current-build acceptance passed named profile create, rename, delete, check, vanilla switch, and modded switch-back while preserving every non-profile config setting and leaving Workshop storage shared.
-- Focused fallback, parked-profile retry, and failed-canary recovery pytest coverage (`6 passed`) in WSL; the Serhiivka policy toggle was also verified on/off without a game restart.
+- Canary-server current-build acceptance passed named profile create, rename, delete, check, vanilla switch, and modded switch-back while preserving every non-profile config setting and leaving Workshop storage shared.
+- Focused fallback, parked-profile retry, and failed-canary recovery pytest coverage (`6 passed`) in WSL; the canary policy toggle was also verified on/off without a game restart.
 - Focused safe-update, i18n, and config/profile-selection pytest coverage (`39 passed`) in WSL.
 - `.venv/bin/python -m pytest tests/test_installer.py tests/test_safe_update.py tests/test_paths.py -q` (`60 passed`) in WSL.
 - `python3 -m pytest tests/test_service_manager.py tests/test_web_schedule.py tests/test_web_cli.py -q` in WSL.

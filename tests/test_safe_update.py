@@ -741,7 +741,7 @@ def test_activate_vanilla_then_retry_complete_modded_profile(
 def test_parked_profile_can_be_verified_without_restore(tmp_path: Path):
     server, config_path = _layout(tmp_path)
     adapter = FakeServiceAdapter()
-    safe_update.rename_active_profile(server, config_path, name="serhiivka-modded")
+    safe_update.rename_active_profile(server, config_path, name="canary-modded")
     list(
         safe_update.activate_vanilla(
             server,
@@ -763,7 +763,7 @@ def test_parked_profile_can_be_verified_without_restore(tmp_path: Path):
             server,
             config_path,
             current_canary_runner=lambda paths: safe_update.CanaryResult(
-                1.0, 128, "Serhiivka"
+                1.0, 128, "Canary"
             ),
         )
     )
@@ -776,7 +776,7 @@ def test_parked_profile_can_be_verified_without_restore(tmp_path: Path):
         update_paths.mod_compatibility,
         update_paths.parked_modded_profile,
         build_id="100",
-        profile_name="serhiivka-modded",
+        profile_name="canary-modded",
         addons_path=update_paths.profile / "addons",
     )
     assert evidence.status == safe_update.mod_compatibility.COMPATIBLE
@@ -867,9 +867,9 @@ def test_named_profiles_can_be_created_and_switched_both_ways(tmp_path: Path):
     renamed = safe_update.rename_active_profile(
         server,
         config_path,
-        name="zakarpattia",
+        name="night-ops",
     )
-    assert renamed.name == "zakarpattia"
+    assert renamed.name == "night-ops"
     created = safe_update.create_named_profile(
         server,
         config_path,
@@ -893,7 +893,7 @@ def test_named_profiles_can_be_created_and_switched_both_ways(tmp_path: Path):
 
     before = safe_update.get_named_profiles(server, config_path)
     assert [(item.name, item.active) for item in before] == [
-        ("zakarpattia", True),
+        ("night-ops", True),
         ("vanilla-everon", False),
     ]
 
@@ -918,22 +918,22 @@ def test_named_profiles_can_be_created_and_switched_both_ways(tmp_path: Path):
     assert active_vanilla["game"]["maxPlayers"] == 64
     assert active_vanilla["rcon"]["password"] == "current-rcon"
     assert mods_state.read_text(encoding="utf-8") == '{"disabled": ["kept"]}\n'
-    assert not (update_paths.profiles_root / "zakarpattia" / "addons").exists()
+    assert not (update_paths.profiles_root / "night-ops" / "addons").exists()
     assert (config_path.parent / "addons" / "WCS" / "mod.pak").is_file()
     assert not (update_paths.profiles_root / "vanilla-everon").exists()
-    assert any("prior profile zakarpattia is stored" in line for line in output)
+    assert any("prior profile night-ops is stored" in line for line in output)
 
     after = safe_update.get_named_profiles(server, config_path)
     assert [(item.name, item.active) for item in after] == [
         ("vanilla-everon", True),
-        ("zakarpattia", False),
+        ("night-ops", False),
     ]
     list(
         safe_update.switch_named_profile(
             server,
             config_path,
             "armareforger.service",
-            name="zakarpattia",
+            name="night-ops",
             current_canary_runner=lambda paths: safe_update.CanaryResult(
                 1.0, 128, "Custom"
             ),
@@ -956,7 +956,7 @@ def test_named_profiles_can_be_created_and_switched_both_ways(tmp_path: Path):
     )
     assert set(stored_selection) == {"game"}
     assert set(stored_selection["game"]) == {"scenarioId", "mods"}
-    assert not (update_paths.profiles_root / "zakarpattia").exists()
+    assert not (update_paths.profiles_root / "night-ops").exists()
 
 
 def test_modified_vanilla_is_separated_and_clean_vanilla_is_preserved(
@@ -1033,7 +1033,7 @@ def test_delete_named_profile_keeps_active_config_and_shared_addons(tmp_path: Pa
 
 def test_named_profile_can_be_tested_without_activation_or_config_mutation(tmp_path: Path):
     server, config_path = _layout(tmp_path)
-    safe_update.rename_active_profile(server, config_path, name="zakarpattia")
+    safe_update.rename_active_profile(server, config_path, name="night-ops")
     created = safe_update.create_named_profile(
         server,
         config_path,
@@ -1058,7 +1058,7 @@ def test_named_profile_can_be_tested_without_activation_or_config_mutation(tmp_p
     assert config_path.read_bytes() == config_before
     assert (config_path.parent / "addons" / "WCS" / "mod.pak").read_bytes() == addon_before
     assert Path(created.path).is_dir()
-    assert safe_update.get_named_profiles(server, config_path)[0].name == "zakarpattia"
+    assert safe_update.get_named_profiles(server, config_path)[0].name == "night-ops"
     assert not update_paths.candidate_profile.exists()
     evidence = safe_update.mod_compatibility.profile_compatibility(
         update_paths.mod_compatibility,
@@ -1072,7 +1072,7 @@ def test_named_profile_can_be_tested_without_activation_or_config_mutation(tmp_p
 
 def test_rejected_named_profile_test_records_failure_without_activation(tmp_path: Path):
     server, config_path = _layout(tmp_path)
-    safe_update.rename_active_profile(server, config_path, name="zakarpattia")
+    safe_update.rename_active_profile(server, config_path, name="night-ops")
     created = safe_update.create_named_profile(
         server,
         config_path,

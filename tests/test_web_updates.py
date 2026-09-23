@@ -145,7 +145,7 @@ def test_dashboard_profile_switch_redirects_back_to_dashboard(
         "/updates/profile/switch",
         data={
             "csrf_token": csrf_token,
-            "profile_name": "serhiivka-modded",
+            "profile_name": "canary-modded",
             "return_to": "dashboard",
         },
         follow_redirects=False,
@@ -153,13 +153,13 @@ def test_dashboard_profile_switch_redirects_back_to_dashboard(
 
     assert response.status_code == 303
     assert response.headers["location"] == "/dashboard?notice=profile-queued"
-    assert requested == {"action": "switch", "name": "serhiivka-modded"}
+    assert requested == {"action": "switch", "name": "canary-modded"}
 
 
 @pytest.mark.parametrize(
     ("source", "name", "expected_action", "expected_name"),
     [
-        ("named", "serhiivka-modded", "test", "serhiivka-modded"),
+        ("named", "canary-modded", "test", "canary-modded"),
         ("parked", "", "test-parked", ""),
     ],
 )
@@ -215,7 +215,7 @@ def test_profile_test_route_queues_test_only_job(
     [
         ("vanilla", "vanilla", ""),
         ("retry-modded", "retry-modded", ""),
-        ("profile:serhiivka-modded", "switch", "serhiivka-modded"),
+        ("profile:canary-modded", "switch", "canary-modded"),
     ],
 )
 def test_compact_profile_selector_dispatches_explicit_action(
@@ -1188,7 +1188,7 @@ def test_updates_page_model_exposes_active_profile_test_job(
     job, created = server_jobs.ensure_server_profile_job(
         db_path,
         action="test",
-        name="serhiivka-modded",
+        name="canary-modded",
         requested_by_username="owner",
     )
     assert created is True
@@ -1212,7 +1212,7 @@ def test_updates_page_model_exposes_active_profile_test_job(
 
     assert page["profile_job"]["id"] == job.id
     assert page["profile_job"]["action"] == "test"
-    assert page["profile_job"]["profile_name"] == "serhiivka-modded"
+    assert page["profile_job"]["profile_name"] == "canary-modded"
     assert view["profile_actions_enabled"] is False
     assert view["profile_actions_disabled_reason"] == (
         "Wait for the active profile operation to finish."
@@ -1234,7 +1234,7 @@ def test_updates_template_renders_profile_compatibility_and_test_action(tmp_path
             "available": True,
             "active_mode": "vanilla",
             "parked_modded_available": True,
-            "parked_profile_name": "serhiivka-modded",
+            "parked_profile_name": "canary-modded",
             "parked_profile_compatibility": {
                 "status": "outdated",
                 "label": "Retest required",
@@ -1260,7 +1260,7 @@ def test_updates_template_renders_profile_compatibility_and_test_action(tmp_path
                 },
             },
             {
-                "name": "serhiivka-modded",
+                "name": "canary-modded",
                 "active": False,
                 "mode": "modded",
                 "scenario_id": "Custom.conf",
@@ -1307,7 +1307,7 @@ def test_updates_template_renders_profile_compatibility_and_test_action(tmp_path
     html = app.state.templates.get_template("updates.html").render(context)
 
     assert 'action="/updates/profile/test"' in html
-    assert "serhiivka-modded" in html
+    assert "canary-modded" in html
     assert "Retest required" in html
     assert "Ready for current build" in html
     assert 'action="/updates/retry-modded"' in html

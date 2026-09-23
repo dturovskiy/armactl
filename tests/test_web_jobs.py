@@ -1335,22 +1335,22 @@ def test_server_profile_test_job_runs_canary_without_switch_operation(
     job, created = server_jobs.ensure_server_profile_job(
         db_path,
         action="test",
-        name="serhiivka-modded",
+        name="canary-modded",
         requested_by_username="owner",
     )
 
     assert created is True
-    assert job.kind == "server:pt:serhiivka-modded"
+    assert job.kind == "server:pt:canary-modded"
     assert server_jobs.parse_server_profile_job_kind(job.kind) == (
         "test",
-        "serhiivka-modded",
+        "canary-modded",
     )
     result = dispatch_server_job(db_path, job.id)
 
-    assert calls == [(str(install_dir), str(config_path), "serhiivka-modded")]
+    assert calls == [(str(install_dir), str(config_path), "canary-modded")]
     assert result.job.status == JOB_STATUS_SUCCEEDED
     assert result.job.result_message == (
-        "Profile serhiivka-modded is compatible with the current build."
+        "Profile canary-modded is compatible with the current build."
     )
     assert "it was not activated" in result.job.stdout_tail
 
@@ -1390,7 +1390,7 @@ def test_server_profile_incompatibility_completes_with_warning(
         del args, kwargs
         yield "Testing profile without activating it."
         raise server_jobs.safe_update.ProfileIncompatibleError(
-            "Profile serhiivka-modded is incompatible with active build 24501482. "
+            "Profile canary-modded is incompatible with active build 24501482. "
             "The active profile was not changed."
         )
 
@@ -1475,7 +1475,7 @@ def test_server_profile_job_stops_running_server_and_restores_after_test(
     job, _created = server_jobs.ensure_server_profile_job(
         db_path,
         action="test",
-        name="serhiivka-modded",
+        name="canary-modded",
         requested_by_username="owner",
     )
 
