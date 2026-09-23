@@ -17,8 +17,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from jinja2 import Environment, FileSystemLoader
-
+import armactl.platform.systemd_execution as systemd_execution
+import armactl.platform.systemd_rendering as systemd_rendering
+import armactl.platform.systemd_status as systemd_status
 from armactl import paths
 from armactl.i18n import _, tr
 from armactl.platform.restart_timer import (
@@ -30,46 +31,6 @@ from armactl.platform.restart_timer import (
 from armactl.platform.restart_timer import (
     has_schedule_input as _has_schedule_input,
 )
-from armactl.platform.systemd_execution import (
-    SUDO_AUTH_ERROR_MARKERS as SUDO_AUTH_ERROR_MARKERS,
-)
-from armactl.platform.systemd_execution import (
-    SYSTEMCTL_TIMEOUT_SECONDS as SYSTEMCTL_TIMEOUT_SECONDS,
-)
-from armactl.platform.systemd_execution import ServiceResult as ServiceResult
-from armactl.platform.systemd_execution import (
-    build_systemctl_command as _build_systemctl_command_impl,
-)
-from armactl.platform.systemd_execution import (
-    execute_systemctl_command as _execute_systemctl_command,
-)
-from armactl.platform.systemd_execution import (
-    looks_like_sudo_auth_error as _looks_like_sudo_auth_error_impl,
-)
-from armactl.platform.systemd_execution import (
-    resolve_systemctl_binary as _resolve_systemctl_binary_impl,
-)
-from armactl.platform.systemd_execution import (
-    secure_privileged_channel_message as _secure_privileged_channel_message_impl,
-)
-from armactl.platform.systemd_status import (
-    SYSTEMD_EXEC_MAIN_CODE_LABELS as SYSTEMD_EXEC_MAIN_CODE_LABELS,
-)
-from armactl.platform.systemd_status import (
-    get_service_status as _get_service_status,
-)
-from armactl.platform.systemd_status import (
-    get_systemd_unit_status as _get_systemd_unit_status,
-)
-from armactl.platform.systemd_status import (
-    is_active as _is_active,
-)
-from armactl.platform.systemd_status import (
-    is_enabled as _is_enabled,
-)
-from armactl.platform.systemd_status import (
-    parse_systemctl_show as _parse_systemctl_show,
-)
 from armactl.redaction import redact_sensitive_text, safe_subprocess_error
 from armactl.restart_timing import RESTART_TIMING
 from armactl.runtime_settings import (
@@ -80,6 +41,12 @@ from armactl.runtime_settings import (
     save_max_fps_profile,
 )
 
+SUDO_AUTH_ERROR_MARKERS = systemd_execution.SUDO_AUTH_ERROR_MARKERS
+SYSTEMCTL_TIMEOUT_SECONDS = systemd_execution.SYSTEMCTL_TIMEOUT_SECONDS
+ServiceResult = systemd_execution.ServiceResult
+SYSTEMD_EXEC_MAIN_CODE_LABELS = systemd_status.SYSTEMD_EXEC_MAIN_CODE_LABELS
+_parse_systemctl_show = systemd_status.parse_systemctl_show
+
 SUDOERS_USER_RE = re.compile(r"^\s*([A-Za-z0-9._-]+)\s+ALL=\(root\)\s+NOPASSWD:")
 INSTANCE_SERVICE_RE = re.compile(r"^armareforger@([A-Za-z0-9_.-]+)\.service$")
 RESTART_INSTANCE_SERVICE_RE = re.compile(
@@ -87,7 +54,7 @@ RESTART_INSTANCE_SERVICE_RE = re.compile(
 )
 def _secure_privileged_channel_message() -> str:
     """Return the user-facing guidance for missing or stale sudo-helper access."""
-    return _secure_privileged_channel_message_impl()
+    return systemd_execution.secure_privileged_channel_message()
 
 
 def _run_systemctl(
@@ -102,7 +69,7 @@ def _run_systemctl(
         service_name=service_name,
         use_sudo=use_sudo,
     )
-    return _execute_systemctl_command(
+    return systemd_execution.execute_systemctl_command(
         action,
         service_name,
         command=command,
@@ -115,7 +82,7 @@ def _run_systemctl(
 
 def _resolve_systemctl_binary() -> str:
     """Return the systemctl binary path used by the privileged helper."""
-    return _resolve_systemctl_binary_impl(which=shutil.which)
+    return systemd_execution.resolve_systemctl_binary(which=shutil.which)
 
 
 def _resolve_install_binary() -> str:
@@ -157,7 +124,7 @@ def get_privileged_channel_user() -> str | None:
 
 def _looks_like_sudo_auth_error(stderr: str) -> bool:
     """Detect sudo failures caused by non-interactive password prompts."""
-    return _looks_like_sudo_auth_error_impl(stderr)
+    return systemd_execution.looks_like_sudo_auth_error(stderr)
 
 
 def _build_systemctl_command(
@@ -168,7 +135,7 @@ def _build_systemctl_command(
 ) -> list[str]:
     """Build the safest available systemctl invocation for the current context."""
     if not use_sudo:
-        return _build_systemctl_command_impl(
+        return systemd_execution.build_systemctl_command(
             action,
             service_name,
             use_sudo=False,
@@ -182,7 +149,7 @@ def _build_systemctl_command(
         if has_privileged_systemctl_channel()
         else None
     )
-    return _build_systemctl_command_impl(
+    return systemd_execution.build_systemctl_command(
         action,
         service_name,
         use_sudo=True,
@@ -233,15 +200,14 @@ def _templates_dir() -> Path:
     return paths.templates_dir()
 
 
-def _template_environment() -> Environment:
+def _template_environment():
     """Build the Jinja environment for armactl templates."""
-    return Environment(loader=FileSystemLoader(str(_templates_dir())))
+    return systemd_rendering.template_environment(_templates_dir())
 
 
 def _normalize_generated_text(text: str) -> str:
     """Normalize generated helper/unit text to Unix newlines."""
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    return normalized if normalized.endswith("\n") else f"{normalized}\n"
+    return systemd_rendering.normalize_generated_text(text)
 
 
 def render_start_script(
@@ -254,18 +220,16 @@ def render_start_script(
     max_fps: int = 60,
 ) -> str:
     """Render the generated Arma Reforger launch script from the current template."""
-    max_fps = normalize_max_fps_profile(max_fps)
-    env = _template_environment()
-    rendered = env.get_template("start-armareforger.sh.j2").render(
-        instance_root=str(instance_root),
-        server_dir=str(server_dir),
-        config_dir=str(config_dir),
-        config_file=str(config_file),
+    return systemd_rendering.render_start_script(
+        templates_dir=_templates_dir(),
+        instance_root=instance_root,
+        server_dir=server_dir,
+        config_dir=config_dir,
+        config_file=config_file,
         python_executable=sys.executable,
         log_stats_interval_ms=log_stats_interval_ms,
         max_fps=max_fps,
     )
-    return _normalize_generated_text(rendered)
 
 
 def _runtime_settings_failure(error: object) -> ServiceResult:
@@ -586,32 +550,29 @@ def update_max_fps_profile(
 
 def _render_privileged_helper_script() -> str:
     """Render the root-owned helper script text."""
-    env = _template_environment()
-    rendered = env.get_template("armactl-systemctl-helper.py.j2").render(
-        install_bin=_resolve_install_binary(),
-        systemctl_bin=_resolve_systemctl_binary(),
+    return systemd_rendering.render_privileged_helper_script(
+        templates_dir=_templates_dir(),
+        install_binary=_resolve_install_binary(),
+        systemctl_binary=_resolve_systemctl_binary(),
     )
-    return _normalize_generated_text(rendered)
 
 
 def _render_safe_restart_helper_script() -> str:
     """Render the root-owned bounded restart helper script text."""
-    env = _template_environment()
-    rendered = env.get_template("armactl-safe-restart.py.j2").render(
+    return systemd_rendering.render_safe_restart_helper_script(
+        templates_dir=_templates_dir(),
         restart_timing=RESTART_TIMING,
-        systemctl_bin=_resolve_systemctl_binary(),
+        systemctl_binary=_resolve_systemctl_binary(),
     )
-    return _normalize_generated_text(rendered)
 
 
 def _render_privileged_sudoers(user: str) -> str:
     """Render the sudoers drop-in text for the current Linux user."""
-    env = _template_environment()
-    rendered = env.get_template("armactl-systemctl-helper.sudoers.j2").render(
+    return systemd_rendering.render_privileged_sudoers(
+        templates_dir=_templates_dir(),
         user=user,
-        helper_path=str(paths.privileged_helper_file()),
+        helper_path=paths.privileged_helper_file(),
     )
-    return _normalize_generated_text(rendered)
 
 
 def install_privileged_systemctl_channel() -> list[ServiceResult]:
@@ -783,15 +744,9 @@ def install_systemd_unit_file(
 
 def render_restart_timer_unit(on_calendar: str | list[str]) -> str:
     """Render the restart timer unit with one or more OnCalendar entries."""
-    on_calendar_entries = normalize_on_calendar_entries(on_calendar)
-    if not on_calendar_entries:
-        if _has_schedule_input(on_calendar):
-            raise ValueError(_(INVALID_RESTART_TIME_MESSAGE))
-        on_calendar_entries = [normalize_on_calendar("*-*-* 06:00:00")]
-
-    env = _template_environment()
-    return env.get_template("armareforger-restart.timer.j2").render(
-        on_calendar_entries=on_calendar_entries,
+    return systemd_rendering.render_restart_timer_unit(
+        on_calendar,
+        templates_dir=_templates_dir(),
     )
 
 
@@ -957,12 +912,12 @@ def restart_service(
 
 def is_active(service_name: str = "armareforger.service") -> bool:
     """Check if the service is currently active."""
-    return _is_active(service_name, run=subprocess.run)
+    return systemd_status.is_active(service_name, run=subprocess.run)
 
 
 def is_enabled(service_name: str = "armareforger.service") -> bool:
     """Check if the service is enabled (starts on boot)."""
-    return _is_enabled(service_name, run=subprocess.run)
+    return systemd_status.is_enabled(service_name, run=subprocess.run)
 
 
 def get_systemd_unit_status(
@@ -971,7 +926,7 @@ def get_systemd_unit_status(
     unit_path: Path | None = None,
 ) -> dict[str, Any]:
     """Return bounded read-only status for one generated systemd unit."""
-    return _get_systemd_unit_status(
+    return systemd_status.get_systemd_unit_status(
         unit_name,
         unit_path=unit_path or (paths.SYSTEMD_DIR / unit_name),
         run=subprocess.run,
@@ -983,7 +938,7 @@ def get_service_status(service_name: str = "armareforger.service") -> dict[str, 
 
     Returns a structured dict suitable for both human display and JSON output.
     """
-    return _get_service_status(
+    return systemd_status.get_service_status(
         service_name,
         run=subprocess.run,
         active_probe=is_active,
@@ -1157,8 +1112,6 @@ def generate_services(
             )
         ]
 
-    env = Environment(loader=FileSystemLoader(str(templates_dir)))
-
     # 2. Render templates
     try:
         max_fps = load_max_fps_profile(instance)
@@ -1170,18 +1123,20 @@ def generate_services(
             log_stats_interval_ms=10000,
             max_fps=max_fps,
         )
-        service_render = env.get_template("armareforger.service.j2").render(
+        service_render = systemd_rendering.render_game_service_unit(
+            templates_dir=templates_dir,
             user=user,
-            instance_root=str(inst_root),
-            server_dir=str(server_dir),
-            start_script=str(start_sh),
+            instance_root=inst_root,
+            server_dir=server_dir,
+            start_script=start_sh,
         )
         safe_restart_helper_render = _render_safe_restart_helper_script()
-        restart_service_render = env.get_template("armareforger-restart.service.j2").render(
+        restart_service_render = systemd_rendering.render_restart_service_unit(
+            templates_dir=templates_dir,
             instance=instance,
             restart_timing=RESTART_TIMING,
             service_name=service_name,
-            restart_helper=str(safe_restart_helper_path),
+            restart_helper=safe_restart_helper_path,
         )
 
         timer_render = render_restart_timer_unit(on_calendar_entries)
