@@ -81,13 +81,13 @@ web deployment describe stable public/free behavior and reusable procedures.
   artifact on a clean supported Ubuntu environment.
 - [ ] Review retained compatibility facades and alias routes; remove none solely
   from heuristic dead-code output before the downstream compatibility window.
-- [ ] For each approved extraction, separate systemd execution, privileged
-  operations, unit rendering, service status, and restart-timer behavior behind
-  tested boundaries while retaining `service_manager.py` as a compatibility
-  facade for the supported downstream window.
-- [ ] Prove CLI, TUI, web, bot, installer, and recovery callers retain the same
-  operator behavior and use the intended shared backend or platform adapter
-  after each extraction.
+Completed architecture boundary: systemd execution, privileged operations,
+unit rendering, service status, and restart-timer behavior now sit behind
+focused modules while `service_manager.py` remains the compatibility facade for
+the supported downstream window. CLI, TUI, web, bot, installer, and recovery
+callers retain the established backend contract. Direct boundary tests, caller
+integration tests, the full 1692-test suite, package build, and installed-wheel
+smoke passed on the completed extraction head.
 
 ### 4.4 Final Validation And Production Smoke
 

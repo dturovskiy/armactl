@@ -79,9 +79,8 @@ Generated services include:
 
 `service_manager.py` remains the public compatibility facade during the current
 merge window because CLI, TUI, installer, repair, bot, reporting, incident, and
-player-service callers import its established functions directly. Before the
-public-main merge, its Linux implementation is split behind that facade along
-these ownership boundaries:
+player-service callers import its established functions directly. Its Linux
+implementation is split behind that facade along these ownership boundaries:
 
 - systemd command execution and command construction;
 - privileged helper/sudo-channel discovery and installation;
@@ -89,10 +88,13 @@ these ownership boundaries:
 - systemd service-status querying and parsing;
 - restart-timer normalization, rendering, mutation, and status.
 
-Higher-level instance orchestration, generated start-script synchronization,
-runtime FPS-profile updates, and the compatibility exports stay in
+The focused implementations live in `platform/restart_timer.py`,
+`platform/systemd_execution.py`, `platform/systemd_privileged.py`,
+`platform/systemd_rendering.py`, and `platform/systemd_status.py`. Higher-level
+instance orchestration, generated start-script synchronization, runtime
+FPS-profile updates, and the compatibility exports stay in
 `service_manager.py`. Existing callers keep their import contract while the
-facade delegates to the narrower modules. Replacing every caller with the
+facade delegates to those narrower modules. Replacing every caller with the
 platform adapter, adding a non-systemd backend, or removing compatibility
 exports is explicitly outside this merge and requires its own migration
 window.

@@ -6,9 +6,11 @@ from subprocess import CompletedProcess, TimeoutExpired
 from armactl.platform.systemd_status import (
     get_service_status,
     get_systemd_unit_status,
+    get_timer_status,
     is_active,
     is_enabled,
     parse_systemctl_show,
+    read_timer_schedule_entries,
 )
 
 
@@ -137,3 +139,60 @@ def test_get_service_status_uses_probes_and_bounded_numeric_fields() -> None:
     assert status["result"] == ""
     assert status["exec_main_code"] == ""
     assert status["exec_main_status"] is None
+
+
+def test_timer_status_prefers_all_unit_file_schedule_entries(tmp_path: Path) -> None:
+    timer_path = tmp_path / "example.timer"
+    timer_path.write_text(
+        "[Timer]\nOnCalendar=*-*-* 05:30:00\nOnCalendar=*-*-* 13:45:00\n",
+        encoding="utf-8",
+    )
+
+    def run(command: list[str], **_kwargs: object) -> CompletedProcess[str]:
+        return CompletedProcess(
+            command,
+            0,
+            stdout=(
+                "ActiveState=active\n"
+                "SubState=waiting\n"
+                "Description=Scheduled restart\n"
+                "UnitFileState=enabled\n"
+                "NextElapseUSecRealtime=Mon 2026-03-30 05:30:00 UTC\n"
+                "LastTriggerUSec=n/a\n"
+                "TimersCalendar=*-*-* 23:00:00\n"
+            ),
+            stderr="",
+        )
+
+    status = get_timer_status(
+        timer_path.name,
+        timer_path=timer_path,
+        run=run,
+    )
+
+    assert read_timer_schedule_entries(timer_path) == [
+        "*-*-* 05:30:00",
+        "*-*-* 13:45:00",
+    ]
+    assert status["exists"] is True
+    assert status["active"] is True
+    assert status["enabled"] is True
+    assert status["schedule"] == "05:30, 13:45"
+    assert status["next_run"] == "Mon 2026-03-30 05:30:00 UTC"
+
+
+def test_timer_status_fails_closed_when_systemctl_times_out(tmp_path: Path) -> None:
+    timer_path = tmp_path / "missing.timer"
+
+    def timeout(*_args: object, **_kwargs: object) -> CompletedProcess[str]:
+        raise TimeoutExpired("systemctl", 5)
+
+    status = get_timer_status(
+        timer_path.name,
+        timer_path=timer_path,
+        run=timeout,
+    )
+
+    assert status["exists"] is False
+    assert status["active"] is False
+    assert status["schedule_entries"] == []

@@ -32,9 +32,10 @@ Semantic Versioning once public releases begin.
 ### Changed
 - Continued the behavior-preserving `service_manager.py` decomposition by
   moving pure restart-schedule parsing, systemctl command execution, generated
-  unit/helper rendering, and read-only systemd status queries into the platform
-  layer, while retaining the established facade and making platform adapter
-  exports lazy to remove an import cycle without changing its API.
+  unit/helper rendering, privileged file/timer operations, and read-only
+  systemd status queries into the platform layer, while retaining the
+  established facade and making platform adapter exports lazy to remove an
+  import cycle without changing its API.
 - Defined the public `main` integration as the sanitized local/free dashboard
   plus shared core, kept the separately maintained marketing website outside
   this repository, and removed deployment-specific VM names and local paths
@@ -92,6 +93,9 @@ Semantic Versioning once public releases begin.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
+- Completed the `service_manager.py` platform-boundary extraction with direct
+  and caller integration coverage; Ruff, all 1692 local tests, package build,
+  and an installed-wheel smoke outside the source checkout passed.
 - Public-boundary scans found no runtime databases, logs, backups, key files,
   deployment identifiers, or recognized secret-token patterns in the merge
   diff or built wheel/sdist; the tracked `.env.example` remains a placeholder

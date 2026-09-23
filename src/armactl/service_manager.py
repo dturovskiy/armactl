@@ -18,20 +18,23 @@ from pathlib import Path
 from typing import Any
 
 import armactl.platform.systemd_execution as systemd_execution
+import armactl.platform.systemd_privileged as systemd_privileged
 import armactl.platform.systemd_rendering as systemd_rendering
 import armactl.platform.systemd_status as systemd_status
 from armactl import paths
 from armactl.i18n import _, tr
 from armactl.platform.restart_timer import (
     INVALID_RESTART_TIME_MESSAGE,
-    format_schedule_for_input,
     normalize_on_calendar,
     normalize_on_calendar_entries,
 )
 from armactl.platform.restart_timer import (
+    format_schedule_for_input as _format_schedule_for_input,
+)
+from armactl.platform.restart_timer import (
     has_schedule_input as _has_schedule_input,
 )
-from armactl.redaction import redact_sensitive_text, safe_subprocess_error
+from armactl.redaction import redact_sensitive_text
 from armactl.restart_timing import RESTART_TIMING
 from armactl.runtime_settings import (
     RuntimeSettingsError,
@@ -46,12 +49,14 @@ SYSTEMCTL_TIMEOUT_SECONDS = systemd_execution.SYSTEMCTL_TIMEOUT_SECONDS
 ServiceResult = systemd_execution.ServiceResult
 SYSTEMD_EXEC_MAIN_CODE_LABELS = systemd_status.SYSTEMD_EXEC_MAIN_CODE_LABELS
 _parse_systemctl_show = systemd_status.parse_systemctl_show
+_read_timer_schedule_entries = systemd_status.read_timer_schedule_entries
+format_schedule_for_input = _format_schedule_for_input
 
-SUDOERS_USER_RE = re.compile(r"^\s*([A-Za-z0-9._-]+)\s+ALL=\(root\)\s+NOPASSWD:")
+SUDOERS_USER_RE = systemd_privileged.SUDOERS_USER_RE
 INSTANCE_SERVICE_RE = re.compile(r"^armareforger@([A-Za-z0-9_.-]+)\.service$")
-RESTART_INSTANCE_SERVICE_RE = re.compile(
-    r"^armareforger-restart@([A-Za-z0-9_.-]+)\.service$"
-)
+RESTART_INSTANCE_SERVICE_RE = re.compile(r"^armareforger-restart@([A-Za-z0-9_.-]+)\.service$")
+
+
 def _secure_privileged_channel_message() -> str:
     """Return the user-facing guidance for missing or stale sudo-helper access."""
     return systemd_execution.secure_privileged_channel_message()
@@ -87,39 +92,28 @@ def _resolve_systemctl_binary() -> str:
 
 def _resolve_install_binary() -> str:
     """Return the install binary path used for root-owned file placement."""
-    return shutil.which("install") or "/usr/bin/install"
+    return systemd_privileged.resolve_install_binary(which=shutil.which)
 
 
 def _resolve_helper_python_binary() -> str:
     """Return the Python interpreter used for the privileged helper."""
-    return shutil.which("python3") or sys.executable or "/usr/bin/python3"
+    return systemd_privileged.resolve_helper_python_binary(
+        which=shutil.which,
+        current_executable=sys.executable,
+    )
 
 
 def has_privileged_systemctl_channel() -> bool:
     """Return whether the narrow passwordless helper channel is installed."""
-    return (
-        paths.privileged_helper_file().is_file()
-        and paths.privileged_sudoers_file().is_file()
+    return systemd_privileged.has_privileged_channel(
+        paths.privileged_helper_file(),
+        paths.privileged_sudoers_file(),
     )
 
 
 def get_privileged_channel_user() -> str | None:
     """Return the Linux user currently granted access to the secure helper."""
-    sudoers_path = paths.privileged_sudoers_file()
-    try:
-        if not sudoers_path.is_file():
-            return None
-        for raw_line in sudoers_path.read_text(encoding="utf-8").splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#"):
-                continue
-            match = SUDOERS_USER_RE.match(line)
-            if match:
-                return match.group(1)
-    except OSError:
-        return None
-
-    return None
+    return systemd_privileged.get_privileged_channel_user(paths.privileged_sudoers_file())
 
 
 def _looks_like_sudo_auth_error(stderr: str) -> bool:
@@ -145,17 +139,13 @@ def _build_systemctl_command(
         )
 
     privileged_helper = (
-        paths.privileged_helper_file()
-        if has_privileged_systemctl_channel()
-        else None
+        paths.privileged_helper_file() if has_privileged_systemctl_channel() else None
     )
     return systemd_execution.build_systemctl_command(
         action,
         service_name,
         use_sudo=True,
-        systemctl_binary=(
-            "" if privileged_helper is not None else _resolve_systemctl_binary()
-        ),
+        systemctl_binary=("" if privileged_helper is not None else _resolve_systemctl_binary()),
         privileged_helper=privileged_helper,
         stdin_isatty=True if privileged_helper is not None else sys.stdin.isatty(),
     )
@@ -303,6 +293,7 @@ def _replace_generated_start_script(
         except OSError:
             pass
         raise
+
 
 def _instance_from_service_name(service_name: str) -> str | None:
     if service_name in {paths.SERVICE_NAME, paths.RESTART_SERVICE_NAME}:
@@ -548,6 +539,7 @@ def update_max_fps_profile(
         0,
     )
 
+
 def _render_privileged_helper_script() -> str:
     """Render the root-owned helper script text."""
     return systemd_rendering.render_privileged_helper_script(
@@ -577,113 +569,21 @@ def _render_privileged_sudoers(user: str) -> str:
 
 def install_privileged_systemctl_channel() -> list[ServiceResult]:
     """Install the narrow helper + sudoers rule used for bot/TUI service actions."""
-    results: list[ServiceResult] = []
     user = _systemctl_helper_user()
-
     try:
         helper_text = _render_privileged_helper_script()
         sudoers_text = _render_privileged_sudoers(user)
-
-        with tempfile.TemporaryDirectory() as tempd:
-            temp_dir = Path(tempd)
-            helper_temp = temp_dir / paths.PRIVILEGED_HELPER_NAME
-            sudoers_temp = temp_dir / f"{paths.PRIVILEGED_HELPER_NAME}.sudoers"
-            helper_temp.write_text(helper_text, encoding="utf-8")
-            sudoers_temp.write_text(sudoers_text, encoding="utf-8")
-
-            python_bin = _resolve_helper_python_binary()
-            if Path(python_bin).exists():
-                validation = subprocess.run(
-                    [python_bin, "-m", "py_compile", str(helper_temp)],
-                    capture_output=True,
-                    text=True,
-                )
-                if validation.returncode != 0:
-                    error_text = safe_subprocess_error(validation.stderr, validation.stdout)
-                    return [
-                        ServiceResult(
-                            False,
-                            tr(
-                                "Failed to validate privileged helper {path}: {error}",
-                                path=helper_temp,
-                                error=error_text,
-                            ),
-                            validation.returncode,
-                        )
-                    ]
-
-            visudo_bin = shutil.which("visudo") or "/usr/sbin/visudo"
-            if Path(visudo_bin).exists():
-                validation = subprocess.run(
-                    [visudo_bin, "-cf", str(sudoers_temp)],
-                    capture_output=True,
-                    text=True,
-                )
-                if validation.returncode != 0:
-                    error_text = safe_subprocess_error(validation.stderr, validation.stdout)
-                    return [
-                        ServiceResult(
-                            False,
-                            tr(
-                                "Failed to validate sudoers file {path}: {error}",
-                                path=sudoers_temp,
-                                error=error_text,
-                            ),
-                            validation.returncode,
-                        )
-                    ]
-
-            install_steps = [
-                (
-                    helper_temp,
-                    paths.privileged_helper_file(),
-                    "0755",
-                ),
-                (
-                    sudoers_temp,
-                    paths.privileged_sudoers_file(),
-                    "0440",
-                ),
-            ]
-            for source, dest, mode in install_steps:
-                install_result = subprocess.run(
-                    [
-                        "sudo",
-                        _resolve_install_binary(),
-                        "-D",
-                        "-o",
-                        "root",
-                        "-g",
-                        "root",
-                        "-m",
-                        mode,
-                        str(source),
-                        str(dest),
-                    ],
-                    capture_output=True,
-                    text=True,
-                )
-                if install_result.returncode != 0:
-                    return [
-                        ServiceResult(
-                            False,
-                            tr(
-                                "Failed to install {name}: {error}",
-                                name=dest.name,
-                                error=safe_subprocess_error(
-                                    install_result.stderr,
-                                    install_result.stdout,
-                                ),
-                            ),
-                            install_result.returncode,
-                        )
-                    ]
-                results.append(
-                    ServiceResult(
-                        True,
-                        tr("Installed {name} to {path}", name=dest.name, path=dest.parent),
-                    )
-                )
+        return systemd_privileged.install_privileged_channel(
+            helper_text=helper_text,
+            sudoers_text=sudoers_text,
+            helper_name=paths.PRIVILEGED_HELPER_NAME,
+            helper_path=paths.privileged_helper_file(),
+            sudoers_path=paths.privileged_sudoers_file(),
+            python_binary=_resolve_helper_python_binary(),
+            visudo_binary=shutil.which("visudo") or "/usr/sbin/visudo",
+            install_binary=_resolve_install_binary(),
+            run=subprocess.run,
+        )
     except Exception as e:
         return [
             ServiceResult(
@@ -696,8 +596,6 @@ def install_privileged_systemctl_channel() -> list[ServiceResult]:
             )
         ]
 
-    return results
-
 
 def install_systemd_unit_file(
     source: Path,
@@ -706,39 +604,13 @@ def install_systemd_unit_file(
     mode: str = "0644",
 ) -> ServiceResult:
     """Install a rendered root-owned systemd/helper file with standard sudo."""
-    command = [
-        "sudo",
-        _resolve_install_binary(),
-        "-D",
-        "-o",
-        "root",
-        "-g",
-        "root",
-        "-m",
-        mode,
-        str(source),
-        str(destination),
-    ]
-
-    result = subprocess.run(command, capture_output=True, text=True)
-    if result.returncode == 0:
-        return ServiceResult(
-            True,
-            tr("Installed {name} to {path}", name=destination.name, path=destination.parent),
-        )
-
-    stderr = safe_subprocess_error(result.stderr, result.stdout)
-    if _looks_like_sudo_auth_error(stderr):
-        return ServiceResult(
-            False,
-            _secure_privileged_channel_message(),
-            result.returncode,
-        )
-
-    return ServiceResult(
-        False,
-        tr("Failed to install {name}: {error}", name=destination.name, error=stderr),
-        result.returncode,
+    return systemd_privileged.install_root_owned_file(
+        source,
+        destination,
+        mode=mode,
+        install_binary=_resolve_install_binary(),
+        run=subprocess.run,
+        privileged_channel_message=_secure_privileged_channel_message,
     )
 
 
@@ -783,46 +655,19 @@ def update_restart_timer_schedule(
 
     try:
         if has_privileged_systemctl_channel():
-            command = [
-                "sudo",
-                "-n",
-                str(paths.privileged_helper_file()),
-                "update-timer",
-                timer_name,
-                *schedule_entries,
-            ]
-            update_result = subprocess.run(command, capture_output=True, text=True)
-            if update_result.returncode != 0:
-                stderr = safe_subprocess_error(update_result.stderr, update_result.stdout)
-                if _looks_like_sudo_auth_error(stderr):
-                    results.append(
-                        ServiceResult(
-                            False,
-                            _secure_privileged_channel_message(),
-                            update_result.returncode,
-                        )
-                    )
-                else:
-                    results.append(
-                        ServiceResult(
-                            False,
-                            tr(
-                                "Failed to install {name}: {error}",
-                                name=timer_name,
-                                error=stderr,
-                            ),
-                            update_result.returncode,
-                        )
-                    )
+            update_result = systemd_privileged.update_timer_with_helper(
+                helper_path=paths.privileged_helper_file(),
+                timer_name=timer_name,
+                schedule_entries=schedule_entries,
+                timer_directory=timer_path.parent,
+                run=subprocess.run,
+                privileged_channel_message=_secure_privileged_channel_message,
+            )
+            results.append(update_result)
+            if not update_result.success:
                 if timer_was_active:
                     results.append(_run_systemctl("start", timer_name))
                 return results
-            results.append(
-                ServiceResult(
-                    True,
-                    tr("Installed {name} to {path}", name=timer_name, path=timer_path.parent),
-                )
-            )
         else:
             with tempfile.TemporaryDirectory() as tempd:
                 temp_timer = Path(tempd) / timer_name
@@ -985,78 +830,13 @@ def timer_unit_name(instance: str = paths.DEFAULT_INSTANCE_NAME) -> str:
     return paths.TIMER_NAME
 
 
-def _read_timer_schedule_entries(timer_path: Path) -> list[str]:
-    """Read all OnCalendar entries from a timer unit file."""
-    entries: list[str] = []
-    try:
-        for line in timer_path.read_text(encoding="utf-8").splitlines():
-            if line.startswith("OnCalendar="):
-                value = line.split("=", 1)[1].strip()
-                if value:
-                    entries.append(value)
-    except OSError:
-        return []
-    return entries
-
-
 def get_timer_status(timer_name: str = paths.TIMER_NAME) -> dict[str, Any]:
     """Return structured timer state suitable for CLI and TUI display."""
-    timer_path = paths.SYSTEMD_DIR / timer_name
-    schedule_entries = _read_timer_schedule_entries(timer_path)
-    status: dict[str, Any] = {
-        "timer_name": timer_name,
-        "exists": timer_path.is_file(),
-        "active": False,
-        "enabled": False,
-        "active_state": "unknown",
-        "sub_state": "unknown",
-        "unit_file_state": "unknown",
-        "description": "",
-        "schedule_entries": schedule_entries,
-        "schedule": format_schedule_for_input(schedule_entries),
-        "next_run": "",
-        "last_trigger": "",
-    }
-    try:
-        result = subprocess.run(
-            [
-                "systemctl",
-                "show",
-                timer_name,
-                "--property=ActiveState,SubState,Description,UnitFileState,"
-                "NextElapseUSecRealtime,LastTriggerUSec,TimersCalendar",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return status
-
-    if result.returncode != 0:
-        return status
-
-    parsed = _parse_systemctl_show(result.stdout)
-    active_state = parsed.get("ActiveState", "unknown")
-    unit_file_state = parsed.get("UnitFileState", "unknown")
-    if not schedule_entries:
-        raw_schedule = parsed.get("TimersCalendar", "").strip()
-        if raw_schedule:
-            schedule_entries = [raw_schedule]
-
-    status.update(
-        active=active_state == "active",
-        enabled=unit_file_state.startswith("enabled"),
-        active_state=active_state,
-        sub_state=parsed.get("SubState", "unknown"),
-        unit_file_state=unit_file_state,
-        description=parsed.get("Description", ""),
-        schedule_entries=schedule_entries,
-        schedule=format_schedule_for_input(schedule_entries),
-        next_run=parsed.get("NextElapseUSecRealtime", ""),
-        last_trigger=parsed.get("LastTriggerUSec", ""),
+    return systemd_status.get_timer_status(
+        timer_name,
+        timer_path=paths.SYSTEMD_DIR / timer_name,
+        run=subprocess.run,
     )
-    return status
 
 
 def generate_services(
@@ -1209,8 +989,6 @@ def generate_services(
         results.append(_runtime_settings_failure(e))
 
     except Exception as e:
-        results.append(
-            ServiceResult(False, tr("Service generation failed: {error}", error=e), 1)
-        )
+        results.append(ServiceResult(False, tr("Service generation failed: {error}", error=e), 1))
 
     return results

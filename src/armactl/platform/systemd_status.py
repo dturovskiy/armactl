@@ -7,6 +7,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from armactl.platform.restart_timer import format_schedule_for_input
+
 RunCommand = Callable[..., subprocess.CompletedProcess[str]]
 StateProbe = Callable[[str], bool]
 
@@ -256,3 +258,81 @@ def get_service_status(
         "main_pid": resolved_pid,
         **fields,
     }
+
+
+def read_timer_schedule_entries(timer_path: Path) -> list[str]:
+    """Read all non-empty OnCalendar entries from one timer unit file."""
+    entries: list[str] = []
+    try:
+        for line in timer_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("OnCalendar="):
+                value = line.split("=", 1)[1].strip()
+                if value:
+                    entries.append(value)
+    except OSError:
+        return []
+    return entries
+
+
+def get_timer_status(
+    timer_name: str,
+    *,
+    timer_path: Path,
+    run: RunCommand,
+) -> dict[str, Any]:
+    """Return structured read-only status for one restart timer."""
+    schedule_entries = read_timer_schedule_entries(timer_path)
+    status: dict[str, Any] = {
+        "timer_name": timer_name,
+        "exists": timer_path.is_file(),
+        "active": False,
+        "enabled": False,
+        "active_state": "unknown",
+        "sub_state": "unknown",
+        "unit_file_state": "unknown",
+        "description": "",
+        "schedule_entries": schedule_entries,
+        "schedule": format_schedule_for_input(schedule_entries),
+        "next_run": "",
+        "last_trigger": "",
+    }
+    try:
+        result = run(
+            [
+                "systemctl",
+                "show",
+                timer_name,
+                "--property=ActiveState,SubState,Description,UnitFileState,"
+                "NextElapseUSecRealtime,LastTriggerUSec,TimersCalendar",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return status
+
+    if result.returncode != 0:
+        return status
+
+    parsed = parse_systemctl_show(result.stdout)
+    active_state = parsed.get("ActiveState", "unknown")
+    unit_file_state = parsed.get("UnitFileState", "unknown")
+    if not schedule_entries:
+        raw_schedule = parsed.get("TimersCalendar", "").strip()
+        if raw_schedule:
+            schedule_entries = [raw_schedule]
+
+    status.update(
+        active=active_state == "active",
+        enabled=unit_file_state.startswith("enabled"),
+        active_state=active_state,
+        sub_state=parsed.get("SubState", "unknown"),
+        unit_file_state=unit_file_state,
+        description=parsed.get("Description", ""),
+        schedule_entries=schedule_entries,
+        schedule=format_schedule_for_input(schedule_entries),
+        next_run=parsed.get("NextElapseUSecRealtime", ""),
+        last_trigger=parsed.get("LastTriggerUSec", ""),
+    )
+    return status
