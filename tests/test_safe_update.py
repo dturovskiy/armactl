@@ -134,6 +134,103 @@ def test_safe_update_promotes_verified_server_and_profile(tmp_path: Path, monkey
     assert any("active and stable" in line for line in output)
 
 
+def test_safe_update_promotes_fresh_vanilla_without_a_parked_modded_profile(
+    tmp_path: Path,
+    monkeypatch,
+):
+    server, config_path = _layout(tmp_path)
+    original_config = json.loads(config_path.read_text(encoding="utf-8"))
+    original_config["game"]["scenarioId"] = safe_update.DEFAULT_VANILLA_SCENARIO
+    original_config["game"]["mods"] = []
+    config_path.write_text(json.dumps(original_config), encoding="utf-8")
+    adapter = FakeServiceAdapter()
+    monkeypatch.setattr(safe_update, "ensure_staging_capacity", lambda paths: (1, 2))
+    canary_calls = 0
+
+    def canary(update_paths: safe_update.UpdatePaths) -> safe_update.CanaryResult:
+        nonlocal canary_calls
+        canary_calls += 1
+        candidate = json.loads(
+            (update_paths.candidate_profile / "config.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert candidate["game"]["scenarioId"] == safe_update.DEFAULT_VANILLA_SCENARIO
+        assert candidate["game"]["mods"] == []
+        assert update_paths.candidate_addons.is_dir()
+        assert list(update_paths.candidate_addons.iterdir()) == []
+        assert (update_paths.profile / "addons" / "WCS" / "mod.pak").is_file()
+        return safe_update.CanaryResult(1.0, 64, "Everon")
+
+    output = list(
+        safe_update.stream_safe_server_update(
+            server,
+            config_path,
+            "armareforger.service",
+            update_stream=_fake_update,
+            canary_runner=canary,
+            adapter=adapter,
+            readiness_checker=_ready,
+        )
+    )
+
+    update_paths = safe_update.resolve_update_paths(server, config_path)
+    metadata = json.loads(update_paths.metadata.read_text(encoding="utf-8"))
+    assert canary_calls == 1
+    assert safe_update.read_build_id(server) == "200"
+    assert json.loads(config_path.read_text(encoding="utf-8")) == original_config
+    assert not update_paths.parked_modded_profile.exists()
+    assert (update_paths.profile / "addons" / "WCS" / "mod.pak").is_file()
+    assert metadata["active_mode"] == safe_update.VANILLA_MODE
+    assert metadata["active_profile"] == safe_update.DEFAULT_VANILLA_PROFILE
+    assert metadata["parked_profile_name"] == ""
+    assert metadata["rollback_kind"] == "server+profile"
+    assert adapter.calls == [("start", "armareforger.service")]
+    assert any("no modded profile was required" in line for line in output)
+
+
+def test_fresh_vanilla_canary_rejection_does_not_retry_as_modded(
+    tmp_path: Path,
+    monkeypatch,
+):
+    server, config_path = _layout(tmp_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["game"]["scenarioId"] = safe_update.DEFAULT_VANILLA_SCENARIO
+    config["game"]["mods"] = []
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    adapter = FakeServiceAdapter()
+    monkeypatch.setattr(safe_update, "ensure_staging_capacity", lambda paths: (1, 2))
+    canary_calls = 0
+
+    def reject(update_paths: safe_update.UpdatePaths) -> safe_update.CanaryResult:
+        nonlocal canary_calls
+        del update_paths
+        canary_calls += 1
+        raise safe_update.CanaryRejectedError("vanilla compile failed")
+
+    with pytest.raises(
+        safe_update.SafeUpdateError,
+        match="rejected before promotion.*vanilla compile failed",
+    ):
+        list(
+            safe_update.stream_safe_server_update(
+                server,
+                config_path,
+                "armareforger.service",
+                update_stream=_fake_update,
+                canary_runner=reject,
+                adapter=adapter,
+                readiness_checker=_ready,
+            )
+        )
+
+    update_paths = safe_update.resolve_update_paths(server, config_path)
+    assert canary_calls == 1
+    assert safe_update.read_build_id(server) == "100"
+    assert not update_paths.parked_modded_profile.exists()
+    assert adapter.calls == [("start", "armareforger.service")]
+
+
 def test_safe_update_archives_parked_profile_from_previous_rollback(
     tmp_path: Path,
     monkeypatch,

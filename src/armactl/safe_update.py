@@ -1568,7 +1568,14 @@ def _stream_safe_server_update(
             f"{archived.name} at {archived.path}."
         )
         status = get_compatibility_status(install_dir, config_path)
-    modded_source = _modded_source_profile(update_paths, status)
+    vanilla_only = (
+        previous_mode == VANILLA_MODE and not status.parked_modded_available
+    )
+    source_profile = (
+        update_paths.profile
+        if vanilla_only
+        else _modded_source_profile(update_paths, status)
+    )
     metadata = _load_metadata(update_paths)
     modded_profile_name = (
         str(metadata.get("parked_profile_name") or DEFAULT_ACTIVE_PROFILE)
@@ -1596,7 +1603,7 @@ def _stream_safe_server_update(
     )
 
     promoted = False
-    target_mode = MODDED_MODE
+    target_mode = VANILLA_MODE if vanilla_only else MODDED_MODE
     disabled_mod_count = 0
     modded_failure = ""
     try:
@@ -1604,7 +1611,7 @@ def _stream_safe_server_update(
             "Preparing an isolated config bundle; the shared Workshop addon files "
             "remain untouched."
         )
-        prepare_candidate(update_paths, source_profile=modded_source)
+        prepare_candidate(update_paths, source_profile=source_profile)
         integrity.mark_install_started(update_paths.candidate_server)
         yield "Downloading the candidate Steam build without changing the active package."
         yield from update_stream(update_paths.candidate_server, instance=instance)
@@ -1632,6 +1639,18 @@ def _stream_safe_server_update(
         try:
             canary = canary_runner(update_paths)
         except CanaryRejectedError as exc:
+            if vanilla_only:
+                record_warning = _record_mod_canary(
+                    update_paths,
+                    update_paths.candidate_profile,
+                    build_id=new_build,
+                    profile_name=DEFAULT_VANILLA_PROFILE,
+                    compatible=False,
+                    reason=redact_sensitive_text(exc),
+                )
+                if record_warning:
+                    yield record_warning
+                raise
             modded_failure = redact_sensitive_text(exc)[:500]
             record_warning = _record_mod_canary(
                 update_paths,
@@ -1659,7 +1678,7 @@ def _stream_safe_server_update(
             )
             disabled_mod_count = max(
                 disabled_mod_count,
-                len(configured_mods(modded_source)),
+                len(configured_mods(source_profile)),
             )
             _write_metadata(
                 update_paths,
@@ -1717,16 +1736,27 @@ def _stream_safe_server_update(
         reset_candidate_profile_after_canary(
             update_paths,
             source_profile=(
-                modded_source if target_mode == MODDED_MODE else update_paths.profile
+                source_profile if target_mode == MODDED_MODE else update_paths.profile
             ),
             mode=target_mode,
         )
 
         if target_mode == VANILLA_MODE:
-            yield (
-                "Promoting the new build in vanilla compatibility mode and parking "
-                "the modded config bundle."
-            )
+            if vanilla_only:
+                yield (
+                    "Promoting the verified official vanilla build and retaining one "
+                    "rollback slot; no modded profile needs to be parked."
+                )
+            elif previous_mode == VANILLA_MODE:
+                yield (
+                    "Promoting the new build in vanilla compatibility mode and keeping "
+                    "the preserved modded config bundle parked."
+                )
+            else:
+                yield (
+                    "Promoting the new build in vanilla compatibility mode and parking "
+                    "the modded config bundle."
+                )
         else:
             yield "Promoting the verified modded build and retaining one rollback slot."
         promote_candidate(
@@ -1774,18 +1804,29 @@ def _stream_safe_server_update(
                 else modded_profile_name
             ),
             parked_profile_name=(
-                active_profile_name
-                if target_mode == VANILLA_MODE
+                (
+                    active_profile_name
+                    if previous_mode == MODDED_MODE
+                    else modded_profile_name
+                )
+                if target_mode == VANILLA_MODE and not vanilla_only
                 else ""
             ),
         )
         if target_mode == VANILLA_MODE:
-            yield (
-                f"Build {new_build} is active and stable in vanilla mode; "
-                f"{disabled_mod_count} configured mods and the custom scenario remain "
-                "disabled in the parked config bundle; shared Workshop files remain "
-                "untouched."
-            )
+            if vanilla_only:
+                yield (
+                    f"Build {new_build} is active and stable in vanilla mode; the "
+                    "existing operator configuration is preserved and no modded profile "
+                    "was required."
+                )
+            else:
+                yield (
+                    f"Build {new_build} is active and stable in vanilla mode; "
+                    f"{disabled_mod_count} configured mods and the custom scenario remain "
+                    "disabled in the parked config bundle; shared Workshop files remain "
+                    "untouched."
+                )
         else:
             yield (
                 f"Build {new_build} is active and stable with the complete modded stack; "

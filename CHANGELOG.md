@@ -57,6 +57,11 @@ Semantic Versioning once public releases begin.
 - Generated game-server services now allow native core dumps so the host core handler can retain an authoritative backtrace after a future native crash.
 
 ### Fixed
+- Allowed a fresh official-vanilla installation with no parked modded profile
+  to use the transactional server-update path. The update now runs one isolated
+  vanilla canary, preserves the operator config and shared addon files, retains
+  a rollback generation, and treats a failed vanilla canary as the actual
+  failure instead of retrying it as a nonexistent modded profile.
 - Preserved the public legacy `paths.logs_dir()` runtime location for existing
   callers while keeping the web file browser on its explicit centralized log
   root, avoiding a silent downstream path change during upgrade.
@@ -102,6 +107,11 @@ Semantic Versioning once public releases begin.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
+- After the clean-VM update smoke exposed the fresh-vanilla profile bug, all
+  1697 tests and Ruff passed on the fix. The exact wheel and sdist rebuilt; an
+  installed-wheel import outside the source checkout passed; and scans of both
+  artifacts found no deployment identifiers, private-key markers, or common
+  credential-token patterns.
 - Validated the Git-only bootstrap and real clean-system install on Ubuntu
   24.04: Ruff, strict platform `mypy`, and all 1695 tests passed; SteamCMD
   installed the current Arma Reforger dedicated-server build; the generated

@@ -130,7 +130,7 @@ smoke passed on the completed extraction head.
   text and capability claims match the merge candidate.
 
 Completed local validation gate: `git diff --check`, Ruff, strict platform
-`mypy`, all 1695 tests, wrapper/bootstrap checks, package build, clean wheel
+`mypy`, all 1697 tests, wrapper/bootstrap checks, package build, clean wheel
 install, and installed-wheel discovery/status smoke passed on Ubuntu 24.04.
 
 Completed gradual type-check baseline: strict `mypy` now covers the complete
