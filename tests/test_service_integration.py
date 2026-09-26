@@ -6,7 +6,11 @@ from unittest.mock import patch
 import armactl.i18n as i18n
 import armactl.service_manager as service_manager
 from armactl.restart_timing import RESTART_TIMING
-from armactl.runtime_settings import RuntimeSettingsError, normalize_max_fps_profile
+from armactl.runtime_settings import (
+    RuntimeSettingsError,
+    load_max_fps_profile,
+    normalize_max_fps_profile,
+)
 
 
 def test_generate_services_writes_expected_units_and_restarts_timer(tmp_path: Path) -> None:
@@ -259,6 +263,19 @@ def test_max_fps_profile_accepts_only_safe_values() -> None:
         except RuntimeSettingsError:
             continue
         raise AssertionError(f"{value!r} should be rejected")
+
+
+def test_load_max_fps_profile_rejects_non_scalar_json_values(tmp_path: Path) -> None:
+    settings_path = tmp_path / "alpha" / "runtime-settings.json"
+    settings_path.parent.mkdir(parents=True)
+
+    for raw_value in ("null", "[]", "{}"):
+        settings_path.write_text(f'{{"max_fps": {raw_value}}}\n', encoding="utf-8")
+        try:
+            load_max_fps_profile("alpha", data_root=tmp_path)
+        except RuntimeSettingsError:
+            continue
+        raise AssertionError(f"{raw_value} should be rejected")
 
 
 

@@ -56,6 +56,51 @@ between the two servers.
 The detailed contract remains
 [banlist-moderation-contract.md](banlist-moderation-contract.md).
 
+## P3 - Reduce High-Risk Architecture Debt
+
+The current audit no longer treats raw file length as sufficient evidence of a
+god object. `service_manager.py` remains a compatibility facade, but systemd
+execution, privileged operations, rendering, status, and timer behavior are
+already implemented in focused platform modules. The extension
+`background.js` cited by an earlier external review is not part of this
+repository.
+
+Strict `mypy` now covers 20 modules: the complete platform package plus the
+update state machine, separated FPS and host/process metrics, bounded server-log
+I/O, log diagnostics, operational status, incident analysis, metric formatting,
+shared metric models, service facade, runtime settings, and restart timing.
+It runs in every Python 3.10-3.12 CI job without blanket error suppression.
+
+- [ ] Split `web/services/player_registry.py` behind its existing public facade
+  into schema/migrations, ingest/checkpoint storage, session mutation, and
+  read/query/summary modules. Preserve the SQLite schema, migration ordering,
+  transaction boundaries, and public DTO/function contracts while expanding
+  strict type checking over each extracted boundary.
+- [ ] Break the 500-line `run_player_session_scheduler_once` orchestration into
+  typed scan, ingest, sessionization, stale-close, retention, and result phases.
+  Preserve the single-writer lock, checkpoint commit ordering, partial-failure
+  semantics, and supervised oneshot/timer contract.
+- [ ] Split `safe_update.py` by transaction phase: candidate/download lifecycle,
+  compatibility canary, named-profile catalog/switching, promotion, and
+  rollback/recovery. Preserve the public module contract and byte-preserving
+  config/profile/addon guarantees; do not combine this refactor with behavior
+  changes to a live update.
+Completed metrics-facade extraction: host/process collection, formatting,
+bounded log I/O, shared safe predicates, FPS parsing, operational
+classification, incident analysis, and DTOs now have focused modules. The
+220-line `metrics.py` facade retains the established public functions, DTOs,
+regex, thresholds, and test seams. Add new AI, vehicle, projectile, or
+dynamic-entity fields only in their owning focused modules.
+- [ ] Split the 1,100-line TUI `ManageScreen` into focused panel/controller
+  classes that continue to call shared backend services. Do not duplicate web
+  workflows or move backend rules into Textual event handlers.
+
+The large `cli.py` command registry is not currently classified as a god object:
+its commands are mostly thin adapters. Revisit it only where complexity or
+duplicated backend behavior is demonstrated. Retiring the `service_manager`
+facade is likewise a separate downstream migration, not a line-count-only
+rewrite during this merge window.
+
 ## P4 - Prepare `feat/web-interface` For Public `main`
 
 ### 4.1 Public Scope And Integration Decision
@@ -129,8 +174,8 @@ smoke passed on the completed extraction head.
 - [ ] Refresh public screenshots after visible UI changes and verify that their
   text and capability claims match the merge candidate.
 
-Completed local validation gate: `git diff --check`, Ruff, strict platform
-`mypy`, all 1698 tests, wrapper/bootstrap checks, package build, clean wheel
+Completed local validation gate: `git diff --check`, Ruff, strict 20-module
+`mypy`, all 1700 tests, wrapper/bootstrap checks, package build, clean wheel
 install, and installed-wheel discovery/status smoke passed on Ubuntu 24.04.
 
 Completed clean-canary update and authenticated-web evidence: the Git-only
@@ -141,10 +186,13 @@ FPS with zero systemd restarts. Twenty private HTML/JSON routes returned HTTP
 200 after login; infrastructure snapshot rollback removed the temporary owner,
 and game/web auto-start recovered with health and readiness green.
 
-Completed gradual type-check baseline: strict `mypy` now covers the complete
-seven-module `armactl.platform` package, runs in the Python 3.10-3.12 CI matrix,
-and has no blanket error suppression. Future expansion follows stabilized
-module boundaries rather than weakening the initial gate.
+Completed expanded type-check baseline: strict `mypy` now covers 20 modules,
+including the complete `armactl.platform` package and the update, separated
+FPS/host metrics, bounded server-log I/O, log diagnostics, lifecycle and
+incident inference, formatting, shared models, and service/runtime-settings
+boundaries. It runs in the Python 3.10-3.12 CI matrix and has no blanket error
+suppression. Future expansion follows each extracted module boundary rather
+than weakening the gate.
 
 ### 4.5 Merge Gate
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import armactl.metrics as metrics
+from armactl import metric_models, server_fps_metrics, server_operational_status
 
 SAMPLE_FPS_LINE = (
     "17:45:09.973   DEFAULT      : FPS: 60.0, frame time "
@@ -23,6 +24,27 @@ SAMPLE_FPS_LINE_WITH_MEAN_MEDIAN = (
     "AIChar: 182, Veh: 0 (62), Proj (S: 0, M: 0, G: 0 | 0), "
     "Streaming(Dynam: 1384, Static: 15780)"
 )
+
+
+def test_metrics_facade_reexports_shared_metric_models() -> None:
+    assert metrics.ProcessMetrics is metric_models.ProcessMetrics
+    assert metrics.HostMetrics is metric_models.HostMetrics
+    assert metrics.ServerFpsMetrics is metric_models.ServerFpsMetrics
+    assert metrics.ServerOperationalStatus is metric_models.ServerOperationalStatus
+    assert metrics.ServerIncident is metric_models.ServerIncident
+    assert metrics.FPS_STATS_RE is server_fps_metrics.FPS_STATS_RE
+    assert (
+        metrics.SERVER_FPS_CRITICAL_THRESHOLD
+        == server_operational_status.SERVER_FPS_CRITICAL_THRESHOLD
+    )
+    assert (
+        metrics.SERVER_FPS_DEGRADED_THRESHOLD
+        == server_operational_status.SERVER_FPS_DEGRADED_THRESHOLD
+    )
+    assert (
+        metrics.SERVER_FPS_CRITICAL_SAMPLE_COUNT
+        == server_operational_status.SERVER_FPS_CRITICAL_SAMPLE_COUNT
+    )
 
 
 def _write_console_log(

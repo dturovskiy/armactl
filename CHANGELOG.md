@@ -30,6 +30,15 @@ Semantic Versioning once public releases begin.
 - Added `armactl update profile check <name>` as a CLI fallback for the web profile compatibility canary without activating the tested profile.
 
 ### Changed
+- Split Linux host/process collection, metric formatting, bounded server-log
+  I/O, safe log diagnostics, typed FPS parsing, operational status, incident
+  analysis, and shared DTOs into focused modules while retaining the tested
+  220-line `armactl.metrics` compatibility facade used by CLI, TUI, Telegram,
+  web, the incident monitor, and downstream imports.
+- Expanded the strict `mypy` CI boundary from the seven platform modules to 20
+  modules, adding the safe-update state machine, separated metrics/log/model/
+  diagnostic boundaries, service facade, runtime settings, and restart timing
+  without blanket suppressions.
 - Added a strict gradual `mypy` gate for the extracted restart-timer and
   systemd platform boundary, while leaving expansion into legacy modules as an
   explicit follow-up rather than suppressing their errors globally.
@@ -111,7 +120,7 @@ Semantic Versioning once public releases begin.
 - Allowed bounded scheduled restarts to recover through transient game-service `auto-restart` attempts before reporting failure.
 
 ### Validation
-- The current head passes Ruff, strict platform `mypy`, and all 1698 tests.
+- The current tree passes Ruff, strict 20-module `mypy`, and all 1700 tests.
   A clean canary VM then completed a real isolated Steam download, a 75.4-second
   vanilla canary, atomic promotion, and production readiness with an unchanged
   semantic config digest, a retained rollback generation, zero systemd

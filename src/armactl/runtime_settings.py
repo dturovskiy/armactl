@@ -93,7 +93,10 @@ def load_max_fps_profile(
     payload = load_runtime_settings(instance, data_root=data_root)
     if "max_fps" not in payload:
         return DEFAULT_MAX_FPS_PROFILE
-    return normalize_max_fps_profile(payload.get("max_fps"))
+    raw_profile = payload.get("max_fps")
+    if not isinstance(raw_profile, (int, str)):
+        raise RuntimeSettingsError("Unsupported max FPS profile. Choose 60 or 120.")
+    return normalize_max_fps_profile(raw_profile)
 
 
 def save_max_fps_profile(

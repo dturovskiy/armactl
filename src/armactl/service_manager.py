@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from jinja2 import Environment
+
 import armactl.platform.restart_timer as restart_timer
 import armactl.platform.systemd_execution as systemd_execution
 import armactl.platform.systemd_privileged as systemd_privileged
@@ -38,6 +40,7 @@ from armactl.platform.restart_timer import (
 from armactl.redaction import redact_sensitive_text
 from armactl.restart_timing import RESTART_TIMING
 from armactl.runtime_settings import (
+    RuntimeMaxFpsStatus,
     RuntimeSettingsError,
     load_max_fps_profile,
     normalize_max_fps_profile,
@@ -193,7 +196,7 @@ def _templates_dir() -> Path:
     return paths.templates_dir()
 
 
-def _template_environment():
+def _template_environment() -> Environment:
     """Build the Jinja environment for armactl templates."""
     return systemd_rendering.template_environment(_templates_dir())
 
@@ -236,7 +239,9 @@ def _runtime_settings_failure(error: object) -> ServiceResult:
     )
 
 
-def get_max_fps_profile_status(instance: str = paths.DEFAULT_INSTANCE_NAME):
+def get_max_fps_profile_status(
+    instance: str = paths.DEFAULT_INSTANCE_NAME,
+) -> RuntimeMaxFpsStatus:
     """Return the configured/generated max FPS status for one instance."""
     return read_max_fps_status(instance)
 

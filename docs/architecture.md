@@ -33,6 +33,15 @@ src/armactl/
 ├── config_manager.py      # config load/save/validation helpers
 ├── server_config_schema.py# supported config field registry/defaults
 ├── service_manager.py     # Linux/systemd service helpers
+├── metrics.py             # compatible server-log metrics facade
+├── host_metrics.py        # Linux host/process metric collection
+├── metric_models.py       # shared typed metric/incident DTOs
+├── metric_formatting.py   # pure operator-facing metric formatting
+├── server_log_io.py       # bounded server console-log access
+├── server_log_diagnostics.py # shared safe log predicates/redaction
+├── server_fps_metrics.py  # typed -logStats FPS parsing
+├── server_operational_status.py # current lifecycle/FPS health inference
+├── server_incidents.py    # retained and inferred incident analysis
 ├── mods_manager.py        # mod list workflows
 ├── admins_manager.py      # game admin workflows
 ├── admin_acl_sync.py      # canonical SAT/WCS admin ACL orchestration
@@ -53,6 +62,19 @@ CLI, TUI, Telegram bot, and web dashboard are adapters over shared backend modul
 - Backend modules own validation, file operations, service operations, and state changes.
 
 This keeps the same install, repair, config, mods, schedule, and service behavior available from multiple interfaces.
+
+Host/process collection is isolated from Arma log interpretation. Existing
+callers continue to import DTOs and functions from `armactl.metrics`, while
+`host_metrics.py` owns Linux `/proc`, systemd-runtime, disk, load, and memory
+collection, `server_log_io.py` owns bounded console-log discovery/tail reads,
+`server_fps_metrics.py` owns typed `-logStats` FPS parsing, and
+`server_operational_status.py` owns current lifecycle and low-FPS health
+classification. `server_incidents.py` owns retained collector records and
+bounded historical log inference; both share redacted predicates from
+`server_log_diagnostics.py`. `metric_models.py` and `metric_formatting.py` own
+the shared typed results and presentation-only formatting. This prevents new
+FPS/incident parsing from growing the host collector and preserves the legacy
+facade during the current merge window.
 
 ## Configuration Source Of Truth
 

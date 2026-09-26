@@ -1,195 +1,69 @@
-"""Linux process metrics for armactl status views."""
+"""Compatibility facade for server-log, host, and process metrics."""
 
 from __future__ import annotations
 
-import json
 import os
-import re
 import shutil
 import time
-from dataclasses import dataclass, replace
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from armactl.redaction import redact_sensitive_text
-
-
-@dataclass
-class ProcessMetrics:
-    """Best-effort process CPU and memory metrics."""
-
-    available: bool
-    pid: int
-    cpu_percent: float | None = None
-    memory_rss_bytes: int | None = None
-    error: str = ""
-
-
-@dataclass
-class HostMetrics:
-    """Best-effort host/VM metrics for diagnostics views."""
-
-    available: bool
-    cpu_percent: float | None = None
-    memory_used_bytes: int | None = None
-    memory_total_bytes: int | None = None
-    disk_used_bytes: int | None = None
-    disk_total_bytes: int | None = None
-    load_average_1m: float | None = None
-    load_average_5m: float | None = None
-    load_average_15m: float | None = None
-    uptime_seconds: float | None = None
-    error: str = ""
-
-
-@dataclass
-class ServerFpsMetrics:
-    """Real Arma Reforger engine FPS metrics parsed from -logStats output."""
-
-    available: bool
-    fps: float | None = None
-    frame_avg_ms: float | None = None
-    frame_min_ms: float | None = None
-    frame_max_ms: float | None = None
-    engine_memory_kb: int | None = None
-    players: int | None = None
-    ai: int | None = None
-    ai_char: int | None = None
-    age_seconds: float | None = None
-    source: str = ""
-    stale: bool = False
-    error: str = ""
-
-
-@dataclass
-class ServerOperationalStatus:
-    """Best-effort lifecycle state parsed from recent server log lines."""
-
-    available: bool
-    state: str = "unknown"
-    severity: str = "info"
-    message: str = "Unknown"
-    details: tuple[str, ...] = ()
-    age_seconds: float | None = None
-    source: str = ""
-    error: str = ""
-
-
-@dataclass(frozen=True)
-class ServerIncident:
-    """A bounded, operator-facing explanation of a recent server exit."""
-
-    occurred_at: str
-    kind: str
-    severity: str
-    summary: str
-    suspect: str
-    confidence: str
-    reason: str
-    evidence: tuple[str, ...] = ()
-    source: str = "log_inference"
-    incident_id: str = ""
-    captured_at: str = ""
-    bundle: str = ""
-    confirmed: bool = False
-    pid: int = 0
-    artifacts: tuple[str, ...] = ()
-    first_seen_at: str = ""
-    last_seen_at: str = ""
-    occurrence_count: int = 1
-
-
-FPS_STATS_RE = re.compile(
-    r"FPS:\s*(?P<fps>\d+(?:\.\d+)?),\s*"
-    r"frame time\s*\(\s*avg:\s*(?P<frame_avg>\d+(?:\.\d+)?)\s*ms,\s*"
-    r"min:\s*(?P<frame_min>\d+(?:\.\d+)?)\s*ms,\s*"
-    r"max:\s*(?P<frame_max>\d+(?:\.\d+)?)\s*ms(?:,\s*[^)]*)?\s*\),\s*"
-    r"Mem:\s*(?P<memory_kb>\d+)\s*kB,\s*"
-    r"Player:\s*(?P<players>\d+),\s*"
-    r"AI:\s*(?P<ai>\d+),\s*"
-    r"AIChar:\s*(?P<ai_char>\d+)"
+from armactl import (
+    host_metrics,
+    server_fps_metrics,
+    server_incidents,
+    server_log_diagnostics,
+    server_log_io,
+    server_operational_status,
+)
+from armactl.metric_formatting import (
+    format_bytes as format_bytes,
+)
+from armactl.metric_formatting import (
+    format_cpu_percent as format_cpu_percent,
+)
+from armactl.metric_formatting import (
+    format_duration as format_duration,
+)
+from armactl.metric_formatting import (
+    format_fps as format_fps,
+)
+from armactl.metric_formatting import (
+    format_frame_time_ms as format_frame_time_ms,
+)
+from armactl.metric_formatting import (
+    format_load_average as format_load_average,
+)
+from armactl.metric_models import (
+    HostMetrics,
+    ProcessMetrics,
+    ServerFpsMetrics,
+    ServerIncident,
+    ServerOperationalStatus,
 )
 
-WORKSHOP_ADDON_NOT_FOUND_RE = re.compile(
-    r"\bAddon\s+(?P<mod_id>[0-9A-Fa-f]{16})\s*-\s*"
-    r"Addon was not found on workshop\b",
-    re.IGNORECASE,
+FPS_STATS_RE = server_fps_metrics.FPS_STATS_RE
+WORKSHOP_ADDON_NOT_FOUND_RE = server_log_diagnostics.WORKSHOP_ADDON_NOT_FOUND_RE
+OPERATIONAL_STATUS_TAIL_LINES = (
+    server_operational_status.OPERATIONAL_STATUS_TAIL_LINES
 )
-
-
-def format_bytes(value: int | None) -> str:
-    """Format a byte count using small binary units."""
-    if value is None:
-        return "Unknown"
-
-    size = float(value)
-    units = ["B", "KiB", "MiB", "GiB", "TiB"]
-    for unit in units:
-        if size < 1024 or unit == units[-1]:
-            if unit == "B":
-                return f"{int(size)} {unit}"
-            return f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{int(value)} B"
-
-
-def format_cpu_percent(value: float | None) -> str:
-    """Format a CPU percentage for status output."""
-    if value is None:
-        return "Unknown"
-    return f"{value:.1f}%"
-
-
-def format_fps(value: float | None) -> str:
-    """Format a real server FPS value parsed from engine telemetry."""
-    if value is None:
-        return "Unknown"
-    return f"{value:.1f}"
-
-
-def format_frame_time_ms(value: float | None) -> str:
-    """Format a frame time in milliseconds."""
-    if value is None:
-        return "Unknown"
-    return f"{value:.1f} ms"
-
-
-def format_load_average(
-    one_minute: float | None,
-    five_minutes: float | None,
-    fifteen_minutes: float | None,
-) -> str:
-    """Format a host load-average triple."""
-    if (
-        one_minute is None
-        or five_minutes is None
-        or fifteen_minutes is None
-    ):
-        return "Unknown"
-    return f"{one_minute:.2f} / {five_minutes:.2f} / {fifteen_minutes:.2f}"
-
-
-def format_duration(seconds: float | None) -> str:
-    """Format a duration in a compact human-readable style."""
-    if seconds is None:
-        return "Unknown"
-
-    remaining = max(int(seconds), 0)
-    days, remaining = divmod(remaining, 86400)
-    hours, remaining = divmod(remaining, 3600)
-    minutes, seconds_part = divmod(remaining, 60)
-
-    parts: list[str] = []
-    if days:
-        parts.append(f"{days}d")
-    if hours or parts:
-        parts.append(f"{hours}h")
-    if minutes or parts:
-        parts.append(f"{minutes}m")
-    if not parts:
-        parts.append(f"{seconds_part}s")
-    return " ".join(parts[:3])
+SERVER_FPS_CRITICAL_THRESHOLD = (
+    server_operational_status.SERVER_FPS_CRITICAL_THRESHOLD
+)
+SERVER_FPS_DEGRADED_THRESHOLD = (
+    server_operational_status.SERVER_FPS_DEGRADED_THRESHOLD
+)
+SERVER_FPS_CRITICAL_SAMPLE_COUNT = (
+    server_operational_status.SERVER_FPS_CRITICAL_SAMPLE_COUNT
+)
+OPERATIONAL_STATUS_DETAIL_MAX_CHARS = (
+    server_log_diagnostics.OPERATIONAL_STATUS_DETAIL_MAX_CHARS
+)
+_all_log_lines = server_log_diagnostics.all_log_lines
+_safe_operational_detail = server_log_diagnostics.safe_operational_detail
+_line_has_game_destroyed = server_log_diagnostics.line_has_game_destroyed
+_line_has_runtime_crash = server_log_diagnostics.line_has_runtime_crash
+_line_has_startup_failure = server_log_diagnostics.line_has_startup_failure
 
 
 def _read_text(path: Path) -> str:
@@ -197,761 +71,43 @@ def _read_text(path: Path) -> str:
 
 
 def _latest_console_log(config_dir: Path) -> Path | None:
-    logs = _recent_console_logs(config_dir, limit=1)
-    return logs[0] if logs else None
+    return server_log_io.latest_console_log(
+        config_dir,
+        recent=_recent_console_logs,
+    )
 
 
-def _recent_console_logs(config_dir: Path, *, limit: int = 3) -> list[Path]:
-    logs_dir = config_dir / "logs"
-    try:
-        candidates = list(logs_dir.glob("*/console.log"))
-    except OSError:
-        return []
-
-    dated: list[tuple[float, Path]] = []
-    for candidate in candidates:
-        try:
-            mtime = os.path.getmtime(candidate)
-        except OSError:
-            continue
-        dated.append((mtime, candidate))
-    dated.sort(key=lambda item: item[0], reverse=True)
-    return [path for _mtime, path in dated[: max(limit, 0)]]
+def _recent_console_logs(config_dir: Path, limit: int = 3) -> list[Path]:
+    return server_log_io.recent_console_logs(config_dir, limit)
 
 
 def query_server_fps_metrics(
     config_dir: str | Path,
     max_age_seconds: float = 45.0,
 ) -> ServerFpsMetrics:
-    """Parse real server FPS/frame-time metrics from the latest -logStats console log."""
-    latest_log = _latest_console_log(Path(config_dir))
-    if latest_log is None:
-        return ServerFpsMetrics(
-            False,
-            error="server FPS telemetry log is not available",
-        )
-
-    source = str(latest_log)
-    try:
-        log_mtime = os.path.getmtime(latest_log)
-        text = _read_tail_text_file(latest_log)
-    except OSError as error:
-        return ServerFpsMetrics(False, source=source, error=str(error))
-
-    match = None
-    for line in text.splitlines():
-        line_match = FPS_STATS_RE.search(line)
-        if line_match is not None:
-            match = line_match
-
-    if match is None:
-        return ServerFpsMetrics(
-            False,
-            source=source,
-            error="server FPS telemetry line is not available",
-        )
-
-    try:
-        age_seconds = max(time.time() - log_mtime, 0.0)
-        stale = age_seconds > max_age_seconds
-        return ServerFpsMetrics(
-            available=not stale,
-            fps=float(match.group("fps")),
-            frame_avg_ms=float(match.group("frame_avg")),
-            frame_min_ms=float(match.group("frame_min")),
-            frame_max_ms=float(match.group("frame_max")),
-            engine_memory_kb=int(match.group("memory_kb")),
-            players=int(match.group("players")),
-            ai=int(match.group("ai")),
-            ai_char=int(match.group("ai_char")),
-            age_seconds=age_seconds,
-            source=source,
-            stale=stale,
-            error="server FPS telemetry is stale" if stale else "",
-        )
-    except (IndexError, ValueError) as error:
-        return ServerFpsMetrics(False, source=source, error=str(error))
+    """Parse FPS telemetry through the focused server-log parser."""
+    return server_fps_metrics.query_server_fps_metrics(
+        config_dir,
+        max_age_seconds,
+        latest_log=_latest_console_log,
+        read_tail=_read_tail_text_file,
+        getmtime=os.path.getmtime,
+        now=time.time,
+    )
 
 
-OPERATIONAL_STATUS_TAIL_LINES = 300
-CONSOLE_LOG_TAIL_BYTES = 512 * 1024
-OPERATIONAL_STATUS_DETAIL_MAX_CHARS = 180
-OPERATIONAL_STATUS_DETAIL_MAX_ITEMS = 4
-SERVER_FPS_CRITICAL_THRESHOLD = 10.0
-SERVER_FPS_DEGRADED_THRESHOLD = 30.0
-SERVER_FPS_CRITICAL_SAMPLE_COUNT = 3
-SERVER_FPS_SAMPLE_LIMIT = 36
-RECENT_INCIDENT_LOG_LIMIT = 12
-RECENT_INCIDENT_MAX_ITEMS = 5
-RECENT_INCIDENT_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
-RECENT_INCIDENT_CONTEXT_LINES = 240
-RECENT_INCIDENT_EVIDENCE_MAX_ITEMS = 6
-RECENT_INCIDENT_REPEAT_WINDOW_SECONDS = 24 * 60 * 60
+CONSOLE_LOG_TAIL_BYTES = server_log_io.CONSOLE_LOG_TAIL_BYTES
+RECENT_INCIDENT_LOG_LIMIT = server_incidents.RECENT_INCIDENT_LOG_LIMIT
+RECENT_INCIDENT_MAX_ITEMS = server_incidents.RECENT_INCIDENT_MAX_ITEMS
+RECENT_INCIDENT_MAX_AGE_SECONDS = server_incidents.RECENT_INCIDENT_MAX_AGE_SECONDS
 
 
 def _read_tail_text_file(
     path: Path,
     max_bytes: int = CONSOLE_LOG_TAIL_BYTES,
 ) -> str:
-    """Read a bounded tail from a text file while preserving recent complete lines."""
-    size = path.stat().st_size
-    with path.open("rb") as handle:
-        if size > max_bytes:
-            handle.seek(max(size - max_bytes, 0))
-            data = handle.read(max_bytes)
-            first_newline = data.find(b"\n")
-            if first_newline != -1:
-                data = data[first_newline + 1 :]
-        else:
-            data = handle.read()
-    return data.decode("utf-8", errors="replace")
-
-
-def _tail_recent_log_lines(
-    text: str,
-    max_lines: int = OPERATIONAL_STATUS_TAIL_LINES,
-) -> list[str]:
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    return lines[-max_lines:]
-
-
-def _all_log_lines(text: str) -> list[str]:
-    """Return non-empty lines from an already bounded console-log tail."""
-    return [line.strip() for line in text.splitlines() if line.strip()]
-
-
-def _safe_operational_detail(line: str) -> str:
-    """Return an operator-safe, bounded status diagnostic line."""
-    text = redact_sensitive_text(line).replace("\r", " ").replace("\n", " ").strip()
-    text = re.sub(r"\s+", " ", text)
-    if len(text) <= OPERATIONAL_STATUS_DETAIL_MAX_CHARS:
-        return text
-    return f"{text[: OPERATIONAL_STATUS_DETAIL_MAX_CHARS - 1].rstrip()}…"
-
-
-def _safe_operational_details(lines: list[str] | tuple[str, ...]) -> tuple[str, ...]:
-    details = [
-        detail
-        for detail in (
-            _safe_operational_detail(line)
-            for line in lines[-OPERATIONAL_STATUS_DETAIL_MAX_ITEMS:]
-        )
-        if detail
-    ]
-    return tuple(details)
-
-
-@dataclass(frozen=True)
-class _OperationalFpsSample:
-    """One bounded telemetry sample used to classify live server health."""
-
-    index: int
-    fps: float
-    players: int
-    ai: int
-    ai_char: int
-    second_of_day: float | None
-
-
-_ENGINE_TIME_OF_DAY_RE = re.compile(
-    r"^\s*(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})"
-    r"(?:\.(?P<fraction>\d{1,6}))?"
-)
-
-
-def _engine_second_of_day(line: str) -> float | None:
-    match = _ENGINE_TIME_OF_DAY_RE.match(line)
-    if match is None:
-        return None
-    try:
-        fraction = float(f"0.{match.group('fraction') or '0'}")
-        return (
-            int(match.group("hour")) * 3600
-            + int(match.group("minute")) * 60
-            + int(match.group("second"))
-            + fraction
-        )
-    except (TypeError, ValueError):
-        return None
-
-
-def _operational_fps_samples(lines: list[str]) -> list[_OperationalFpsSample]:
-    samples: list[_OperationalFpsSample] = []
-    for index, line in enumerate(lines):
-        match = FPS_STATS_RE.search(line)
-        if match is None:
-            continue
-        try:
-            samples.append(
-                _OperationalFpsSample(
-                    index=index,
-                    fps=float(match.group("fps")),
-                    players=int(match.group("players")),
-                    ai=int(match.group("ai")),
-                    ai_char=int(match.group("ai_char")),
-                    second_of_day=_engine_second_of_day(line),
-                )
-            )
-        except (IndexError, ValueError):
-            continue
-    return samples[-SERVER_FPS_SAMPLE_LIMIT:]
-
-
-def _consecutive_samples_at_or_below(
-    samples: list[_OperationalFpsSample],
-    threshold: float,
-) -> list[_OperationalFpsSample]:
-    consecutive: list[_OperationalFpsSample] = []
-    for sample in reversed(samples):
-        if sample.fps > threshold:
-            break
-        consecutive.append(sample)
-    consecutive.reverse()
-    return consecutive
-
-
-def _sample_duration_seconds(samples: list[_OperationalFpsSample]) -> float | None:
-    if len(samples) < 2:
-        return None
-    start = samples[0].second_of_day
-    end = samples[-1].second_of_day
-    if start is None or end is None:
-        return None
-    if end < start:
-        end += 24 * 60 * 60
-    return max(end - start, 0.0)
-
-
-def _low_fps_signals(lines: list[str], *, start_index: int) -> str:
-    """Summarize bounded correlation signals without exposing arbitrary log text."""
-    window = lines[max(start_index - 80, 0) :]
-    resource_failures = sum(
-        "RESOURCES" in line and "Failed to open" in line for line in window
-    )
-    has_gm_activity = any(
-        (
-            "Editor EDIT:" in line
-            and any(marker in line.lower() for marker in ("spawned", "waypoint"))
-        )
-        or "Game Master" in line
-        for line in window
-    )
-    has_loadout_errors = any(
-        "WCS_LoadoutEditor" in line
-        and any(marker in line for marker in ("Skipping item", "not found", "missing"))
-        for line in window
-    )
-    has_fortex_references = any(
-        marker in line for line in window for marker in ("FRTX_", "/FRTX", "FORTEX")
-    )
-
-    signals: list[str] = []
-    if resource_failures:
-        signals.append(f"resource load failures ({resource_failures})")
-    if has_fortex_references:
-        signals.append("FORTEX resource references")
-    if has_gm_activity:
-        signals.append("Game Master spawn/waypoint activity")
-    if has_loadout_errors:
-        signals.append("loadout/prefab compatibility errors")
-    if not signals:
-        return ""
-    return f"Correlated signals: {'; '.join(signals)}."
-
-
-def _fps_operational_status(
-    lines: list[str],
-    *,
-    age_seconds: float,
-    source: str,
-) -> ServerOperationalStatus | None:
-    """Classify fresh telemetry without calling every FPS sample healthy."""
-    samples = _operational_fps_samples(lines)
-    if not samples:
-        return None
-    latest = samples[-1]
-    if latest.fps >= SERVER_FPS_DEGRADED_THRESHOLD:
-        return None
-
-    critical_samples = _consecutive_samples_at_or_below(
-        samples,
-        SERVER_FPS_CRITICAL_THRESHOLD,
-    )
-    degraded_samples = _consecutive_samples_at_or_below(
-        samples,
-        SERVER_FPS_DEGRADED_THRESHOLD,
-    )
-    is_critical = latest.fps <= 1.0 or (
-        latest.fps <= SERVER_FPS_CRITICAL_THRESHOLD
-        and len(critical_samples) >= SERVER_FPS_CRITICAL_SAMPLE_COUNT
-    )
-    relevant = critical_samples if is_critical else degraded_samples
-    threshold = (
-        SERVER_FPS_CRITICAL_THRESHOLD if is_critical else SERVER_FPS_DEGRADED_THRESHOLD
-    )
-    minimum = min(sample.fps for sample in relevant)
-    duration = _sample_duration_seconds(relevant)
-    duration_text = (
-        f" over {format_duration(duration)}" if duration is not None else ""
-    )
-    details = [
-        (
-            f"FPS {latest.fps:.1f}; {len(relevant)} consecutive sample(s) at or below "
-            f"{threshold:.1f} FPS{duration_text}; minimum {minimum:.1f} FPS."
-        ),
-        (
-            f"Telemetry at detection: {latest.players} player(s), {latest.ai} AI, "
-            f"{latest.ai_char} AI character(s)."
-        ),
-    ]
-    signal = _low_fps_signals(lines, start_index=relevant[0].index)
-    if signal:
-        details.append(signal)
-    return ServerOperationalStatus(
-        True,
-        state="fps_critical" if is_critical else "fps_degraded",
-        severity="error" if is_critical else "warning",
-        message="Critical server FPS" if is_critical else "Low server FPS",
-        details=_safe_operational_details(details),
-        age_seconds=age_seconds,
-        source=source,
-    )
-
-
-def _incident_timestamp(path: Path) -> str:
-    modified = os.path.getmtime(path)
-    return datetime.fromtimestamp(modified, tz=timezone.utc).replace(microsecond=0).isoformat()
-
-
-def _last_line_index(lines: list[str], predicate: Any) -> int | None:
-    return next(
-        (index for index in range(len(lines) - 1, -1, -1) if predicate(lines[index])),
-        None,
-    )
-
-
-def _incident_signature(
-    window: list[str],
-    *,
-    runtime_crash: bool,
-) -> tuple[str, str, str]:
-    joined = "\n".join(window)
-    missing_addon = WORKSHOP_ADDON_NOT_FOUND_RE.search(joined)
-    has_kornet = any(
-        marker in joined
-        for marker in ("Tripod_KORNET", "CLBR_KORNET", "Pod_Kornet", "KORNETNOOPTIC")
-    )
-    has_stugna = "Stugna" in joined
-    has_remote_turret = "CLBR_RemoteTurretDriveComponent" in joined
-    has_drone_bullet_class = "SAL_DroneBulletComponent" in joined
-    has_mi24 = any(marker in joined for marker in ("Mi24", "Mi-24", "Mi_24"))
-    has_persistence = "[PERSISTENCE] Save" in joined
-    has_addon_resource_error = any(
-        marker in joined
-        for marker in (
-            "Wrong GUID/name for resource",
-            "Addon loading failed",
-            "Can't compile \"Game\" script module",
-            "no function with this name",
-        )
-    )
-
-    if not runtime_crash and missing_addon is not None:
-        mod_id = missing_addon.group("mod_id").upper()
-        return (
-            f"Workshop addon {mod_id}",
-            "high",
-            "The active profile requires this addon, but the Workshop reported it as "
-            "unavailable. Keep the profile inactive until the addon is restored or replaced.",
-        )
-
-    if runtime_crash and (has_kornet or has_stugna or has_remote_turret):
-        reason = (
-            "Kornet prefab and CLBR weapon code appeared immediately before the native "
-            "crash. This is a strong correlation; the final fault may still be inside "
-            "the Enfusion engine."
-            if has_kornet
-            else "Stugna/remote-turret prefab and CLBR weapon code appeared immediately "
-            "before the native crash. This is a strong correlation; the final fault may "
-            "still be inside the Enfusion engine."
-        )
-        return (
-            "ATGM / CLBR weapon stack",
-            "high",
-            reason,
-        )
-
-    if runtime_crash and has_drone_bullet_class:
-        return (
-            "Realistic Combat Drones / FPV dependency stack",
-            "high",
-            "The Realistic Combat Drones class SAL_DroneBulletComponent was unresolved "
-            "immediately before the native crash. This strongly identifies the drone "
-            "dependency path; the final native fault may still be inside Enfusion.",
-        )
-
-    if runtime_crash and has_mi24:
-        return (
-            "WCS Mi-24 / addon integration",
-            "medium",
-            "Mi-24 addon activity appeared shortly before the native engine crash, but "
-            "the available log does not identify the exact failing component.",
-        )
-
-    if has_addon_resource_error:
-        return (
-            "Addon resource or script compatibility",
-            "medium",
-            "Addon resource/script errors occurred before the process exited. Review the "
-            "listed evidence and test the affected profile on a canary server.",
-        )
-
-    if runtime_crash and has_persistence:
-        return (
-            "Scenario persistence / mod object interaction",
-            "medium",
-            "The native crash followed a persistence save, but the log does not name a "
-            "single responsible addon.",
-        )
-
-    if runtime_crash:
-        return (
-            "Unknown native engine crash",
-            "low",
-            "The Reforger process produced a crash dump, but the bounded log context does "
-            "not contain a reliable addon or scenario signature.",
-        )
-
-    return (
-        "Addon, scenario, or backend startup failure",
-        "medium" if has_addon_resource_error else "low",
-        "The game exited before reaching stable telemetry. The evidence below contains "
-        "the last actionable startup errors found in the server log.",
-    )
-
-
-def _incident_evidence(window: list[str], terminal_index: int) -> tuple[str, ...]:
-    categories = (
-        lambda line: any(
-            marker in line
-            for marker in (
-                "Tripod_KORNET",
-                "Pod_Kornet",
-                "Stugna",
-                "Mi24",
-                "Mi-24",
-            )
-        )
-        and ("SpawnEntityPrefab" in line or "Create entity" in line),
-        lambda line: any(
-            marker in line
-            for marker in (
-                "CLBR_KORNET",
-                "CLBR_RemoteTurretDriveComponent",
-            )
-        ),
-        lambda line: any(
-            marker in line
-            for marker in (
-                "Wrong GUID/name for resource",
-                "incompatible ammo",
-                "Unknown class",
-                "Unknown type",
-                "no function with this name",
-                "Addon loading failed",
-                "Addon was not found on workshop",
-                "Cannot create game",
-            )
-        ),
-        lambda line: "[PERSISTENCE] Save" in line,
-        lambda line: _line_has_runtime_crash(line),
-        lambda line: _line_has_game_destroyed(line),
-    )
-    selected: dict[int, str] = {}
-    for predicate in categories:
-        index = _last_line_index(window, predicate)
-        if index is not None:
-            selected[index] = window[index]
-    if not selected and window:
-        selected[min(max(terminal_index, 0), len(window) - 1)] = window[
-            min(max(terminal_index, 0), len(window) - 1)
-        ]
-    ordered = [selected[index] for index in sorted(selected)]
-    if len(ordered) > RECENT_INCIDENT_EVIDENCE_MAX_ITEMS:
-        ordered = ordered[-RECENT_INCIDENT_EVIDENCE_MAX_ITEMS:]
-    return tuple(_safe_operational_detail(line) for line in ordered)
-
-
-def _incident_from_console_log(path: Path) -> ServerIncident | None:
-    text = _read_tail_text_file(path)
-    lines = _all_log_lines(text)
-    if not lines:
-        return None
-
-    crash_index = _last_line_index(lines, _line_has_runtime_crash)
-    runtime_crash = crash_index is not None
-    terminal_index = crash_index
-    kind = "runtime_crash"
-    summary = "Native game crash (crash dump)"
-
-    if terminal_index is None:
-        startup_failure_index = _last_line_index(lines, _line_has_startup_failure)
-        game_destroyed_index = _last_line_index(lines, _line_has_game_destroyed)
-        if startup_failure_index is None and game_destroyed_index is None:
-            return None
-        if startup_failure_index is None and any(FPS_STATS_RE.search(line) for line in lines):
-            return None
-        terminal_index = max(
-            index
-            for index in (startup_failure_index, game_destroyed_index)
-            if index is not None
-        )
-        if any(FPS_STATS_RE.search(line) for line in lines[terminal_index + 1 :]):
-            return None
-        kind = "startup_failure"
-        summary = "Server exited during startup"
-
-    window_start = max(terminal_index - RECENT_INCIDENT_CONTEXT_LINES, 0)
-    window = lines[window_start : terminal_index + 1]
-    suspect, confidence, reason = _incident_signature(
-        window,
-        runtime_crash=runtime_crash,
-    )
-    return ServerIncident(
-        occurred_at=_incident_timestamp(path),
-        kind=kind,
-        severity="error",
-        summary=summary,
-        suspect=suspect,
-        confidence=confidence,
-        reason=reason,
-        evidence=_incident_evidence(window, terminal_index - window_start),
-    )
-
-
-def _collected_incident_from_metadata(path: Path) -> ServerIncident | None:
-    """Load one bounded collector record without exposing arbitrary bundle data."""
-    try:
-        if path.is_symlink() or path.stat().st_size > 512 * 1024:
-            return None
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return None
-    if not isinstance(value, dict) or value.get("schema_version") != 1:
-        return None
-
-    occurred_at = str(value.get("occurred_at") or "")
-    try:
-        datetime.fromisoformat(occurred_at.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-    def safe(value: Any, limit: int = OPERATIONAL_STATUS_DETAIL_MAX_CHARS) -> str:
-        return _safe_operational_detail(str(value or ""))[:limit]
-
-    raw_evidence = value.get("evidence")
-    if not isinstance(raw_evidence, list):
-        raw_evidence = []
-    evidence = tuple(
-        safe(item)
-        for item in raw_evidence[:RECENT_INCIDENT_EVIDENCE_MAX_ITEMS]
-        if isinstance(item, str) and safe(item)
-    )
-    suspect = safe(value.get("suspect")) or "Unknown"
-    confidence = safe(value.get("confidence"), 24) or "low"
-    reason = safe(value.get("reason"), 500)
-    if suspect in {
-        "Enfusion runtime / active addon stack",
-        "Unknown native engine crash",
-        "Unknown",
-    }:
-        console_path = path.parent / "engine" / "console.log"
-        try:
-            inferred = (
-                None
-                if console_path.is_symlink()
-                else _incident_from_console_log(console_path)
-            )
-        except OSError:
-            inferred = None
-        if inferred is not None and inferred.suspect not in {
-            "Unknown native engine crash",
-            "Unknown",
-        }:
-            suspect = inferred.suspect
-            confidence = inferred.confidence
-            reason = inferred.reason
-            merged_evidence = list(evidence)
-            for item in inferred.evidence:
-                if item not in merged_evidence:
-                    merged_evidence.append(item)
-            evidence = tuple(merged_evidence[-RECENT_INCIDENT_EVIDENCE_MAX_ITEMS:])
-    raw_artifacts = value.get("artifacts")
-    if not isinstance(raw_artifacts, list):
-        raw_artifacts = []
-    artifacts = tuple(
-        safe(item, 160)
-        for item in raw_artifacts[:32]
-        if isinstance(item, str) and safe(item, 160)
-    )
-    try:
-        pid = max(int(value.get("pid") or 0), 0)
-    except (TypeError, ValueError):
-        pid = 0
-    try:
-        occurrence_count = max(int(value.get("occurrence_count") or 1), 1)
-    except (TypeError, ValueError):
-        occurrence_count = 1
-    severity = safe(value.get("severity"), 24)
-    if severity not in {"error", "warning", "info", "success"}:
-        severity = "error"
-    return ServerIncident(
-        occurred_at=occurred_at,
-        kind=safe(value.get("kind"), 80) or "runtime_crash",
-        severity=severity,
-        summary=safe(value.get("summary")) or "Captured server incident",
-        suspect=suspect,
-        confidence=confidence,
-        reason=reason,
-        evidence=evidence,
-        source="collector",
-        incident_id=safe(value.get("id"), 160),
-        captured_at=safe(value.get("captured_at"), 80),
-        bundle=safe(value.get("bundle"), 200),
-        confirmed=bool(value.get("confirmed")),
-        pid=pid,
-        artifacts=artifacts,
-        first_seen_at=safe(value.get("first_seen_at"), 80) or occurred_at,
-        last_seen_at=safe(value.get("last_seen_at"), 80) or occurred_at,
-        occurrence_count=occurrence_count,
-    )
-
-
-def _query_collected_incidents(
-    config_dir: Path,
-    *,
-    max_age_seconds: float,
-    max_incidents: int,
-) -> list[ServerIncident]:
-    root = config_dir.parent / "incidents"
-    now = time.time()
-    try:
-        candidates = [
-            item / "metadata.json"
-            for item in root.iterdir()
-            if item.is_dir() and not item.is_symlink()
-        ]
-    except OSError:
-        return []
-    incidents: list[ServerIncident] = []
-    for metadata in sorted(candidates, key=lambda item: item.parent.name, reverse=True):
-        incident = _collected_incident_from_metadata(metadata)
-        if incident is None:
-            continue
-        try:
-            occurred = datetime.fromisoformat(
-                incident.occurred_at.replace("Z", "+00:00")
-            ).timestamp()
-        except ValueError:
-            continue
-        if max(now - occurred, 0.0) > max_age_seconds:
-            continue
-        incidents.append(incident)
-        if len(incidents) >= max(max_incidents, 0):
-            break
-    return incidents
-
-
-def _incident_duplicates_collected(
-    inferred: ServerIncident,
-    collected: list[ServerIncident],
-) -> bool:
-    inferred_evidence = set(inferred.evidence)
-    if not inferred_evidence:
-        return False
-    return any(inferred_evidence.intersection(item.evidence) for item in collected)
-
-
-def _missing_workshop_addon_id(incident: ServerIncident) -> str:
-    if incident.kind != "startup_failure":
-        return ""
-    text = "\n".join((incident.suspect, incident.reason, *incident.evidence))
-    match = WORKSHOP_ADDON_NOT_FOUND_RE.search(text)
-    if match is not None:
-        return match.group("mod_id").upper()
-    if "workshop addon" not in incident.suspect.casefold():
-        return ""
-    fallback = re.search(r"\b[0-9A-Fa-f]{16}\b", incident.suspect)
-    return fallback.group(0).upper() if fallback is not None else ""
-
-
-def _coalesce_repeated_startup_incidents(
-    incidents: list[ServerIncident],
-) -> list[ServerIncident]:
-    """Collapse one deterministic Workshop outage without deleting evidence bundles."""
-    result: list[ServerIncident] = []
-    grouped: dict[str, int] = {}
-    for incident in incidents:
-        mod_id = _missing_workshop_addon_id(incident)
-        if not mod_id or mod_id not in grouped:
-            if mod_id:
-                grouped[mod_id] = len(result)
-            result.append(incident)
-            continue
-
-        index = grouped[mod_id]
-        current = result[index]
-        current_latest = _parse_incident_time(current.last_seen_at or current.occurred_at)
-        candidate_latest = _parse_incident_time(incident.last_seen_at or incident.occurred_at)
-        if (
-            current_latest is None
-            or candidate_latest is None
-            or abs(current_latest - candidate_latest)
-            > RECENT_INCIDENT_REPEAT_WINDOW_SECONDS
-        ):
-            grouped[mod_id] = len(result)
-            result.append(incident)
-            continue
-
-        timestamps = [
-            value
-            for value in (
-                current.first_seen_at or current.occurred_at,
-                current.last_seen_at or current.occurred_at,
-                incident.first_seen_at or incident.occurred_at,
-                incident.last_seen_at or incident.occurred_at,
-            )
-            if _parse_incident_time(value) is not None
-        ]
-        first_seen = min(timestamps, key=lambda value: _parse_incident_time(value) or 0.0)
-        last_seen = max(timestamps, key=lambda value: _parse_incident_time(value) or 0.0)
-        evidence = tuple(dict.fromkeys((*current.evidence, *incident.evidence)))[
-            -RECENT_INCIDENT_EVIDENCE_MAX_ITEMS:
-        ]
-        suspect = (
-            current.suspect
-            if not current.suspect.startswith("Workshop addon ")
-            else incident.suspect
-        )
-        result[index] = replace(
-            current,
-            occurred_at=first_seen,
-            first_seen_at=first_seen,
-            last_seen_at=last_seen,
-            occurrence_count=current.occurrence_count + incident.occurrence_count,
-            summary="Workshop addon unavailable",
-            suspect=suspect,
-            confidence="high",
-            evidence=evidence,
-        )
-    return result
-
-
-def _parse_incident_time(value: str) -> float | None:
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
-    except (AttributeError, ValueError):
-        return None
+    """Read a bounded console-log tail through the shared filesystem helper."""
+    return server_log_io.read_tail_text_file(path, max_bytes)
 
 
 def query_recent_server_incidents(
@@ -961,829 +117,104 @@ def query_recent_server_incidents(
     max_age_seconds: float = RECENT_INCIDENT_MAX_AGE_SECONDS,
     max_log_files: int = RECENT_INCIDENT_LOG_LIMIT,
 ) -> tuple[ServerIncident, ...]:
-    """Return bounded recent crash/startup incidents without changing server state."""
-    if max_incidents <= 0 or max_log_files <= 0:
-        return ()
-    now = time.time()
-    config_path = Path(config_dir)
-    collected = _query_collected_incidents(
-        config_path,
-        max_age_seconds=max_age_seconds,
+    """Return bounded recent incidents through the focused log analyzer."""
+    return server_incidents.query_recent_server_incidents(
+        config_dir,
         max_incidents=max_incidents,
+        max_age_seconds=max_age_seconds,
+        max_log_files=max_log_files,
+        recent_logs=_recent_console_logs,
+        read_tail=_read_tail_text_file,
+        getmtime=os.path.getmtime,
+        clock=time.time,
     )
-    inferred: list[ServerIncident] = []
-    for candidate in _recent_console_logs(
-        config_path,
-        limit=max_log_files,
-    ):
-        try:
-            if max(now - os.path.getmtime(candidate), 0.0) > max_age_seconds:
-                continue
-            incident = _incident_from_console_log(candidate)
-        except OSError:
-            continue
-        if incident is not None:
-            if not _incident_duplicates_collected(incident, collected):
-                inferred.append(incident)
-        if len(inferred) >= max(max_incidents, 0):
-            break
-    incidents = collected + inferred
-    incidents.sort(key=lambda item: item.occurred_at, reverse=True)
-    incidents = _coalesce_repeated_startup_incidents(incidents)
-    return tuple(incidents[: max(max_incidents, 0)])
-
-
-def _line_has_download_retry(line: str) -> bool:
-    return any(
-        marker in line
-        for marker in (
-            "Fragmentizer: Retrying download",
-            "Fragmentizer: Download error",
-        )
-    )
-
-
-def _line_has_download_progress(line: str) -> bool:
-    return (
-        "Addon Download started" in line
-        or "Download speed" in line
-        or ("Downloading " in line and ("addons" in line or "version" in line))
-        or re.search(r":\s*\[[=>_ ]+\]\s*\d+%", line) is not None
-    )
-
-
-def _line_has_mission_error(line: str) -> bool:
-    return (
-        "MissionHeader::ReadMissionHeader cannot load" in line
-        or "cannot load the resource" in line
-    )
-
-
-def _line_has_startup_failure(line: str) -> bool:
-    return any(
-        marker in line
-        for marker in (
-            "Unable to initialize the game",
-            "Failed to fetch addon details from workshop API",
-            'Can\'t compile "Game" script module',
-            "Cannot create game",
-            "Addon loading failed",
-            "Addon was not found on workshop",
-        )
-    )
-
-
-def _line_has_workshop_metadata_error(line: str) -> bool:
-    return any(
-        marker in line
-        for marker in (
-            "Failed to fetch addon details from workshop API",
-            "WorkshopApi/GetDownloadListS2S",
-            "SSL connect error",
-            "Addon was not found on workshop",
-        )
-    )
-
-
-def _startup_failure_details(lines: list[str], index: int) -> tuple[str, ...]:
-    window = lines[max(index - 12, 0) : index + 1]
-    details = [
-        line
-        for line in window
-        if (
-            _line_has_startup_failure(line)
-            or _line_has_workshop_metadata_error(line)
-            or _line_has_mission_error(line)
-            or "Unknown type" in line
-            or "Unknown keyword/data" in line
-            or "no function with this name" in line
-            or "Failed to load" in line
-        )
-    ]
-    return _safe_operational_details(tuple(details or [lines[index]]))
-
-
-def _line_has_game_destroyed(line: str) -> bool:
-    return "Game destroyed." in line or line.rstrip().endswith("Game destroyed")
-
-
-def _line_has_runtime_crash(line: str) -> bool:
-    return any(
-        marker in line
-        for marker in (
-            "Application crashed!",
-            "Generated memory dump",
-            "Application hangs (force crash)",
-            "double free or corruption",
-            "free(): invalid pointer",
-            "corrupted size",
-            "SIGSEGV",
-            "Segmentation fault",
-        )
-    )
-
-
-def _runtime_crash_details(lines: list[str], index: int) -> tuple[str, ...]:
-    window = lines[max(index - 40, 0) : index + 1]
-    details = [
-        line
-        for line in window
-        if (
-            _line_has_runtime_crash(line)
-            or _line_has_game_destroyed(line)
-            or " (E):" in line
-            or " (F):" in line
-            or "Wrong GUID/name for resource" in line
-            or "SIGSEGV" in line
-        )
-    ]
-    return _safe_operational_details(tuple(details or [lines[index]]))
-
-
-def _runtime_crash_status(
-    lines: list[str],
-    *,
-    age_seconds: float,
-    source: str,
-) -> ServerOperationalStatus | None:
-    crash_index = next(
-        (
-            index
-            for index in range(len(lines) - 1, -1, -1)
-            if _line_has_runtime_crash(lines[index])
-        ),
-        None,
-    )
-    if crash_index is None:
-        return None
-    last_fps_index = next(
-        (
-            index
-            for index in range(len(lines) - 1, -1, -1)
-            if FPS_STATS_RE.search(lines[index])
-        ),
-        None,
-    )
-    if last_fps_index is not None and crash_index < last_fps_index:
-        return None
-    return ServerOperationalStatus(
-        True,
-        state="runtime_crash",
-        severity="error",
-        message="Game process crashed",
-        details=_runtime_crash_details(lines, crash_index),
-        age_seconds=age_seconds,
-        source=source,
-    )
-
-
-def _recent_previous_runtime_crash(
-    config_dir: Path,
-    *,
-    latest_log: Path,
-    max_age_seconds: float,
-) -> ServerOperationalStatus | None:
-    now = time.time()
-    for candidate in _recent_console_logs(config_dir, limit=4):
-        if candidate == latest_log:
-            continue
-        try:
-            age_seconds = max(now - os.path.getmtime(candidate), 0.0)
-            if age_seconds > max_age_seconds:
-                continue
-            text = _read_tail_text_file(candidate)
-        except OSError:
-            continue
-        status = _runtime_crash_status(
-            _all_log_lines(text),
-            age_seconds=age_seconds,
-            source=str(candidate),
-        )
-        if status is not None:
-            return status
-    return None
-
-
-def _startup_exit_details(lines: list[str], index: int) -> tuple[str, ...]:
-    window = lines[max(index - 12, 0) : index + 1]
-    details = [
-        line
-        for line in window
-        if (
-            _line_has_game_destroyed(line)
-            or _line_has_startup_failure(line)
-            or _line_has_workshop_metadata_error(line)
-            or _line_has_mission_error(line)
-            or " (E):" in line
-            or " (F):" in line
-        )
-    ]
-    return _safe_operational_details(tuple(details or [lines[index]]))
-
-
-def _line_has_starting_status(line: str) -> bool:
-    return any(
-        marker in line
-        for marker in (
-            "Loading dedicated server config",
-            "Game successfully created",
-            "Starting dedicated server",
-        )
-    )
-
-
-def _line_has_backend_heartbeat_failure(line: str) -> bool:
-    return (
-        "DS Room Heartbeat fail" in line
-        or "DS Heartbeat Failing for too long" in line
-    )
-
-
-def _line_has_backend_heartbeat_terminal(line: str) -> bool:
-    return "DS Heartbeat Failing for too long" in line
-
-
-def _line_has_backend_connectivity_failure(line: str) -> bool:
-    return any(
-        marker in line
-        for marker in (
-            "Curl error=Timeout was reached",
-            "Curl error=Could not resolve hostname",
-            "GameConfig/List Timeout",
-            "GameConfig/List Error",
-            "WorkshopApi/GetServers",
-        )
-    )
-
-
-def _line_has_shutdown_marker(line: str) -> bool:
-    return any(
-        marker in line
-        for marker in (
-            "shutting down",
-            "Save (SHUTDOWN) started",
-            "Save (SHUTDOWN) completed",
-            "Application hangs (force crash)",
-            "Application crashed!",
-        )
-    )
-
-
-def _latest_backend_incident_status(lines: list[str]) -> ServerOperationalStatus | None:
-    last_fps_index: int | None = None
-    for index, line in enumerate(lines):
-        if FPS_STATS_RE.search(line):
-            last_fps_index = index
-
-    def after_latest_fps(index: int) -> bool:
-        return last_fps_index is None or index > last_fps_index
-
-    severe_index: int | None = None
-    connectivity_index: int | None = None
-    for index, line in enumerate(lines):
-        if not after_latest_fps(index):
-            continue
-        if _line_has_backend_heartbeat_terminal(line):
-            severe_index = index if severe_index is None else severe_index
-        if (
-            _line_has_backend_heartbeat_failure(line)
-            or _line_has_backend_connectivity_failure(line)
-        ):
-            connectivity_index = index if connectivity_index is None else connectivity_index
-
-    if severe_index is not None:
-        details = [
-            line
-            for line in lines[max(severe_index - 12, 0) :]
-            if (
-                _line_has_backend_heartbeat_failure(line)
-                or _line_has_backend_connectivity_failure(line)
-                or _line_has_shutdown_marker(line)
-            )
-        ]
-        return ServerOperationalStatus(
-            True,
-            state="backend_heartbeat_failure",
-            severity="error",
-            message="Backend heartbeat failure",
-            details=_safe_operational_details(details),
-        )
-
-    if last_fps_index is None and connectivity_index is not None:
-        details = [
-            line
-            for line in lines[max(connectivity_index - 6, 0) :]
-            if _line_has_backend_connectivity_failure(line)
-        ]
-        return ServerOperationalStatus(
-            True,
-            state="backend_connectivity_issue",
-            severity="warning",
-            message="Backend connectivity issue",
-            details=_safe_operational_details(details),
-        )
-
-    return None
 
 
 def query_server_operational_status(
     config_dir: str | Path,
     max_age_seconds: float = 120.0,
 ) -> ServerOperationalStatus:
-    """Return a user-facing lifecycle status from the latest console log."""
-    latest_log = _latest_console_log(Path(config_dir))
-    if latest_log is None:
-        return ServerOperationalStatus(
-            False,
-            state="unknown",
-            severity="warning",
-            message="Telemetry log unavailable",
-            error="server console log is not available",
-        )
-
-    source = str(latest_log)
-    try:
-        log_mtime = os.path.getmtime(latest_log)
-        text = _read_tail_text_file(latest_log)
-    except OSError as error:
-        return ServerOperationalStatus(
-            False,
-            state="unknown",
-            severity="warning",
-            message="Telemetry log unavailable",
-            source=source,
-            error=str(error),
-        )
-
-    age_seconds = max(time.time() - log_mtime, 0.0)
-    all_lines = _all_log_lines(text)
-    lines = all_lines[-OPERATIONAL_STATUS_TAIL_LINES:]
-    if not lines:
-        return ServerOperationalStatus(
-            False,
-            state="unknown",
-            severity="warning",
-            message="Telemetry log unavailable",
-            age_seconds=age_seconds,
-            source=source,
-            error="server console log is empty",
-        )
-
-    # A backend timeout can be the cause of a terminal startup failure.  Prefer
-    # the later, actionable failure over the earlier connectivity warning.
-    last_fps_index = next(
-        (
-            index
-            for index in range(len(lines) - 1, -1, -1)
-            if FPS_STATS_RE.search(lines[index])
-        ),
-        None,
-    )
-    startup_failure_index = next(
-        (
-            index
-            for index in range(len(lines) - 1, -1, -1)
-            if _line_has_startup_failure(lines[index])
-            and (last_fps_index is None or index > last_fps_index)
-        ),
-        None,
-    )
-    if startup_failure_index is not None:
-        details = _startup_failure_details(lines, startup_failure_index)
-        missing_addon = next(
-            (
-                match
-                for item in details
-                if (match := WORKSHOP_ADDON_NOT_FOUND_RE.search(item)) is not None
-            ),
-            None,
-        )
-        if missing_addon is not None:
-            message = f"Workshop addon unavailable: {missing_addon.group('mod_id').upper()}"
-        elif any(_line_has_workshop_metadata_error(item) for item in details):
-            message = "Workshop addon metadata error"
-        else:
-            message = "Server startup failed"
-        return ServerOperationalStatus(
-            True,
-            state="startup_failed",
-            severity="error",
-            message=message,
-            details=details,
-            age_seconds=age_seconds,
-            source=source,
-        )
-
-    backend_incident_status = _latest_backend_incident_status(all_lines)
-    if backend_incident_status is not None:
-        backend_incident_status.age_seconds = age_seconds
-        backend_incident_status.source = source
-        return backend_incident_status
-
-    runtime_crash = _runtime_crash_status(
-        lines,
-        age_seconds=age_seconds,
-        source=source,
-    )
-    if runtime_crash is not None:
-        return runtime_crash
-
-    startup_exit_index = next(
-        (
-            index
-            for index in range(len(lines) - 1, -1, -1)
-            if _line_has_game_destroyed(lines[index])
-            and (last_fps_index is None or index > last_fps_index)
-        ),
-        None,
-    )
-    if startup_exit_index is not None:
-        return ServerOperationalStatus(
-            True,
-            state="startup_failed",
-            severity="error",
-            message="Server startup failed",
-            details=_startup_exit_details(lines, startup_exit_index),
-            age_seconds=age_seconds,
-            source=source,
-        )
-
-    if last_fps_index is None:
-        previous_crash = _recent_previous_runtime_crash(
-            Path(config_dir),
-            latest_log=latest_log,
-            max_age_seconds=max_age_seconds,
-        )
-        if previous_crash is not None:
-            return previous_crash
-
-    if age_seconds > max_age_seconds:
-        return ServerOperationalStatus(
-            False,
-            state="telemetry_stale",
-            severity="warning",
-            message="Telemetry stale",
-            details=_safe_operational_details([lines[-1]]),
-            age_seconds=age_seconds,
-            source=source,
-            error="server console log is stale",
-        )
-
-    fps_status = _fps_operational_status(
-        all_lines,
-        age_seconds=age_seconds,
-        source=source,
-    )
-
-    for index in range(len(lines) - 1, -1, -1):
-        line = lines[index]
-        if FPS_STATS_RE.search(line):
-            if fps_status is not None:
-                return fps_status
-            return ServerOperationalStatus(
-                True,
-                state="ready",
-                severity="success",
-                message="Ready",
-                details=_safe_operational_details([line]),
-                age_seconds=age_seconds,
-                source=source,
-            )
-
-        if _line_has_download_retry(line):
-            return ServerOperationalStatus(
-                True,
-                state="downloading_mods",
-                severity="warning",
-                message="Downloading mods (retrying)",
-                details=_safe_operational_details([line]),
-                age_seconds=age_seconds,
-                source=source,
-            )
-
-        if _line_has_download_progress(line):
-            return ServerOperationalStatus(
-                True,
-                state="downloading_mods",
-                severity="warning",
-                message="Downloading mods",
-                details=_safe_operational_details([line]),
-                age_seconds=age_seconds,
-                source=source,
-            )
-
-        if _line_has_mission_error(line):
-            return ServerOperationalStatus(
-                True,
-                state="mission_error",
-                severity="error",
-                message="Mission/config error",
-                details=_safe_operational_details([line]),
-                age_seconds=age_seconds,
-                source=source,
-            )
-
-        if _line_has_starting_status(line):
-            return ServerOperationalStatus(
-                True,
-                state="starting",
-                severity="info",
-                message="Starting",
-                details=_safe_operational_details([line]),
-                age_seconds=age_seconds,
-                source=source,
-            )
-
-    for line in reversed(all_lines):
-        if FPS_STATS_RE.search(line):
-            if fps_status is not None:
-                return fps_status
-            return ServerOperationalStatus(
-                True,
-                state="ready",
-                severity="success",
-                message="Ready",
-                details=_safe_operational_details([line]),
-                age_seconds=age_seconds,
-                source=source,
-            )
-
-    return ServerOperationalStatus(
-        True,
-        state="waiting_for_telemetry",
-        severity="warning",
-        message="Waiting for server telemetry",
-        details=_safe_operational_details([lines[-1]]),
-        age_seconds=age_seconds,
-        source=source,
+    """Infer lifecycle state through the focused server-log classifier."""
+    return server_operational_status.query_server_operational_status(
+        config_dir,
+        max_age_seconds,
+        latest_log=_latest_console_log,
+        recent_logs=_recent_console_logs,
+        read_tail=_read_tail_text_file,
+        getmtime=os.path.getmtime,
+        clock=time.time,
     )
 
 
 def _cpu_count() -> int:
-    """Return a sane CPU count for percentage normalization."""
-    return max(os.cpu_count() or 1, 1)
+    """Compatibility seam for tests and legacy metric callers."""
+    return host_metrics.cpu_count()
 
 
 def _page_size() -> int:
-    """Return a sane Linux page size for statm RSS fallback parsing."""
-    return max(int(os.sysconf("SC_PAGE_SIZE")), 1)
+    """Compatibility seam for tests and legacy metric callers."""
+    return host_metrics.page_size()
 
 
 def _parse_meminfo() -> tuple[int | None, int | None]:
-    """Return host RAM used/total bytes from /proc/meminfo."""
-    meminfo: dict[str, int] = {}
-    for line in _read_text(Path("/proc/meminfo")).splitlines():
-        if ":" not in line:
-            continue
-        key, raw_value = line.split(":", 1)
-        parts = raw_value.strip().split()
-        if not parts:
-            continue
-        try:
-            meminfo[key] = int(parts[0]) * 1024
-        except ValueError:
-            continue
-
-    total = meminfo.get("MemTotal")
-    available = meminfo.get("MemAvailable")
-    if total is None or available is None:
-        return None, None
-    return max(total - available, 0), total
+    """Compatibility seam for tests and legacy metric callers."""
+    return host_metrics.parse_meminfo(read=_read_text)
 
 
 def _read_host_cpu_sample() -> tuple[int, int] | None:
-    """Return total and idle Linux CPU jiffies from /proc/stat."""
-    for line in _read_text(Path("/proc/stat")).splitlines():
-        if not line.startswith("cpu "):
-            continue
-        parts = line.split()[1:]
-        if len(parts) < 5:
-            return None
-        values = [int(part) for part in parts]
-        total = sum(values)
-        idle = values[3] + values[4]
-        return total, idle
-    return None
+    """Compatibility seam for tests and legacy metric callers."""
+    return host_metrics.read_host_cpu_sample(read=_read_text)
 
 
 def estimate_host_cpu_percent(sample_seconds: float = 0.05) -> float | None:
-    """Estimate host CPU utilization from two /proc/stat samples."""
-    try:
-        first_sample = _read_host_cpu_sample()
-        if first_sample is None:
-            return None
-        time.sleep(max(sample_seconds, 0.0))
-        second_sample = _read_host_cpu_sample()
-        if second_sample is None:
-            return None
-    except (OSError, ValueError):
-        return None
-
-    total_delta = second_sample[0] - first_sample[0]
-    idle_delta = second_sample[1] - first_sample[1]
-    if total_delta <= 0:
-        return None
-    busy_delta = max(total_delta - idle_delta, 0)
-    return (busy_delta / total_delta) * 100.0
+    """Estimate host CPU utilization through the focused collector."""
+    return host_metrics.estimate_host_cpu_percent(
+        sample_seconds,
+        sample=_read_host_cpu_sample,
+        sleep=time.sleep,
+    )
 
 
 def estimate_service_cpu_percent(service_status: dict[str, Any]) -> float | None:
-    """Estimate CPU percent from systemd show data when /proc PID metrics are unavailable."""
-    cpu_usage_nsec = service_status.get("cpu_usage_nsec")
-    start_usec = (
-        service_status.get("exec_main_start_usec")
-        or service_status.get("active_enter_usec")
+    """Estimate service CPU utilization through the focused collector."""
+    return host_metrics.estimate_service_cpu_percent(
+        service_status,
+        elapsed=service_elapsed_seconds,
+        cpus=_cpu_count,
     )
-    if (
-        not isinstance(cpu_usage_nsec, int)
-        or cpu_usage_nsec < 0
-        or not isinstance(start_usec, int)
-        or start_usec <= 0
-    ):
-        return None
-
-    elapsed_seconds = service_elapsed_seconds(service_status)
-    if elapsed_seconds is None:
-        return None
-    elapsed_usec = max(int(elapsed_seconds * 1_000_000), 1)
-    elapsed_nsec = elapsed_usec * 1_000
-    return (cpu_usage_nsec / elapsed_nsec) * 100.0 / _cpu_count()
 
 
 def service_elapsed_seconds(service_status: dict[str, Any]) -> float | None:
-    """Return elapsed time for the current systemd service process."""
-    start_usec = service_status.get("exec_main_start_usec") or service_status.get(
-        "active_enter_usec"
-    )
-    if not isinstance(start_usec, int) or start_usec <= 0:
-        return None
-    try:
-        uptime_seconds = float(_read_text(Path("/proc/uptime")).split()[0])
-    except (IndexError, OSError, ValueError):
-        return None
-    return max(uptime_seconds - (start_usec / 1_000_000), 0.0)
+    """Return service elapsed time through the focused collector."""
+    return host_metrics.service_elapsed_seconds(service_status, read=_read_text)
 
 
 def query_process_metrics(pid: int) -> ProcessMetrics:
-    """Return best-effort CPU and RSS memory metrics for a Linux process."""
-    if pid <= 0:
-        return ProcessMetrics(False, pid, error="main pid is not available")
-
-    proc_dir = Path("/proc") / str(pid)
-    stat_path = proc_dir / "stat"
-    status_path = proc_dir / "status"
-    statm_path = proc_dir / "statm"
-    uptime_path = Path("/proc/uptime")
-
-    try:
-        stat_text = _read_text(stat_path)
-        uptime_text = _read_text(uptime_path)
-    except OSError as error:
-        return ProcessMetrics(False, pid, error=str(error))
-
-    try:
-        status_text = _read_text(status_path)
-    except OSError:
-        status_text = ""
-
-    try:
-        statm_text = _read_text(statm_path)
-    except OSError:
-        statm_text = ""
-
-    try:
-        stat_fields = stat_text.split()
-        total_ticks = int(stat_fields[13]) + int(stat_fields[14])
-        start_ticks = int(stat_fields[21])
-        clock_ticks = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
-        uptime_seconds = float(uptime_text.split()[0])
-        elapsed_seconds = max(uptime_seconds - (start_ticks / clock_ticks), 0.001)
-        cpu_percent = (total_ticks / clock_ticks) / elapsed_seconds * 100.0 / _cpu_count()
-    except (IndexError, KeyError, ValueError, OSError) as error:
-        return ProcessMetrics(False, pid, error=str(error))
-
-    memory_rss_bytes: int | None = None
-    for line in status_text.splitlines():
-        if not line.startswith("VmRSS:"):
-            continue
-        parts = line.split()
-        if len(parts) >= 2:
-            memory_rss_bytes = int(parts[1]) * 1024
-        break
-
-    if memory_rss_bytes is None and statm_text:
-        try:
-            resident_pages = int(statm_text.split()[1])
-            memory_rss_bytes = resident_pages * _page_size()
-        except (IndexError, OSError, ValueError):
-            pass
-
-    return ProcessMetrics(
-        True,
+    """Return process metrics through the focused collector."""
+    return host_metrics.query_process_metrics(
         pid,
-        cpu_percent=cpu_percent,
-        memory_rss_bytes=memory_rss_bytes,
+        read=_read_text,
+        cpus=_cpu_count,
+        pages=_page_size,
     )
 
 
 def query_service_runtime_metrics(service_status: dict[str, Any]) -> ProcessMetrics:
-    """Return the best available runtime metrics using PID data and systemd fallbacks."""
-    service_is_active = bool(service_status.get("active"))
-    active_state = str(service_status.get("active_state", "") or "").strip().lower()
-    if not service_is_active and active_state and active_state != "active":
-        return ProcessMetrics(
-            False,
-            int(service_status.get("main_pid", 0) or 0),
-            error="service is not active",
-        )
-
-    pid = int(service_status.get("main_pid", 0) or 0)
-    proc_metrics = query_process_metrics(pid)
-
-    cpu_percent = proc_metrics.cpu_percent
-    if cpu_percent is None:
-        cpu_percent = estimate_service_cpu_percent(service_status)
-
-    memory_rss_bytes = None
-    fallback_memory = service_status.get("memory_current_bytes")
-    if isinstance(fallback_memory, int) and fallback_memory >= 0:
-        memory_rss_bytes = fallback_memory
-    elif proc_metrics.memory_rss_bytes is not None:
-        memory_rss_bytes = proc_metrics.memory_rss_bytes
-
-    return ProcessMetrics(
-        available=(cpu_percent is not None or memory_rss_bytes is not None),
-        pid=pid,
-        cpu_percent=cpu_percent,
-        memory_rss_bytes=memory_rss_bytes,
-        error=proc_metrics.error,
+    """Return service metrics through the focused collector."""
+    return host_metrics.query_service_runtime_metrics(
+        service_status,
+        process_metrics=query_process_metrics,
+        service_cpu=estimate_service_cpu_percent,
     )
 
 
 def query_host_metrics(path: str | Path = "/") -> HostMetrics:
-    """Return best-effort host/VM metrics for diagnostics views."""
-    cpu_percent: float | None = None
-    memory_used_bytes: int | None = None
-    memory_total_bytes: int | None = None
-    disk_used_bytes: int | None = None
-    disk_total_bytes: int | None = None
-    load_average_1m: float | None = None
-    load_average_5m: float | None = None
-    load_average_15m: float | None = None
-    uptime_seconds: float | None = None
-    errors: list[str] = []
-
-    try:
-        cpu_percent = estimate_host_cpu_percent()
-    except OSError as error:
-        errors.append(str(error))
-
-    try:
-        memory_used_bytes, memory_total_bytes = _parse_meminfo()
-    except OSError as error:
-        errors.append(str(error))
-
-    try:
-        disk_usage = shutil.disk_usage(path)
-        disk_used_bytes = disk_usage.used
-        disk_total_bytes = disk_usage.total
-    except OSError as error:
-        errors.append(str(error))
-
-    try:
-        (
-            load_average_1m,
-            load_average_5m,
-            load_average_15m,
-        ) = os.getloadavg()
-    except OSError as error:
-        errors.append(str(error))
-
-    try:
-        uptime_seconds = float(_read_text(Path("/proc/uptime")).split()[0])
-    except (IndexError, OSError, ValueError) as error:
-        errors.append(str(error))
-
-    available = any(
-        value is not None
-        for value in (
-            cpu_percent,
-            memory_total_bytes,
-            disk_total_bytes,
-            load_average_1m,
-            uptime_seconds,
-        )
-    )
-    return HostMetrics(
-        available=available,
-        cpu_percent=cpu_percent,
-        memory_used_bytes=memory_used_bytes,
-        memory_total_bytes=memory_total_bytes,
-        disk_used_bytes=disk_used_bytes,
-        disk_total_bytes=disk_total_bytes,
-        load_average_1m=load_average_1m,
-        load_average_5m=load_average_5m,
-        load_average_15m=load_average_15m,
-        uptime_seconds=uptime_seconds,
-        error="; ".join(error for error in errors if error),
+    """Return host metrics through the focused collector."""
+    return host_metrics.query_host_metrics(
+        path,
+        host_cpu=estimate_host_cpu_percent,
+        meminfo=_parse_meminfo,
+        disk_usage=shutil.disk_usage,
+        load_average=os.getloadavg,
+        read=_read_text,
     )
