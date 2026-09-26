@@ -5,14 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import os
 import re
 import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import quote
 
 from armactl import paths
 from armactl.player_log_events import (
@@ -39,6 +37,7 @@ from armactl.player_log_events import (
     SOURCE_SERVER_ADMIN_TOOLS_KILL,
     PlayerLogEvent,
 )
+from armactl.web.services import player_registry_schema
 from armactl.web.services.player_identity import (
     normalize_reliable_player_id,
     safe_player_text,
@@ -652,67 +651,14 @@ def player_registry_db_path(
     return paths.instance_root(instance, data_root) / PLAYER_REGISTRY_DB_NAME
 
 
-def _ensure_private_db_file(db_path: Path) -> None:
-    if db_path.exists():
-        return
-
-    fd = os.open(
-        db_path,
-        os.O_RDWR | os.O_CREAT | os.O_EXCL,
-        PRIVATE_PLAYER_REGISTRY_FILE_MODE,
-    )
-    os.close(fd)
-
-
-def _quote_identifier(identifier: str) -> str:
-    return '"' + identifier.replace('"', '""') + '"'
-
-
-def _sql_text_values(values: tuple[str, ...]) -> str:
-    return ", ".join("'" + value.replace("'", "''") + "'" for value in values)
-
-
-def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
-    row = connection.execute(
-        """
-        SELECT 1
-        FROM sqlite_master
-        WHERE type = 'table'
-          AND name = ?
-        """,
-        (table_name,),
-    ).fetchone()
-    return row is not None
-
-
-def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
-    if not _table_exists(connection, table_name):
-        return set()
-    rows = connection.execute(f"PRAGMA table_info({_quote_identifier(table_name)})").fetchall()
-    return {str(row[1]) for row in rows}
-
-
-def _ensure_columns(
-    connection: sqlite3.Connection,
-    table_name: str,
-    columns: tuple[tuple[str, str], ...],
-) -> None:
-    existing_columns = _table_columns(connection, table_name)
-    quoted_table = _quote_identifier(table_name)
-    for column_name, column_ddl in columns:
-        if column_name not in existing_columns:
-            connection.execute(f"ALTER TABLE {quoted_table} ADD COLUMN {column_ddl}")
-
-
-def _ensure_player_registry_meta_schema(connection: sqlite3.Connection) -> None:
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS player_registry_schema_meta (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        )
-        """
-    )
+_quote_identifier = player_registry_schema.quote_identifier
+_sql_text_values = player_registry_schema.sql_text_values
+_table_exists = player_registry_schema.table_exists
+_table_columns = player_registry_schema.table_columns
+_ensure_columns = player_registry_schema.ensure_columns
+_ensure_player_registry_meta_schema = (
+    player_registry_schema.ensure_player_registry_meta_schema
+)
 
 
 def _ensure_players_schema(connection: sqlite3.Connection) -> None:
@@ -788,24 +734,7 @@ def _ensure_player_names_schema(connection: sqlite3.Connection) -> None:
     )
 
 
-def _event_time_utc_microseconds(value: object) -> int | None:
-    text = "" if value is None else str(value).strip()
-    if not text:
-        return None
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    else:
-        parsed = parsed.astimezone(timezone.utc)
-    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
-    delta = parsed - epoch
-    return (
-        (delta.days * 86_400 + delta.seconds) * 1_000_000
-        + delta.microseconds
-    )
+_event_time_utc_microseconds = player_registry_schema.event_time_utc_microseconds
 
 
 def _ensure_player_log_events_schema(connection: sqlite3.Connection) -> None:
@@ -1547,143 +1476,61 @@ def _ensure_current_player_registry_schema(connection: sqlite3.Connection) -> No
     _ensure_player_names_schema(connection)
 
 
-def _read_player_registry_schema_version(connection: sqlite3.Connection) -> int:
-    _ensure_player_registry_meta_schema(connection)
-    row = connection.execute(
-        """
-        SELECT value
-        FROM player_registry_schema_meta
-        WHERE key = 'schema_version'
-        """
-    ).fetchone()
-    if row is None:
-        return 0
-    try:
-        return int(str(row[0]))
-    except ValueError:
-        return 0
-
-
-def _write_player_registry_schema_version(
-    connection: sqlite3.Connection,
-    version: int,
-) -> None:
-    connection.execute(
-        """
-        INSERT INTO player_registry_schema_meta(key, value)
-        VALUES (?, ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value
-        """,
-        ("schema_version", str(version)),
-    )
+_read_player_registry_schema_version = (
+    player_registry_schema.read_player_registry_schema_version
+)
+_write_player_registry_schema_version = (
+    player_registry_schema.write_player_registry_schema_version
+)
 
 
 def _run_player_registry_migrations(connection: sqlite3.Connection) -> None:
-    target_version = int(PLAYER_REGISTRY_SCHEMA_VERSION)
-    current_version = _read_player_registry_schema_version(connection)
-    if current_version > target_version:
-        raise RuntimeError(
-            f"players.db schema version {current_version} is newer than supported "
-            f"version {target_version}."
-        )
-    if current_version < 1:
-        _ensure_current_player_registry_schema(connection)
-        _write_player_registry_schema_version(connection, 1)
-        current_version = 1
-    if current_version < 2:
-        _ensure_player_log_events_schema(connection)
-        _write_player_registry_schema_version(connection, 2)
-        current_version = 2
-    if current_version < 3:
-        _ensure_player_sessions_schema(connection)
-        _write_player_registry_schema_version(connection, 3)
-        current_version = 3
-    if current_version < 4:
-        _ensure_player_log_events_schema(connection)
-        _write_player_registry_schema_version(connection, 4)
-        current_version = 4
-    if current_version < 5:
-        _ensure_player_log_events_schema(connection)
-        _write_player_registry_schema_version(connection, 5)
-        current_version = 5
-    if current_version < 6:
-        _rebuild_player_sessions_schema_for_v6(connection)
-        _write_player_registry_schema_version(connection, 6)
-        current_version = 6
-    if current_version < 7:
-        _rebuild_player_sessions_schema_for_v7(connection)
-        _ensure_player_session_live_scan_windows_schema(connection)
-        _write_player_registry_schema_version(connection, 7)
-        current_version = 7
-    if current_version < 8:
-        _drop_player_log_event_history_indexes(connection)
-        _ensure_player_log_events_schema(connection)
-        _write_player_registry_schema_version(connection, 8)
-        current_version = 8
-    if current_version < 9:
-        _ensure_player_log_ingest_metadata_schema(connection)
-        _write_player_registry_schema_version(connection, 9)
-        current_version = 9
-    if current_version < 10:
-        _ensure_player_sessions_schema(connection)
-        _ensure_player_session_lifecycle_boundaries_schema(connection)
-        _write_player_registry_schema_version(connection, 10)
-        current_version = 10
-    if current_version < 11:
-        _ensure_player_log_ingest_metadata_schema(connection)
-        _write_player_registry_schema_version(connection, 11)
-        current_version = 11
-    if current_version < 12:
-        _ensure_player_log_ingest_metadata_schema(connection)
-        _ensure_player_session_pipeline_state_schema(connection)
-        _write_player_registry_schema_version(connection, 12)
-        current_version = 12
-    if current_version < 13:
-        _ensure_player_session_pipeline_state_schema(connection)
-        _write_player_registry_schema_version(connection, 13)
-        current_version = 13
-    if current_version < 14:
-        _drop_player_log_event_history_indexes(connection)
-        _ensure_player_log_events_schema(connection)
-        _backfill_player_log_event_sort_keys(connection)
-        _write_player_registry_schema_version(connection, 14)
+    steps = player_registry_schema.PlayerRegistryMigrationSteps(
+        ensure_current_registry_schema=_ensure_current_player_registry_schema,
+        ensure_player_log_events_schema=_ensure_player_log_events_schema,
+        ensure_player_sessions_schema=_ensure_player_sessions_schema,
+        rebuild_player_sessions_schema_for_v6=_rebuild_player_sessions_schema_for_v6,
+        rebuild_player_sessions_schema_for_v7=_rebuild_player_sessions_schema_for_v7,
+        ensure_player_session_live_scan_windows_schema=(
+            _ensure_player_session_live_scan_windows_schema
+        ),
+        drop_player_log_event_history_indexes=_drop_player_log_event_history_indexes,
+        ensure_player_log_ingest_metadata_schema=(
+            _ensure_player_log_ingest_metadata_schema
+        ),
+        ensure_player_session_lifecycle_boundaries_schema=(
+            _ensure_player_session_lifecycle_boundaries_schema
+        ),
+        ensure_player_session_pipeline_state_schema=(
+            _ensure_player_session_pipeline_state_schema
+        ),
+        backfill_player_log_event_sort_keys=_backfill_player_log_event_sort_keys,
+    )
+    player_registry_schema.run_player_registry_migrations(
+        connection,
+        target_version=int(PLAYER_REGISTRY_SCHEMA_VERSION),
+        steps=steps,
+    )
 
 
 def ensure_player_registry_db(db_path: Path) -> Path:
     """Create/open the player registry database and run schema migrations."""
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    _ensure_private_db_file(db_path)
-    with sqlite3.connect(db_path) as connection:
-        connection.execute("PRAGMA foreign_keys = ON")
-        _run_player_registry_migrations(connection)
-    db_path.chmod(PRIVATE_PLAYER_REGISTRY_FILE_MODE)
-    return db_path
+    return player_registry_schema.ensure_player_registry_db(
+        db_path,
+        file_mode=PRIVATE_PLAYER_REGISTRY_FILE_MODE,
+        run_migrations=_run_player_registry_migrations,
+    )
 
 
 def _connect_existing(db_path: Path) -> sqlite3.Connection | None:
-    if not db_path.is_file():
-        return None
-    ensure_player_registry_db(db_path)
-    connection = sqlite3.connect(db_path)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    return player_registry_schema.connect_existing(
+        db_path,
+        ensure_database=ensure_player_registry_db,
+    )
 
 
 def _connect_existing_readonly(db_path: Path) -> sqlite3.Connection | None:
-    if not db_path.is_file():
-        return None
-    quoted_path = quote(db_path.resolve().as_posix(), safe="/:")
-    connection: sqlite3.Connection | None = None
-    try:
-        connection = sqlite3.connect(f"file:{quoted_path}?mode=ro", uri=True)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA query_only = ON")
-    except (OSError, sqlite3.Error):
-        if connection is not None:
-            connection.close()
-        return None
-    return connection
+    return player_registry_schema.connect_existing_readonly(db_path)
 
 
 

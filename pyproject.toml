@@ -120,6 +120,7 @@ files = [
     "src/armactl/server_log_io.py",
     "src/armactl/server_operational_status.py",
     "src/armactl/service_manager.py",
+    "src/armactl/web/services/player_registry_schema.py",
 ]
 strict = true
 show_error_codes = true

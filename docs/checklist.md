@@ -65,10 +65,11 @@ already implemented in focused platform modules. The extension
 `background.js` cited by an earlier external review is not part of this
 repository.
 
-Strict `mypy` now covers 20 modules: the complete platform package plus the
+Strict `mypy` now covers 21 modules: the complete platform package plus the
 update state machine, separated FPS and host/process metrics, bounded server-log
 I/O, log diagnostics, operational status, incident analysis, metric formatting,
-shared metric models, service facade, runtime settings, and restart timing.
+shared metric models, service facade, runtime settings, restart timing, and the
+player-registry schema/migration boundary.
 It runs in every Python 3.10-3.12 CI job without blanket error suppression.
 
 - [ ] Split `web/services/player_registry.py` behind its existing public facade
@@ -76,6 +77,12 @@ It runs in every Python 3.10-3.12 CI job without blanket error suppression.
   read/query/summary modules. Preserve the SQLite schema, migration ordering,
   transaction boundaries, and public DTO/function contracts while expanding
   strict type checking over each extracted boundary.
+  Schema extraction is in progress: private database creation, read-only/write
+  connection lifecycle, reusable SQLite schema primitives, and the exact
+  version 1-14 migration coordinator now live in the strictly typed
+  `player_registry_schema.py` module. The facade retains its established names
+  and supplies the unchanged table-specific migration steps; moving those DDL
+  steps and the remaining storage/query boundaries is still open.
 - [ ] Break the 500-line `run_player_session_scheduler_once` orchestration into
   typed scan, ingest, sessionization, stale-close, retention, and result phases.
   Preserve the single-writer lock, checkpoint commit ordering, partial-failure
@@ -174,7 +181,7 @@ smoke passed on the completed extraction head.
 - [ ] Refresh public screenshots after visible UI changes and verify that their
   text and capability claims match the merge candidate.
 
-Completed local validation gate: `git diff --check`, Ruff, strict 20-module
+Completed local validation gate: `git diff --check`, Ruff, strict 21-module
 `mypy`, all 1700 tests, wrapper/bootstrap checks, package build, clean wheel
 install, and installed-wheel discovery/status smoke passed on Ubuntu 24.04.
 
@@ -186,11 +193,12 @@ FPS with zero systemd restarts. Twenty private HTML/JSON routes returned HTTP
 200 after login; infrastructure snapshot rollback removed the temporary owner,
 and game/web auto-start recovered with health and readiness green.
 
-Completed expanded type-check baseline: strict `mypy` now covers 20 modules,
+Completed expanded type-check baseline: strict `mypy` now covers 21 modules,
 including the complete `armactl.platform` package and the update, separated
 FPS/host metrics, bounded server-log I/O, log diagnostics, lifecycle and
 incident inference, formatting, shared models, and service/runtime-settings
-boundaries. It runs in the Python 3.10-3.12 CI matrix and has no blanket error
+boundaries, plus the player-registry schema/migration layer. It runs in the
+Python 3.10-3.12 CI matrix and has no blanket error
 suppression. Future expansion follows each extracted module boundary rather
 than weakening the gate.
 
